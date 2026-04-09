@@ -1,9 +1,14 @@
-import type { IStorage, IPageManager, IVacuum, PageMeta, PageRow } from './types.js';
+import type { IPageManager, ICatalog, IVacuum, PageMeta, PageRow, RowId } from './types.js';
 import { PAGE_SIZE } from './types.js';
+import type { IIndexManager } from './index-manager.js';
+import type { IndexKey } from './btree/types.js';
+import { compareIndexKeys } from './btree/compare.js';
 
 export class Vacuum implements IVacuum {
+  catalog?: ICatalog;
+  indexManager?: IIndexManager;
+
   constructor(
-    private readonly storage: IStorage,
     private readonly pm: IPageManager,
   ) {}
 
@@ -26,11 +31,11 @@ export class Vacuum implements IVacuum {
       }
     }
 
-    const entries: Array<[string, unknown]> = [];
+    // All writes go through WAL — atomic commit at the end.
 
     // Delete all old page keys
     for (const key of oldKeys) {
-      entries.push([key, null]);
+      this.pm.deleteKey(key);
     }
 
     // Write new compacted pages
@@ -42,10 +47,7 @@ export class Vacuum implements IVacuum {
         deleted: false,
         data: pr.data,
       }));
-      entries.push([
-        this.pm.getPageKey(tableId, pageId),
-        { pageId, tableId, rows },
-      ]);
+      this.pm.writePage(tableId, { pageId, tableId, rows });
       pageId++;
     }
 
@@ -54,20 +56,51 @@ export class Vacuum implements IVacuum {
       totalRowCount: liveRows.length,
       deadRowCount: 0,
     };
-    entries.push([this.pm.getMetaKey(tableId), newMeta]);
+    this.pm.writeMeta(tableId, newMeta);
 
-    await this.storage.putMany(entries);
+    // Rebuild indexes (also writes through WAL)
+    await this.rebuildIndexes(tableId, liveRows);
+
+    // Single atomic commit: pages + indexes together
+    await this.pm.commit();
   }
 
-  vacuumIfNeeded(tableId: string): void {
-    (async () => {
-      try {
-        if (await this.shouldVacuum(tableId)) {
-          await this.vacuumTable(tableId);
-        }
-      } catch (err) {
-        console.error('Vacuum error:', err);
+  async vacuumIfNeeded(tableId: string): Promise<void> {
+    if (await this.shouldVacuum(tableId)) {
+      await this.vacuumTable(tableId);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Index rebuild after vacuum
+  // ---------------------------------------------------------------------------
+
+  private async rebuildIndexes(tableId: string, liveRows: PageRow[]): Promise<void> {
+    if (!this.catalog || !this.indexManager) return;
+
+    const indexes = this.catalog.getTableIndexes(tableId);
+    if (indexes.length === 0) return;
+
+    for (const idx of indexes) {
+      // Drop old B-tree (writes deletions to WAL)
+      await this.indexManager.dropIndex(idx.name);
+
+      // Build new entries with correct RowIds from compacted pages
+      const idxEntries: Array<{ key: IndexKey; rowId: RowId }> = [];
+      for (let i = 0; i < liveRows.length; i++) {
+        const row = liveRows[i].data;
+        const key: IndexKey = idx.columns.map((col) => row[col] ?? null);
+        const rowId: RowId = {
+          pageId: Math.floor(i / PAGE_SIZE),
+          slotId: i % PAGE_SIZE,
+        };
+        idxEntries.push({ key, rowId });
       }
-    })();
+
+      // Sort by key for bulkLoad
+      idxEntries.sort((a, b) => compareIndexKeys(a.key, b.key));
+
+      await this.indexManager.bulkLoad(idx.name, idxEntries, idx.unique);
+    }
   }
 }

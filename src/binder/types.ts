@@ -197,6 +197,22 @@ export interface BoundOrderByNode {
   nullOrder: 'NULLS_FIRST' | 'NULLS_LAST';
 }
 
+export interface IndexSearchPredicate {
+  /** Column position in the index's column list (0-based). */
+  columnPosition: number;
+  comparisonType: Exclude<ComparisonType, 'NOT_EQUAL'>;
+  value: string | number | boolean | null;
+}
+
+export interface IndexHint {
+  indexDef: IndexDef;
+  predicates: IndexSearchPredicate[];
+  /** Filters NOT covered by the index (need residual filtering in scan). */
+  residualFilters: TableFilter[];
+  /** Filters covered by the index (can be skipped in scan). */
+  coveredFilters: TableFilter[];
+}
+
 export interface LogicalGet {
   type: LogicalOperatorType.LOGICAL_GET;
   children: LogicalOperator[];
@@ -208,6 +224,7 @@ export interface LogicalGet {
   schema: TableSchema;
   columnIds: number[];
   tableFilters: TableFilter[];
+  indexHint?: IndexHint;
   getColumnBindings(): ColumnBinding[];
 }
 

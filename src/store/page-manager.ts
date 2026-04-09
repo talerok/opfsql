@@ -38,6 +38,27 @@ export class PageManager implements IPageManager {
     return this.storage.getAllKeys(`page:${tableId}:`);
   }
 
+  async readKey<T>(key: string): Promise<T | null> {
+    if (this.wal.has(key)) {
+      const val = this.wal.get(key);
+      return val === null ? null : (val as T);
+    }
+    return this.storage.get<T>(key);
+  }
+
+  async getAllKeys(prefix: string): Promise<string[]> {
+    const storageKeys = new Set(await this.storage.getAllKeys(prefix));
+    for (const [k, v] of this.wal) {
+      if (!k.startsWith(prefix)) continue;
+      if (v === null) {
+        storageKeys.delete(k);
+      } else {
+        storageKeys.add(k);
+      }
+    }
+    return [...storageKeys].sort();
+  }
+
   writePage(tableId: string, page: Page): void {
     this.wal.set(this.getPageKey(tableId, page.pageId), page);
   }

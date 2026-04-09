@@ -60,7 +60,7 @@ export class Engine {
     engine.catalog = await initCatalog(storage.backend);
     engine.binder = new Binder(engine.catalog);
 
-    storage.initAndVacuum(engine.catalog.getAllTables().map((t) => t.name));
+    await storage.initAndVacuum(engine.catalog.getAllTables().map((t) => t.name), engine.catalog);
 
     return engine;
   }
@@ -178,12 +178,13 @@ export class Engine {
 
   private async runPipeline(stmt: Statement): Promise<Result> {
     const bound = this.binder.bindStatement(stmt);
-    const optimized = optimize(bound);
+    const optimized = optimize(bound, this.catalog);
     const result = await execute(
       optimized,
       this.storage.rowManager,
       this.storage.pageManager,
       this.catalog,
+      this.storage.indexManager,
     );
 
     for (const change of result.catalogChanges) {

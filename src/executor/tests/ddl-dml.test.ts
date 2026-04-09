@@ -12,7 +12,8 @@ import type {
   LogicalFilter,
   BoundExpression,
 } from '../../binder/types.js';
-import type { ICatalog, IPageManager, IRowManager, TableSchema, Row } from '../../store/types.js';
+import type { ICatalog, IPageManager, IRowManager, TableSchema, Row, RowId } from '../../store/types.js';
+import type { IIndexManager } from '../../store/index-manager.js';
 import {
   executeCreateTable,
   executeCreateIndex,
@@ -63,6 +64,8 @@ function mockPageManager(): IPageManager {
     getPageKey: vi.fn(),
     getMetaKey: (tableId: string) => `meta:${tableId}`,
     getAllPageKeys: vi.fn(async () => ['page:users:0', 'page:users:1']),
+    readKey: vi.fn(async () => null),
+    getAllKeys: vi.fn(async () => []),
     writePage: vi.fn(),
     writeMeta: vi.fn(),
     writeKey: vi.fn(),
@@ -124,8 +127,10 @@ describe('DDL executors', () => {
   });
 
   describe('executeCreateIndex', () => {
-    it('returns CREATE_INDEX catalog change', () => {
+    it('returns CREATE_INDEX catalog change', async () => {
       const catalog = mockCatalog();
+      const rm = mockRowManager();
+      const im = mockIndexManager();
       const idx = { name: 'idx_users_name', tableName: 'users', columns: ['name'], unique: false };
       const op = {
         type: LogicalOperatorType.LOGICAL_CREATE_INDEX,
@@ -135,7 +140,7 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalCreateIndex;
 
-      const result = executeCreateIndex(op, catalog);
+      const result = await executeCreateIndex(op, catalog, rm, im);
       expect(result.catalogChanges[0]).toEqual({ type: 'CREATE_INDEX', index: idx });
     });
   });
@@ -201,7 +206,7 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalDrop;
 
-      const result = await executeDrop(op, catalog, pm);
+      const result = await executeDrop(op, catalog, pm, mockIndexManager());
       expect(result.catalogChanges[0].type).toBe('DROP_TABLE');
       expect(pm.deleteKey).toHaveBeenCalledWith('page:users:0');
       expect(pm.deleteKey).toHaveBeenCalledWith('page:users:1');
@@ -220,7 +225,7 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalDrop;
 
-      const result = await executeDrop(op, catalog, pm);
+      const result = await executeDrop(op, catalog, pm, mockIndexManager());
       expect(result.catalogChanges).toHaveLength(0);
     });
 
@@ -236,7 +241,7 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalDrop;
 
-      await expect(executeDrop(op, catalog, pm)).rejects.toThrow('not found');
+      await expect(executeDrop(op, catalog, pm, mockIndexManager())).rejects.toThrow('not found');
     });
   });
 });
@@ -253,15 +258,27 @@ function mockRowManager(
     row: r as unknown as Row,
   }));
 
+  let nextSlot = stored.length;
   return {
     scanTable: async function* () {
       for (const entry of stored) {
         yield entry;
       }
     },
-    prepareInsert: vi.fn(async () => {}),
-    prepareUpdate: vi.fn(async () => {}),
+    prepareInsert: vi.fn(async (): Promise<RowId> => ({ pageId: 0, slotId: nextSlot++ })),
+    prepareUpdate: vi.fn(async (): Promise<RowId> => ({ pageId: 0, slotId: nextSlot++ })),
     prepareDelete: vi.fn(async () => {}),
+    readRow: vi.fn(async () => null),
+  };
+}
+
+function mockIndexManager(): IIndexManager {
+  return {
+    insert: vi.fn(async () => {}),
+    delete: vi.fn(async () => {}),
+    search: vi.fn(async () => []),
+    bulkLoad: vi.fn(async () => {}),
+    dropIndex: vi.fn(async () => {}),
   };
 }
 

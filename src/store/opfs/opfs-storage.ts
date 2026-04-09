@@ -30,7 +30,7 @@ export class OPFSStorage implements IStorage {
   async put(key: string, value: unknown): Promise<void> {
     const fh = await this.dir.getFileHandle(this.encodeKey(key), { create: true });
     const w = await fh.createWritable();
-    await w.write(encoder.encode(value));
+    await w.write(new Uint8Array(encoder.encode(value)));
     await w.close();
   }
 

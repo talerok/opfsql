@@ -11,15 +11,19 @@ export function bindCreateIndex(
 ): BT.LogicalCreateIndex {
   const schema = requireTable(ctx, stmt.table_name);
 
+  // Resolve column names to canonical form (ColumnDef.name) for consistent
+  // key building across DDL backfill and DML index maintenance.
+  const resolvedColumns: string[] = [];
   for (const col of stmt.columns) {
-    const found = schema.columns.some(
+    const def = schema.columns.find(
       (c) => c.name.toLowerCase() === col.toLowerCase(),
     );
-    if (!found) {
+    if (!def) {
       throw new BindError(
         `Column "${col}" not found in table "${stmt.table_name}"`,
       );
     }
+    resolvedColumns.push(def.name);
   }
 
   return {
@@ -27,7 +31,7 @@ export function bindCreateIndex(
     index: {
       name: stmt.index_name,
       tableName: stmt.table_name,
-      columns: stmt.columns,
+      columns: resolvedColumns,
       unique: stmt.is_unique,
     },
     ifNotExists: stmt.if_not_exists,

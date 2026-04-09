@@ -9,7 +9,9 @@ import type {
   ColumnBinding,
 } from '../binder/types.js';
 import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
-import type { IRowManager, Row } from '../store/types.js';
+import type { ICatalog, IRowManager, Row } from '../store/types.js';
+import type { IIndexManager } from '../store/index-manager.js';
+import type { IndexKey } from '../store/btree/types.js';
 import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
 import type { EvalContext } from './evaluate/context.js';
 import { buildResolver } from './resolve.js';
@@ -86,6 +88,44 @@ async function passesFilter(
 }
 
 // ---------------------------------------------------------------------------
+// Index maintenance helpers
+// ---------------------------------------------------------------------------
+
+function buildIndexKey(row: Row, columns: string[]): IndexKey {
+  return columns.map((col) => (row[col] ?? null) as IndexKey[number]);
+}
+
+async function maintainIndexesInsert(
+  tableName: string,
+  row: Row,
+  rowId: { pageId: number; slotId: number },
+  catalog?: ICatalog,
+  indexManager?: IIndexManager,
+): Promise<void> {
+  if (!catalog || !indexManager) return;
+  const indexes = catalog.getTableIndexes(tableName);
+  for (const idx of indexes) {
+    const key = buildIndexKey(row, idx.columns);
+    await indexManager.insert(idx.name, key, rowId, idx.unique);
+  }
+}
+
+async function maintainIndexesDelete(
+  tableName: string,
+  row: Row,
+  rowId: { pageId: number; slotId: number },
+  catalog?: ICatalog,
+  indexManager?: IIndexManager,
+): Promise<void> {
+  if (!catalog || !indexManager) return;
+  const indexes = catalog.getTableIndexes(tableName);
+  for (const idx of indexes) {
+    const key = buildIndexKey(row, idx.columns);
+    await indexManager.delete(idx.name, key, rowId);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // INSERT
 // ---------------------------------------------------------------------------
 
@@ -93,17 +133,21 @@ export async function executeInsert(
   op: LogicalInsert,
   rowManager: IRowManager,
   ctx: EvalContext,
+  catalog?: ICatalog,
+  indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   if (op.children.length > 0) {
-    return executeInsertSelect(op, rowManager, ctx);
+    return executeInsertSelect(op, rowManager, ctx, catalog, indexManager);
   }
-  return executeInsertValues(op, rowManager, ctx);
+  return executeInsertValues(op, rowManager, ctx, catalog, indexManager);
 }
 
 async function executeInsertValues(
   op: LogicalInsert,
   rowManager: IRowManager,
   ctx: EvalContext,
+  catalog?: ICatalog,
+  indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const colsPerRow = op.columns.length;
   const rowCount = op.expressions.length / colsPerRow;
@@ -121,7 +165,8 @@ async function executeInsertValues(
       row[op.schema.columns[op.columns[c]].name] = val;
     }
 
-    await rowManager.prepareInsert(op.tableName, row);
+    const rowId = await rowManager.prepareInsert(op.tableName, row);
+    await maintainIndexesInsert(op.tableName, row, rowId, catalog, indexManager);
   }
 
   return { rows: [], rowsAffected: rowCount, catalogChanges: [] };
@@ -131,6 +176,8 @@ async function executeInsertSelect(
   op: LogicalInsert,
   rowManager: IRowManager,
   ctx: EvalContext,
+  catalog?: ICatalog,
+  indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const cteCache = new Map<number, CTECacheEntry>();
   const plan = createPhysicalPlan(op.children[0], rowManager, cteCache, ctx);
@@ -147,7 +194,8 @@ async function executeInsertSelect(
       row[op.schema.columns[op.columns[c]].name] = tuple[c] ?? null;
     }
 
-    await rowManager.prepareInsert(op.tableName, row);
+    const rowId = await rowManager.prepareInsert(op.tableName, row);
+    await maintainIndexesInsert(op.tableName, row, rowId, catalog, indexManager);
   }
 
   return { rows: [], rowsAffected: tuples.length, catalogChanges: [] };
@@ -161,6 +209,8 @@ export async function executeUpdate(
   op: LogicalUpdate,
   rowManager: IRowManager,
   ctx: EvalContext,
+  catalog?: ICatalog,
+  indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const { get, condition } = extractDmlFilter(op.children[0]);
   let affected = 0;
@@ -185,7 +235,10 @@ export async function executeUpdate(
       newRow[op.schema.columns[colIdx].name] = val;
     }
 
-    await rowManager.prepareUpdate(op.tableName, rowId, newRow);
+    // Delete old index entries, insert new ones
+    await maintainIndexesDelete(op.tableName, row, rowId, catalog, indexManager);
+    const newRowId = await rowManager.prepareUpdate(op.tableName, rowId, newRow);
+    await maintainIndexesInsert(op.tableName, newRow, newRowId, catalog, indexManager);
     affected++;
   }
 
@@ -200,6 +253,8 @@ export async function executeDelete(
   op: LogicalDelete,
   rowManager: IRowManager,
   ctx: EvalContext,
+  catalog?: ICatalog,
+  indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const { get, condition } = extractDmlFilter(op.children[0]);
   let affected = 0;
@@ -211,6 +266,7 @@ export async function executeDelete(
       continue;
     }
 
+    await maintainIndexesDelete(op.tableName, row, rowId, catalog, indexManager);
     await rowManager.prepareDelete(op.tableName, rowId);
     affected++;
   }

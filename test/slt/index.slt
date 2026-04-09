@@ -1,0 +1,223 @@
+# index.slt — B-tree index tests
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, age INTEGER)
+
+statement ok
+INSERT INTO users VALUES (1, 'Alice', 'alice@test.com', 30)
+
+statement ok
+INSERT INTO users VALUES (2, 'Bob', 'bob@test.com', 25)
+
+statement ok
+INSERT INTO users VALUES (3, 'Charlie', 'charlie@test.com', 35)
+
+statement ok
+INSERT INTO users VALUES (4, 'Diana', 'diana@test.com', 30)
+
+statement ok
+INSERT INTO users VALUES (5, 'Eve', 'eve@test.com', 28)
+
+# ============================================================================
+# CREATE INDEX on populated table (backfill)
+# ============================================================================
+
+statement ok
+CREATE INDEX idx_users_age ON users (age)
+
+# Equality query through index
+query IT rowsort
+SELECT id, name FROM users WHERE age = 30
+----
+1|Alice
+4|Diana
+
+# Range query: greater than
+query IT rowsort
+SELECT id, name FROM users WHERE age > 30
+----
+3|Charlie
+
+# Range query: less than or equal
+query IT rowsort
+SELECT id, name FROM users WHERE age <= 28
+----
+2|Bob
+5|Eve
+
+# Range query: between (two predicates)
+query IT rowsort
+SELECT id, name FROM users WHERE age >= 28 AND age <= 30
+----
+1|Alice
+4|Diana
+5|Eve
+
+# ============================================================================
+# UNIQUE INDEX
+# ============================================================================
+
+statement ok
+CREATE UNIQUE INDEX idx_users_email ON users (email)
+
+# Duplicate insert should fail
+statement error
+INSERT INTO users VALUES (10, 'Dup', 'alice@test.com', 25)
+
+# Insert with different email succeeds
+statement ok
+INSERT INTO users VALUES (10, 'Frank', 'frank@test.com', 22)
+
+# Query via unique index
+query IT nosort
+SELECT id, name FROM users WHERE email = 'frank@test.com'
+----
+10|Frank
+
+# ============================================================================
+# UNIQUE + NULL handling
+# ============================================================================
+
+statement ok
+CREATE TABLE nullable_idx (id INTEGER PRIMARY KEY, val TEXT)
+
+statement ok
+CREATE UNIQUE INDEX idx_nullable ON nullable_idx (val)
+
+statement ok
+INSERT INTO nullable_idx VALUES (1, 'a')
+
+statement ok
+INSERT INTO nullable_idx VALUES (2, NULL)
+
+# Multiple NULLs allowed in unique index (NULL != NULL)
+statement ok
+INSERT INTO nullable_idx VALUES (3, NULL)
+
+# Duplicate non-null fails
+statement error
+INSERT INTO nullable_idx VALUES (4, 'a')
+
+# ============================================================================
+# DELETE removes index entries
+# ============================================================================
+
+statement ok
+DELETE FROM users WHERE id = 1
+
+# alice@test.com should no longer violate uniqueness
+statement ok
+INSERT INTO users VALUES (11, 'Reuse', 'alice@test.com', 28)
+
+query IT nosort
+SELECT id, name FROM users WHERE email = 'alice@test.com'
+----
+11|Reuse
+
+# ============================================================================
+# UPDATE maintains index entries
+# ============================================================================
+
+statement ok
+UPDATE users SET email = 'reuse_updated@test.com' WHERE id = 11
+
+# Old email should not be found
+query I nosort
+SELECT id FROM users WHERE email = 'alice@test.com'
+----
+
+# New email should be found
+query IT nosort
+SELECT id, name FROM users WHERE email = 'reuse_updated@test.com'
+----
+11|Reuse
+
+# Update that would violate unique constraint
+statement error
+UPDATE users SET email = 'bob@test.com' WHERE id = 11
+
+# ============================================================================
+# Composite index
+# ============================================================================
+
+statement ok
+CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, status TEXT, amount INTEGER)
+
+statement ok
+INSERT INTO orders VALUES (1, 100, 'shipped', 50)
+
+statement ok
+INSERT INTO orders VALUES (2, 100, 'pending', 30)
+
+statement ok
+INSERT INTO orders VALUES (3, 200, 'shipped', 70)
+
+statement ok
+INSERT INTO orders VALUES (4, 100, 'shipped', 20)
+
+statement ok
+CREATE INDEX idx_orders_cust_status ON orders (customer_id, status)
+
+# Prefix query on first column
+query II rowsort
+SELECT id, amount FROM orders WHERE customer_id = 100
+----
+1|50
+2|30
+4|20
+
+# Full composite key query
+query II rowsort
+SELECT id, amount FROM orders WHERE customer_id = 100 AND status = 'shipped'
+----
+1|50
+4|20
+
+# ============================================================================
+# DROP INDEX
+# ============================================================================
+
+statement ok
+DROP INDEX idx_users_age
+
+# Queries still work (fall back to full scan)
+query IT rowsort
+SELECT id, name FROM users WHERE age = 30
+----
+4|Diana
+
+# ============================================================================
+# CREATE INDEX IF NOT EXISTS
+# ============================================================================
+
+statement ok
+CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)
+
+# ============================================================================
+# DROP INDEX IF EXISTS
+# ============================================================================
+
+statement ok
+DROP INDEX IF EXISTS nonexistent_index
+
+# ============================================================================
+# Index on empty table
+# ============================================================================
+
+statement ok
+CREATE TABLE empty_t (id INTEGER PRIMARY KEY, val TEXT)
+
+statement ok
+CREATE INDEX idx_empty ON empty_t (val)
+
+statement ok
+INSERT INTO empty_t VALUES (1, 'hello')
+
+query IT nosort
+SELECT * FROM empty_t WHERE val = 'hello'
+----
+1|hello

@@ -15,7 +15,7 @@ describe('Vacuum', () => {
     storage = new MemoryStorage();
     pm = new PageManager(storage);
     rm = new RowManager(pm);
-    vacuum = new Vacuum(storage, pm);
+    vacuum = new Vacuum(pm);
   });
 
   async function collectScan(tableId: string) {

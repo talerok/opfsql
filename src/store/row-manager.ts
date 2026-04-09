@@ -5,7 +5,7 @@ import { PAGE_SIZE } from './types.js';
 export class RowManager implements IRowManager {
   constructor(private readonly pm: IPageManager) {}
 
-  async prepareInsert(tableId: string, row: Row): Promise<void> {
+  async prepareInsert(tableId: string, row: Row): Promise<RowId> {
     try {
       const meta = await this.pm.getPageMeta(tableId);
 
@@ -18,11 +18,14 @@ export class RowManager implements IRowManager {
         page = this.pm.createEmptyPage(tableId, meta.lastPageId);
       }
 
-      page.rows.push({ slotId: page.rows.length, deleted: false, data: row });
+      const slotId = page.rows.length;
+      page.rows.push({ slotId, deleted: false, data: row });
       meta.totalRowCount++;
 
       this.pm.writePage(tableId, page);
       this.pm.writeMeta(tableId, meta);
+
+      return { pageId: page.pageId, slotId };
     } catch (err) {
       throw wrapStorageError(err);
     }
@@ -32,7 +35,7 @@ export class RowManager implements IRowManager {
     tableId: string,
     rowId: RowId,
     row: Row,
-  ): Promise<void> {
+  ): Promise<RowId> {
     try {
       const meta = await this.pm.getPageMeta(tableId);
       const oldPage = await this.requirePage(tableId, rowId.pageId);
@@ -52,12 +55,15 @@ export class RowManager implements IRowManager {
         newPage = this.pm.createEmptyPage(tableId, meta.lastPageId);
       }
 
-      newPage.rows.push({ slotId: newPage.rows.length, deleted: false, data: row });
+      const slotId = newPage.rows.length;
+      newPage.rows.push({ slotId, deleted: false, data: row });
       meta.totalRowCount++;
 
       this.pm.writePage(tableId, oldPage);
       if (oldPage !== newPage) this.pm.writePage(tableId, newPage);
       this.pm.writeMeta(tableId, meta);
+
+      return { pageId: newPage.pageId, slotId };
     } catch (err) {
       throw wrapStorageError(err);
     }
@@ -90,6 +96,18 @@ export class RowManager implements IRowManager {
           yield { rowId: { pageId: pid, slotId: pr.slotId }, row: pr.data };
         }
       }
+    }
+  }
+
+  async readRow(tableId: string, rowId: RowId): Promise<Row | null> {
+    try {
+      const page = await this.pm.readPage(tableId, rowId.pageId);
+      if (!page) return null;
+      const pr = page.rows[rowId.slotId];
+      if (!pr || pr.deleted) return null;
+      return pr.data;
+    } catch (err) {
+      throw wrapStorageError(err);
     }
   }
 

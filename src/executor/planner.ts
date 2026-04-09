@@ -13,9 +13,11 @@ import type {
 } from '../binder/types.js';
 import { LogicalOperatorType } from '../binder/types.js';
 import type { IRowManager } from '../store/types.js';
+import type { IIndexManager } from '../store/index-manager.js';
 import type { PhysicalOperator, CTECacheEntry } from './types.js';
 import type { EvalContext } from './evaluate/context.js';
 import { PhysicalScan } from './operators/scan.js';
+import { PhysicalIndexScan } from './operators/index-scan.js';
 import { PhysicalFilter } from './operators/filter.js';
 import { PhysicalProjection } from './operators/projection.js';
 import { PhysicalHashJoin, PhysicalNestedLoopJoin } from './operators/join.js';
@@ -31,13 +33,26 @@ export function createPhysicalPlan(
   rowManager: IRowManager,
   cteCache: Map<number, CTECacheEntry>,
   ctx: EvalContext,
+  indexManager?: IIndexManager,
 ): PhysicalOperator {
   switch (node.type) {
     case LogicalOperatorType.LOGICAL_GET: {
       const get = node as LogicalGet;
+
+      if (get.indexHint && indexManager) {
+        return new PhysicalIndexScan(
+          get,
+          rowManager,
+          indexManager,
+          get.indexHint.indexDef,
+          get.indexHint.predicates,
+          get.indexHint.residualFilters,
+        );
+      }
+
       const childOp =
         get.children.length > 0
-          ? createPhysicalPlan(get.children[0], rowManager, cteCache, ctx)
+          ? createPhysicalPlan(get.children[0], rowManager, cteCache, ctx, indexManager)
           : undefined;
       return new PhysicalScan(get, rowManager, ctx, childOp);
     }
@@ -49,6 +64,7 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalFilter(child, filter.expressions[0], ctx);
     }
@@ -60,6 +76,7 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalProjection(child, proj, ctx);
     }
@@ -71,6 +88,7 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalHashAggregate(child, agg, ctx);
     }
@@ -82,12 +100,14 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       const build = createPhysicalPlan(
         join.children[1],
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalHashJoin(probe, build, join, ctx);
     }
@@ -98,12 +118,14 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       const right = createPhysicalPlan(
         node.children[1],
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalNestedLoopJoin(left, right);
     }
@@ -115,6 +137,7 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalSort(child, order, ctx);
     }
@@ -126,6 +149,7 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalLimit(child, limit);
     }
@@ -136,6 +160,7 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalDistinct(child);
     }
@@ -147,12 +172,14 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       const right = createPhysicalPlan(
         union.children[1],
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalUnion(left, right, union.all);
     }
@@ -164,12 +191,14 @@ export function createPhysicalPlan(
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       const main = createPhysicalPlan(
         cte.children[1],
         rowManager,
         cteCache,
         ctx,
+        indexManager,
       );
       return new PhysicalMaterialize(def, main, cte.cteIndex, cteCache);
     }

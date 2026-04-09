@@ -6,6 +6,7 @@ import type {
   LogicalProjection,
 } from '../binder/types.js';
 import type { ICatalog, IRowManager, IPageManager, Row } from '../store/types.js';
+import type { IIndexManager } from '../store/index-manager.js';
 import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
 import type { EvalContext } from './evaluate/context.js';
 import { createPhysicalPlan } from './planner.js';
@@ -28,6 +29,7 @@ export async function execute(
   rowManager: IRowManager,
   pageManager: IPageManager,
   catalog: ICatalog,
+  indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   // Build eval context for subquery support
   const ctx: EvalContext = {
@@ -39,23 +41,23 @@ export async function execute(
     case LogicalOperatorType.LOGICAL_CREATE_TABLE:
       return executeCreateTable(plan, catalog);
     case LogicalOperatorType.LOGICAL_CREATE_INDEX:
-      return executeCreateIndex(plan, catalog);
+      return executeCreateIndex(plan, catalog, rowManager, indexManager!);
     case LogicalOperatorType.LOGICAL_ALTER_TABLE:
       return executeAlterTable(plan, catalog);
     case LogicalOperatorType.LOGICAL_DROP:
-      return executeDrop(plan, catalog, pageManager);
+      return executeDrop(plan, catalog, pageManager, indexManager!);
 
     // DML
     case LogicalOperatorType.LOGICAL_INSERT:
-      return executeInsert(plan, rowManager, ctx);
+      return executeInsert(plan, rowManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_UPDATE:
-      return executeUpdate(plan, rowManager, ctx);
+      return executeUpdate(plan, rowManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_DELETE:
-      return executeDelete(plan, rowManager, ctx);
+      return executeDelete(plan, rowManager, ctx, catalog, indexManager);
 
     // SELECT (physical pipeline)
     default:
-      return executeSelect(plan, rowManager, catalog, ctx);
+      return executeSelect(plan, rowManager, catalog, ctx, indexManager);
   }
 }
 
@@ -68,9 +70,10 @@ async function executeSelect(
   rowManager: IRowManager,
   _catalog: ICatalog,
   ctx: EvalContext,
+  indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const cteCache = new Map<number, CTECacheEntry>();
-  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx);
+  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx, indexManager);
   const tuples = await drainOperator(physical);
   const columnNames = extractColumnNames(plan);
   const rows = tuplesToRows(tuples, columnNames);

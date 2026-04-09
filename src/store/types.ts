@@ -101,6 +101,10 @@ export interface IPageManager {
   getPageKey(tableId: string, pageId: number): string;
   getMetaKey(tableId: string): string;
   getAllPageKeys(tableId: string): Promise<string[]>;
+  /** Read an arbitrary key from WAL-then-storage. Used by B-tree index nodes. */
+  readKey<T>(key: string): Promise<T | null>;
+  /** Get all keys matching a prefix (union of WAL + storage). */
+  getAllKeys(prefix: string): Promise<string[]>;
   writePage(tableId: string, page: Page): void;
   writeMeta(tableId: string, meta: PageMeta): void;
   writeKey(key: string, value: unknown): void;
@@ -112,14 +116,16 @@ export interface IPageManager {
 }
 
 export interface IRowManager {
-  prepareInsert(tableId: string, row: Row): Promise<void>;
-  prepareUpdate(tableId: string, rowId: RowId, row: Row): Promise<void>;
+  prepareInsert(tableId: string, row: Row): Promise<RowId>;
+  prepareUpdate(tableId: string, rowId: RowId, row: Row): Promise<RowId>;
   prepareDelete(tableId: string, rowId: RowId): Promise<void>;
   scanTable(tableId: string): AsyncGenerator<{ rowId: RowId; row: Row }>;
+  /** Read a single row by RowId. Returns null if page/slot missing or deleted. */
+  readRow(tableId: string, rowId: RowId): Promise<Row | null>;
 }
 
 export interface IVacuum {
   shouldVacuum(tableId: string): Promise<boolean>;
   vacuumTable(tableId: string): Promise<void>;
-  vacuumIfNeeded(tableId: string): void;
+  vacuumIfNeeded(tableId: string): Promise<void>;
 }

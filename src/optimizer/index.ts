@@ -1,4 +1,5 @@
 import type { LogicalOperator } from '../binder/types.js';
+import type { ICatalog } from '../store/types.js';
 import { rewriteExpressions } from './expression_rewriter.js';
 import { pullupFilters } from './filter_pullup.js';
 import { pushdownFilters } from './filter_pushdown.js';
@@ -8,6 +9,7 @@ import { removeUnusedColumns } from './remove_unused_columns.js';
 import { optimizeBuildProbeSide } from './build_probe_side.js';
 import { pushdownLimit } from './limit_pushdown.js';
 import { reorderFilters } from './reorder_filter.js';
+import { selectIndexes } from './index_selection.js';
 
 // ============================================================================
 // Optimizer — orchestrates all optimization passes
@@ -22,9 +24,13 @@ import { reorderFilters } from './reorder_filter.js';
 // 7. Build/probe side optimization
 // 8. Limit pushdown
 // 9. Reorder filter conditions by cost
+// 10. Index selection (annotate LogicalGet with IndexHint)
 // ============================================================================
 
-export function optimize(plan: LogicalOperator): LogicalOperator {
+export function optimize(
+  plan: LogicalOperator,
+  catalog?: ICatalog,
+): LogicalOperator {
   let result = plan;
 
   // Phase 1: Expression simplification
@@ -54,6 +60,11 @@ export function optimize(plan: LogicalOperator): LogicalOperator {
   // Phase 9: Reorder filter conditions (cheap first)
   result = reorderFilters(result);
 
+  // Phase 10: Index selection
+  if (catalog) {
+    result = selectIndexes(result, catalog);
+  }
+
   return result;
 }
 
@@ -68,3 +79,4 @@ export { optimizeBuildProbeSide } from './build_probe_side.js';
 export { pushdownLimit } from './limit_pushdown.js';
 export { reorderFilters } from './reorder_filter.js';
 export { FilterCombiner } from './filter_combiner.js';
+export { selectIndexes } from './index_selection.js';
