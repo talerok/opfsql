@@ -896,6 +896,90 @@ describe('optimize (full pipeline)', () => {
 });
 
 // ============================================================================
+// Index Selection
+// ============================================================================
+
+describe('IndexSelection', () => {
+  it('annotates LogicalGet with indexHint for equality filter', () => {
+    catalog.addIndex({ name: 'idx_age', tableName: 'users', columns: ['age'], unique: false });
+    const plan = bind('SELECT * FROM users WHERE age = 30');
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    expect(get.indexHint!.indexDef.name).toBe('idx_age');
+    expect(get.indexHint!.predicates).toHaveLength(1);
+    expect(get.indexHint!.predicates[0].comparisonType).toBe('EQUAL');
+    expect(get.indexHint!.predicates[0].value).toBe(30);
+  });
+
+  it('annotates LogicalGet with indexHint for range filter', () => {
+    catalog.addIndex({ name: 'idx_age', tableName: 'users', columns: ['age'], unique: false });
+    const plan = bind('SELECT * FROM users WHERE age > 18');
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    expect(get.indexHint!.predicates[0].comparisonType).toBe('GREATER');
+  });
+
+  it('does NOT set indexHint when no index matches', () => {
+    // No index on 'name'
+    catalog.addIndex({ name: 'idx_age', tableName: 'users', columns: ['age'], unique: false });
+    const plan = bind("SELECT * FROM users WHERE name = 'Alice'");
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeUndefined();
+  });
+
+  it('does NOT set indexHint when there are no filters', () => {
+    catalog.addIndex({ name: 'idx_age', tableName: 'users', columns: ['age'], unique: false });
+    const plan = bind('SELECT * FROM users');
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeUndefined();
+  });
+
+  it('prefers unique index over non-unique', () => {
+    catalog.addIndex({ name: 'idx_name', tableName: 'users', columns: ['name'], unique: false });
+    catalog.addIndex({ name: 'idx_name_uniq', tableName: 'users', columns: ['name'], unique: true });
+    const plan = bind("SELECT * FROM users WHERE name = 'Alice'");
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    expect(get.indexHint!.indexDef.name).toBe('idx_name_uniq');
+  });
+
+  it('handles composite index with equality prefix', () => {
+    catalog.addIndex({ name: 'idx_comp', tableName: 'orders', columns: ['user_id', 'status'], unique: false });
+    const plan = bind("SELECT * FROM orders WHERE user_id = 1 AND status = 'shipped'");
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    expect(get.indexHint!.predicates).toHaveLength(2);
+    expect(get.indexHint!.residualFilters).toHaveLength(0);
+  });
+
+  it('sets residual filters for non-covered predicates', () => {
+    catalog.addIndex({ name: 'idx_age', tableName: 'users', columns: ['age'], unique: false });
+    const plan = bind("SELECT * FROM users WHERE age = 30 AND name = 'Alice'");
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    expect(get.indexHint!.predicates).toHaveLength(1); // only age
+    expect(get.indexHint!.residualFilters).toHaveLength(1); // name is residual
+  });
+
+  it('uses composite index prefix for partial match', () => {
+    catalog.addIndex({ name: 'idx_comp', tableName: 'orders', columns: ['user_id', 'status'], unique: false });
+    const plan = bind('SELECT * FROM orders WHERE user_id = 1');
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    expect(get.indexHint!.predicates).toHaveLength(1);
+    expect(get.indexHint!.predicates[0].comparisonType).toBe('EQUAL');
+  });
+});
+
+// ============================================================================
 // Helpers for constructing test expressions
 // ============================================================================
 
