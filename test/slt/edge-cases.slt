@@ -1,0 +1,118 @@
+# edge-cases.slt — NULL, errors, LIMIT, misc
+
+# --- NULL values ---
+
+statement ok
+CREATE TABLE nullable (id INTEGER PRIMARY KEY, name TEXT, val INTEGER)
+
+statement ok
+INSERT INTO nullable (id, name, val) VALUES (1, 'a', 10)
+
+statement ok
+INSERT INTO nullable (id) VALUES (2)
+
+query ITI rowsort
+SELECT * FROM nullable
+----
+1|a|10
+2|NULL|NULL
+
+statement ok
+DROP TABLE nullable
+
+# --- Error recovery ---
+
+statement error
+SELECT * FROM does_not_exist
+
+# engine still works after error
+statement ok
+CREATE TABLE ok_after_error (id INTEGER PRIMARY KEY)
+
+statement ok
+INSERT INTO ok_after_error (id) VALUES (1)
+
+query I nosort
+SELECT * FROM ok_after_error
+----
+1
+
+statement ok
+DROP TABLE ok_after_error
+
+# --- Insert into nonexistent table ---
+
+statement error
+INSERT INTO ghost (id) VALUES (1)
+
+# --- LIMIT without ORDER BY ---
+
+statement ok
+CREATE TABLE big (id INTEGER PRIMARY KEY, val INTEGER)
+
+statement ok
+INSERT INTO big (id, val) VALUES (1, 10)
+
+statement ok
+INSERT INTO big (id, val) VALUES (2, 20)
+
+statement ok
+INSERT INTO big (id, val) VALUES (3, 30)
+
+statement ok
+INSERT INTO big (id, val) VALUES (4, 40)
+
+statement ok
+INSERT INTO big (id, val) VALUES (5, 50)
+
+# LIMIT restricts row count (order not guaranteed without ORDER BY)
+# We just check count by counting expected rows — using a subquery isn't supported,
+# so we accept any 3 rows from the set
+# NOTE: can't easily test LIMIT with exact output without ORDER BY,
+# so we just ensure it doesn't crash and returns some rows
+
+statement ok
+SELECT * FROM big LIMIT 3
+
+statement ok
+DROP TABLE big
+
+# --- Empty table operations ---
+
+statement ok
+CREATE TABLE empty (id INTEGER PRIMARY KEY, name TEXT)
+
+query IT nosort
+SELECT * FROM empty
+----
+
+statement ok
+DELETE FROM empty
+
+statement ok
+UPDATE empty SET name = 'x'
+
+query IT nosort
+SELECT * FROM empty
+----
+
+statement ok
+DROP TABLE empty
+
+# --- Multiple statements in single execute ---
+
+statement ok
+CREATE TABLE multi (id INTEGER PRIMARY KEY, val TEXT)
+
+statement ok
+INSERT INTO multi (id, val) VALUES (1, 'a'); INSERT INTO multi (id, val) VALUES (2, 'b'); INSERT INTO multi (id, val) VALUES (3, 'c')
+
+query IT rowsort
+SELECT * FROM multi
+----
+1|a
+2|b
+3|c
+
+statement ok
+DROP TABLE multi

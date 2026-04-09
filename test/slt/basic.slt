@@ -1,0 +1,102 @@
+# basic.slt — DDL, INSERT, SELECT, DROP TABLE
+
+# --- CREATE TABLE ---
+
+statement ok
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)
+
+# empty table returns no rows
+query IIT nosort
+SELECT * FROM users
+----
+
+# --- INSERT + SELECT ---
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (2, 'Bob', 25)
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (3, 'Charlie', 35)
+
+# SELECT * returns all rows
+query IIT rowsort
+SELECT * FROM users
+----
+1|Alice|30
+2|Bob|25
+3|Charlie|35
+
+# SELECT specific columns
+query TI rowsort
+SELECT name, age FROM users
+----
+Alice|30
+Bob|25
+Charlie|35
+
+# SELECT single column
+query T rowsort
+SELECT name FROM users
+----
+Alice
+Bob
+Charlie
+
+# --- CREATE TABLE IF NOT EXISTS ---
+
+statement ok
+CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)
+
+# --- CREATE TABLE duplicate error ---
+
+statement error
+CREATE TABLE users (id INTEGER PRIMARY KEY)
+
+# --- DROP TABLE ---
+
+statement ok
+DROP TABLE users
+
+# table no longer exists
+statement error
+SELECT * FROM users
+
+# --- DROP TABLE IF EXISTS ---
+
+statement ok
+DROP TABLE IF EXISTS nonexistent
+
+# --- Multiple inserts and re-query ---
+
+statement ok
+CREATE TABLE items (id INTEGER PRIMARY KEY, val INTEGER)
+
+statement ok
+INSERT INTO items (id, val) VALUES (1, 100)
+
+statement ok
+INSERT INTO items (id, val) VALUES (2, 200)
+
+statement ok
+INSERT INTO items (id, val) VALUES (3, 300)
+
+query II rowsort
+SELECT * FROM items
+----
+1|100
+2|200
+3|300
+
+# SELECT with column subset
+query I rowsort
+SELECT val FROM items
+----
+100
+200
+300
+
+statement ok
+DROP TABLE items

@@ -1,0 +1,88 @@
+# expressions.slt — arithmetic, CASE, aliases
+
+# --- Arithmetic ---
+
+statement ok
+CREATE TABLE nums (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER)
+
+statement ok
+INSERT INTO nums (id, a, b) VALUES (1, 12, 4)
+
+statement ok
+INSERT INTO nums (id, a, b) VALUES (2, 20, 5)
+
+query II rowsort
+SELECT a + b, a * b FROM nums
+----
+16|48
+25|100
+
+query II rowsort
+SELECT a - b, a / b FROM nums
+----
+8|3
+15|4
+
+# --- Column aliases ---
+
+statement ok
+CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)
+
+statement ok
+INSERT INTO people (id, name, age) VALUES (1, 'Alice', 30)
+
+query TI nosort
+SELECT name AS username, age AS years FROM people
+----
+Alice|30
+
+# mixed aliased and non-aliased
+query TI nosort
+SELECT name AS username, age FROM people
+----
+Alice|30
+
+# expression alias
+statement ok
+CREATE TABLE orders (id INTEGER PRIMARY KEY, price REAL, qty INTEGER)
+
+statement ok
+INSERT INTO orders (id, price, qty) VALUES (1, 10.5, 3)
+
+query R nosort
+SELECT price * qty AS total FROM orders
+----
+31.5
+
+# --- CASE expression (without ORDER BY) ---
+
+statement ok
+CREATE TABLE vals (id INTEGER PRIMARY KEY, val INTEGER)
+
+statement ok
+INSERT INTO vals (id, val) VALUES (1, 10)
+
+statement ok
+INSERT INTO vals (id, val) VALUES (2, 50)
+
+statement ok
+INSERT INTO vals (id, val) VALUES (3, 90)
+
+query IT rowsort
+SELECT val, CASE WHEN val < 30 THEN 'low' WHEN val < 70 THEN 'mid' ELSE 'high' END FROM vals
+----
+10|low
+50|mid
+90|high
+
+statement ok
+DROP TABLE nums
+
+statement ok
+DROP TABLE people
+
+statement ok
+DROP TABLE orders
+
+statement ok
+DROP TABLE vals

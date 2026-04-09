@@ -1,0 +1,84 @@
+# update-delete.slt — UPDATE, DELETE tests
+
+statement ok
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (2, 'Bob', 25)
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (3, 'Charlie', 35)
+
+# --- UPDATE with WHERE ---
+
+statement ok
+UPDATE users SET age = 50 WHERE name = 'Bob'
+
+query IIT rowsort
+SELECT * FROM users
+----
+1|Alice|30
+2|Bob|50
+3|Charlie|35
+
+# --- UPDATE all rows ---
+
+statement ok
+UPDATE users SET age = 99
+
+query IIT rowsort
+SELECT * FROM users
+----
+1|Alice|99
+2|Bob|99
+3|Charlie|99
+
+# --- DELETE with WHERE ---
+
+statement ok
+DELETE FROM users WHERE name = 'Bob'
+
+query IT rowsort
+SELECT id, name FROM users
+----
+1|Alice
+3|Charlie
+
+# --- DELETE all rows ---
+
+statement ok
+DELETE FROM users
+
+query IIT rowsort
+SELECT * FROM users
+----
+
+# --- Re-insert after delete all ---
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (10, 'Dave', 40)
+
+query IIT nosort
+SELECT * FROM users
+----
+10|Dave|40
+
+# --- UPDATE with WHERE on non-updated column ---
+
+statement ok
+INSERT INTO users (id, name, age) VALUES (11, 'Eve', 22)
+
+statement ok
+UPDATE users SET name = 'X' WHERE age > 30
+
+query IIT rowsort
+SELECT * FROM users
+----
+10|X|40
+11|Eve|22
+
+statement ok
+DROP TABLE users

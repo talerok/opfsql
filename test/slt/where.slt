@@ -1,0 +1,96 @@
+# where.slt — WHERE clause tests
+
+statement ok
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price INTEGER, active BOOLEAN)
+
+statement ok
+INSERT INTO products (id, name, price, active) VALUES (1, 'Apple', 100, true)
+
+statement ok
+INSERT INTO products (id, name, price, active) VALUES (2, 'Banana', 50, true)
+
+statement ok
+INSERT INTO products (id, name, price, active) VALUES (3, 'Cherry', 200, false)
+
+statement ok
+INSERT INTO products (id, name, price, active) VALUES (4, 'Date', 150, true)
+
+# --- Equality ---
+
+query IIT rowsort
+SELECT id, name, price FROM products WHERE name = 'Apple'
+----
+1|Apple|100
+
+# --- Greater than ---
+
+query IT rowsort
+SELECT id, name FROM products WHERE price > 100
+----
+3|Cherry
+4|Date
+
+# --- Less than ---
+
+query IT rowsort
+SELECT id, name FROM products WHERE price < 100
+----
+2|Banana
+
+# --- Greater than or equal ---
+
+query IT rowsort
+SELECT id, name FROM products WHERE price >= 150
+----
+3|Cherry
+4|Date
+
+# --- Less than or equal ---
+
+query IT rowsort
+SELECT id, name FROM products WHERE price <= 100
+----
+1|Apple
+2|Banana
+
+# --- AND ---
+
+query IT rowsort
+SELECT id, name FROM products WHERE price > 50 AND active = true
+----
+1|Apple
+4|Date
+
+# --- OR ---
+
+query IT rowsort
+SELECT id, name FROM products WHERE name = 'Apple' OR name = 'Cherry'
+----
+1|Apple
+3|Cherry
+
+# --- BETWEEN ---
+
+query IT rowsort
+SELECT id, name FROM products WHERE price BETWEEN 50 AND 150
+----
+1|Apple
+2|Banana
+4|Date
+
+# --- WHERE on non-selected column ---
+
+query T rowsort
+SELECT name FROM products WHERE price > 100
+----
+Cherry
+Date
+
+# --- No matching rows ---
+
+query IIT rowsort
+SELECT id, name, price FROM products WHERE price > 9999
+----
+
+statement ok
+DROP TABLE products

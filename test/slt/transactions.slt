@@ -1,0 +1,137 @@
+# transactions.slt — BEGIN, COMMIT, ROLLBACK
+
+# --- BEGIN + INSERT + COMMIT ---
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO t (id, name) VALUES (1, 'a')
+
+statement ok
+INSERT INTO t (id, name) VALUES (2, 'b')
+
+statement ok
+COMMIT
+
+query IT rowsort
+SELECT * FROM t
+----
+1|a
+2|b
+
+statement ok
+DROP TABLE t
+
+# --- BEGIN + INSERT + ROLLBACK ---
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO t (id, name) VALUES (1, 'a')
+
+statement ok
+ROLLBACK
+
+query IT nosort
+SELECT * FROM t
+----
+
+statement ok
+DROP TABLE t
+
+# --- BEGIN + CREATE TABLE + ROLLBACK removes table ---
+
+statement ok
+BEGIN
+
+statement ok
+CREATE TABLE temp (id INTEGER PRIMARY KEY)
+
+statement ok
+ROLLBACK
+
+statement error
+SELECT * FROM temp
+
+# --- BEGIN + CREATE TABLE + INSERT + COMMIT ---
+
+statement ok
+BEGIN
+
+statement ok
+CREATE TABLE t2 (id INTEGER PRIMARY KEY, val TEXT)
+
+statement ok
+INSERT INTO t2 (id, val) VALUES (1, 'hello')
+
+statement ok
+COMMIT
+
+query IT nosort
+SELECT * FROM t2
+----
+1|hello
+
+statement ok
+DROP TABLE t2
+
+# --- Nested BEGIN throws error ---
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY)
+
+statement ok
+BEGIN
+
+statement error
+BEGIN
+
+# clean up — rollback the first BEGIN
+statement ok
+ROLLBACK
+
+statement ok
+DROP TABLE t
+
+# --- COMMIT without BEGIN is a no-op ---
+
+statement ok
+COMMIT
+
+# --- ROLLBACK without BEGIN is a no-op ---
+
+statement ok
+ROLLBACK
+
+# --- Error in middle of transaction does not rollback previous statements ---
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY)
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO t (id) VALUES (1)
+
+statement error
+INSERT INTO nonexistent (id) VALUES (2)
+
+statement ok
+COMMIT
+
+query I nosort
+SELECT * FROM t
+----
+1
+
+statement ok
+DROP TABLE t
