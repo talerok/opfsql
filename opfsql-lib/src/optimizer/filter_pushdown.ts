@@ -67,6 +67,8 @@ class FilterPushdown {
         return this.pushdownPassthrough(op);
       case LogicalOperatorType.LOGICAL_UNION:
         return this.pushdownSetOperation(op as LogicalUnion);
+      case LogicalOperatorType.LOGICAL_MATERIALIZED_CTE:
+        return this.pushdownMaterializedCTE(op);
       default:
         return this.finishPushdown(op);
     }
@@ -310,6 +312,24 @@ class FilterPushdown {
     childPushdown.filters = this.filters;
     this.filters = [];
     op.children[0] = childPushdown.rewrite(op.children[0]);
+    return op;
+  }
+
+  // ============================================================================
+  // MATERIALIZED CTE — push filters into main plan (children[1]),
+  // optimize CTE definition (children[0]) separately without filters
+  // ============================================================================
+
+  private pushdownMaterializedCTE(op: LogicalOperator): LogicalOperator {
+    // children[0] = CTE definition, children[1] = main plan
+    const defPushdown = new FilterPushdown();
+    op.children[0] = defPushdown.rewrite(op.children[0]);
+
+    const mainPushdown = new FilterPushdown();
+    mainPushdown.filters = this.filters;
+    this.filters = [];
+    op.children[1] = mainPushdown.rewrite(op.children[1]!);
+
     return op;
   }
 

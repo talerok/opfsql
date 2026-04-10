@@ -514,6 +514,56 @@ describe('FilterPushdown', () => {
     // age > 18 should be pushed to scan
     expect(get.tableFilters.length).toBeGreaterThan(0);
   });
+
+  it('pushes filters through MaterializedCTE into main plan', () => {
+    const plan = bind(
+      `WITH active AS (SELECT id, name FROM users WHERE active = true)
+       SELECT a.name FROM active a INNER JOIN orders o ON a.id = o.user_id WHERE o.amount > 100`,
+    );
+    const pulled = pullupFilters(plan);
+    const optimized = pushdownFilters(pulled);
+
+    // Should have a join (not a cross product)
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN);
+    expect(join).not.toBeNull();
+    expect((join as LogicalComparisonJoin).joinType).toBe('INNER');
+
+    // o.amount > 100 should be pushed to orders scan
+    const ordersGet = getAllGets(optimized).find((g) => g.tableName === 'orders');
+    expect(ordersGet).toBeDefined();
+    expect(ordersGet!.tableFilters.length).toBeGreaterThan(0);
+  });
+
+  it('preserves join condition when CTE query has WHERE clause', () => {
+    const plan = bind(
+      `WITH totals AS (SELECT user_id, SUM(amount) AS total FROM orders GROUP BY user_id)
+       SELECT u.name, t.total FROM totals t INNER JOIN users u ON t.user_id = u.id WHERE t.total > 500`,
+    );
+    const pulled = pullupFilters(plan);
+    const optimized = pushdownFilters(pulled);
+
+    // Must be a comparison join, NOT a cross product
+    const cross = findNode(optimized, LogicalOperatorType.LOGICAL_CROSS_PRODUCT);
+    expect(cross).toBeNull();
+
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN);
+    expect(join).not.toBeNull();
+    expect((join as LogicalComparisonJoin).conditions.length).toBeGreaterThan(0);
+  });
+
+  it('optimizes CTE definition independently', () => {
+    const plan = bind(
+      `WITH filtered AS (SELECT id, name FROM users WHERE age > 21)
+       SELECT f.name FROM filtered f`,
+    );
+    const optimized = pushdownFilters(plan);
+
+    // age > 21 from CTE definition should be pushed to users scan
+    const usersGet = getAllGets(optimized).find((g) => g.tableName === 'users');
+    expect(usersGet).toBeDefined();
+    expect(usersGet!.tableFilters.length).toBeGreaterThan(0);
+    expect(usersGet!.tableFilters[0].columnIndex).toBe(2); // age
+  });
 });
 
 // ============================================================================
