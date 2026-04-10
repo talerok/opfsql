@@ -23,12 +23,13 @@
   function bestTime(suiteId: string): number {
     const sr = results[suiteId];
     if (!sr) return -1;
-    const times = Object.values(sr).filter((v) => v > 0 && !isNaN(v));
+    const times = Object.values(sr).filter((v) => v > 0 && !isNaN(v) && v !== -2);
     return times.length > 0 ? Math.min(...times) : -1;
   }
 
   function cellText(ms: number | undefined): string {
     if (ms === undefined) return '\u2014';
+    if (ms === -2) return '\u2014';
     if (ms < 0) return 'running...';
     if (isNaN(ms)) return 'error';
     return `${ms.toFixed(1)} ms`;

@@ -3,6 +3,7 @@ import { BoundExpressionClass } from '../../binder/types.js';
 import type { Value, Tuple } from '../types.js';
 import type { Resolver } from '../resolve.js';
 import type { EvalContext } from './context.js';
+import { ExecutorError } from '../errors.js';
 import { evalColumnRef } from './column-ref.js';
 import { evalComparison } from './comparison.js';
 import { evalConjunction } from './conjunction.js';
@@ -27,7 +28,7 @@ export async function evaluateExpression(
 ): Promise<Value> {
   switch (expr.expressionClass) {
     case BoundExpressionClass.BOUND_COLUMN_REF:
-      return evalColumnRef(expr, tuple, resolver);
+      return evalColumnRef(expr, tuple, resolver, ctx);
     case BoundExpressionClass.BOUND_CONSTANT:
       return expr.value;
     case BoundExpressionClass.BOUND_COMPARISON:
@@ -45,6 +46,11 @@ export async function evaluateExpression(
       // referenced via binding set by the binder
       const agg = expr as BoundAggregateExpression;
       const pos = resolver(agg.binding!);
+      if (pos === undefined) {
+        throw new ExecutorError(
+          `Aggregate binding {tableIndex:${agg.binding!.tableIndex}, columnIndex:${agg.binding!.columnIndex}} not found in layout`,
+        );
+      }
       return tuple[pos] ?? null;
     }
     case BoundExpressionClass.BOUND_SUBQUERY:

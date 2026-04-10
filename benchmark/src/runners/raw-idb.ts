@@ -69,9 +69,6 @@ export function createRawIdbRunner(): BenchmarkRunner {
       });
     },
 
-    async begin() {},
-    async commit() {},
-
     async teardown() {
       db.close();
       await new Promise<void>((resolve) => {
@@ -82,8 +79,16 @@ export function createRawIdbRunner(): BenchmarkRunner {
       });
     },
 
-    async insertRow(row: Row) {
-      await tx('readwrite', (store) => store.add(row));
+    async insertBatch(rows: Row[]) {
+      return new Promise<void>((resolve, reject) => {
+        const t = db.transaction(STORE, 'readwrite');
+        const store = t.objectStore(STORE);
+        for (const row of rows) {
+          store.add(row);
+        }
+        t.oncomplete = () => resolve();
+        t.onerror = () => reject(t.error);
+      });
     },
 
     async selectAll() {

@@ -1,15 +1,19 @@
 import type {
   LogicalOperator,
   LogicalLimit,
+  LogicalOrderBy,
   LogicalProjection,
 } from '../binder/types.js';
 import { LogicalOperatorType } from '../binder/types.js';
 
 // ============================================================================
-// Limit Pushdown — pushes LIMIT below PROJECTION for early termination
+// Limit Pushdown — pushes LIMIT below PROJECTION for early termination,
+// and annotates ORDER BY with topN for heap-based top-K sorting.
 //
 // Based on DuckDB's limit_pushdown.cpp:
-// Pattern: LIMIT → PROJECTION → X  →  PROJECTION → LIMIT → X
+// Pattern 1: LIMIT → PROJECTION → X  →  PROJECTION → LIMIT → X
+// Pattern 2: LIMIT → ORDER BY  →  set ORDER BY.topN = limit + offset
+// Pattern 3: LIMIT → PROJECTION → ORDER BY  →  same topN annotation
 // Only applied when limit < 8192 (small result sets benefit most).
 // ============================================================================
 
@@ -26,11 +30,24 @@ export function pushdownLimit(plan: LogicalOperator): LogicalOperator {
   const limit = plan as LogicalLimit;
   if (limit.limitVal === null || limit.limitVal >= MAX_PUSHDOWN_LIMIT) return plan;
 
+  const topN = limit.limitVal + limit.offsetVal;
   const child = limit.children[0];
+
+  // Pattern: LIMIT → ORDER BY — annotate with topN
+  if (child.type === LogicalOperatorType.LOGICAL_ORDER_BY) {
+    (child as LogicalOrderBy).topN = topN;
+    return plan;
+  }
 
   // Pattern: LIMIT → PROJECTION
   if (child.type === LogicalOperatorType.LOGICAL_PROJECTION) {
     const projection = child as LogicalProjection;
+    const grandchild = projection.children[0];
+
+    // Pattern: LIMIT → PROJECTION → ORDER BY — annotate with topN
+    if (grandchild.type === LogicalOperatorType.LOGICAL_ORDER_BY) {
+      (grandchild as LogicalOrderBy).topN = topN;
+    }
 
     // Create new limit below projection
     const newLimit: LogicalLimit = {

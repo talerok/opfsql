@@ -16,15 +16,18 @@ export async function evalSubquery(
   ctx: EvalContext,
 ): Promise<Value> {
   const sq = expr as BoundSubqueryExpression;
-  const rows = await ctx.executeSubplan(sq.subplan);
+
+  // EXISTS/NOT_EXISTS only need to know if ≥1 row exists — limit to 1 for early exit
+  if (sq.subqueryType === 'EXISTS' || sq.subqueryType === 'NOT_EXISTS') {
+    const rows = await ctx.executeSubplan(sq.subplan, tuple, resolver, 1);
+    return sq.subqueryType === 'EXISTS' ? rows.length > 0 : rows.length === 0;
+  }
+
+  const rows = await ctx.executeSubplan(sq.subplan, tuple, resolver);
 
   switch (sq.subqueryType) {
     case 'SCALAR':
       return evalScalar(rows);
-    case 'EXISTS':
-      return rows.length > 0;
-    case 'NOT_EXISTS':
-      return rows.length === 0;
     case 'ANY':
       return evalQuantified(sq, rows, tuple, resolver, ctx, false);
     case 'ALL':

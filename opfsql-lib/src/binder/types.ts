@@ -264,7 +264,7 @@ export interface LogicalAggregate {
 
 export interface LogicalComparisonJoin {
   type: LogicalOperatorType.LOGICAL_COMPARISON_JOIN;
-  joinType: 'INNER' | 'LEFT';
+  joinType: 'INNER' | 'LEFT' | 'SEMI' | 'ANTI';
   children: [LogicalOperator, LogicalOperator];
   conditions: JoinCondition[];
   expressions: BoundExpression[];
@@ -289,6 +289,7 @@ export interface LogicalOrderBy {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
+  topN?: number;
   getColumnBindings(): ColumnBinding[];
 }
 

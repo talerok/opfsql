@@ -20,7 +20,9 @@ export function extractColumnsFromPlan(
   if (proj) {
     return proj.expressions.map((expr, i) => {
       let colName = `column${i}`;
-      if (expr.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF) {
+      if (proj.aliases[i]) {
+        colName = proj.aliases[i];
+      } else if (expr.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF) {
         colName = (expr as BoundColumnRefExpression).columnName;
       } else if (expr.expressionClass === BoundExpressionClass.BOUND_AGGREGATE) {
         const agg = expr as BoundAggregateExpression;

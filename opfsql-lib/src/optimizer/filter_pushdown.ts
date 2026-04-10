@@ -133,15 +133,11 @@ class FilterPushdown {
       const touchesRight = [...tables].some((t) => rightTables.has(t));
 
       if (touchesLeft && !touchesRight) {
-        // Only references left side
-        if (op.joinType === 'INNER' || op.joinType === 'LEFT') {
-          leftFilters.push(filter);
-        } else {
-          remaining.push(filter);
-        }
+        // Only references left (probe) side — safe for all join types
+        leftFilters.push(filter);
       } else if (touchesRight && !touchesLeft) {
-        // Only references right side
-        if (op.joinType === 'INNER') {
+        // Only references right (build) side
+        if (op.joinType === 'INNER' || op.joinType === 'SEMI' || op.joinType === 'ANTI') {
           rightFilters.push(filter);
         } else {
           // LEFT JOIN: can't push to right side (would filter out NULLs)

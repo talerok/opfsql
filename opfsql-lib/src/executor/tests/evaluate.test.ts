@@ -384,3 +384,91 @@ describe('evaluateExpression', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Subquery — EXISTS early termination
+// ---------------------------------------------------------------------------
+
+import { evalSubquery } from '../evaluate/subquery.js';
+import { BoundExpressionClass } from '../../binder/types.js';
+import type { LogicalOperator } from '../../binder/types.js';
+import type { EvalContext } from '../evaluate/context.js';
+
+const dummySubplan = {} as LogicalOperator;
+
+function mockCtx(): EvalContext & { calls: Array<{ limit?: number }> } {
+  const calls: Array<{ limit?: number }> = [];
+  return {
+    calls,
+    executeSubplan: async (_plan, _ot, _or, limit) => {
+      calls.push({ limit });
+      return limit !== undefined ? [[1]] : [[1], [2], [3]];
+    },
+  };
+}
+
+function subqueryExpr(type: 'EXISTS' | 'NOT_EXISTS' | 'SCALAR') {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_SUBQUERY,
+    subqueryType: type,
+    subplan: dummySubplan,
+    returnType: 'BOOLEAN' as const,
+  };
+}
+
+describe('evalSubquery — EXISTS early termination', () => {
+  it('EXISTS passes limit=1 to executeSubplan', async () => {
+    const ctx = mockCtx();
+    await evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    expect(ctx.calls).toHaveLength(1);
+    expect(ctx.calls[0].limit).toBe(1);
+  });
+
+  it('NOT_EXISTS passes limit=1 to executeSubplan', async () => {
+    const ctx = mockCtx();
+    await evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    expect(ctx.calls).toHaveLength(1);
+    expect(ctx.calls[0].limit).toBe(1);
+  });
+
+  it('SCALAR does NOT pass limit', async () => {
+    const calls: Array<{ limit?: number }> = [];
+    const ctx: EvalContext = {
+      executeSubplan: async (_plan, _ot, _or, limit) => {
+        calls.push({ limit });
+        return [[42]]; // single row for SCALAR
+      },
+    };
+    await evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].limit).toBeUndefined();
+  });
+
+  it('EXISTS returns true when rows exist', async () => {
+    const ctx = mockCtx();
+    const result = await evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    expect(result).toBe(true);
+  });
+
+  it('EXISTS returns false when no rows', async () => {
+    const ctx: EvalContext = {
+      executeSubplan: async () => [],
+    };
+    const result = await evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    expect(result).toBe(false);
+  });
+
+  it('NOT_EXISTS returns false when rows exist', async () => {
+    const ctx = mockCtx();
+    const result = await evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    expect(result).toBe(false);
+  });
+
+  it('NOT_EXISTS returns true when no rows', async () => {
+    const ctx: EvalContext = {
+      executeSubplan: async () => [],
+    };
+    const result = await evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    expect(result).toBe(true);
+  });
+});

@@ -32,10 +32,10 @@ export class PhysicalHashJoin implements PhysicalOperator {
     private readonly op: LogicalComparisonJoin,
     private readonly ctx: EvalContext,
   ) {
-    this.layout = [
-      ...probe.getLayout(),
-      ...build.getLayout(),
-    ];
+    // SEMI/ANTI only output probe-side columns
+    this.layout = op.joinType === 'SEMI' || op.joinType === 'ANTI'
+      ? [...probe.getLayout()]
+      : [...probe.getLayout(), ...build.getLayout()];
     this.probeResolver = buildResolver(probe.getLayout());
     this.buildResolver = buildResolver(build.getLayout());
     this.buildNullTuple = new Array(build.getLayout().length).fill(null);
@@ -50,9 +50,13 @@ export class PhysicalHashJoin implements PhysicalOperator {
       await this.buildHashTable();
     }
 
+    if (this.op.joinType === 'SEMI' || this.op.joinType === 'ANTI') {
+      return this.nextSemiAnti();
+    }
+
     const result: Tuple[] = [];
 
-    while (result.length < 100) {
+    while (result.length < 2000) {
       // Try to emit from current matches
       if (this.currentMatches && this.matchIndex < this.currentMatches.length) {
         result.push([
@@ -84,6 +88,26 @@ export class PhysicalHashJoin implements PhysicalOperator {
         // Continue loop to emit first match
       } else if (this.op.joinType === 'LEFT') {
         result.push([...probe, ...this.buildNullTuple]);
+      }
+    }
+
+    return result.length > 0 ? result : null;
+  }
+
+  /** SEMI: emit probe when match exists. ANTI: emit probe when NO match. */
+  private async nextSemiAnti(): Promise<Tuple[] | null> {
+    const isSemi = this.op.joinType === 'SEMI';
+    const result: Tuple[] = [];
+
+    while (result.length < 2000) {
+      const probe = await this.nextProbe();
+      if (!probe) break;
+
+      const key = await this.probeKey(probe);
+      const hasMatch = key !== null && (this.hashTable!.get(key)?.length ?? 0) > 0;
+
+      if (isSemi ? hasMatch : !hasMatch) {
+        result.push(probe);
       }
     }
 
@@ -187,7 +211,7 @@ export class PhysicalNestedLoopJoin implements PhysicalOperator {
 
     const result: Tuple[] = [];
 
-    while (result.length < 100) {
+    while (result.length < 2000) {
       // Get current left tuple
       if (!this.leftBatch || this.leftIdx >= this.leftBatch.length) {
         if (this.leftExhausted) break;

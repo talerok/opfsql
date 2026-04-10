@@ -1301,6 +1301,67 @@ describe('ORDER BY — additional', () => {
     expect(orderBy.orders[0].orderType).toBe('ASCENDING');
     expect(orderBy.orders[1].orderType).toBe('DESCENDING');
   });
+
+  it('ORDER BY expression is rewritten to projection output binding', () => {
+    const plan = bind('SELECT name, age FROM users ORDER BY age ASC');
+    // Plan: ORDER BY → PROJECTION → GET
+    const orderBy = plan as LogicalOrderBy;
+    expect(orderBy.type).toBe(LogicalOperatorType.LOGICAL_ORDER_BY);
+    const proj = orderBy.children[0] as LogicalProjection;
+    expect(proj.type).toBe(LogicalOperatorType.LOGICAL_PROJECTION);
+
+    // ORDER BY expression should reference projection output, not original table
+    const orderExpr = orderBy.orders[0].expression as BoundColumnRefExpression;
+    expect(orderExpr.expressionClass).toBe(BoundExpressionClass.BOUND_COLUMN_REF);
+    const projBindings = proj.getColumnBindings();
+    // age is the 2nd select list item → projBindings[1]
+    expect(orderExpr.binding.tableIndex).toBe(projBindings[1].tableIndex);
+    expect(orderExpr.binding.columnIndex).toBe(projBindings[1].columnIndex);
+  });
+
+  it('ORDER BY column not in select list extends projection and adds trim projection', () => {
+    const plan = bind('SELECT name FROM users ORDER BY age ASC');
+    // Plan: TRIM_PROJECTION → ORDER BY → EXTENDED_PROJECTION → GET
+    expect(plan.type).toBe(LogicalOperatorType.LOGICAL_PROJECTION);
+    const trimProj = plan as LogicalProjection;
+    // Trim projection outputs only 1 column (name)
+    expect(trimProj.expressions).toHaveLength(1);
+
+    const orderBy = trimProj.children[0] as LogicalOrderBy;
+    expect(orderBy.type).toBe(LogicalOperatorType.LOGICAL_ORDER_BY);
+
+    const extendedProj = orderBy.children[0] as LogicalProjection;
+    expect(extendedProj.type).toBe(LogicalOperatorType.LOGICAL_PROJECTION);
+    // Extended projection has 2 columns (name + age for sort)
+    expect(extendedProj.expressions).toHaveLength(2);
+
+    // ORDER BY expression references the extended projection's 2nd column
+    const orderExpr = orderBy.orders[0].expression as BoundColumnRefExpression;
+    const extBindings = extendedProj.getColumnBindings();
+    expect(orderExpr.binding.tableIndex).toBe(extBindings[1].tableIndex);
+    expect(orderExpr.binding.columnIndex).toBe(extBindings[1].columnIndex);
+  });
+
+  it('ORDER BY with GROUP BY uses aggregate-aware bindings', () => {
+    const plan = bind('SELECT name, SUM(amount) FROM users u INNER JOIN orders o ON u.id = o.user_id GROUP BY name ORDER BY SUM(amount) DESC');
+    // Find ORDER BY
+    let node: LogicalOperator = plan;
+    while (node.type !== LogicalOperatorType.LOGICAL_ORDER_BY && node.children.length > 0) {
+      node = node.children[0];
+    }
+    const orderBy = node as LogicalOrderBy;
+    expect(orderBy.type).toBe(LogicalOperatorType.LOGICAL_ORDER_BY);
+
+    // ORDER BY expression should be a projection-output column ref
+    const orderExpr = orderBy.orders[0].expression as BoundColumnRefExpression;
+    expect(orderExpr.expressionClass).toBe(BoundExpressionClass.BOUND_COLUMN_REF);
+
+    // It should reference the projection's output binding for the 2nd column (SUM)
+    const proj = orderBy.children[0] as LogicalProjection;
+    const projBindings = proj.getColumnBindings();
+    expect(orderExpr.binding.tableIndex).toBe(projBindings[1].tableIndex);
+    expect(orderExpr.binding.columnIndex).toBe(projBindings[1].columnIndex);
+  });
 });
 
 // ============================================================================

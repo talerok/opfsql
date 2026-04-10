@@ -57,8 +57,10 @@ function prune(op: LogicalOperator, needed: Set<string>): LogicalOperator {
     case LogicalOperatorType.LOGICAL_LIMIT:
     case LogicalOperatorType.LOGICAL_DISTINCT:
       return prunePassthrough(op, needed);
+    case LogicalOperatorType.LOGICAL_MATERIALIZED_CTE:
+      return pruneMaterializedCTE(op, needed);
     default:
-      // DML, DDL, CTE, etc. — recurse but keep everything children provide
+      // DML, DDL, CTE ref, etc. — recurse but keep everything children provide
       for (let i = 0; i < op.children.length; i++) {
         const childNeeded = new Set<string>();
         collectAllRefs(op.children[i], childNeeded);
@@ -251,6 +253,31 @@ function pruneOrderBy(op: LogicalOrderBy, needed: Set<string>): LogicalOrderBy {
 
 function prunePassthrough(op: LogicalOperator, needed: Set<string>): LogicalOperator {
   op.children[0] = prune(op.children[0], needed);
+  return op;
+}
+
+// ============================================================================
+// MATERIALIZED CTE — keep all columns in the CTE inner plan
+//
+// The CTE inner plan (children[0]) uses its own tableIndex values, which are
+// different from the outer query's CTE ref tableIndex. We can't map between
+// them here, so we keep all columns in the CTE inner plan to avoid pruning
+// columns the outer query needs.
+// ============================================================================
+
+function pruneMaterializedCTE(op: LogicalOperator, needed: Set<string>): LogicalOperator {
+  // children[0] = CTE inner plan: keep all columns (don't prune)
+  const cteNeeded = new Set<string>();
+  collectAllRefs(op.children[0], cteNeeded);
+  for (const b of op.children[0].getColumnBindings()) {
+    cteNeeded.add(bk(b.tableIndex, b.columnIndex));
+  }
+  op.children[0] = prune(op.children[0], cteNeeded);
+
+  // children[1] = outer query: prune normally
+  const outerNeeded = new Set(needed);
+  addNodeRefs(op, outerNeeded);
+  op.children[1] = prune(op.children[1], outerNeeded);
   return op;
 }
 

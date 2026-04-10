@@ -32,7 +32,8 @@ export async function execute(
 ): Promise<ExecuteResult> {
   // Build eval context for subquery support
   const ctx: EvalContext = {
-    executeSubplan: (subplan) => executeSubplan(subplan, pageManager, catalog),
+    executeSubplan: (subplan, outerTuple, outerResolver, limit) =>
+      executeSubplan(subplan, pageManager, catalog, outerTuple, outerResolver, limit),
   };
 
   switch (plan.type) {
@@ -92,12 +93,31 @@ async function executeSubplan(
   plan: LogicalOperator,
   pageManager: IPageManager,
   catalog: ICatalog,
+  outerTuple?: Tuple,
+  outerResolver?: import('./resolve.js').Resolver,
+  limit?: number,
 ): Promise<Tuple[]> {
   const ctx: EvalContext = {
-    executeSubplan: (sub) => executeSubplan(sub, pageManager, catalog),
+    executeSubplan: (sub, ot, or_, lim) =>
+      executeSubplan(sub, pageManager, catalog, ot, or_, lim),
+    outerTuple,
+    outerResolver,
   };
   const cteCache = new Map<number, CTECacheEntry>();
   const physical = createPhysicalPlan(plan, pageManager, cteCache, ctx);
+  if (limit !== undefined) {
+    // Early termination — collect at most `limit` tuples then stop.
+    const result: Tuple[] = [];
+    while (result.length < limit) {
+      const batch = await physical.next();
+      if (!batch) break;
+      for (const tuple of batch) {
+        result.push(tuple);
+        if (result.length >= limit) break;
+      }
+    }
+    return result;
+  }
   return drainOperator(physical);
 }
 
@@ -131,6 +151,10 @@ function extractColumnNames(plan: LogicalOperator): string[] {
 function findProjection(plan: LogicalOperator): LogicalProjection | null {
   if (plan.type === LogicalOperatorType.LOGICAL_PROJECTION) {
     return plan as LogicalProjection;
+  }
+  // For CTE, only search the outer query (children[1]), not the CTE definition
+  if (plan.type === LogicalOperatorType.LOGICAL_MATERIALIZED_CTE) {
+    return findProjection(plan.children[1]);
   }
   for (const child of plan.children) {
     const found = findProjection(child);

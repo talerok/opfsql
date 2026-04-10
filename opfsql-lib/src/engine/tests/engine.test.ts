@@ -616,4 +616,49 @@ describe('GROUP BY + aggregates', () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows![0]).toEqual({ category: 'Books', cnt: 2 });
   });
+
+  // Top-K sort optimization (ORDER BY + LIMIT)
+  it('ORDER BY + LIMIT returns correct top-K rows', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE scores (id INTEGER, val INTEGER)');
+    await engine.execute('INSERT INTO scores VALUES (1, 50)');
+    await engine.execute('INSERT INTO scores VALUES (2, 90)');
+    await engine.execute('INSERT INTO scores VALUES (3, 10)');
+    await engine.execute('INSERT INTO scores VALUES (4, 80)');
+    await engine.execute('INSERT INTO scores VALUES (5, 70)');
+
+    const [desc] = await engine.execute('SELECT * FROM scores ORDER BY val DESC LIMIT 3');
+    expect(desc.rows!.map((r: any) => r.val)).toEqual([90, 80, 70]);
+
+    const [asc] = await engine.execute('SELECT * FROM scores ORDER BY val ASC LIMIT 3');
+    expect(asc.rows!.map((r: any) => r.val)).toEqual([10, 50, 70]);
+  });
+
+  it('ORDER BY + LIMIT + OFFSET returns correct slice', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE nums (id INTEGER, n INTEGER)');
+    for (let i = 1; i <= 10; i++) {
+      await engine.execute(`INSERT INTO nums VALUES (${i}, ${i * 10})`);
+    }
+
+    // Top 10 sorted DESC: 100,90,80,70,60,50,40,30,20,10
+    // OFFSET 2 LIMIT 3 → 80,70,60
+    const [result] = await engine.execute('SELECT n FROM nums ORDER BY n DESC LIMIT 3 OFFSET 2');
+    expect(result.rows!.map((r: any) => r.n)).toEqual([80, 70, 60]);
+  });
+
+  it('ORDER BY + LIMIT with projection uses top-K', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE items (id INTEGER, name TEXT, price REAL)');
+    await engine.execute("INSERT INTO items VALUES (1, 'a', 9.99)");
+    await engine.execute("INSERT INTO items VALUES (2, 'b', 1.50)");
+    await engine.execute("INSERT INTO items VALUES (3, 'c', 5.00)");
+    await engine.execute("INSERT INTO items VALUES (4, 'd', 3.25)");
+
+    const [result] = await engine.execute('SELECT name, price FROM items ORDER BY price ASC LIMIT 2');
+    expect(result.rows).toEqual([
+      { name: 'b', price: 1.50 },
+      { name: 'd', price: 3.25 },
+    ]);
+  });
 });

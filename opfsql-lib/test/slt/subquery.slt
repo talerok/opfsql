@@ -1,0 +1,114 @@
+# subquery.slt — Subquery tests (EXISTS, NOT EXISTS, scalar)
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)
+
+statement ok
+CREATE TABLE orders (id INTEGER PRIMARY KEY, product_id INTEGER, quantity INTEGER, total REAL)
+
+statement ok
+INSERT INTO products VALUES (1, 'Widget', 10.0)
+
+statement ok
+INSERT INTO products VALUES (2, 'Gadget', 20.0)
+
+statement ok
+INSERT INTO products VALUES (3, 'Doohickey', 30.0)
+
+statement ok
+INSERT INTO orders VALUES (1, 1, 15, 150.0)
+
+statement ok
+INSERT INTO orders VALUES (2, 1, 3, 30.0)
+
+statement ok
+INSERT INTO orders VALUES (3, 2, 12, 240.0)
+
+statement ok
+INSERT INTO orders VALUES (4, 3, 2, 60.0)
+
+# ============================================================================
+# EXISTS — basic
+# ============================================================================
+
+# Products that have at least one order with quantity > 10
+query T rowsort
+SELECT p.name FROM products p WHERE EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id AND o.quantity > 10)
+----
+Gadget
+Widget
+
+# ============================================================================
+# NOT EXISTS
+# ============================================================================
+
+# Products with no high-quantity orders
+query T nosort
+SELECT p.name FROM products p WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id AND o.quantity > 10) ORDER BY p.name ASC
+----
+Doohickey
+
+# ============================================================================
+# EXISTS with no matches
+# ============================================================================
+
+query T nosort
+SELECT p.name FROM products p WHERE EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id AND o.quantity > 100)
+----
+
+# ============================================================================
+# EXISTS + ORDER BY
+# ============================================================================
+
+query TR nosort
+SELECT p.name, p.price FROM products p WHERE EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id AND o.quantity > 10) ORDER BY p.price ASC
+----
+Widget|10
+Gadget|20
+
+# ============================================================================
+# EXISTS — all products have at least one order
+# ============================================================================
+
+query T rowsort
+SELECT p.name FROM products p WHERE EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id)
+----
+Doohickey
+Gadget
+Widget
+
+# ============================================================================
+# NOT EXISTS — products with no orders at all
+# ============================================================================
+
+statement ok
+INSERT INTO products VALUES (4, 'Thingamajig', 40.0)
+
+query T nosort
+SELECT p.name FROM products p WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id)
+----
+Thingamajig
+
+# ============================================================================
+# Scalar subquery
+# ============================================================================
+
+query TI nosort
+SELECT p.name, (SELECT COUNT(*) FROM orders o WHERE o.product_id = p.id) AS order_count FROM products p WHERE p.id <= 3 ORDER BY p.name ASC
+----
+Doohickey|1
+Gadget|1
+Widget|2
+
+# ============================================================================
+# EXISTS in combination with other WHERE conditions
+# ============================================================================
+
+query T nosort
+SELECT p.name FROM products p WHERE p.price >= 20.0 AND EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id AND o.quantity > 10) ORDER BY p.name ASC
+----
+Gadget

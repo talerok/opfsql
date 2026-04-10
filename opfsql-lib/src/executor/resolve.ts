@@ -1,7 +1,11 @@
 import type { ColumnBinding } from '../binder/types.js';
-import { ExecutorError } from './errors.js';
 
-export type Resolver = (binding: ColumnBinding) => number;
+/**
+ * Maps a ColumnBinding to its position in a tuple.
+ * Returns undefined when the binding is not in this resolver's layout
+ * (used by correlated subqueries to fall back to outer context).
+ */
+export type Resolver = (binding: ColumnBinding) => number | undefined;
 
 /**
  * Builds a fast lookup function: ColumnBinding → position in tuple.
@@ -13,13 +17,7 @@ export function buildResolver(layout: ColumnBinding[]): Resolver {
     map.set(`${layout[i].tableIndex}:${layout[i].columnIndex}`, i);
   }
 
-  return (binding: ColumnBinding): number => {
-    const pos = map.get(`${binding.tableIndex}:${binding.columnIndex}`);
-    if (pos === undefined) {
-      throw new ExecutorError(
-        `Column binding {tableIndex:${binding.tableIndex}, columnIndex:${binding.columnIndex}} not found in layout`,
-      );
-    }
-    return pos;
+  return (binding: ColumnBinding): number | undefined => {
+    return map.get(`${binding.tableIndex}:${binding.columnIndex}`);
   };
 }

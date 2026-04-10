@@ -51,22 +51,19 @@ export function createWaSqliteRunner(): BenchmarkRunner {
       `);
     },
 
-    async begin() {
-      await exec('BEGIN');
-    },
-
-    async commit() {
-      await exec('COMMIT');
-    },
-
     async teardown() {
       await exec('DROP TABLE IF EXISTS products');
     },
 
-    async insertRow(row: Row) {
-      await exec(
-        `INSERT INTO products (id, name, price, category) VALUES (${row.id}, '${row.name}', ${row.price}, '${row.category}')`,
-      );
+    async insertBatch(rows: Row[]) {
+      const stmts = ['BEGIN'];
+      for (const r of rows) {
+        stmts.push(
+          `INSERT INTO products VALUES (${r.id}, '${r.name}', ${r.price}, '${r.category}')`,
+        );
+      }
+      stmts.push('COMMIT');
+      await exec(stmts.join(';\n'));
     },
 
     async selectAll() {

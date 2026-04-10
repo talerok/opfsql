@@ -1,0 +1,287 @@
+# order-by.slt — ORDER BY tests
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL)
+
+statement ok
+INSERT INTO t VALUES (1, 'Alice', 30, 85.5)
+
+statement ok
+INSERT INTO t VALUES (2, 'Bob', 25, 92.0)
+
+statement ok
+INSERT INTO t VALUES (3, 'Charlie', 35, 78.0)
+
+statement ok
+INSERT INTO t VALUES (4, 'Diana', 28, 92.0)
+
+statement ok
+INSERT INTO t VALUES (5, 'Eve', 30, 88.0)
+
+# ============================================================================
+# Basic ORDER BY
+# ============================================================================
+
+# ASC (default)
+query TI nosort
+SELECT name, age FROM t ORDER BY age ASC
+----
+Bob|25
+Diana|28
+Alice|30
+Eve|30
+Charlie|35
+
+# DESC
+query TI nosort
+SELECT name, age FROM t ORDER BY age DESC
+----
+Charlie|35
+Alice|30
+Eve|30
+Diana|28
+Bob|25
+
+# ============================================================================
+# ORDER BY column in select list
+# ============================================================================
+
+query TR nosort
+SELECT name, score FROM t ORDER BY score DESC
+----
+Bob|92
+Diana|92
+Eve|88
+Alice|85.5
+Charlie|78
+
+# ============================================================================
+# ORDER BY column NOT in select list
+# ============================================================================
+
+# Only name in output, sorted by age
+query T nosort
+SELECT name FROM t ORDER BY age ASC
+----
+Bob
+Diana
+Alice
+Eve
+Charlie
+
+# Only score in output, sorted by name
+query R nosort
+SELECT score FROM t ORDER BY name ASC
+----
+85.5
+92
+78
+92
+88
+
+# ============================================================================
+# Multiple ORDER BY columns
+# ============================================================================
+
+# score DESC, then age ASC for ties
+query TRI nosort
+SELECT name, score, age FROM t ORDER BY score DESC, age ASC
+----
+Bob|92|25
+Diana|92|28
+Eve|88|30
+Alice|85.5|30
+Charlie|78|35
+
+# ============================================================================
+# ORDER BY with LIMIT
+# ============================================================================
+
+query TI nosort
+SELECT name, age FROM t ORDER BY age ASC LIMIT 3
+----
+Bob|25
+Diana|28
+Alice|30
+
+# ORDER BY with LIMIT and OFFSET
+query TI nosort
+SELECT name, age FROM t ORDER BY age ASC LIMIT 2 OFFSET 2
+----
+Alice|30
+Eve|30
+
+# ============================================================================
+# ORDER BY with WHERE
+# ============================================================================
+
+query TI nosort
+SELECT name, age FROM t WHERE age >= 30 ORDER BY name ASC
+----
+Alice|30
+Charlie|35
+Eve|30
+
+# ============================================================================
+# ORDER BY with JOIN
+# ============================================================================
+
+statement ok
+CREATE TABLE dept (id INTEGER PRIMARY KEY, dname TEXT)
+
+statement ok
+INSERT INTO dept VALUES (25, 'Sales')
+
+statement ok
+INSERT INTO dept VALUES (30, 'Engineering')
+
+query TT nosort
+SELECT t.name, d.dname FROM t INNER JOIN dept d ON t.age = d.id ORDER BY t.name ASC
+----
+Alice|Engineering
+Bob|Sales
+Eve|Engineering
+
+# ============================================================================
+# ORDER BY with GROUP BY
+# ============================================================================
+
+# ORDER BY a group column
+query II nosort
+SELECT age, COUNT(*) FROM t GROUP BY age ORDER BY age ASC
+----
+25|1
+28|1
+30|2
+35|1
+
+# ORDER BY an aggregate in the select list
+query II nosort
+SELECT age, COUNT(*) FROM t GROUP BY age ORDER BY COUNT(*) DESC, age ASC
+----
+30|2
+25|1
+28|1
+35|1
+
+# ============================================================================
+# ORDER BY with CTE
+# ============================================================================
+
+statement ok
+CREATE TABLE orders (id INTEGER PRIMARY KEY, product_id INTEGER, total REAL)
+
+statement ok
+INSERT INTO orders VALUES (1, 1, 100.0)
+
+statement ok
+INSERT INTO orders VALUES (2, 1, 200.0)
+
+statement ok
+INSERT INTO orders VALUES (3, 2, 150.0)
+
+statement ok
+INSERT INTO orders VALUES (4, 3, 50.0)
+
+query IR nosort
+WITH rev AS (SELECT product_id, SUM(total) AS revenue FROM orders GROUP BY product_id) SELECT product_id, revenue FROM rev ORDER BY revenue DESC
+----
+1|300
+2|150
+3|50
+
+# CTE + JOIN + ORDER BY
+statement ok
+CREATE TABLE products (id INTEGER PRIMARY KEY, pname TEXT)
+
+statement ok
+INSERT INTO products VALUES (1, 'Widget')
+
+statement ok
+INSERT INTO products VALUES (2, 'Gadget')
+
+statement ok
+INSERT INTO products VALUES (3, 'Doohickey')
+
+query TR nosort
+WITH rev AS (SELECT product_id, SUM(total) AS revenue FROM orders GROUP BY product_id) SELECT p.pname, r.revenue FROM rev r INNER JOIN products p ON r.product_id = p.id ORDER BY r.revenue DESC
+----
+Widget|300
+Gadget|150
+Doohickey|50
+
+# ============================================================================
+# ORDER BY with NULL
+# ============================================================================
+
+statement ok
+INSERT INTO t VALUES (6, NULL, 20, 70.0)
+
+# ASC: NULLs last by default
+query T nosort
+SELECT name FROM t ORDER BY name ASC
+----
+Alice
+Bob
+Charlie
+Diana
+Eve
+NULL
+
+# DESC: NULLs first by default
+query T nosort
+SELECT name FROM t ORDER BY name DESC
+----
+NULL
+Eve
+Diana
+Charlie
+Bob
+Alice
+
+# ============================================================================
+# ORDER BY with EXISTS subquery
+# ============================================================================
+
+query T nosort
+SELECT p.pname FROM products p WHERE EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id AND o.total > 100) ORDER BY p.pname ASC
+----
+Gadget
+Widget
+
+# ============================================================================
+# Top-K optimization (ORDER BY + LIMIT)
+# ============================================================================
+
+# Top 2 by score descending (unique values in top 2)
+query TR nosort
+SELECT name, score FROM t ORDER BY score DESC LIMIT 2
+----
+Bob|92
+Diana|92
+
+# Top 3 by age ascending (includes NULL name row with age=20)
+query TI nosort
+SELECT name, age FROM t ORDER BY age ASC LIMIT 3
+----
+NULL|20
+Bob|25
+Diana|28
+
+# Top-K with OFFSET: skip 1, take 2
+query TI nosort
+SELECT name, age FROM t ORDER BY age ASC LIMIT 2 OFFSET 1
+----
+Bob|25
+Diana|28
+
+# CTE + JOIN + ORDER BY + LIMIT (the benchmark query pattern)
+query TR nosort
+WITH rev AS (SELECT product_id, SUM(total) AS revenue FROM orders GROUP BY product_id) SELECT p.pname, r.revenue FROM rev r INNER JOIN products p ON r.product_id = p.id ORDER BY r.revenue DESC LIMIT 2
+----
+Widget|300
+Gadget|150

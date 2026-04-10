@@ -36,6 +36,7 @@ import {
   optimizeBuildProbeSide,
   pushdownLimit,
   reorderFilters,
+  decorrelateExists,
 } from '../index.js';
 import { FilterCombiner } from '../filter_combiner.js';
 
@@ -767,6 +768,42 @@ describe('LimitPushdown', () => {
     expect(limit).not.toBeNull();
     expect(limit.limitVal).toBe(10000);
   });
+
+  it('annotates ORDER BY with topN when LIMIT is above', () => {
+    const plan = bind('SELECT * FROM users ORDER BY age LIMIT 10');
+    const optimized = pushdownLimit(plan);
+
+    const orderBy = findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY) as LogicalOrderBy;
+    expect(orderBy).not.toBeNull();
+    expect(orderBy.topN).toBe(10);
+  });
+
+  it('annotates ORDER BY with topN = limit + offset', () => {
+    const plan = bind('SELECT * FROM users ORDER BY age LIMIT 5 OFFSET 3');
+    const optimized = pushdownLimit(plan);
+
+    const orderBy = findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY) as LogicalOrderBy;
+    expect(orderBy).not.toBeNull();
+    expect(orderBy.topN).toBe(8); // 5 + 3
+  });
+
+  it('annotates ORDER BY through PROJECTION', () => {
+    const plan = bind('SELECT name FROM users ORDER BY age LIMIT 10');
+    const optimized = pushdownLimit(plan);
+
+    const orderBy = findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY) as LogicalOrderBy;
+    expect(orderBy).not.toBeNull();
+    expect(orderBy.topN).toBe(10);
+  });
+
+  it('does not annotate ORDER BY when LIMIT is large', () => {
+    const plan = bind('SELECT * FROM users ORDER BY age LIMIT 10000');
+    const optimized = pushdownLimit(plan);
+
+    const orderBy = findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY) as LogicalOrderBy;
+    expect(orderBy).not.toBeNull();
+    expect(orderBy.topN).toBeUndefined();
+  });
 });
 
 // ============================================================================
@@ -893,6 +930,21 @@ describe('optimize (full pipeline)', () => {
     const get = getAllGets(optimized);
     expect(get.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('CTE + JOIN produces COMPARISON_JOIN not CROSS_PRODUCT', () => {
+    const plan = bind(
+      `WITH rev AS (SELECT user_id, SUM(amount) AS total_amount FROM orders GROUP BY user_id)
+       SELECT u.name, r.total_amount
+       FROM rev r INNER JOIN users u ON r.user_id = u.id
+       ORDER BY r.total_amount DESC LIMIT 10`
+    );
+    const optimized = optimize(plan);
+    // Must be a comparison join, NOT a cross product
+    const cross = findNode(optimized, LogicalOperatorType.LOGICAL_CROSS_PRODUCT);
+    expect(cross).toBeNull();
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN);
+    expect(join).not.toBeNull();
+  });
 });
 
 // ============================================================================
@@ -1012,3 +1064,104 @@ function containsFunction(expr: BoundExpression): boolean {
   }
   return false;
 }
+
+// ============================================================================
+// EXISTS decorrelation
+// ============================================================================
+
+describe('decorrelateExists', () => {
+  it('transforms EXISTS into SEMI join', () => {
+    const plan = bind(
+      "SELECT u.name FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.amount > 100)"
+    );
+    const optimized = decorrelateExists(plan);
+
+    // Should have a SEMI join instead of a filter with EXISTS subquery
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).toBeTruthy();
+    expect(join.joinType).toBe('SEMI');
+    expect(join.conditions).toHaveLength(1);
+    expect(join.conditions[0].comparisonType).toBe('EQUAL');
+
+    // Should NOT have a subquery expression in any filter
+    const filter = findNode(optimized, LogicalOperatorType.LOGICAL_FILTER);
+    if (filter) {
+      // The remaining filter should be the uncorrelated predicate (amount > 100)
+      // pushed to the build side, not an EXISTS subquery
+      expect(filter.expressions[0].expressionClass).not.toBe(
+        BoundExpressionClass.BOUND_SUBQUERY
+      );
+    }
+  });
+
+  it('transforms NOT EXISTS into ANTI join', () => {
+    const plan = bind(
+      "SELECT u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)"
+    );
+    const optimized = decorrelateExists(plan);
+
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).toBeTruthy();
+    expect(join.joinType).toBe('ANTI');
+  });
+
+  it('preserves non-EXISTS conditions alongside EXISTS', () => {
+    const plan = bind(
+      "SELECT u.name FROM users u WHERE u.age > 18 AND EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)"
+    );
+    const optimized = decorrelateExists(plan);
+
+    // Should have SEMI join
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).toBeTruthy();
+    expect(join.joinType).toBe('SEMI');
+
+    // Should still have a filter for u.age > 18
+    const filter = findNode(optimized, LogicalOperatorType.LOGICAL_FILTER) as LogicalFilter;
+    expect(filter).toBeTruthy();
+    // The filter should be a comparison (age > 18), not a subquery
+    expect(filter.expressions[0].expressionClass).toBe(
+      BoundExpressionClass.BOUND_COMPARISON
+    );
+  });
+
+  it('SEMI join output has only outer columns', () => {
+    const plan = bind(
+      "SELECT u.name FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)"
+    );
+    const optimized = decorrelateExists(plan);
+
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).toBeTruthy();
+
+    // SEMI join types should match probe (outer) side only
+    const outerTypes = join.children[0].types;
+    expect(join.types).toEqual(outerTypes);
+
+    // Column bindings should only be from the outer side
+    const outerBindings = join.children[0].getColumnBindings();
+    expect(join.getColumnBindings()).toEqual(outerBindings);
+  });
+
+  it('does not decorrelate uncorrelated EXISTS', () => {
+    const plan = bind(
+      "SELECT u.name FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.amount > 100)"
+    );
+    const optimized = decorrelateExists(plan);
+
+    // Should NOT have a SEMI join (no correlated predicates to join on)
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN);
+    expect(join).toBeNull();
+  });
+
+  it('full optimize pipeline produces correct SEMI join', () => {
+    const plan = bind(
+      "SELECT u.name FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.amount > 100)"
+    );
+    const optimized = optimize(plan, catalog);
+
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).toBeTruthy();
+    expect(join.joinType).toBe('SEMI');
+  });
+});

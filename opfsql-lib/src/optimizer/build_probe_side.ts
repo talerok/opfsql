@@ -48,8 +48,8 @@ export function optimizeBuildProbeSide(plan: LogicalOperator): LogicalOperator {
 
   const join = plan as LogicalComparisonJoin;
 
-  // LEFT JOIN: can't swap sides (left must remain the probe side)
-  if (join.joinType === 'LEFT') return plan;
+  // LEFT/SEMI/ANTI JOIN: can't swap sides (left must remain the probe side)
+  if (join.joinType !== 'INNER') return plan;
 
   // Build side cost = cardinality * estimated row size (from types)
   const leftCost = estimateBuildCost(join.children[0]);
