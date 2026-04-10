@@ -1,13 +1,11 @@
 import { PageManager } from './page-manager.js';
-import { RowManager } from './row-manager.js';
 import { Vacuum } from './vacuum.js';
 import { IndexManager, type IIndexManager } from './index-manager.js';
-import type { ICatalog, IPageManager, IRowManager, IStorage } from './types.js';
+import type { ICatalog, IStorage } from './types.js';
 
 export class Storage {
   readonly backend: IStorage;
-  pageManager!: IPageManager;
-  rowManager!: IRowManager;
+  pageManager!: PageManager;
   indexManager!: IIndexManager;
   vacuum!: Vacuum;
 
@@ -18,7 +16,6 @@ export class Storage {
   async open(): Promise<void> {
     await this.backend.open();
     this.pageManager = new PageManager(this.backend);
-    this.rowManager = new RowManager(this.pageManager);
     this.indexManager = new IndexManager(this.pageManager);
     this.vacuum = new Vacuum(this.pageManager);
   }

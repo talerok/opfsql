@@ -58,20 +58,19 @@ function mockCatalog(tables: TableSchema[] = [usersSchema]): ICatalog {
 
 function mockPageManager(): IPageManager {
   return {
-    readPage: vi.fn(),
-    getPageMeta: vi.fn(),
-    createEmptyPage: vi.fn(),
-    getPageKey: vi.fn(),
-    getMetaKey: (tableId: string) => `meta:${tableId}`,
-    getAllPageKeys: vi.fn(async () => ['page:users:0', 'page:users:1']),
+    prepareInsert: vi.fn(async () => ({ pageId: 0, slotId: 0 })),
+    prepareUpdate: vi.fn(async () => ({ pageId: 0, slotId: 0 })),
+    prepareDelete: vi.fn(async () => {}),
+    scanTable: async function* () {},
+    readRow: vi.fn(async () => null),
+    getPageMeta: vi.fn(async () => ({ lastPageId: -1, totalRowCount: 0, deadRowCount: 0 })),
+    getAllPageKeys: vi.fn(async () => []),
+    compactTable: vi.fn(async () => []),
+    deleteTableData: vi.fn(async () => {}),
     readKey: vi.fn(async () => null),
     getAllKeys: vi.fn(async () => []),
-    writePage: vi.fn(),
-    writeMeta: vi.fn(),
     writeKey: vi.fn(),
     deleteKey: vi.fn(),
-    checkpoint: vi.fn(),
-    restoreCheckpoint: vi.fn(),
     commit: vi.fn(async () => {}),
     rollback: vi.fn(),
   };
@@ -83,7 +82,7 @@ function mockPageManager(): IPageManager {
 
 describe('DDL executors', () => {
   describe('executeCreateTable', () => {
-    it('returns CREATE_TABLE catalog change', () => {
+    it('returns CREATE_TABLE catalog change', async () => {
       const catalog = mockCatalog([]);
       const op = {
         type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
@@ -93,12 +92,12 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalCreateTable;
 
-      const result = executeCreateTable(op, catalog);
+      const result = await executeCreateTable(op, catalog);
       expect(result.catalogChanges).toHaveLength(1);
       expect(result.catalogChanges[0].type).toBe('CREATE_TABLE');
     });
 
-    it('throws when table already exists', () => {
+    it('throws when table already exists', async () => {
       const catalog = mockCatalog([usersSchema]);
       const op = {
         type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
@@ -108,10 +107,10 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalCreateTable;
 
-      expect(() => executeCreateTable(op, catalog)).toThrow('already exists');
+      await expect(executeCreateTable(op, catalog)).rejects.toThrow('already exists');
     });
 
-    it('IF NOT EXISTS — no-op when exists', () => {
+    it('IF NOT EXISTS — no-op when exists', async () => {
       const catalog = mockCatalog([usersSchema]);
       const op = {
         type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
@@ -121,7 +120,7 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalCreateTable;
 
-      const result = executeCreateTable(op, catalog);
+      const result = await executeCreateTable(op, catalog);
       expect(result.catalogChanges).toHaveLength(0);
     });
   });
@@ -208,9 +207,7 @@ describe('DDL executors', () => {
 
       const result = await executeDrop(op, catalog, pm, mockIndexManager());
       expect(result.catalogChanges[0].type).toBe('DROP_TABLE');
-      expect(pm.deleteKey).toHaveBeenCalledWith('page:users:0');
-      expect(pm.deleteKey).toHaveBeenCalledWith('page:users:1');
-      expect(pm.deleteKey).toHaveBeenCalledWith('meta:users');
+      expect(pm.deleteTableData).toHaveBeenCalledWith('users');
     });
 
     it('DROP TABLE IF EXISTS — no-op when missing', async () => {

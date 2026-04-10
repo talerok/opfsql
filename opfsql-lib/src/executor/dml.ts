@@ -152,21 +152,32 @@ async function executeInsertValues(
   const colsPerRow = op.columns.length;
   const rowCount = op.expressions.length / colsPerRow;
 
-  for (let r = 0; r < rowCount; r++) {
-    const row: Row = {};
+  // Hoist allocations out of the hot loop
+  const emptyTuple: Tuple = [];
+  const emptyResolver = buildResolver([]);
+  const colNames = op.columns.map((i) => op.schema.columns[i].name);
+  const defaults: Row = {};
+  for (const col of op.schema.columns) {
+    defaults[col.name] = col.defaultValue;
+  }
+  const indexes = catalog ? catalog.getTableIndexes(op.tableName) : [];
 
-    for (const col of op.schema.columns) {
-      row[col.name] = col.defaultValue;
-    }
+  for (let r = 0; r < rowCount; r++) {
+    const row: Row = { ...defaults };
 
     for (let c = 0; c < colsPerRow; c++) {
       const expr = op.expressions[r * colsPerRow + c];
-      const val = await evaluateExpression(expr, [], buildResolver([]), ctx);
-      row[op.schema.columns[op.columns[c]].name] = val;
+      const val = await evaluateExpression(expr, emptyTuple, emptyResolver, ctx);
+      row[colNames[c]] = val;
     }
 
     const rowId = await rowManager.prepareInsert(op.tableName, row);
-    await maintainIndexesInsert(op.tableName, row, rowId, catalog, indexManager);
+    if (indexManager) {
+      for (const idx of indexes) {
+        const key = buildIndexKey(row, idx.columns);
+        await indexManager.insert(idx.name, key, rowId, idx.unique);
+      }
+    }
   }
 
   return { rows: [], rowsAffected: rowCount, catalogChanges: [] };

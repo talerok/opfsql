@@ -404,7 +404,7 @@ describe('DML without WHERE', () => {
 // ---------------------------------------------------------------------------
 
 describe('error handling', () => {
-  it('error in middle of transaction does not rollback previous statements', async () => {
+  it('error in middle of transaction aborts entire transaction (PostgreSQL-style)', async () => {
     await createEngine();
     await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)');
 
@@ -415,11 +415,36 @@ describe('error handling', () => {
       engine.execute('INSERT INTO nonexistent (id) VALUES (2)'),
     ).rejects.toThrow();
 
-    await engine.execute('COMMIT');
+    // Subsequent statements should fail
+    await expect(
+      engine.execute('INSERT INTO t (id) VALUES (3)'),
+    ).rejects.toThrow(/transaction is aborted/);
 
+    // COMMIT on aborted transaction → error
+    await expect(engine.execute('COMMIT')).rejects.toThrow(/ROLLBACK/);
+
+    // Everything rolled back
+    const [result] = await engine.execute('SELECT * FROM t');
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it('ROLLBACK after aborted transaction allows new work', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+
+    await engine.execute('BEGIN');
+    await engine.execute('INSERT INTO t (id) VALUES (1)');
+    await expect(
+      engine.execute('INSERT INTO nonexistent (id) VALUES (2)'),
+    ).rejects.toThrow();
+
+    await engine.execute('ROLLBACK');
+
+    // Can work again after ROLLBACK
+    await engine.execute('INSERT INTO t (id) VALUES (10)');
     const [result] = await engine.execute('SELECT * FROM t');
     expect(result.rows).toHaveLength(1);
-    expect(result.rows![0].id).toBe(1);
+    expect(result.rows![0].id).toBe(10);
   });
 
   it('error in autocommit rolls back only that statement', async () => {
@@ -434,5 +459,81 @@ describe('error handling', () => {
     const [result] = await engine.execute('SELECT * FROM t');
     expect(result.rows).toHaveLength(1);
     expect(result.rows![0].id).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto PK index
+// ---------------------------------------------------------------------------
+
+describe('auto PK index', () => {
+  it('PRIMARY KEY creates a unique index automatically', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)');
+    await engine.execute("INSERT INTO t VALUES (1, 'a')");
+    await engine.execute("INSERT INTO t VALUES (2, 'b')");
+    await engine.execute("INSERT INTO t VALUES (3, 'c')");
+
+    // Point lookup should use index (correct result is enough to prove it works)
+    const [result] = await engine.execute('SELECT name FROM t WHERE id = 2');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows![0].name).toBe('b');
+  });
+
+  it('PK index enforces uniqueness', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)');
+    await engine.execute("INSERT INTO t VALUES (1, 'a')");
+
+    await expect(
+      engine.execute("INSERT INTO t VALUES (1, 'dup')"),
+    ).rejects.toThrow();
+  });
+
+  it('PK index works with UPDATE and DELETE', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)');
+    await engine.execute("INSERT INTO t VALUES (1, 'a')");
+    await engine.execute("INSERT INTO t VALUES (2, 'b')");
+
+    // Delete removes index entry
+    await engine.execute('DELETE FROM t WHERE id = 1');
+
+    // Can reuse deleted PK value
+    await engine.execute("INSERT INTO t VALUES (1, 'reused')");
+    const [result] = await engine.execute('SELECT name FROM t WHERE id = 1');
+    expect(result.rows![0].name).toBe('reused');
+  });
+
+  it('PK index survives transaction rollback', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    await engine.execute('INSERT INTO t VALUES (1)');
+
+    await engine.execute('BEGIN');
+    await engine.execute('INSERT INTO t VALUES (2)');
+    await engine.execute('ROLLBACK');
+
+    // Only row 1 should exist, and PK uniqueness still enforced
+    const [result] = await engine.execute('SELECT * FROM t');
+    expect(result.rows).toHaveLength(1);
+
+    // id=2 should be insertable again (was rolled back)
+    await engine.execute('INSERT INTO t VALUES (2)');
+    const [result2] = await engine.execute('SELECT * FROM t WHERE id = 2');
+    expect(result2.rows).toHaveLength(1);
+  });
+
+  it('DROP TABLE cleans up PK index', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    await engine.execute('INSERT INTO t VALUES (1)');
+    await engine.execute('DROP TABLE t');
+
+    // Recreate same table — should work without index conflicts
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    await engine.execute('INSERT INTO t VALUES (1)');
+    const [result] = await engine.execute('SELECT * FROM t');
+    expect(result.rows).toHaveLength(1);
   });
 });

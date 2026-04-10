@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PageManager } from '../page-manager.js';
 import { MemoryStorage } from './memory-storage.js';
-import type { Page, PageMeta } from '../types.js';
 
 describe('PageManager', () => {
   let storage: MemoryStorage;
@@ -13,8 +12,8 @@ describe('PageManager', () => {
   });
 
   describe('read defaults', () => {
-    it('readPage returns null for missing page', async () => {
-      expect(await pm.readPage('t1', 0)).toBeNull();
+    it('readRow returns null for missing page', async () => {
+      expect(await pm.readRow('t1', { pageId: 0, slotId: 0 })).toBeNull();
     });
 
     it('getPageMeta returns defaults for missing table', async () => {
@@ -23,37 +22,11 @@ describe('PageManager', () => {
     });
   });
 
-  describe('key formatting', () => {
-    it('getPageKey pads pageId', () => {
-      expect(pm.getPageKey('t1', 0)).toBe('page:t1:000000');
-      expect(pm.getPageKey('t1', 42)).toBe('page:t1:000042');
-    });
-
-    it('getMetaKey', () => {
-      expect(pm.getMetaKey('t1')).toBe('meta:pages:t1');
-    });
-  });
-
-  describe('createEmptyPage', () => {
-    it('creates page with empty rows', () => {
-      const page = pm.createEmptyPage('t1', 3);
-      expect(page).toEqual({ pageId: 3, tableId: 't1', rows: [] });
-    });
-  });
-
-  describe('WAL — write then read', () => {
-    it('writePage → readPage returns from WAL', async () => {
-      const page: Page = { pageId: 0, tableId: 't1', rows: [] };
-      pm.writePage('t1', page);
-      const read = await pm.readPage('t1', 0);
-      expect(read).toBe(page); // same reference
-    });
-
-    it('writeMeta → getPageMeta returns from WAL', async () => {
-      const meta: PageMeta = { lastPageId: 2, totalRowCount: 10, deadRowCount: 1 };
-      pm.writeMeta('t1', meta);
-      const read = await pm.getPageMeta('t1');
-      expect(read).toBe(meta);
+  describe('KV operations (writeKey/readKey)', () => {
+    it('writeKey → readKey returns value from WAL', async () => {
+      pm.writeKey('custom:key', { data: 42 });
+      const val = await pm.readKey<{ data: number }>('custom:key');
+      expect(val).toEqual({ data: 42 });
     });
 
     it('writeKey → commit persists to storage', async () => {
@@ -73,22 +46,22 @@ describe('PageManager', () => {
 
   describe('commit', () => {
     it('flushes WAL to storage', async () => {
-      const page: Page = { pageId: 0, tableId: 't1', rows: [] };
-      const meta: PageMeta = { lastPageId: 0, totalRowCount: 0, deadRowCount: 0 };
-      pm.writePage('t1', page);
-      pm.writeMeta('t1', meta);
+      await pm.prepareInsert('t1', { id: 1 });
       await pm.commit();
 
-      expect(await storage.get('page:t1:000000')).toEqual(page);
-      expect(await storage.get('meta:pages:t1')).toEqual(meta);
+      // Verify data is in storage
+      const page = await storage.get<any>('page:t1:000000');
+      expect(page).not.toBeNull();
+      expect(page.rows).toHaveLength(1);
     });
 
-    it('clears WAL after commit', async () => {
-      pm.writeKey('k', 'v');
+    it('data survives in cache after commit', async () => {
+      await pm.prepareInsert('t1', { id: 1 });
       await pm.commit();
-      // After commit, WAL is empty — next read goes to storage
-      await storage.delete('k');
-      expect(await storage.get('k')).toBeNull();
+
+      // Read from cache (not storage)
+      const row = await pm.readRow('t1', { pageId: 0, slotId: 0 });
+      expect(row).toEqual({ id: 1 });
     });
 
     it('noop when WAL is empty', async () => {
@@ -97,19 +70,21 @@ describe('PageManager', () => {
   });
 
   describe('rollback', () => {
-    it('discards WAL changes', async () => {
-      pm.writePage('t1', { pageId: 0, tableId: 't1', rows: [] });
+    it('discards uncommitted data', async () => {
+      await pm.prepareInsert('t1', { id: 1 });
       pm.rollback();
-      expect(await pm.readPage('t1', 0)).toBeNull();
+      expect(await pm.readRow('t1', { pageId: 0, slotId: 0 })).toBeNull();
     });
 
-    it('does not affect committed data', async () => {
-      const page: Page = { pageId: 0, tableId: 't1', rows: [] };
-      await storage.put('page:t1:000000', page);
-      pm.writePage('t1', { ...page, rows: [{ slotId: 0, deleted: false, data: { id: 1 } }] });
+    it('does not affect committed data in cache', async () => {
+      await pm.prepareInsert('t1', { id: 1 });
+      await pm.commit();
+
+      await pm.prepareInsert('t1', { id: 2 });
       pm.rollback();
-      const read = await pm.readPage('t1', 0);
-      expect(read!.rows).toHaveLength(0);
+
+      // First row still accessible from cache
+      expect(await pm.readRow('t1', { pageId: 0, slotId: 0 })).toEqual({ id: 1 });
     });
   });
 
@@ -120,6 +95,60 @@ describe('PageManager', () => {
       await storage.put('page:t2:000000', {});
       const keys = await pm.getAllPageKeys('t1');
       expect(keys).toEqual(['page:t1:000000', 'page:t1:000001']);
+    });
+  });
+
+  describe('deleteTableData', () => {
+    it('removes all pages and meta for a table', async () => {
+      await pm.prepareInsert('t1', { id: 1 });
+      await pm.prepareInsert('t1', { id: 2 });
+      await pm.commit();
+
+      await pm.deleteTableData('t1');
+      await pm.commit();
+
+      // Fresh PM reads from storage
+      const pm2 = new PageManager(storage);
+      const meta = await pm2.getPageMeta('t1');
+      expect(meta.lastPageId).toBe(-1);
+    });
+  });
+
+  describe('getAllKeys', () => {
+    it('merges WAL and storage keys', async () => {
+      await storage.put('idx:test:a', 'val');
+      pm.writeKey('idx:test:b', 'val');
+      const keys = await pm.getAllKeys('idx:test:');
+      expect(keys).toEqual(['idx:test:a', 'idx:test:b']);
+    });
+
+    it('WAL deletes remove storage keys', async () => {
+      await storage.put('idx:test:a', 'val');
+      pm.deleteKey('idx:test:a');
+      const keys = await pm.getAllKeys('idx:test:');
+      expect(keys).toEqual([]);
+    });
+  });
+
+  describe('buffer pool', () => {
+    it('readKey caches storage reads', async () => {
+      await storage.put('some:key', { data: 1 });
+      const val1 = await pm.readKey<{ data: number }>('some:key');
+      expect(val1).toEqual({ data: 1 });
+
+      // Delete from storage — should still be in cache
+      await storage.delete('some:key');
+      const val2 = await pm.readKey<{ data: number }>('some:key');
+      expect(val2).toEqual({ data: 1 });
+    });
+
+    it('commit promotes WAL to cache', async () => {
+      pm.writeKey('k', 'v');
+      await pm.commit();
+
+      // Delete from storage — cache should serve it
+      await storage.delete('k');
+      expect(await pm.readKey<string>('k')).toBe('v');
     });
   });
 });

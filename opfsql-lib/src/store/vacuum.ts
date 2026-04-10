@@ -1,4 +1,4 @@
-import type { IPageManager, ICatalog, IVacuum, PageMeta, PageRow, RowId } from './types.js';
+import type { IPageManager, ICatalog, IVacuum, PageRow, RowId } from './types.js';
 import { PAGE_SIZE } from './types.js';
 import type { IIndexManager } from './index-manager.js';
 import type { IndexKey } from './btree/types.js';
@@ -19,44 +19,8 @@ export class Vacuum implements IVacuum {
   }
 
   async vacuumTable(tableId: string): Promise<void> {
-    const meta = await this.pm.getPageMeta(tableId);
-    const oldKeys = await this.pm.getAllPageKeys(tableId);
-
-    const liveRows: PageRow[] = [];
-    for (let pid = 0; pid <= meta.lastPageId; pid++) {
-      const page = await this.pm.readPage(tableId, pid);
-      if (!page) continue;
-      for (const pr of page.rows) {
-        if (!pr.deleted) liveRows.push(pr);
-      }
-    }
-
-    // All writes go through WAL — atomic commit at the end.
-
-    // Delete all old page keys
-    for (const key of oldKeys) {
-      this.pm.deleteKey(key);
-    }
-
-    // Write new compacted pages
-    let pageId = 0;
-    for (let i = 0; i < liveRows.length; i += PAGE_SIZE) {
-      const chunk = liveRows.slice(i, i + PAGE_SIZE);
-      const rows = chunk.map((pr, slotId) => ({
-        slotId,
-        deleted: false,
-        data: pr.data,
-      }));
-      this.pm.writePage(tableId, { pageId, tableId, rows });
-      pageId++;
-    }
-
-    const newMeta: PageMeta = {
-      lastPageId: liveRows.length === 0 ? -1 : pageId - 1,
-      totalRowCount: liveRows.length,
-      deadRowCount: 0,
-    };
-    this.pm.writeMeta(tableId, newMeta);
+    // Compact pages (writes through WAL)
+    const liveRows = await this.pm.compactTable(tableId);
 
     // Rebuild indexes (also writes through WAL)
     await this.rebuildIndexes(tableId, liveRows);

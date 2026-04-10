@@ -5,7 +5,7 @@ import type {
   BoundAggregateExpression,
   LogicalProjection,
 } from '../binder/types.js';
-import type { ICatalog, IRowManager, IPageManager, Row } from '../store/types.js';
+import type { ICatalog, IPageManager, Row } from '../store/types.js';
 import type { IIndexManager } from '../store/index-manager.js';
 import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
 import type { EvalContext } from './evaluate/context.js';
@@ -26,22 +26,21 @@ import { ExecutorError } from './errors.js';
 
 export async function execute(
   plan: LogicalOperator,
-  rowManager: IRowManager,
   pageManager: IPageManager,
   catalog: ICatalog,
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   // Build eval context for subquery support
   const ctx: EvalContext = {
-    executeSubplan: (subplan) => executeSubplan(subplan, rowManager, pageManager, catalog),
+    executeSubplan: (subplan) => executeSubplan(subplan, pageManager, catalog),
   };
 
   switch (plan.type) {
     // DDL
     case LogicalOperatorType.LOGICAL_CREATE_TABLE:
-      return executeCreateTable(plan, catalog);
+      return executeCreateTable(plan, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_CREATE_INDEX:
-      return executeCreateIndex(plan, catalog, rowManager, indexManager!);
+      return executeCreateIndex(plan, catalog, pageManager, indexManager!);
     case LogicalOperatorType.LOGICAL_ALTER_TABLE:
       return executeAlterTable(plan, catalog);
     case LogicalOperatorType.LOGICAL_DROP:
@@ -49,15 +48,15 @@ export async function execute(
 
     // DML
     case LogicalOperatorType.LOGICAL_INSERT:
-      return executeInsert(plan, rowManager, ctx, catalog, indexManager);
+      return executeInsert(plan, pageManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_UPDATE:
-      return executeUpdate(plan, rowManager, ctx, catalog, indexManager);
+      return executeUpdate(plan, pageManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_DELETE:
-      return executeDelete(plan, rowManager, ctx, catalog, indexManager);
+      return executeDelete(plan, pageManager, ctx, catalog, indexManager);
 
     // SELECT (physical pipeline)
     default:
-      return executeSelect(plan, rowManager, catalog, ctx, indexManager);
+      return executeSelect(plan, pageManager, catalog, ctx, indexManager);
   }
 }
 
@@ -67,13 +66,13 @@ export async function execute(
 
 async function executeSelect(
   plan: LogicalOperator,
-  rowManager: IRowManager,
+  pageManager: IPageManager,
   _catalog: ICatalog,
   ctx: EvalContext,
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const cteCache = new Map<number, CTECacheEntry>();
-  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx, indexManager);
+  const physical = createPhysicalPlan(plan, pageManager, cteCache, ctx, indexManager);
   const tuples = await drainOperator(physical);
   const columnNames = extractColumnNames(plan);
   const rows = tuplesToRows(tuples, columnNames);
@@ -91,15 +90,14 @@ async function executeSelect(
 
 async function executeSubplan(
   plan: LogicalOperator,
-  rowManager: IRowManager,
   pageManager: IPageManager,
   catalog: ICatalog,
 ): Promise<Tuple[]> {
   const ctx: EvalContext = {
-    executeSubplan: (sub) => executeSubplan(sub, rowManager, pageManager, catalog),
+    executeSubplan: (sub) => executeSubplan(sub, pageManager, catalog),
   };
   const cteCache = new Map<number, CTECacheEntry>();
-  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx);
+  const physical = createPhysicalPlan(plan, pageManager, cteCache, ctx);
   return drainOperator(physical);
 }
 

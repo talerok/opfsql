@@ -95,34 +95,35 @@ export interface ICatalog {
 }
 
 export interface IPageManager {
-  readPage(tableId: string, pageId: number): Promise<Page | null>;
-  getPageMeta(tableId: string): Promise<PageMeta>;
-  createEmptyPage(tableId: string, pageId: number): Page;
-  getPageKey(tableId: string, pageId: number): string;
-  getMetaKey(tableId: string): string;
-  getAllPageKeys(tableId: string): Promise<string[]>;
-  /** Read an arbitrary key from WAL-then-storage. Used by B-tree index nodes. */
-  readKey<T>(key: string): Promise<T | null>;
-  /** Get all keys matching a prefix (union of WAL + storage). */
-  getAllKeys(prefix: string): Promise<string[]>;
-  writePage(tableId: string, page: Page): void;
-  writeMeta(tableId: string, meta: PageMeta): void;
-  writeKey(key: string, value: unknown): void;
-  deleteKey(key: string): void;
-  checkpoint(): void;
-  restoreCheckpoint(): void;
-  commit(): Promise<void>;
-  rollback(): void;
-}
-
-export interface IRowManager {
+  // Row operations
   prepareInsert(tableId: string, row: Row): Promise<RowId>;
   prepareUpdate(tableId: string, rowId: RowId, row: Row): Promise<RowId>;
   prepareDelete(tableId: string, rowId: RowId): Promise<void>;
   scanTable(tableId: string): AsyncGenerator<{ rowId: RowId; row: Row }>;
-  /** Read a single row by RowId. Returns null if page/slot missing or deleted. */
   readRow(tableId: string, rowId: RowId): Promise<Row | null>;
+
+  // Page metadata & compaction
+  getPageMeta(tableId: string): Promise<PageMeta>;
+  getAllPageKeys(tableId: string): Promise<string[]>;
+  compactTable(tableId: string): Promise<PageRow[]>;
+  deleteTableData(tableId: string): Promise<void>;
+
+  // KV operations (used by B-tree index nodes)
+  readKey<T>(key: string): Promise<T | null>;
+  getAllKeys(prefix: string): Promise<string[]>;
+  writeKey(key: string, value: unknown): void;
+  deleteKey(key: string): void;
+
+  // Transaction control
+  commit(): Promise<void>;
+  rollback(): void;
 }
+
+/** Subset of IPageManager used by executor / physical operators. */
+export type IRowManager = Pick<
+  IPageManager,
+  'prepareInsert' | 'prepareUpdate' | 'prepareDelete' | 'scanTable' | 'readRow'
+>;
 
 export interface IVacuum {
   shouldVacuum(tableId: string): Promise<boolean>;

@@ -13,6 +13,7 @@ import {
 import type { CatalogData, IStorage, Row } from '../store/types.js';
 import type { CatalogChange } from '../executor/types.js';
 
+
 // ---------------------------------------------------------------------------
 // Result type returned to the caller
 // ---------------------------------------------------------------------------
@@ -45,6 +46,7 @@ export class Engine {
   private parser: Parser;
 
   private inTransaction = false;
+  private transactionAborted = false;
   private catalogSnapshot: CatalogData | null = null;
 
   private constructor(storage: Storage) {
@@ -91,15 +93,18 @@ export class Engine {
       return this.executeTCL(stmt as TransactionStatement);
     }
 
-    const autocommit = !this.inTransaction;
-    const stmtCatalogSnapshot = this.catalog.serialize();
-
-    if (autocommit) {
-      this.catalogSnapshot = stmtCatalogSnapshot;
+    // PostgreSQL-style: once a transaction is aborted, reject everything
+    // until ROLLBACK.
+    if (this.transactionAborted) {
+      throw new EngineError(
+        'current transaction is aborted, commands ignored until end of transaction block',
+      );
     }
 
-    if (!autocommit) {
-      this.storage.pageManager.checkpoint();
+    const autocommit = !this.inTransaction;
+
+    if (autocommit) {
+      this.catalogSnapshot = this.catalog.serialize();
     }
 
     try {
@@ -114,14 +119,20 @@ export class Engine {
       return result;
     } catch (err) {
       if (autocommit) {
+        // Single-statement: rollback WAL and catalog
         this.storage.pageManager.rollback();
+        this.catalog = Catalog.deserialize(this.catalogSnapshot!);
+        this.binder = new Binder(this.catalog);
         this.catalogSnapshot = null;
       } else {
-        this.storage.pageManager.restoreCheckpoint();
+        // Inside explicit transaction: abort, rollback entire WAL + catalog
+        this.transactionAborted = true;
+        this.storage.pageManager.rollback();
+        if (this.catalogSnapshot) {
+          this.catalog = Catalog.deserialize(this.catalogSnapshot);
+          this.binder = new Binder(this.catalog);
+        }
       }
-
-      this.catalog = Catalog.deserialize(stmtCatalogSnapshot);
-      this.binder = new Binder(this.catalog);
 
       throw err;
     }
@@ -147,6 +158,15 @@ export class Engine {
         if (!this.inTransaction) {
           return ok;
         }
+        if (this.transactionAborted) {
+          // PostgreSQL-style: COMMIT on aborted transaction → ROLLBACK
+          this.catalogSnapshot = null;
+          this.inTransaction = false;
+          this.transactionAborted = false;
+          throw new EngineError(
+            'current transaction is aborted, COMMIT treated as ROLLBACK',
+          );
+        }
         this.writeCatalog();
         await this.storage.pageManager.commit();
         this.catalogSnapshot = null;
@@ -157,13 +177,18 @@ export class Engine {
         if (!this.inTransaction) {
           return ok;
         }
-        this.storage.pageManager.rollback();
-        if (this.catalogSnapshot) {
-          this.catalog = Catalog.deserialize(this.catalogSnapshot);
-          this.binder = new Binder(this.catalog);
-          this.catalogSnapshot = null;
+        // If not already aborted (error path already did rollback),
+        // rollback now for explicit user ROLLBACK.
+        if (!this.transactionAborted) {
+          this.storage.pageManager.rollback();
+          if (this.catalogSnapshot) {
+            this.catalog = Catalog.deserialize(this.catalogSnapshot);
+            this.binder = new Binder(this.catalog);
+          }
         }
+        this.catalogSnapshot = null;
         this.inTransaction = false;
+        this.transactionAborted = false;
         return ok;
     }
   }
@@ -181,7 +206,6 @@ export class Engine {
     const optimized = optimize(bound, this.catalog);
     const result = await execute(
       optimized,
-      this.storage.rowManager,
       this.storage.pageManager,
       this.catalog,
       this.storage.indexManager,

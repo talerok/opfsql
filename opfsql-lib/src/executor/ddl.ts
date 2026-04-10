@@ -17,19 +17,34 @@ const EMPTY: ExecuteResult = {
   catalogChanges: [],
 };
 
-export function executeCreateTable(
+export async function executeCreateTable(
   op: LogicalCreateTable,
   catalog: ICatalog,
-): ExecuteResult {
+  indexManager?: IIndexManager,
+): Promise<ExecuteResult> {
   if (catalog.hasTable(op.schema.name)) {
     if (op.ifNotExists) return { ...EMPTY };
     throw new ExecutorError(`Table "${op.schema.name}" already exists`);
   }
 
-  return {
-    ...EMPTY,
-    catalogChanges: [{ type: 'CREATE_TABLE', schema: op.schema }],
-  };
+  const changes: ExecuteResult['catalogChanges'] = [
+    { type: 'CREATE_TABLE', schema: op.schema },
+  ];
+
+  // Auto-create unique index for PRIMARY KEY columns
+  const pkColumns = op.schema.columns.filter((c) => c.primaryKey);
+  if (pkColumns.length > 0 && indexManager) {
+    const indexDef = {
+      name: `__pk_${op.schema.name}`,
+      tableName: op.schema.name,
+      columns: pkColumns.map((c) => c.name),
+      unique: true,
+    };
+    await indexManager.bulkLoad(indexDef.name, [], true);
+    changes.push({ type: 'CREATE_INDEX', index: indexDef });
+  }
+
+  return { ...EMPTY, catalogChanges: changes };
 }
 
 export async function executeCreateIndex(
@@ -121,14 +136,8 @@ async function executeDropTable(
     throw new ExecutorError(`Table "${op.name}" not found`);
   }
 
-  // Delete table data pages
-  const pageKeys = await pageManager.getAllPageKeys(op.name);
-  const metaKey = pageManager.getMetaKey(op.name);
-
-  for (const key of pageKeys) {
-    pageManager.deleteKey(key);
-  }
-  pageManager.deleteKey(metaKey);
+  // Delete table data pages + meta
+  await pageManager.deleteTableData(op.name);
 
   // Delete B-tree data for all table indexes
   const indexes = catalog.getTableIndexes(op.name);
