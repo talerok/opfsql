@@ -111,7 +111,7 @@ COMMIT
 statement ok
 ROLLBACK
 
-# --- Error in middle of transaction does not rollback previous statements ---
+# --- Error in middle of transaction aborts entire transaction (PostgreSQL-style) ---
 
 statement ok
 CREATE TABLE t (id INTEGER PRIMARY KEY)
@@ -125,13 +125,43 @@ INSERT INTO t (id) VALUES (1)
 statement error
 INSERT INTO nonexistent (id) VALUES (2)
 
-statement ok
+# All subsequent statements (except ROLLBACK) should fail
+statement error
+INSERT INTO t (id) VALUES (3)
+
+# COMMIT on aborted transaction is treated as ROLLBACK
+statement error
 COMMIT
 
+# Table should be empty — entire transaction was rolled back
 query I nosort
 SELECT * FROM t
 ----
-1
 
 statement ok
 DROP TABLE t
+
+# --- ROLLBACK clears aborted state ---
+
+statement ok
+CREATE TABLE t2 (id INTEGER PRIMARY KEY)
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO t2 (id) VALUES (1)
+
+statement error
+INSERT INTO nonexistent (id) VALUES (2)
+
+statement ok
+ROLLBACK
+
+# Table should be empty — transaction was rolled back
+query I nosort
+SELECT * FROM t2
+----
+
+statement ok
+DROP TABLE t2

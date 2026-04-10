@@ -1,4 +1,4 @@
-import type { LogicalOperator } from '../binder/types.js';
+import { type LogicalOperator, LogicalOperatorType } from '../binder/types.js';
 import type { ICatalog } from '../store/types.js';
 import { rewriteExpressions } from './expression_rewriter.js';
 import { pullupFilters } from './filter_pullup.js';
@@ -27,10 +27,22 @@ import { selectIndexes } from './index_selection.js';
 // 10. Index selection (annotate LogicalGet with IndexHint)
 // ============================================================================
 
+const SKIP_OPTIMIZE = new Set([
+  LogicalOperatorType.LOGICAL_INSERT,
+  LogicalOperatorType.LOGICAL_UPDATE,
+  LogicalOperatorType.LOGICAL_DELETE,
+  LogicalOperatorType.LOGICAL_CREATE_TABLE,
+  LogicalOperatorType.LOGICAL_CREATE_INDEX,
+  LogicalOperatorType.LOGICAL_ALTER_TABLE,
+  LogicalOperatorType.LOGICAL_DROP,
+]);
+
 export function optimize(
   plan: LogicalOperator,
   catalog?: ICatalog,
 ): LogicalOperator {
+  if (SKIP_OPTIMIZE.has(plan.type)) return plan;
+
   let result = plan;
 
   // Phase 1: Expression simplification

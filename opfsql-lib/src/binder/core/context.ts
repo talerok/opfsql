@@ -12,6 +12,7 @@ export interface BindContext {
 export interface AggregateContext {
   aggregates: BoundAggregateExpression[];
   groups: BoundExpression[];
+  groupIndex: number;
 }
 
 export function createBindContext(catalog: ICatalog): BindContext {

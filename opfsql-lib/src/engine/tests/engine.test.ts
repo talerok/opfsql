@@ -537,3 +537,83 @@ describe('auto PK index', () => {
     expect(result.rows).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GROUP BY + aggregates
+// ---------------------------------------------------------------------------
+
+describe('GROUP BY + aggregates', () => {
+  it('GROUP BY with COUNT(*)', async () => {
+    await createEngine();
+    await engine.execute(
+      'CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, category TEXT)',
+    );
+    await engine.execute("INSERT INTO products VALUES (1, 'A', 10.0, 'Books')");
+    await engine.execute("INSERT INTO products VALUES (2, 'B', 20.0, 'Books')");
+    await engine.execute("INSERT INTO products VALUES (3, 'C', 30.0, 'Toys')");
+
+    const [result] = await engine.execute(
+      'SELECT category, COUNT(*) AS cnt FROM products GROUP BY category',
+    );
+    expect(result.rows).toHaveLength(2);
+    const sorted = result.rows!.sort((a: any, b: any) =>
+      a.category.localeCompare(b.category),
+    );
+    expect(sorted[0]).toEqual({ category: 'Books', cnt: 2 });
+    expect(sorted[1]).toEqual({ category: 'Toys', cnt: 1 });
+  });
+
+  it('GROUP BY with COUNT + AVG', async () => {
+    await createEngine();
+    await engine.execute(
+      'CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, category TEXT)',
+    );
+    await engine.execute("INSERT INTO products VALUES (1, 'A', 10.0, 'Books')");
+    await engine.execute("INSERT INTO products VALUES (2, 'B', 20.0, 'Books')");
+    await engine.execute("INSERT INTO products VALUES (3, 'C', 30.0, 'Toys')");
+
+    const [result] = await engine.execute(
+      'SELECT category, COUNT(*) AS cnt, AVG(price) AS avg_price FROM products GROUP BY category',
+    );
+    expect(result.rows).toHaveLength(2);
+    const sorted = result.rows!.sort((a: any, b: any) =>
+      a.category.localeCompare(b.category),
+    );
+    expect(sorted[0].category).toBe('Books');
+    expect(sorted[0].cnt).toBe(2);
+    expect(sorted[0].avg_price).toBe(15.0);
+    expect(sorted[1].category).toBe('Toys');
+    expect(sorted[1].cnt).toBe(1);
+    expect(sorted[1].avg_price).toBe(30.0);
+  });
+
+  it('aggregate without GROUP BY', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)');
+    await engine.execute('INSERT INTO t VALUES (1, 10)');
+    await engine.execute('INSERT INTO t VALUES (2, 20)');
+    await engine.execute('INSERT INTO t VALUES (3, 30)');
+
+    const [result] = await engine.execute(
+      'SELECT COUNT(*) AS cnt, SUM(val) AS total, AVG(val) AS avg_val FROM t',
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows![0]).toEqual({ cnt: 3, total: 60, avg_val: 20 });
+  });
+
+  it('GROUP BY with HAVING', async () => {
+    await createEngine();
+    await engine.execute(
+      'CREATE TABLE products (id INTEGER PRIMARY KEY, category TEXT, price REAL)',
+    );
+    await engine.execute("INSERT INTO products VALUES (1, 'Books', 10.0)");
+    await engine.execute("INSERT INTO products VALUES (2, 'Books', 20.0)");
+    await engine.execute("INSERT INTO products VALUES (3, 'Toys', 30.0)");
+
+    const [result] = await engine.execute(
+      'SELECT category, COUNT(*) AS cnt FROM products GROUP BY category HAVING COUNT(*) > 1',
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows![0]).toEqual({ category: 'Books', cnt: 2 });
+  });
+});

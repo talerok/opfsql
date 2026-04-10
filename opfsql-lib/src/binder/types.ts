@@ -136,6 +136,7 @@ export interface BoundAggregateExpression {
   distinct: boolean;
   isStar: boolean;
   aggregateIndex: number;
+  binding?: ColumnBinding;
   returnType: LogicalType;
 }
 

@@ -604,6 +604,56 @@ describe('Aggregates', () => {
     expect(agg.expressions[0].distinct).toBe(true);
     expect(agg.expressions[0].functionName).toBe('COUNT');
   });
+
+  it('GROUP BY rewrites column bindings to groupIndex', () => {
+    const plan = bind(
+      'SELECT name, COUNT(*) FROM users GROUP BY name',
+    );
+    const proj = plan as LogicalProjection;
+    const agg = proj.children[0] as LogicalAggregate;
+
+    // Projection's first expression (name) should reference groupIndex, not scan tableIndex
+    const nameRef = proj.expressions[0] as BoundColumnRefExpression;
+    expect(nameRef.binding.tableIndex).toBe(agg.groupIndex);
+    expect(nameRef.binding.columnIndex).toBe(0);
+  });
+
+  it('GROUP BY with multiple groups rewrites all bindings', () => {
+    const plan = bind(
+      'SELECT name, age, COUNT(*) FROM users GROUP BY name, age',
+    );
+    const proj = plan as LogicalProjection;
+    const agg = proj.children[0] as LogicalAggregate;
+
+    const nameRef = proj.expressions[0] as BoundColumnRefExpression;
+    expect(nameRef.binding.tableIndex).toBe(agg.groupIndex);
+    expect(nameRef.binding.columnIndex).toBe(0);
+
+    const ageRef = proj.expressions[1] as BoundColumnRefExpression;
+    expect(ageRef.binding.tableIndex).toBe(agg.groupIndex);
+    expect(ageRef.binding.columnIndex).toBe(1);
+  });
+
+  it('GROUP BY with multiple aggregates binds correctly', () => {
+    const plan = bind(
+      'SELECT name, COUNT(*), AVG(age) FROM users GROUP BY name',
+    );
+    const proj = plan as LogicalProjection;
+    const agg = proj.children[0] as LogicalAggregate;
+
+    expect(agg.groups).toHaveLength(1);
+    expect(agg.expressions).toHaveLength(2);
+
+    const nameRef = proj.expressions[0] as BoundColumnRefExpression;
+    expect(nameRef.binding.tableIndex).toBe(agg.groupIndex);
+    expect(nameRef.binding.columnIndex).toBe(0);
+
+    const countRef = proj.expressions[1] as BoundAggregateExpression;
+    expect(countRef.functionName).toBe('COUNT');
+
+    const avgRef = proj.expressions[2] as BoundAggregateExpression;
+    expect(avgRef.functionName).toBe('AVG');
+  });
 });
 
 // ============================================================================

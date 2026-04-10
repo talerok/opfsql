@@ -221,3 +221,57 @@ query IT nosort
 SELECT * FROM empty_t WHERE val = 'hello'
 ----
 1|hello
+
+# ============================================================================
+# Auto PRIMARY KEY index
+# ============================================================================
+
+statement ok
+CREATE TABLE pk_test (id INTEGER PRIMARY KEY, name TEXT)
+
+statement ok
+INSERT INTO pk_test VALUES (1, 'Alice')
+
+statement ok
+INSERT INTO pk_test VALUES (2, 'Bob')
+
+statement ok
+INSERT INTO pk_test VALUES (3, 'Charlie')
+
+# Point lookup uses PK index
+query IT nosort
+SELECT * FROM pk_test WHERE id = 2
+----
+2|Bob
+
+# PK uniqueness is enforced
+statement error
+INSERT INTO pk_test VALUES (2, 'Duplicate')
+
+# Range query on PK
+query IT rowsort
+SELECT * FROM pk_test WHERE id >= 2
+----
+2|Bob
+3|Charlie
+
+# DELETE clears PK index entry — can reuse value
+statement ok
+DELETE FROM pk_test WHERE id = 1
+
+statement ok
+INSERT INTO pk_test VALUES (1, 'Reused')
+
+query IT nosort
+SELECT * FROM pk_test WHERE id = 1
+----
+1|Reused
+
+# UPDATE maintains PK index
+statement ok
+UPDATE pk_test SET name = 'Updated' WHERE id = 3
+
+query IT nosort
+SELECT * FROM pk_test WHERE id = 3
+----
+3|Updated

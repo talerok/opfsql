@@ -1,4 +1,4 @@
-import type { BoundExpression } from '../../binder/types.js';
+import type { BoundExpression, BoundAggregateExpression } from '../../binder/types.js';
 import { BoundExpressionClass } from '../../binder/types.js';
 import type { Value, Tuple } from '../types.js';
 import type { Resolver } from '../resolve.js';
@@ -40,10 +40,13 @@ export async function evaluateExpression(
       return evalBetween(expr, tuple, resolver, ctx);
     case BoundExpressionClass.BOUND_FUNCTION:
       return evalFunction(expr, tuple, resolver, ctx);
-    case BoundExpressionClass.BOUND_AGGREGATE:
+    case BoundExpressionClass.BOUND_AGGREGATE: {
       // Aggregates are pre-computed by PhysicalHashAggregate,
-      // referenced via column binding in the output tuple
-      return evalColumnRef(expr as unknown as BoundExpression, tuple, resolver);
+      // referenced via binding set by the binder
+      const agg = expr as BoundAggregateExpression;
+      const pos = resolver(agg.binding!);
+      return tuple[pos] ?? null;
+    }
     case BoundExpressionClass.BOUND_SUBQUERY:
       return evalSubquery(expr, tuple, resolver, ctx);
     case BoundExpressionClass.BOUND_CASE:

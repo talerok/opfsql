@@ -1,0 +1,97 @@
+# aggregate.slt — GROUP BY and aggregate functions
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, category TEXT)
+
+statement ok
+INSERT INTO products VALUES (1, 'Widget A', 10.0, 'Electronics')
+
+statement ok
+INSERT INTO products VALUES (2, 'Widget B', 20.0, 'Electronics')
+
+statement ok
+INSERT INTO products VALUES (3, 'Book A', 15.0, 'Books')
+
+statement ok
+INSERT INTO products VALUES (4, 'Book B', 25.0, 'Books')
+
+statement ok
+INSERT INTO products VALUES (5, 'Toy A', 30.0, 'Toys')
+
+# ============================================================================
+# GROUP BY + COUNT
+# ============================================================================
+
+query TI rowsort
+SELECT category, COUNT(*) AS cnt FROM products GROUP BY category
+----
+Books|2
+Electronics|2
+Toys|1
+
+# ============================================================================
+# GROUP BY + COUNT + AVG (the benchmark query)
+# ============================================================================
+
+query TIR rowsort
+SELECT category, COUNT(*) AS cnt, AVG(price) AS avg_price FROM products GROUP BY category
+----
+Books|2|20
+Electronics|2|15
+Toys|1|30
+
+# ============================================================================
+# GROUP BY + SUM
+# ============================================================================
+
+query TR rowsort
+SELECT category, SUM(price) AS total FROM products GROUP BY category
+----
+Books|40
+Electronics|30
+Toys|30
+
+# ============================================================================
+# GROUP BY + MIN/MAX
+# ============================================================================
+
+query TRR rowsort
+SELECT category, MIN(price) AS lo, MAX(price) AS hi FROM products GROUP BY category
+----
+Books|15|25
+Electronics|10|20
+Toys|30|30
+
+# ============================================================================
+# Aggregate without GROUP BY
+# ============================================================================
+
+query IRR nosort
+SELECT COUNT(*) AS cnt, SUM(price) AS total, AVG(price) AS avg_price FROM products
+----
+5|100|20
+
+# ============================================================================
+# HAVING
+# ============================================================================
+
+query TI rowsort
+SELECT category, COUNT(*) AS cnt FROM products GROUP BY category HAVING COUNT(*) > 1
+----
+Books|2
+Electronics|2
+
+# ============================================================================
+# GROUP BY with WHERE
+# ============================================================================
+
+query TI rowsort
+SELECT category, COUNT(*) AS cnt FROM products WHERE price > 12.0 GROUP BY category
+----
+Books|2
+Electronics|1
+Toys|1

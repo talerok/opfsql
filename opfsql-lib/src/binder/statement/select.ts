@@ -39,6 +39,7 @@ export function bindSelect(
   let aggregates: BT.BoundAggregateExpression[] = [];
   let havingBound: BT.BoundExpression | null = null;
   let groups: BT.BoundExpression[] = [];
+  let groupIndex = -1;
 
   if (hasGroupBy || hasAggregates) {
     for (const g of node.groups.group_expressions) {
@@ -57,19 +58,20 @@ export function bindSelect(
       }
     }
 
+    groupIndex = ctx.nextTableIndex();
+    const aggregateIndex = ctx.nextTableIndex();
+
     for (let i = 0; i < aggregates.length; i++) {
       aggregates[i].aggregateIndex = i;
+      aggregates[i].binding = { tableIndex: aggregateIndex, columnIndex: i };
     }
-
-    const groupIndex = ctx.nextTableIndex();
-    const aggregateIndex = ctx.nextTableIndex();
 
     const aggTypes: LogicalType[] = [
       ...groups.map((g) => g.returnType),
       ...aggregates.map((a) => a.returnType),
     ];
 
-    const aggCtx: AggregateContext = { aggregates, groups };
+    const aggCtx: AggregateContext = { aggregates, groups, groupIndex };
     havingBound = node.having
       ? bindExpression(ctx, node.having, scope, aggCtx)
       : null;
@@ -94,7 +96,7 @@ export function bindSelect(
   }
 
   const aggCtx: AggregateContext | undefined =
-    (hasGroupBy || hasAggregates) ? { aggregates, groups } : undefined;
+    (hasGroupBy || hasAggregates) ? { aggregates, groups, groupIndex } : undefined;
 
   const boundSelectList: BT.BoundExpression[] = [];
   const selectAliases: (string | null)[] = [];

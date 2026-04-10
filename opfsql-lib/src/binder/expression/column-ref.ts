@@ -15,11 +15,17 @@ export function bindColumnRef(
     : scope.resolveColumn(expr.column_names[0]);
 
   if (aggCtx && (aggCtx.groups.length > 0 || aggCtx.aggregates.length > 0)) {
-    if (!aggCtx.groups.some((g) => sameExpression(g, resolved))) {
+    const groupIdx = aggCtx.groups.findIndex((g) => sameExpression(g, resolved));
+    if (groupIdx === -1) {
       throw new BindError(
         `Column "${resolved.columnName}" must appear in the GROUP BY clause or be used in an aggregate function`,
       );
     }
+    // Rewrite binding to point at the aggregate node's group output
+    return {
+      ...resolved,
+      binding: { tableIndex: aggCtx.groupIndex, columnIndex: groupIdx },
+    };
   }
 
   return resolved;

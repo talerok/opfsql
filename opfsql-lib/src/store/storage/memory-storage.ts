@@ -1,9 +1,5 @@
 import type { IStorage } from '../types.js';
 
-/**
- * Test-only MemoryStorage that uses structuredClone to mimic real storage
- * (no shared references between stored and returned values).
- */
 export class MemoryStorage implements IStorage {
   private data = new Map<string, unknown>();
 
@@ -12,12 +8,11 @@ export class MemoryStorage implements IStorage {
 
   async get<T>(key: string): Promise<T | null> {
     const val = this.data.get(key);
-    if (val === undefined) return null;
-    return structuredClone(val) as T;
+    return val === undefined ? null : (val as T);
   }
 
   async put(key: string, value: unknown): Promise<void> {
-    this.data.set(key, structuredClone(value));
+    this.data.set(key, value);
   }
 
   async delete(key: string): Promise<void> {
@@ -29,7 +24,7 @@ export class MemoryStorage implements IStorage {
       if (value === null) {
         this.data.delete(key);
       } else {
-        this.data.set(key, structuredClone(value));
+        this.data.set(key, value);
       }
     }
   }

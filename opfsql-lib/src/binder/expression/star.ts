@@ -35,12 +35,17 @@ export function bindStar(
   }
 
   if (aggCtx && (aggCtx.groups.length > 0 || aggCtx.aggregates.length > 0)) {
-    for (const col of result) {
-      if (!aggCtx.groups.some((g) => sameExpression(g, col))) {
+    for (let j = 0; j < result.length; j++) {
+      const groupIdx = aggCtx.groups.findIndex((g) => sameExpression(g, result[j]));
+      if (groupIdx === -1) {
         throw new BindError(
-          `Column "${col.columnName}" must appear in the GROUP BY clause or be used in an aggregate function`,
+          `Column "${result[j].columnName}" must appear in the GROUP BY clause or be used in an aggregate function`,
         );
       }
+      result[j] = {
+        ...result[j],
+        binding: { tableIndex: aggCtx.groupIndex, columnIndex: groupIdx },
+      };
     }
   }
 

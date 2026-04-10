@@ -3,4 +3,6 @@ export { Catalog, initCatalog, serializeCatalogEntry } from './catalog.js';
 export { PageManager } from './page-manager.js';
 export { Vacuum } from './vacuum.js';
 export { Storage } from './storage.js';
+export { MemoryStorage } from './storage/memory-storage.js';
+export { OPFSStorage } from './storage/opfs-storage.js';
 export * from './types.js';
