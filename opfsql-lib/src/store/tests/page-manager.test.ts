@@ -126,23 +126,4 @@ describe('PageManager', () => {
     });
   });
 
-  describe('buffer pool', () => {
-    it('readKey caches storage reads', async () => {
-      await storage.put('some:key', { data: 1 });
-      const val1 = await pm.readKey<{ data: number }>('some:key');
-      expect(val1).toEqual({ data: 1 });
-
-      await storage.delete('some:key');
-      const val2 = await pm.readKey<{ data: number }>('some:key');
-      expect(val2).toEqual({ data: 1 });
-    });
-
-    it('commit promotes WAL to cache', async () => {
-      pm.writeKey('k', 'v');
-      await pm.commit();
-
-      await storage.delete('k');
-      expect(await pm.readKey<string>('k')).toBe('v');
-    });
-  });
 });

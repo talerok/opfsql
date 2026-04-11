@@ -10,7 +10,6 @@ const ROW_MAP_SHARD_SIZE = 65536;
 
 export class PageManager implements IPageManager {
   private wal = new Map<string, unknown>();
-  private cache = new Map<string, unknown>();
 
   constructor(private readonly storage: IStorage) {}
 
@@ -135,21 +134,10 @@ export class PageManager implements IPageManager {
   private async readRowMapShard(tableId: string, rowId: number): Promise<RowMapShard> {
     const key = this.getRowMapShardKey(tableId, rowId);
     if (this.wal.has(key)) return this.wal.get(key) as RowMapShard;
-    if (this.cache.has(key)) {
-      const copy = { ...(this.cache.get(key) as RowMapShard) };
-      this.wal.set(key, copy);
-      return copy;
-    }
     const map = await this.storage.get<RowMapShard>(key);
-    if (map) {
-      this.cache.set(key, map);
-      const copy = { ...map };
-      this.wal.set(key, copy);
-      return copy;
-    }
-    const fresh: RowMapShard = {};
-    this.wal.set(key, fresh);
-    return fresh;
+    const copy = map ? { ...map } : {};
+    this.wal.set(key, copy);
+    return copy;
   }
 
   private getRowMapShardKey(tableId: string, rowId: number): string {
@@ -164,21 +152,14 @@ export class PageManager implements IPageManager {
   private async readPage(tableId: string, pageId: number): Promise<Page | null> {
     const key = this.getPageKey(tableId, pageId);
     if (this.wal.has(key)) return this.wal.get(key) as Page | null;
-    if (this.cache.has(key)) return this.cache.get(key) as Page | null;
-    const page = await this.storage.get<Page>(key);
-    if (page) this.cache.set(key, page);
-    return page;
+    return this.storage.get<Page>(key);
   }
 
   async getPageMeta(tableId: string): Promise<PageMeta> {
     const key = this.getMetaKey(tableId);
     if (this.wal.has(key)) return this.wal.get(key) as PageMeta;
-    if (this.cache.has(key)) return this.cache.get(key) as PageMeta;
     const meta = await this.storage.get<PageMeta>(key);
-    if (meta) {
-      this.cache.set(key, meta);
-      return meta;
-    }
+    if (meta) return meta;
     return { ...DEFAULT_META, freePageIds: [] };
   }
 
@@ -236,15 +217,7 @@ export class PageManager implements IPageManager {
       const val = this.wal.get(key);
       return val === null ? null : (val as T);
     }
-    if (this.cache.has(key)) {
-      const val = this.cache.get(key);
-      return val === null ? null : (val as T);
-    }
-    const val = await this.storage.get<T>(key);
-    if (val !== null && val !== undefined) {
-      this.cache.set(key, val);
-    }
-    return val;
+    return this.storage.get<T>(key);
   }
 
   async getAllKeys(prefix: string): Promise<string[]> {
@@ -261,12 +234,10 @@ export class PageManager implements IPageManager {
   }
 
   writeKey(key: string, value: unknown): void {
-    this.cache.delete(key);
     this.wal.set(key, value);
   }
 
   deleteKey(key: string): void {
-    this.cache.delete(key);
     this.wal.set(key, null);
   }
 
@@ -278,13 +249,6 @@ export class PageManager implements IPageManager {
     if (this.wal.size === 0) return;
     const entries: Array<[string, unknown]> = [...this.wal.entries()];
     await this.storage.putMany(entries);
-    for (const [key, value] of entries) {
-      if (value === null) {
-        this.cache.delete(key);
-      } else {
-        this.cache.set(key, value);
-      }
-    }
     this.wal.clear();
   }
 
