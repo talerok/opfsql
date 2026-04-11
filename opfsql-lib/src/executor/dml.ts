@@ -14,7 +14,7 @@ import type { IIndexManager } from '../store/index-manager.js';
 import type { IndexKey } from '../store/btree/types.js';
 import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
 import type { EvalContext } from './evaluate/context.js';
-import { buildResolver } from './resolve.js';
+import { buildResolver, type Resolver } from './resolve.js';
 import { evaluateExpression } from './evaluate/index.js';
 import { applyComparison, isTruthy } from './evaluate/helpers.js';
 import { createPhysicalPlan } from './planner.js';
@@ -28,12 +28,25 @@ import { ExecutorError } from './errors.js';
 interface DmlScanInfo {
   get: LogicalGet;
   condition: BoundExpression | null;
+  layout: ColumnBinding[];
+  resolver: Resolver;
 }
 
-function extractDmlFilter(child: LogicalOperator): DmlScanInfo {
+function extractDmlScan(child: LogicalOperator): DmlScanInfo {
+  const { get, condition } = extractConditions(child);
+  const layout = get.schema.columns.map((_, i) => ({
+    tableIndex: get.tableIndex,
+    columnIndex: i,
+  }));
+  return { get, condition, layout, resolver: buildResolver(layout) };
+}
+
+function extractConditions(
+  child: LogicalOperator,
+): { get: LogicalGet; condition: BoundExpression | null } {
   if (child.type === LogicalOperatorType.LOGICAL_FILTER) {
     const filter = child as LogicalFilter;
-    const inner = extractDmlFilter(filter.children[0]);
+    const inner = extractConditions(filter.children[0]);
     if (inner.condition) {
       const combined: BoundExpression = {
         expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
@@ -51,39 +64,26 @@ function extractDmlFilter(child: LogicalOperator): DmlScanInfo {
   throw new ExecutorError(`Unexpected node ${child.type} in DML scan tree`);
 }
 
-/** Build layout and convert storage Row → Tuple for DML evaluation. */
-function rowToTupleForDml(
-  row: Row,
-  get: LogicalGet,
-): { tuple: Tuple; layout: ColumnBinding[] } {
-  const layout = get.schema.columns.map((_, i) => ({
-    tableIndex: get.tableIndex,
-    columnIndex: i,
-  }));
-  const tuple: Tuple = get.schema.columns.map((col) => row[col.name] ?? null);
-  return { tuple, layout };
+/** Convert a storage Row → Tuple using the full schema. */
+function rowToTuple(row: Row, get: LogicalGet): Tuple {
+  return get.schema.columns.map((col) => row[col.name] ?? null);
 }
 
-/** Apply tableFilters + condition to a tuple. */
+/** Apply tableFilters + WHERE condition to a tuple. */
 async function passesFilter(
   tuple: Tuple,
-  layout: ColumnBinding[],
-  get: LogicalGet,
-  condition: BoundExpression | null,
+  scan: DmlScanInfo,
   ctx: EvalContext,
 ): Promise<boolean> {
-  for (const tf of get.tableFilters) {
-    const pos = tf.columnIndex;
-    const result = applyComparison(tuple[pos], tf.constant.value, tf.comparisonType);
-    if (result !== true) return false;
+  for (const tf of scan.get.tableFilters) {
+    if (applyComparison(tuple[tf.columnIndex], tf.constant.value, tf.comparisonType) !== true) {
+      return false;
+    }
   }
-
-  if (condition) {
-    const resolver = buildResolver(layout);
-    const val = await evaluateExpression(condition, tuple, resolver, ctx);
+  if (scan.condition) {
+    const val = await evaluateExpression(scan.condition, tuple, scan.resolver, ctx);
     if (!isTruthy(val)) return false;
   }
-
   return true;
 }
 
@@ -103,10 +103,8 @@ async function maintainIndexesInsert(
   indexManager?: IIndexManager,
 ): Promise<void> {
   if (!catalog || !indexManager) return;
-  const indexes = catalog.getTableIndexes(tableName);
-  for (const idx of indexes) {
-    const key = buildIndexKey(row, idx.columns);
-    await indexManager.insert(idx.name, key, rowId, idx.unique);
+  for (const idx of catalog.getTableIndexes(tableName)) {
+    await indexManager.insert(idx.name, buildIndexKey(row, idx.columns), rowId, idx.unique);
   }
 }
 
@@ -118,10 +116,8 @@ async function maintainIndexesDelete(
   indexManager?: IIndexManager,
 ): Promise<void> {
   if (!catalog || !indexManager) return;
-  const indexes = catalog.getTableIndexes(tableName);
-  for (const idx of indexes) {
-    const key = buildIndexKey(row, idx.columns);
-    await indexManager.delete(idx.name, key, rowId);
+  for (const idx of catalog.getTableIndexes(tableName)) {
+    await indexManager.delete(idx.name, buildIndexKey(row, idx.columns), rowId);
   }
 }
 
@@ -167,15 +163,13 @@ async function executeInsertValues(
 
     for (let c = 0; c < colsPerRow; c++) {
       const expr = op.expressions[r * colsPerRow + c];
-      const val = await evaluateExpression(expr, emptyTuple, emptyResolver, ctx);
-      row[colNames[c]] = val;
+      row[colNames[c]] = await evaluateExpression(expr, emptyTuple, emptyResolver, ctx);
     }
 
     const rowId = await rowManager.prepareInsert(op.tableName, row);
     if (indexManager) {
       for (const idx of indexes) {
-        const key = buildIndexKey(row, idx.columns);
-        await indexManager.insert(idx.name, key, rowId, idx.unique);
+        await indexManager.insert(idx.name, buildIndexKey(row, idx.columns), rowId, idx.unique);
       }
     }
   }
@@ -194,13 +188,13 @@ async function executeInsertSelect(
   const plan = createPhysicalPlan(op.children[0], rowManager, cteCache, ctx);
   const tuples = await drainOperator(plan);
 
+  const defaults: Row = {};
+  for (const col of op.schema.columns) {
+    defaults[col.name] = col.defaultValue;
+  }
+
   for (const tuple of tuples) {
-    const row: Row = {};
-
-    for (const col of op.schema.columns) {
-      row[col.name] = col.defaultValue;
-    }
-
+    const row: Row = { ...defaults };
     for (let c = 0; c < op.columns.length; c++) {
       row[op.schema.columns[op.columns[c]].name] = tuple[c] ?? null;
     }
@@ -223,30 +217,21 @@ export async function executeUpdate(
   catalog?: ICatalog,
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
-  const { get, condition } = extractDmlFilter(op.children[0]);
+  const scan = extractDmlScan(op.children[0]);
   let affected = 0;
 
   for await (const { rowId, row } of rowManager.scanTable(op.tableName)) {
-    const { tuple, layout } = rowToTupleForDml(row, get);
-
-    if (!(await passesFilter(tuple, layout, get, condition, ctx))) {
-      continue;
-    }
+    const tuple = rowToTuple(row, scan.get);
+    if (!(await passesFilter(tuple, scan, ctx))) continue;
 
     const newRow: Row = { ...row };
-    const resolver = buildResolver(layout);
     for (let i = 0; i < op.updateColumns.length; i++) {
       const colIdx = op.updateColumns[i];
-      const val = await evaluateExpression(
-        op.expressions[i],
-        tuple,
-        resolver,
-        ctx,
+      newRow[op.schema.columns[colIdx].name] = await evaluateExpression(
+        op.expressions[i], tuple, scan.resolver, ctx,
       );
-      newRow[op.schema.columns[colIdx].name] = val;
     }
 
-    // Delete old index entries, insert new ones
     await maintainIndexesDelete(op.tableName, row, rowId, catalog, indexManager);
     const newRowId = await rowManager.prepareUpdate(op.tableName, rowId, newRow);
     await maintainIndexesInsert(op.tableName, newRow, newRowId, catalog, indexManager);
@@ -267,15 +252,12 @@ export async function executeDelete(
   catalog?: ICatalog,
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
-  const { get, condition } = extractDmlFilter(op.children[0]);
+  const scan = extractDmlScan(op.children[0]);
   let affected = 0;
 
   for await (const { rowId, row } of rowManager.scanTable(op.tableName)) {
-    const { tuple, layout } = rowToTupleForDml(row, get);
-
-    if (!(await passesFilter(tuple, layout, get, condition, ctx))) {
-      continue;
-    }
+    const tuple = rowToTuple(row, scan.get);
+    if (!(await passesFilter(tuple, scan, ctx))) continue;
 
     await maintainIndexesDelete(op.tableName, row, rowId, catalog, indexManager);
     await rowManager.prepareDelete(op.tableName, rowId);

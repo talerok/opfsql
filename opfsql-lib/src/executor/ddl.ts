@@ -1,15 +1,15 @@
 import type {
-  LogicalCreateTable,
-  LogicalCreateIndex,
   LogicalAlterTable,
+  LogicalCreateIndex,
+  LogicalCreateTable,
   LogicalDrop,
-} from '../binder/types.js';
-import type { ICatalog, IPageManager, IRowManager } from '../store/types.js';
-import type { IIndexManager } from '../store/index-manager.js';
-import type { IndexKey } from '../store/btree/types.js';
-import type { ExecuteResult } from './types.js';
-import { ExecutorError } from './errors.js';
-import { compareIndexKeys } from '../store/btree/compare.js';
+} from "../binder/types.js";
+import { compareIndexKeys } from "../store/btree/compare.js";
+import type { IndexKey } from "../store/btree/types.js";
+import type { IIndexManager } from "../store/index-manager.js";
+import type { ICatalog, IPageManager, IRowManager } from "../store/types.js";
+import { ExecutorError } from "./errors.js";
+import type { ExecuteResult } from "./types.js";
 
 const EMPTY: ExecuteResult = {
   rows: [],
@@ -27,8 +27,8 @@ export async function executeCreateTable(
     throw new ExecutorError(`Table "${op.schema.name}" already exists`);
   }
 
-  const changes: ExecuteResult['catalogChanges'] = [
-    { type: 'CREATE_TABLE', schema: op.schema },
+  const changes: ExecuteResult["catalogChanges"] = [
+    { type: "CREATE_TABLE", schema: op.schema },
   ];
 
   // Auto-create unique index for PRIMARY KEY columns
@@ -41,7 +41,7 @@ export async function executeCreateTable(
       unique: true,
     };
     await indexManager.bulkLoad(indexDef.name, [], true);
-    changes.push({ type: 'CREATE_INDEX', index: indexDef });
+    changes.push({ type: "CREATE_INDEX", index: indexDef });
   }
 
   return { ...EMPTY, catalogChanges: changes };
@@ -59,7 +59,10 @@ export async function executeCreateIndex(
   }
 
   // Backfill: scan the table and build the index
-  const entries: Array<{ key: IndexKey; rowId: { pageId: number; slotId: number } }> = [];
+  const entries: Array<{
+    key: IndexKey;
+    rowId: { pageId: number; slotId: number };
+  }> = [];
 
   for await (const { rowId, row } of rowManager.scanTable(op.index.tableName)) {
     const key: IndexKey = op.index.columns.map(
@@ -75,7 +78,7 @@ export async function executeCreateIndex(
 
   return {
     ...EMPTY,
-    catalogChanges: [{ type: 'CREATE_INDEX', index: op.index }],
+    catalogChanges: [{ type: "CREATE_INDEX", index: op.index }],
   };
 }
 
@@ -88,26 +91,19 @@ export function executeAlterTable(
     throw new ExecutorError(`Table "${op.tableName}" not found`);
   }
 
-  let after;
-  if (op.action.type === 'ADD_COLUMN') {
-    after = {
-      ...before,
-      columns: [...before.columns, op.action.column],
-    };
+  let columns;
+  if (op.action.type === "ADD_COLUMN") {
+    columns = [...before.columns, op.action.column];
   } else {
-    const dropName = op.action.columnName;
-    after = {
-      ...before,
-      columns: before.columns.filter(
-        (c) => c.name.toLowerCase() !== dropName.toLowerCase(),
-      ),
-    };
+    const columnName = op.action.columnName.toLowerCase();
+    columns = before.columns.filter((c) => c.name.toLowerCase() !== columnName);
   }
+  const after = { ...before, columns };
 
   return {
     ...EMPTY,
     catalogChanges: [
-      { type: 'ALTER_TABLE', name: op.tableName, before, after },
+      { type: "ALTER_TABLE", name: op.tableName, before, after },
     ],
   };
 }
@@ -118,7 +114,7 @@ export async function executeDrop(
   pageManager: IPageManager,
   indexManager: IIndexManager,
 ): Promise<ExecuteResult> {
-  if (op.dropType === 'TABLE') {
+  if (op.dropType === "TABLE") {
     return executeDropTable(op, catalog, pageManager, indexManager);
   }
   return executeDropIndex(op, catalog, indexManager);
@@ -147,7 +143,7 @@ async function executeDropTable(
 
   return {
     ...EMPTY,
-    catalogChanges: [{ type: 'DROP_TABLE', name: op.name, schema }],
+    catalogChanges: [{ type: "DROP_TABLE", name: op.name, schema }],
   };
 }
 
@@ -167,6 +163,6 @@ async function executeDropIndex(
 
   return {
     ...EMPTY,
-    catalogChanges: [{ type: 'DROP_INDEX', name: op.name, index }],
+    catalogChanges: [{ type: "DROP_INDEX", name: op.name, index }],
   };
 }

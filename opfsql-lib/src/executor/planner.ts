@@ -35,178 +35,70 @@ export function createPhysicalPlan(
   ctx: EvalContext,
   indexManager?: IIndexManager,
 ): PhysicalOperator {
+  const plan = (child: LogicalOperator) =>
+    createPhysicalPlan(child, rowManager, cteCache, ctx, indexManager);
+
   switch (node.type) {
     case LogicalOperatorType.LOGICAL_GET: {
       const get = node as LogicalGet;
-
       if (get.indexHint && indexManager) {
         return new PhysicalIndexScan(
-          get,
-          rowManager,
-          indexManager,
-          get.indexHint.indexDef,
-          get.indexHint.predicates,
-          get.indexHint.residualFilters,
+          get, rowManager, indexManager,
+          get.indexHint.indexDef, get.indexHint.predicates, get.indexHint.residualFilters,
         );
       }
-
-      const childOp =
-        get.children.length > 0
-          ? createPhysicalPlan(get.children[0], rowManager, cteCache, ctx, indexManager)
-          : undefined;
+      const childOp = get.children.length > 0 ? plan(get.children[0]) : undefined;
       return new PhysicalScan(get, rowManager, ctx, childOp);
     }
 
     case LogicalOperatorType.LOGICAL_FILTER: {
       const filter = node as LogicalFilter;
-      const child = createPhysicalPlan(
-        filter.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalFilter(child, filter.expressions[0], ctx);
+      return new PhysicalFilter(plan(filter.children[0]), filter.expressions[0], ctx);
     }
 
     case LogicalOperatorType.LOGICAL_PROJECTION: {
       const proj = node as LogicalProjection;
-      const child = createPhysicalPlan(
-        proj.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalProjection(child, proj, ctx);
+      return new PhysicalProjection(plan(proj.children[0]), proj, ctx);
     }
 
     case LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY: {
       const agg = node as LogicalAggregate;
-      const child = createPhysicalPlan(
-        agg.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalHashAggregate(child, agg, ctx);
+      return new PhysicalHashAggregate(plan(agg.children[0]), agg, ctx);
     }
 
     case LogicalOperatorType.LOGICAL_COMPARISON_JOIN: {
       const join = node as LogicalComparisonJoin;
-      const probe = createPhysicalPlan(
-        join.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      const build = createPhysicalPlan(
-        join.children[1],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalHashJoin(probe, build, join, ctx);
+      return new PhysicalHashJoin(plan(join.children[0]), plan(join.children[1]), join, ctx);
     }
 
-    case LogicalOperatorType.LOGICAL_CROSS_PRODUCT: {
-      const left = createPhysicalPlan(
-        node.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      const right = createPhysicalPlan(
-        node.children[1],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalNestedLoopJoin(left, right);
-    }
+    case LogicalOperatorType.LOGICAL_CROSS_PRODUCT:
+      return new PhysicalNestedLoopJoin(plan(node.children[0]), plan(node.children[1]));
 
     case LogicalOperatorType.LOGICAL_ORDER_BY: {
       const order = node as LogicalOrderBy;
-      const child = createPhysicalPlan(
-        order.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalSort(child, order, ctx);
+      return new PhysicalSort(plan(order.children[0]), order, ctx);
     }
 
     case LogicalOperatorType.LOGICAL_LIMIT: {
       const limit = node as LogicalLimit;
-      const child = createPhysicalPlan(
-        limit.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalLimit(child, limit);
+      return new PhysicalLimit(plan(limit.children[0]), limit);
     }
 
-    case LogicalOperatorType.LOGICAL_DISTINCT: {
-      const child = createPhysicalPlan(
-        node.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalDistinct(child);
-    }
+    case LogicalOperatorType.LOGICAL_DISTINCT:
+      return new PhysicalDistinct(plan(node.children[0]));
 
     case LogicalOperatorType.LOGICAL_UNION: {
       const union = node as LogicalUnion;
-      const left = createPhysicalPlan(
-        union.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      const right = createPhysicalPlan(
-        union.children[1],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalUnion(left, right, union.all);
+      return new PhysicalUnion(plan(union.children[0]), plan(union.children[1]), union.all);
     }
 
     case LogicalOperatorType.LOGICAL_MATERIALIZED_CTE: {
       const cte = node as LogicalMaterializedCTE;
-      const def = createPhysicalPlan(
-        cte.children[0],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      const main = createPhysicalPlan(
-        cte.children[1],
-        rowManager,
-        cteCache,
-        ctx,
-        indexManager,
-      );
-      return new PhysicalMaterialize(def, main, cte.cteIndex, cteCache);
+      return new PhysicalMaterialize(plan(cte.children[0]), plan(cte.children[1]), cte.cteIndex, cteCache);
     }
 
-    case LogicalOperatorType.LOGICAL_CTE_REF: {
-      const ref = node as LogicalCTERef;
-      return new PhysicalCTEScan(ref, cteCache);
-    }
+    case LogicalOperatorType.LOGICAL_CTE_REF:
+      return new PhysicalCTEScan(node as LogicalCTERef, cteCache);
 
     default:
       throw new ExecutorError(
