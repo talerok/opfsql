@@ -1306,7 +1306,7 @@ describe('Recursive CTE optimization', () => {
     expect(anchorBindings.length).toBe(2);
 
     // Recursive child should also have 2 columns
-    const recBindings = recCTE!.children[1].getColumnBindings();
+    const recBindings = recCTE!.children[1]!.getColumnBindings();
     expect(recBindings.length).toBeGreaterThanOrEqual(2);
   });
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { IndexKey } from "../btree/types.js";
+import type { IndexKey } from "../index-btree/types.js";
 import { IndexManager } from "../index-manager.js";
 import { PageManager } from "../page-manager.js";
 import type { RowId } from "../types.js";

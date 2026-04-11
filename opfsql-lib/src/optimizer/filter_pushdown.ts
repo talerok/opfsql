@@ -345,7 +345,7 @@ class FilterPushdown {
     op.children[0] = anchorPushdown.rewrite(op.children[0]);
 
     const recPushdown = new FilterPushdown();
-    op.children[1] = recPushdown.rewrite(op.children[1]);
+    op.children[1] = recPushdown.rewrite(op.children[1]!);
 
     return this.finishPushdown(op);
   }

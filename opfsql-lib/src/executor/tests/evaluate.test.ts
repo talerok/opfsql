@@ -409,7 +409,7 @@ function mockCtx(): EvalContext & { calls: Array<{ limit?: number }> } {
 
 function subqueryExpr(type: 'EXISTS' | 'NOT_EXISTS' | 'SCALAR') {
   return {
-    expressionClass: BoundExpressionClass.BOUND_SUBQUERY,
+    expressionClass: BoundExpressionClass.BOUND_SUBQUERY as const,
     subqueryType: type,
     subplan: dummySubplan,
     returnType: 'BOOLEAN' as const,

@@ -279,7 +279,7 @@ function pruneMaterializedCTE(op: LogicalOperator, needed: Set<string>): Logical
   // children[1] = outer query: prune normally
   const outerNeeded = new Set(needed);
   addNodeRefs(op, outerNeeded);
-  op.children[1] = prune(op.children[1], outerNeeded);
+  op.children[1] = prune(op.children[1]!, outerNeeded);
   return op;
 }
 

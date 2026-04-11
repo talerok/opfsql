@@ -1,4 +1,4 @@
-import type { IKVStore, Row, RowId } from '../types.js';
+import type { IKVStore, Row, RowId } from './types.js';
 
 const NODE_ID_WIDTH = 8;
 const ORDER = 1024;

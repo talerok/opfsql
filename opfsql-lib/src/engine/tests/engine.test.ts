@@ -409,7 +409,7 @@ describe('recursive CTE', () => {
     const [result] = await engine.execute(
       'WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums',
     );
-    expect(result.rows.map((r) => r.n)).toEqual([1, 2, 3, 4, 5]);
+    expect(result.rows!.map((r) => r.n)).toEqual([1, 2, 3, 4, 5]);
   });
 });
 
