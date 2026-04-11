@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Engine, type Result } from '../../opfsql-lib/src/index.js';
-  import { OPFSStorage } from '../../opfsql-lib/src/store/opfs/opfs-storage.js';
+  import { OPFSStorage } from '../../opfsql-lib/src/store/storage/opfs-storage.js';
 
   let engine: Engine | null = $state(null);
   let sql = $state('');
