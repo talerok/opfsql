@@ -1791,6 +1791,93 @@ describe('CASE extra tests', () => {
 });
 
 // ============================================================================
+// JOIN condition normalization — cond.left must ref left child, cond.right must ref right child
+// ============================================================================
+
+describe('JOIN condition normalization', () => {
+  it('ON with right-table column first normalizes to left=left-child, right=right-child', () => {
+    // SQL: ON o.user_id = u.id — parser puts o.user_id (right child) in cond.left
+    // After normalization: cond.left should reference left child (users)
+    const plan = bind(
+      'SELECT * FROM users u JOIN orders o ON o.user_id = u.id',
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    const rightGet = join.children[1] as LogicalGet;
+
+    expect(join.conditions).toHaveLength(1);
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condRight = join.conditions[0].right as BoundColumnRefExpression;
+
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+    expect(condRight.binding.tableIndex).toBe(rightGet.tableIndex);
+  });
+
+  it('ON with left-table column first keeps order unchanged', () => {
+    const plan = bind(
+      'SELECT * FROM users u JOIN orders o ON u.id = o.user_id',
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    const rightGet = join.children[1] as LogicalGet;
+
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condRight = join.conditions[0].right as BoundColumnRefExpression;
+
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+    expect(condRight.binding.tableIndex).toBe(rightGet.tableIndex);
+  });
+
+  it('normalization flips comparisonType for non-EQUAL conditions', () => {
+    // ON o.amount > u.age → normalized to cond.left=u.age LESS cond.right=o.amount
+    const plan = bind(
+      'SELECT * FROM users u JOIN orders o ON o.amount > u.age',
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+    expect(join.conditions[0].comparisonType).toBe('LESS');
+  });
+
+  it('compound ON (AND) normalizes both conditions', () => {
+    const plan = bind(
+      'SELECT * FROM users u JOIN orders o ON o.user_id = u.id AND o.amount > u.age',
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    const rightGet = join.children[1] as LogicalGet;
+
+    for (const cond of join.conditions) {
+      const left = cond.left as BoundColumnRefExpression;
+      const right = cond.right as BoundColumnRefExpression;
+      expect(left.binding.tableIndex).toBe(leftGet.tableIndex);
+      expect(right.binding.tableIndex).toBe(rightGet.tableIndex);
+    }
+  });
+
+  it('self-join with reversed condition normalizes correctly', () => {
+    const plan = bind(
+      'SELECT * FROM users a JOIN users b ON b.id = a.id',
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    const rightGet = join.children[1] as LogicalGet;
+
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condRight = join.conditions[0].right as BoundColumnRefExpression;
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+    expect(condRight.binding.tableIndex).toBe(rightGet.tableIndex);
+  });
+});
+
+// ============================================================================
 // Iteration 4: JOIN ON type checking
 // ============================================================================
 

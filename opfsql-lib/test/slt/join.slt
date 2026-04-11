@@ -1,0 +1,166 @@
+# join.slt — JOIN condition normalization and JOIN + aggregate queries
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT, budget INTEGER)
+
+statement ok
+INSERT INTO departments VALUES (1, 'Engineering', 500000)
+
+statement ok
+INSERT INTO departments VALUES (2, 'Marketing', 200000)
+
+statement ok
+INSERT INTO departments VALUES (3, 'Sales', 300000)
+
+statement ok
+INSERT INTO departments VALUES (4, 'HR', 150000)
+
+statement ok
+CREATE TABLE employees (id INTEGER PRIMARY KEY, name TEXT, department_id INTEGER, salary INTEGER, hire_year INTEGER)
+
+statement ok
+INSERT INTO employees VALUES (1, 'Alice', 1, 95000, 2020)
+
+statement ok
+INSERT INTO employees VALUES (2, 'Bob', 1, 88000, 2021)
+
+statement ok
+INSERT INTO employees VALUES (3, 'Charlie', 2, 72000, 2019)
+
+statement ok
+INSERT INTO employees VALUES (4, 'Diana', 1, 110000, 2018)
+
+statement ok
+INSERT INTO employees VALUES (5, 'Eve', 3, 65000, 2022)
+
+statement ok
+INSERT INTO employees VALUES (6, 'Frank', 3, 78000, 2020)
+
+statement ok
+INSERT INTO employees VALUES (7, 'Grace', 2, 69000, 2021)
+
+statement ok
+INSERT INTO employees VALUES (8, 'Hank', 4, 55000, 2023)
+
+statement ok
+INSERT INTO employees VALUES (9, 'Ivy', 1, 102000, 2019)
+
+statement ok
+INSERT INTO employees VALUES (10, 'Jack', 3, 71000, 2021)
+
+# ============================================================================
+# Basic JOIN — condition column order should not matter
+# ============================================================================
+
+# ON left = right (natural order)
+query TT rowsort
+SELECT d.name AS dept, e.name AS emp FROM departments d JOIN employees e ON d.id = e.department_id WHERE d.name = 'HR'
+----
+HR|Hank
+
+# ON right = left (reversed order — was the original bug)
+query TT rowsort
+SELECT d.name AS dept, e.name AS emp FROM departments d JOIN employees e ON e.department_id = d.id WHERE d.name = 'HR'
+----
+HR|Hank
+
+# ============================================================================
+# JOIN + GROUP BY
+# ============================================================================
+
+query TI rowsort
+SELECT d.name, COUNT(e.id) AS headcount FROM departments d JOIN employees e ON e.department_id = d.id GROUP BY d.name
+----
+Engineering|4
+HR|1
+Marketing|2
+Sales|3
+
+# ============================================================================
+# JOIN + GROUP BY + SUM/AVG
+# ============================================================================
+
+query TIR rowsort
+SELECT d.name, COUNT(e.id) AS headcount, SUM(e.salary) AS total_salary FROM departments d JOIN employees e ON e.department_id = d.id GROUP BY d.name
+----
+Engineering|4|395000
+HR|1|55000
+Marketing|2|141000
+Sales|3|214000
+
+# ============================================================================
+# JOIN + WHERE + GROUP BY
+# ============================================================================
+
+query TI rowsort
+SELECT d.name, COUNT(e.id) AS headcount FROM departments d JOIN employees e ON e.department_id = d.id WHERE e.hire_year >= 2020 GROUP BY d.name
+----
+Engineering|2
+HR|1
+Marketing|1
+Sales|3
+
+# ============================================================================
+# JOIN + WHERE + GROUP BY + HAVING
+# ============================================================================
+
+query TI rowsort
+SELECT d.name, COUNT(e.id) AS headcount FROM departments d JOIN employees e ON e.department_id = d.id WHERE e.hire_year >= 2020 GROUP BY d.name HAVING COUNT(e.id) >= 2
+----
+Engineering|2
+Sales|3
+
+# ============================================================================
+# JOIN + WHERE + GROUP BY + HAVING + ORDER BY
+# ============================================================================
+
+query TI nosort
+SELECT d.name, COUNT(e.id) AS headcount FROM departments d JOIN employees e ON e.department_id = d.id WHERE e.hire_year >= 2020 GROUP BY d.name HAVING COUNT(e.id) >= 2 ORDER BY COUNT(e.id) DESC
+----
+Sales|3
+Engineering|2
+
+# ============================================================================
+# Multiple GROUP BY keys + complex SELECT expressions (original failing query)
+# ============================================================================
+
+query TIIII nosort
+SELECT d.name, COUNT(e.id) AS headcount, CAST(SUM(e.salary) AS INTEGER) AS total_salary, CAST(AVG(e.salary) AS INTEGER) AS avg_salary, d.budget - CAST(SUM(e.salary) AS INTEGER) AS remaining_budget FROM departments d JOIN employees e ON e.department_id = d.id WHERE e.hire_year >= 2019 GROUP BY d.name, d.budget HAVING COUNT(e.id) >= 2 ORDER BY COUNT(e.id) DESC, d.name
+----
+Engineering|3|285000|95000|215000
+Sales|3|214000|71333|86000
+Marketing|2|141000|70500|59000
+
+# ============================================================================
+# LEFT JOIN with reversed condition order
+# ============================================================================
+
+statement ok
+CREATE TABLE projects (id INTEGER PRIMARY KEY, dept_id INTEGER, pname TEXT)
+
+statement ok
+INSERT INTO projects VALUES (1, 1, 'Apollo')
+
+statement ok
+INSERT INTO projects VALUES (2, 1, 'Zeus')
+
+statement ok
+INSERT INTO projects VALUES (3, 3, 'Mercury')
+
+# LEFT JOIN — all departments appear, even those without projects
+query TT rowsort
+SELECT d.name, p.pname FROM departments d LEFT JOIN projects p ON p.dept_id = d.id
+----
+Engineering|Apollo
+Engineering|Zeus
+HR|NULL
+Marketing|NULL
+Sales|Mercury
+
+# NOTE: Self-join tests with WHERE filters on cross-alias columns are skipped
+# here due to a separate filter-pushdown bug. Self-join condition normalization
+# is verified in binder unit tests instead.

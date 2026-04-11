@@ -64,6 +64,16 @@ export function bindJoinRef(
   } else if (ref.condition) {
     checkNoAggregates(ref.condition, 'JOIN ON clause');
     conditions = extractJoinConditions(ctx, ref.condition, scope);
+
+    // Normalize: cond.left must reference left child, cond.right — right child.
+    // extractJoinConditions preserves SQL order which may be backwards.
+    const allBindings = scope.getAllBindings();
+    const leftTables = new Set(
+      allBindings.slice(bindingsBefore, bindingsAfterLeft).map((b) => b.tableIndex),
+    );
+    for (let i = 0; i < conditions.length; i++) {
+      conditions[i] = normalizeConditionSides(conditions[i], leftTables);
+    }
   }
 
   return {
@@ -117,4 +127,93 @@ export function extractJoinConditions(
       comparisonType: 'EQUAL',
     },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Condition normalization — ensure cond.left refs left child, cond.right refs right
+// ---------------------------------------------------------------------------
+
+function normalizeConditionSides(
+  cond: BT.JoinCondition,
+  leftTables: Set<number>,
+): BT.JoinCondition {
+  const leftRefs = collectTableIndices(cond.left);
+  const rightRefs = collectTableIndices(cond.right);
+
+  const leftInLeft = [...leftRefs].every((t) => leftTables.has(t));
+  const rightInLeft = [...rightRefs].every((t) => leftTables.has(t));
+
+  // Already correct: cond.left refs left child, cond.right refs right child
+  if (leftInLeft && !rightInLeft) return cond;
+
+  // Swapped: cond.left refs right child, cond.right refs left child
+  if (rightInLeft && !leftInLeft) {
+    return {
+      left: cond.right,
+      right: cond.left,
+      comparisonType: flipComparison(cond.comparisonType),
+    };
+  }
+
+  // Both sides reference same child or mixed — leave as-is (cross-reference)
+  return cond;
+}
+
+function flipComparison(type: BT.ComparisonType): BT.ComparisonType {
+  switch (type) {
+    case 'LESS': return 'GREATER';
+    case 'GREATER': return 'LESS';
+    case 'LESS_EQUAL': return 'GREATER_EQUAL';
+    case 'GREATER_EQUAL': return 'LESS_EQUAL';
+    default: return type;
+  }
+}
+
+function collectTableIndices(expr: BT.BoundExpression): Set<number> {
+  const result = new Set<number>();
+  gatherTables(expr, result);
+  return result;
+}
+
+function gatherTables(expr: BT.BoundExpression, out: Set<number>): void {
+  switch (expr.expressionClass) {
+    case BoundExpressionClass.BOUND_COLUMN_REF:
+      out.add((expr as BT.BoundColumnRefExpression).binding.tableIndex);
+      break;
+    case BoundExpressionClass.BOUND_CONSTANT:
+      break;
+    case BoundExpressionClass.BOUND_COMPARISON: {
+      const cmp = expr as BT.BoundComparisonExpression;
+      gatherTables(cmp.left, out);
+      gatherTables(cmp.right, out);
+      break;
+    }
+    case BoundExpressionClass.BOUND_CONJUNCTION:
+    case BoundExpressionClass.BOUND_OPERATOR:
+    case BoundExpressionClass.BOUND_FUNCTION:
+    case BoundExpressionClass.BOUND_AGGREGATE:
+      for (const child of (expr as BT.BoundFunctionExpression).children) {
+        gatherTables(child, out);
+      }
+      break;
+    case BoundExpressionClass.BOUND_BETWEEN: {
+      const bt = expr as BT.BoundBetweenExpression;
+      gatherTables(bt.input, out);
+      gatherTables(bt.lower, out);
+      gatherTables(bt.upper, out);
+      break;
+    }
+    case BoundExpressionClass.BOUND_CAST:
+      gatherTables((expr as BT.BoundCastExpression).child, out);
+      break;
+    case BoundExpressionClass.BOUND_CASE: {
+      const cs = expr as BT.BoundCaseExpression;
+      for (const check of cs.caseChecks) {
+        gatherTables(check.when, out);
+        gatherTables(check.then, out);
+      }
+      if (cs.elseExpr) gatherTables(cs.elseExpr, out);
+      break;
+    }
+  }
 }
