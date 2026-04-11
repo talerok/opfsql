@@ -3,9 +3,54 @@ import type { PhysicalOperator, Tuple, Value } from '../types.js';
 import type { EvalContext } from '../evaluate/context.js';
 import { buildResolver } from '../resolve.js';
 import { evaluateExpression } from '../evaluate/index.js';
-import { drainOperator } from './utils.js';
+import { drainOperator, SCAN_BATCH } from './utils.js';
 
 type KeyedTuple = { tuple: Tuple; keys: Value[] };
+type Comparator = (a: KeyedTuple, b: KeyedTuple) => number;
+
+// ---------------------------------------------------------------------------
+// Max-heap helpers (standalone — no closures, easy to test in isolation)
+// ---------------------------------------------------------------------------
+
+function heapSiftDown(heap: KeyedTuple[], i: number, cmp: Comparator): void {
+  const n = heap.length;
+  while (true) {
+    let worst = i;
+    const left = 2 * i + 1;
+    const right = 2 * i + 2;
+    if (left < n && cmp(heap[left], heap[worst]) > 0) worst = left;
+    if (right < n && cmp(heap[right], heap[worst]) > 0) worst = right;
+    if (worst === i) break;
+    [heap[i], heap[worst]] = [heap[worst], heap[i]];
+    i = worst;
+  }
+}
+
+function heapSiftUp(heap: KeyedTuple[], i: number, cmp: Comparator): void {
+  while (i > 0) {
+    const parent = Math.floor((i - 1) / 2);
+    if (cmp(heap[i], heap[parent]) <= 0) break;
+    [heap[i], heap[parent]] = [heap[parent], heap[i]];
+    i = parent;
+  }
+}
+
+/** Extract all elements from a max-heap in ascending sort order. */
+function heapExtractSorted(heap: KeyedTuple[], cmp: Comparator): KeyedTuple[] {
+  const sorted: KeyedTuple[] = [];
+  while (heap.length > 0) {
+    sorted.push(heap[0]);
+    heap[0] = heap[heap.length - 1];
+    heap.pop();
+    if (heap.length > 0) heapSiftDown(heap, 0, cmp);
+  }
+  sorted.reverse();
+  return sorted;
+}
+
+// ---------------------------------------------------------------------------
+// PhysicalSort operator
+// ---------------------------------------------------------------------------
 
 export class PhysicalSort implements PhysicalOperator {
   private sorted: Tuple[] | null = null;
@@ -23,16 +68,14 @@ export class PhysicalSort implements PhysicalOperator {
 
   async next(): Promise<Tuple[] | null> {
     if (!this.sorted) {
-      if (this.op.topN !== undefined) {
-        await this.topKSort();
-      } else {
-        await this.sortAll();
-      }
+      this.sorted = this.op.topN !== undefined
+        ? await this.topKSort()
+        : await this.sortAll();
     }
 
-    if (this.offset >= this.sorted!.length) return null;
+    if (this.offset >= this.sorted.length) return null;
 
-    const batch = this.sorted!.slice(this.offset, this.offset + 500);
+    const batch = this.sorted.slice(this.offset, this.offset + SCAN_BATCH);
     this.offset += batch.length;
     return batch;
   }
@@ -43,19 +86,18 @@ export class PhysicalSort implements PhysicalOperator {
     await this.child.reset();
   }
 
-  /** Compare two keyed tuples according to sort order. Negative = a before b. */
   private compare(a: KeyedTuple, b: KeyedTuple): number {
     for (let i = 0; i < this.op.orders.length; i++) {
       const order = this.op.orders[i];
       const va = a.keys[i];
       const vb = b.keys[i];
 
+      // Null handling
       if (va === null && vb === null) continue;
-      if (va === null)
-        return order.nullOrder === 'NULLS_FIRST' ? -1 : 1;
-      if (vb === null)
-        return order.nullOrder === 'NULLS_FIRST' ? 1 : -1;
+      if (va === null) return order.nullOrder === 'NULLS_FIRST' ? -1 : 1;
+      if (vb === null) return order.nullOrder === 'NULLS_FIRST' ? 1 : -1;
 
+      // Value comparison
       let cmp: number;
       if (typeof va === 'number' && typeof vb === 'number') {
         cmp = va - vb;
@@ -85,8 +127,7 @@ export class PhysicalSort implements PhysicalOperator {
     return { tuple, keys };
   }
 
-  /** Full sort — used when no topN is set. */
-  private async sortAll(): Promise<void> {
+  private async sortAll(): Promise<Tuple[]> {
     const tuples = await drainOperator(this.child);
     const resolver = buildResolver(this.child.getLayout());
 
@@ -96,47 +137,21 @@ export class PhysicalSort implements PhysicalOperator {
     }
 
     keyed.sort((a, b) => this.compare(a, b));
-    this.sorted = keyed.map((k) => k.tuple);
+    return keyed.map((k) => k.tuple);
   }
 
   /**
    * Top-K sort using a binary max-heap of size K.
    * The heap root is the "worst" element (last in sort order among K kept).
    * For each incoming row: if better than root, replace and sift down.
-   * Result: only K rows kept in memory, O(N log K) instead of O(N log N).
+   * O(N log K) instead of O(N log N).
    */
-  private async topKSort(): Promise<void> {
+  private async topKSort(): Promise<Tuple[]> {
     const K = this.op.topN!;
     const resolver = buildResolver(this.child.getLayout());
-
-    // Max-heap: root is the "worst" of the kept K (compare inverted)
+    const cmp: Comparator = (a, b) => this.compare(a, b);
     const heap: KeyedTuple[] = [];
 
-    const siftDown = (i: number) => {
-      const n = heap.length;
-      while (true) {
-        let worst = i;
-        const l = 2 * i + 1;
-        const r = 2 * i + 2;
-        // "worst" = appears later in sort order = compare > 0
-        if (l < n && this.compare(heap[l], heap[worst]) > 0) worst = l;
-        if (r < n && this.compare(heap[r], heap[worst]) > 0) worst = r;
-        if (worst === i) break;
-        [heap[i], heap[worst]] = [heap[worst], heap[i]];
-        i = worst;
-      }
-    };
-
-    const siftUp = (i: number) => {
-      while (i > 0) {
-        const parent = (i - 1) >> 1;
-        if (this.compare(heap[i], heap[parent]) <= 0) break;
-        [heap[i], heap[parent]] = [heap[parent], heap[i]];
-        i = parent;
-      }
-    };
-
-    // Stream through child batches
     while (true) {
       const batch = await this.child.next();
       if (!batch) break;
@@ -146,26 +161,14 @@ export class PhysicalSort implements PhysicalOperator {
 
         if (heap.length < K) {
           heap.push(entry);
-          siftUp(heap.length - 1);
-        } else if (this.compare(entry, heap[0]) < 0) {
-          // New entry is "better" (earlier in sort order) than worst in heap
+          heapSiftUp(heap, heap.length - 1, cmp);
+        } else if (cmp(entry, heap[0]) < 0) {
           heap[0] = entry;
-          siftDown(0);
+          heapSiftDown(heap, 0, cmp);
         }
       }
     }
 
-    // Extract sorted result from heap
-    const result: KeyedTuple[] = [];
-    while (heap.length > 0) {
-      result.push(heap[0]);
-      heap[0] = heap[heap.length - 1];
-      heap.pop();
-      if (heap.length > 0) siftDown(0);
-    }
-    // Heap extraction gives reverse order (worst first), so reverse
-    result.reverse();
-
-    this.sorted = result.map((k) => k.tuple);
+    return heapExtractSorted(heap, cmp).map((k) => k.tuple);
   }
 }

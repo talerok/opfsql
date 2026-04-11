@@ -2,29 +2,25 @@ import type {
   LogicalComparisonJoin,
   ColumnBinding,
 } from '../../binder/types.js';
-import type { PhysicalOperator, Tuple, Value } from '../types.js';
+import type { PhysicalOperator, Tuple } from '../types.js';
 import type { EvalContext } from '../evaluate/context.js';
 import { buildResolver, type Resolver } from '../resolve.js';
 import { evaluateExpression } from '../evaluate/index.js';
 import { serializeValue } from '../evaluate/helpers.js';
-import { drainOperator } from './utils.js';
+import { drainOperator, JOIN_BATCH } from './utils.js';
 
 // ---------------------------------------------------------------------------
-// Hash Join (INNER / LEFT)
+// Hash Join (INNER / LEFT / SEMI / ANTI)
 // ---------------------------------------------------------------------------
 
 export class PhysicalHashJoin implements PhysicalOperator {
   private readonly layout: ColumnBinding[];
   private readonly probeResolver: Resolver;
   private readonly buildResolver: Resolver;
-  private hashTable: Map<string, Tuple[]> | null = null;
-  private probeBatch: Tuple[] | null = null;
-  private probeIndex = 0;
-  private matchIndex = 0;
-  private currentMatches: Tuple[] | null = null;
-  private currentProbe: Tuple | null = null;
-  private probeExhausted = false;
   private readonly buildNullTuple: Tuple;
+
+  private hashTable: Map<string, Tuple[]> | null = null;
+  private emitter: AsyncGenerator<Tuple> | null = null;
 
   constructor(
     private readonly probe: PhysicalOperator,
@@ -32,7 +28,6 @@ export class PhysicalHashJoin implements PhysicalOperator {
     private readonly op: LogicalComparisonJoin,
     private readonly ctx: EvalContext,
   ) {
-    // SEMI/ANTI only output probe-side columns
     this.layout = op.joinType === 'SEMI' || op.joinType === 'ANTI'
       ? [...probe.getLayout()]
       : [...probe.getLayout(), ...build.getLayout()];
@@ -46,125 +41,94 @@ export class PhysicalHashJoin implements PhysicalOperator {
   }
 
   async next(): Promise<Tuple[] | null> {
-    if (!this.hashTable) {
-      await this.buildHashTable();
+    if (!this.hashTable) await this.buildHashTable();
+    if (!this.emitter) {
+      this.emitter = this.op.joinType === 'SEMI' || this.op.joinType === 'ANTI'
+        ? this.emitSemiAnti()
+        : this.emitMatches();
     }
 
-    if (this.op.joinType === 'SEMI' || this.op.joinType === 'ANTI') {
-      return this.nextSemiAnti();
+    const batch: Tuple[] = [];
+    for (let i = 0; i < JOIN_BATCH; i++) {
+      const { value, done } = await this.emitter.next();
+      if (done) break;
+      batch.push(value);
     }
-
-    const result: Tuple[] = [];
-
-    while (result.length < 2000) {
-      // Try to emit from current matches
-      if (this.currentMatches && this.matchIndex < this.currentMatches.length) {
-        result.push([
-          ...this.currentProbe!,
-          ...this.currentMatches[this.matchIndex++],
-        ]);
-        continue;
-      }
-
-      // Get next probe tuple
-      const probe = await this.nextProbe();
-      if (!probe) break;
-
-      this.currentProbe = probe;
-      const key = await this.probeKey(probe);
-
-      if (key === null) {
-        // NULL key — no match
-        if (this.op.joinType === 'LEFT') {
-          result.push([...probe, ...this.buildNullTuple]);
-        }
-        continue;
-      }
-
-      const matches = this.hashTable!.get(key);
-      if (matches && matches.length > 0) {
-        this.currentMatches = matches;
-        this.matchIndex = 0;
-        // Continue loop to emit first match
-      } else if (this.op.joinType === 'LEFT') {
-        result.push([...probe, ...this.buildNullTuple]);
-      }
-    }
-
-    return result.length > 0 ? result : null;
-  }
-
-  /** SEMI: emit probe when match exists. ANTI: emit probe when NO match. */
-  private async nextSemiAnti(): Promise<Tuple[] | null> {
-    const isSemi = this.op.joinType === 'SEMI';
-    const result: Tuple[] = [];
-
-    while (result.length < 2000) {
-      const probe = await this.nextProbe();
-      if (!probe) break;
-
-      const key = await this.probeKey(probe);
-      const hasMatch = key !== null && (this.hashTable!.get(key)?.length ?? 0) > 0;
-
-      if (isSemi ? hasMatch : !hasMatch) {
-        result.push(probe);
-      }
-    }
-
-    return result.length > 0 ? result : null;
+    return batch.length > 0 ? batch : null;
   }
 
   async reset(): Promise<void> {
     this.hashTable = null;
-    this.probeBatch = null;
-    this.probeIndex = 0;
-    this.probeExhausted = false;
-    this.currentMatches = null;
-    this.matchIndex = 0;
+    this.emitter = null;
     await this.probe.reset();
     await this.build.reset();
   }
+
+  // --- Hash table construction ---
 
   private async buildHashTable(): Promise<void> {
     this.hashTable = new Map();
     const tuples = await drainOperator(this.build);
 
     for (const tuple of tuples) {
-      const key = await this.buildKey(tuple);
-      if (key === null) continue; // NULL key — never matches
+      const key = await this.evalKey(tuple, this.buildResolver, 'right');
+      if (key === null) continue; // NULL keys never match
       const bucket = this.hashTable.get(key);
-      if (bucket) {
-        bucket.push(tuple);
-      } else {
-        this.hashTable.set(key, [tuple]);
+      if (bucket) bucket.push(tuple);
+      else this.hashTable.set(key, [tuple]);
+    }
+  }
+
+  // --- Tuple generators (flatten the state machine into linear async flow) ---
+
+  private async *emitMatches(): AsyncGenerator<Tuple> {
+    for await (const probeTuple of this.probeTuples()) {
+      const key = await this.evalKey(probeTuple, this.probeResolver, 'left');
+
+      if (key === null) {
+        if (this.op.joinType === 'LEFT') {
+          yield [...probeTuple, ...this.buildNullTuple];
+        }
+        continue;
+      }
+
+      const matches = this.hashTable!.get(key);
+      if (matches && matches.length > 0) {
+        for (const buildTuple of matches) {
+          yield [...probeTuple, ...buildTuple];
+        }
+      } else if (this.op.joinType === 'LEFT') {
+        yield [...probeTuple, ...this.buildNullTuple];
       }
     }
   }
 
-  private async nextProbe(): Promise<Tuple | null> {
+  private async *emitSemiAnti(): AsyncGenerator<Tuple> {
+    const isSemi = this.op.joinType === 'SEMI';
+
+    for await (const probeTuple of this.probeTuples()) {
+      const key = await this.evalKey(probeTuple, this.probeResolver, 'left');
+      const hasMatch = key !== null
+        && (this.hashTable!.get(key)?.length ?? 0) > 0;
+
+      if (isSemi ? hasMatch : !hasMatch) {
+        yield probeTuple;
+      }
+    }
+  }
+
+  /** Yields individual probe tuples from batched child output. */
+  private async *probeTuples(): AsyncGenerator<Tuple> {
     while (true) {
-      if (this.probeBatch && this.probeIndex < this.probeBatch.length) {
-        return this.probeBatch[this.probeIndex++];
-      }
-      if (this.probeExhausted) return null;
-      this.probeBatch = await this.probe.next();
-      this.probeIndex = 0;
-      if (!this.probeBatch) {
-        this.probeExhausted = true;
-        return null;
-      }
+      const batch = await this.probe.next();
+      if (!batch) return;
+      yield* batch;
     }
   }
 
-  private async probeKey(tuple: Tuple): Promise<string | null> {
-    return this.joinKey(tuple, this.probeResolver, 'left');
-  }
+  // --- Key evaluation ---
 
-  private async buildKey(tuple: Tuple): Promise<string | null> {
-    return this.joinKey(tuple, this.buildResolver, 'right');
-  }
-
-  private async joinKey(
+  private async evalKey(
     tuple: Tuple,
     resolver: Resolver,
     side: 'left' | 'right',
@@ -187,10 +151,7 @@ export class PhysicalHashJoin implements PhysicalOperator {
 export class PhysicalNestedLoopJoin implements PhysicalOperator {
   private readonly layout: ColumnBinding[];
   private rightTuples: Tuple[] | null = null;
-  private leftBatch: Tuple[] | null = null;
-  private leftIdx = 0;
-  private rightIdx = 0;
-  private leftExhausted = false;
+  private emitter: AsyncGenerator<Tuple> | null = null;
 
   constructor(
     private readonly left: PhysicalOperator,
@@ -208,41 +169,36 @@ export class PhysicalNestedLoopJoin implements PhysicalOperator {
       this.rightTuples = await drainOperator(this.right);
       if (this.rightTuples.length === 0) return null;
     }
-
-    const result: Tuple[] = [];
-
-    while (result.length < 2000) {
-      // Get current left tuple
-      if (!this.leftBatch || this.leftIdx >= this.leftBatch.length) {
-        if (this.leftExhausted) break;
-        this.leftBatch = await this.left.next();
-        this.leftIdx = 0;
-        if (!this.leftBatch) {
-          this.leftExhausted = true;
-          break;
-        }
-      }
-
-      const leftTuple = this.leftBatch[this.leftIdx];
-      result.push([...leftTuple, ...this.rightTuples[this.rightIdx]]);
-      this.rightIdx++;
-
-      if (this.rightIdx >= this.rightTuples.length) {
-        this.rightIdx = 0;
-        this.leftIdx++;
-      }
+    if (!this.emitter) {
+      this.emitter = this.emitCrossProduct();
     }
 
-    return result.length > 0 ? result : null;
+    const batch: Tuple[] = [];
+    for (let i = 0; i < JOIN_BATCH; i++) {
+      const { value, done } = await this.emitter.next();
+      if (done) break;
+      batch.push(value);
+    }
+    return batch.length > 0 ? batch : null;
   }
 
   async reset(): Promise<void> {
     this.rightTuples = null;
-    this.leftBatch = null;
-    this.leftIdx = 0;
-    this.rightIdx = 0;
-    this.leftExhausted = false;
+    this.emitter = null;
     await this.left.reset();
     await this.right.reset();
+  }
+
+  private async *emitCrossProduct(): AsyncGenerator<Tuple> {
+    while (true) {
+      const leftBatch = await this.left.next();
+      if (!leftBatch) return;
+
+      for (const leftTuple of leftBatch) {
+        for (const rightTuple of this.rightTuples!) {
+          yield [...leftTuple, ...rightTuple];
+        }
+      }
+    }
   }
 }

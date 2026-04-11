@@ -1,6 +1,6 @@
 import type { ColumnBinding } from '../../binder/types.js';
 import type { PhysicalOperator, Tuple } from '../types.js';
-import { serializeValue } from '../evaluate/helpers.js';
+import { serializeKey } from './utils.js';
 
 // ---------------------------------------------------------------------------
 // Distinct
@@ -22,7 +22,7 @@ export class PhysicalDistinct implements PhysicalOperator {
 
       const result: Tuple[] = [];
       for (const tuple of batch) {
-        const key = tuple.map(serializeValue).join('\x00');
+        const key = serializeKey(tuple);
         if (!this.seen.has(key)) {
           this.seen.add(key);
           result.push(tuple);
@@ -90,7 +90,7 @@ export class PhysicalUnion implements PhysicalOperator {
 
     const result: Tuple[] = [];
     for (const tuple of batch) {
-      const key = tuple.map(serializeValue).join('\x00');
+      const key = serializeKey(tuple);
       if (!this.seen.has(key)) {
         this.seen.add(key);
         result.push(tuple);

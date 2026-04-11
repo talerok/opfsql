@@ -3,7 +3,7 @@ import type { IRowManager } from '../../store/types.js';
 import { PAGE_SIZE } from '../../store/types.js';
 import type { PhysicalOperator, Tuple, Value } from '../types.js';
 import type { EvalContext } from '../evaluate/context.js';
-import { applyComparison } from '../evaluate/helpers.js';
+import { rowToTuple, passesFilters } from './utils.js';
 
 export class PhysicalScan implements PhysicalOperator {
   private generator: AsyncGenerator<{ row: Record<string, Value> }> | null =
@@ -25,10 +25,7 @@ export class PhysicalScan implements PhysicalOperator {
   }
 
   async next(): Promise<Tuple[] | null> {
-    // Subquery GET — drain child operator
-    if (this.childOp) {
-      return this.nextFromChild();
-    }
+    if (this.childOp) return this.nextFromChild();
 
     // Empty GET (e.g. SELECT 1+1)
     if (this.op.tableName === '__empty') {
@@ -54,13 +51,10 @@ export class PhysicalScan implements PhysicalOperator {
         return null;
       }
 
-      // Remap child tuples through columnIds
       const result: Tuple[] = [];
       for (const childTuple of batch) {
-        const tuple: Tuple = this.op.columnIds.map((colId) => {
-          return childTuple[colId] ?? null;
-        });
-        if (this.passesTableFilters(tuple)) {
+        const tuple: Tuple = this.op.columnIds.map((colId) => childTuple[colId] ?? null);
+        if (passesFilters(tuple, this.op.tableFilters, this.op.columnIds)) {
           result.push(tuple);
         }
       }
@@ -83,9 +77,8 @@ export class PhysicalScan implements PhysicalOperator {
           break;
         }
 
-        const row = value.row;
-        const tuple = this.rowToTuple(row);
-        if (this.passesTableFilters(tuple)) {
+        const tuple = rowToTuple(value.row, this.op.columnIds, this.op.schema);
+        if (passesFilters(tuple, this.op.tableFilters, this.op.columnIds)) {
           batch.push(tuple);
         }
       }
@@ -94,25 +87,5 @@ export class PhysicalScan implements PhysicalOperator {
     }
 
     return null;
-  }
-
-  /** Convert storage Row → Tuple using columnIds and schema */
-  private rowToTuple(row: Record<string, Value>): Tuple {
-    return this.op.columnIds.map(
-      (colId) => row[this.op.schema.columns[colId].name] ?? null,
-    );
-  }
-
-  /** Apply pushed-down table filters */
-  private passesTableFilters(tuple: Tuple): boolean {
-    for (const filter of this.op.tableFilters) {
-      // Find the position of filter.columnIndex in columnIds
-      const pos = this.op.columnIds.indexOf(filter.columnIndex);
-      if (pos === -1) continue;
-      const val = tuple[pos];
-      const result = applyComparison(val, filter.constant.value, filter.comparisonType);
-      if (result !== true) return false;
-    }
-    return true;
   }
 }

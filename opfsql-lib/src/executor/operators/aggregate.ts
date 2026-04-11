@@ -8,7 +8,7 @@ import type { EvalContext } from '../evaluate/context.js';
 import { buildResolver } from '../resolve.js';
 import { evaluateExpression } from '../evaluate/index.js';
 import { isTruthy, serializeValue, compareValues } from '../evaluate/helpers.js';
-import { drainOperator } from './utils.js';
+import { drainOperator, serializeKey } from './utils.js';
 
 interface AggState {
   count: number;
@@ -16,6 +16,11 @@ interface AggState {
   min: Value;
   max: Value;
   distinctSet: Set<string> | null;
+}
+
+interface GroupEntry {
+  groupValues: Value[];
+  aggs: AggState[];
 }
 
 export class PhysicalHashAggregate implements PhysicalOperator {
@@ -44,23 +49,10 @@ export class PhysicalHashAggregate implements PhysicalOperator {
     const groups = await this.buildGroups(tuples);
     const result = this.finalize(groups);
 
-    // Apply HAVING
-    if (this.op.havingExpression) {
-      const aggResolver = buildResolver(this.layout);
-      const filtered: Tuple[] = [];
-      for (const tuple of result) {
-        const val = await evaluateExpression(
-          this.op.havingExpression,
-          tuple,
-          aggResolver,
-          this.ctx,
-        );
-        if (isTruthy(val)) filtered.push(tuple);
-      }
-      return filtered.length > 0 ? filtered : null;
+    if (!this.op.havingExpression) {
+      return result.length > 0 ? result : null;
     }
-
-    return result.length > 0 ? result : null;
+    return this.applyHaving(result);
   }
 
   async reset(): Promise<void> {
@@ -68,79 +60,52 @@ export class PhysicalHashAggregate implements PhysicalOperator {
     await this.child.reset();
   }
 
-  private async buildGroups(
-    tuples: Tuple[],
-  ): Promise<Map<string, { groupValues: Value[]; aggs: AggState[] }>> {
-    const groups = new Map<
-      string,
-      { groupValues: Value[]; aggs: AggState[] }
-    >();
+  // --- Group construction ---
 
-    const hasGroups = this.op.groups.length > 0;
+  private async buildGroups(tuples: Tuple[]): Promise<Map<string, GroupEntry>> {
+    const groups = new Map<string, GroupEntry>();
 
-    // If no input and no GROUP BY, we still produce one row
-    if (tuples.length === 0 && !hasGroups) {
-      const aggs = this.op.expressions.map(() => this.newAggState());
-      groups.set('', { groupValues: [], aggs });
+    // No input + no GROUP BY → still produce one row (e.g. SELECT COUNT(*))
+    if (tuples.length === 0 && this.op.groups.length === 0) {
+      groups.set('', { groupValues: [], aggs: this.newAggStates() });
       return groups;
     }
 
     for (const tuple of tuples) {
-      // Evaluate group-by expressions
-      const groupValues: Value[] = [];
-      const keyParts: string[] = [];
-      for (const groupExpr of this.op.groups) {
-        const val = await evaluateExpression(
-          groupExpr,
-          tuple,
-          this.childResolver,
-          this.ctx,
-        );
-        groupValues.push(val);
-        keyParts.push(serializeValue(val));
-      }
-      const key = keyParts.join('\x00');
+      const { key, values } = await this.computeGroupKey(tuple);
 
-      let entry = groups.get(key);
-      if (!entry) {
-        entry = {
-          groupValues,
-          aggs: this.op.expressions.map(() => this.newAggState()),
-        };
-        groups.set(key, entry);
+      let group = groups.get(key);
+      if (!group) {
+        group = { groupValues: values, aggs: this.newAggStates() };
+        groups.set(key, group);
       }
 
-      // Update each aggregate
       for (let i = 0; i < this.op.expressions.length; i++) {
-        await this.updateAgg(
-          entry.aggs[i],
-          this.op.expressions[i],
-          tuple,
-        );
+        await this.updateAgg(group.aggs[i], this.op.expressions[i], tuple);
       }
     }
 
     return groups;
   }
 
-  private finalize(
-    groups: Map<string, { groupValues: Value[]; aggs: AggState[] }>,
-  ): Tuple[] {
-    const result: Tuple[] = [];
-    for (const { groupValues, aggs } of groups.values()) {
-      const tuple: Tuple = [
-        ...groupValues,
-        ...aggs.map((agg, i) =>
-          this.finalizeAgg(agg, this.op.expressions[i]),
-        ),
-      ];
-      result.push(tuple);
+  private async computeGroupKey(
+    tuple: Tuple,
+  ): Promise<{ key: string; values: Value[] }> {
+    const values: Value[] = [];
+    for (const groupExpr of this.op.groups) {
+      values.push(
+        await evaluateExpression(groupExpr, tuple, this.childResolver, this.ctx),
+      );
     }
-    return result;
+    return { key: serializeKey(values), values };
   }
 
-  private newAggState(): AggState {
-    return { count: 0, sum: 0, min: null, max: null, distinctSet: null };
+  // --- Aggregation ---
+
+  private newAggStates(): AggState[] {
+    return this.op.expressions.map(() => ({
+      count: 0, sum: 0, min: null, max: null, distinctSet: null,
+    }));
   }
 
   private async updateAgg(
@@ -149,21 +114,15 @@ export class PhysicalHashAggregate implements PhysicalOperator {
     tuple: Tuple,
   ): Promise<void> {
     if (aggExpr.isStar) {
-      // COUNT(*)
       state.count++;
       return;
     }
 
     const val = await evaluateExpression(
-      aggExpr.children[0],
-      tuple,
-      this.childResolver,
-      this.ctx,
+      aggExpr.children[0], tuple, this.childResolver, this.ctx,
     );
-
     if (val === null) return; // NULL ignored by all aggregates
 
-    // Handle DISTINCT
     if (aggExpr.distinct) {
       if (!state.distinctSet) state.distinctSet = new Set();
       const key = serializeValue(val);
@@ -172,32 +131,44 @@ export class PhysicalHashAggregate implements PhysicalOperator {
     }
 
     state.count++;
-    if (typeof val === 'number') {
-      state.sum += val;
+    if (typeof val === 'number') state.sum += val;
+    if (state.min === null || compareValues(val, state.min) < 0) state.min = val;
+    if (state.max === null || compareValues(val, state.max) > 0) state.max = val;
+  }
+
+  // --- Finalization ---
+
+  private finalize(groups: Map<string, GroupEntry>): Tuple[] {
+    const result: Tuple[] = [];
+    for (const { groupValues, aggs } of groups.values()) {
+      result.push([
+        ...groupValues,
+        ...aggs.map((agg, i) => this.finalizeAgg(agg, this.op.expressions[i])),
+      ]);
     }
-    if (state.min === null || compareValues(val, state.min) < 0) {
-      state.min = val;
-    }
-    if (state.max === null || compareValues(val, state.max) > 0) {
-      state.max = val;
+    return result;
+  }
+
+  private finalizeAgg(state: AggState, aggExpr: BoundAggregateExpression): Value {
+    switch (aggExpr.functionName) {
+      case 'COUNT': return state.count;
+      case 'SUM':   return state.count === 0 ? null : state.sum;
+      case 'AVG':   return state.count === 0 ? null : state.sum / state.count;
+      case 'MIN':   return state.min;
+      case 'MAX':   return state.max;
+      default:      return null;
     }
   }
 
-  private finalizeAgg(
-    state: AggState,
-    aggExpr: BoundAggregateExpression,
-  ): Value {
-    switch (aggExpr.functionName) {
-      case 'COUNT':
-        return state.count;
-      case 'SUM':
-        return state.count === 0 ? null : state.sum;
-      case 'AVG':
-        return state.count === 0 ? null : state.sum / state.count;
-      case 'MIN':
-        return state.min;
-      case 'MAX':
-        return state.max;
+  private async applyHaving(result: Tuple[]): Promise<Tuple[] | null> {
+    const aggResolver = buildResolver(this.layout);
+    const filtered: Tuple[] = [];
+    for (const tuple of result) {
+      const val = await evaluateExpression(
+        this.op.havingExpression!, tuple, aggResolver, this.ctx,
+      );
+      if (isTruthy(val)) filtered.push(tuple);
     }
+    return filtered.length > 0 ? filtered : null;
   }
 }

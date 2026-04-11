@@ -1,7 +1,7 @@
 import type { LogicalCTERef, ColumnBinding } from '../../binder/types.js';
 import type { PhysicalOperator, Tuple, CTECacheEntry } from '../types.js';
 import { ExecutorError } from '../errors.js';
-import { drainOperator } from './utils.js';
+import { drainOperator, SCAN_BATCH } from './utils.js';
 
 // ---------------------------------------------------------------------------
 // Materialize — executes CTE definition once, caches, then proxies main plan
@@ -71,7 +71,7 @@ export class PhysicalCTEScan implements PhysicalOperator {
 
     if (this.offset >= entry.tuples.length) return null;
 
-    const batch = entry.tuples.slice(this.offset, this.offset + 500);
+    const batch = entry.tuples.slice(this.offset, this.offset + SCAN_BATCH);
     this.offset += batch.length;
     return batch;
   }
