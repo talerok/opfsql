@@ -11,7 +11,7 @@ import type {
 import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
 import type { ICatalog, IRowManager, Row, RowId } from '../store/types.js';
 import type { IIndexManager } from '../store/index-manager.js';
-import type { IndexKey } from '../store/btree/types.js';
+import type { IndexKey } from '../store/index-btree/types.js';
 import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
 import type { EvalContext } from './evaluate/context.js';
 import { buildResolver, type Resolver } from './resolve.js';

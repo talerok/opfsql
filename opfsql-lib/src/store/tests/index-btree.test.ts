@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { BTree } from "../btree/btree.js";
-import type { IndexKey } from "../btree/types.js";
+import { BTree } from "../index-btree/index-btree.js";
+import type { IndexKey } from "../index-btree/types.js";
 import { PageManager } from "../page-manager.js";
 import type { RowId } from "../types.js";
 import { MemoryStorage } from "./memory-storage.js";
@@ -9,7 +9,7 @@ function rid(a: number, b: number): RowId {
   return a * 1000 + b;
 }
 
-describe("BTree", () => {
+describe("IndexBTree", () => {
   let pm: PageManager;
   let tree: BTree;
 

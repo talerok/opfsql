@@ -1,5 +1,5 @@
 import type { IKVStore, IRowManager, Row, RowId } from './types.js';
-import { TableBTree } from './btree/table-btree.js';
+import { TableBTree } from './table-btree.js';
 
 export class TableManager implements IRowManager {
   constructor(private readonly kv: IKVStore) {}

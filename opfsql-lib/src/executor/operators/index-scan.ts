@@ -6,7 +6,7 @@ import type {
 } from '../../binder/types.js';
 import type { IRowManager, IndexDef, RowId } from '../../store/types.js';
 import type { IIndexManager } from '../../store/index-manager.js';
-import type { SearchPredicate } from '../../store/btree/btree.js';
+import type { SearchPredicate } from '../../store/index-btree/index-btree.js';
 import type { PhysicalOperator, Tuple } from '../types.js';
 import { rowToTuple, passesFilters, SCAN_BATCH } from './utils.js';
 

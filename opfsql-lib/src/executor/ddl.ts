@@ -4,8 +4,8 @@ import type {
   LogicalCreateTable,
   LogicalDrop,
 } from "../binder/types.js";
-import { compareIndexKeys } from "../store/btree/compare.js";
-import type { IndexKey } from "../store/btree/types.js";
+import { compareIndexKeys } from "../store/index-btree/compare.js";
+import type { IndexKey } from "../store/index-btree/types.js";
 import type { IIndexManager } from "../store/index-manager.js";
 import type { ICatalog, IRowManager, RowId } from "../store/types.js";
 import { ExecutorError } from "./errors.js";

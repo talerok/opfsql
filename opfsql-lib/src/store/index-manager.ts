@@ -1,6 +1,6 @@
 import type { IKVStore, RowId } from './types.js';
-import type { IndexKey } from './btree/types.js';
-import { BTree, type SearchPredicate } from './btree/btree.js';
+import type { IndexKey } from './index-btree/types.js';
+import { BTree, type SearchPredicate } from './index-btree/index-btree.js';
 
 // ---------------------------------------------------------------------------
 // IIndexManager — public interface

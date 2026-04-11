@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeBounds, type SearchPredicate } from "../btree/search-bounds.js";
+import { computeBounds, type SearchPredicate } from "../index-btree/search-bounds.js";
 
 describe("computeBounds", () => {
   // --- Point lookup (all columns covered by equality) ---

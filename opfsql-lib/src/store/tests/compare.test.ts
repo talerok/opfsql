@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareIndexKeys, keyHasNull } from "../btree/compare.js";
+import { compareIndexKeys, keyHasNull } from "../index-btree/compare.js";
 
 describe("compareIndexKeys", () => {
   // --- Simple single-column keys ---

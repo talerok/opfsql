@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TableBTree } from '../btree/table-btree.js';
+import { TableBTree } from '../table-btree.js';
 import { PageManager } from '../page-manager.js';
 import { MemoryStorage } from './memory-storage.js';
 
