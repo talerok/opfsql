@@ -5,8 +5,8 @@ import { PageManager } from "../page-manager.js";
 import type { RowId } from "../types.js";
 import { MemoryStorage } from "./memory-storage.js";
 
-function rid(pageId: number, slotId: number): RowId {
-  return { pageId, slotId };
+function rid(a: number, b: number): RowId {
+  return a * 1000 + b;
 }
 
 describe("BTree", () => {

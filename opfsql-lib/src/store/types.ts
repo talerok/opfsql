@@ -34,29 +34,23 @@ export interface CatalogData {
   indexes: IndexDef[];
 }
 
-export interface RowId {
-  pageId: number;
-  slotId: number;
-}
+/** Logical row identifier — auto-incrementing number, stable across page compaction. */
+export type RowId = number;
 
 export type Row = Record<string, string | number | boolean | null>;
-
-export interface PageRow {
-  slotId: number;
-  deleted: boolean;
-  data: Row;
-}
 
 export interface Page {
   pageId: number;
   tableId: string;
-  rows: PageRow[];
+  /** logicalId → Row data. O(1) read/write/delete. */
+  rows: Record<number, Row>;
 }
 
 export interface PageMeta {
   lastPageId: number;
+  nextRowId: number;
   totalRowCount: number;
-  deadRowCount: number;
+  freePageIds: number[];
 }
 
 export const PAGE_SIZE = 1024;
@@ -102,10 +96,8 @@ export interface IPageManager {
   scanTable(tableId: string): AsyncGenerator<{ rowId: RowId; row: Row }>;
   readRow(tableId: string, rowId: RowId): Promise<Row | null>;
 
-  // Page metadata & compaction
-  getPageMeta(tableId: string): Promise<PageMeta>;
+  // Page metadata & management
   getAllPageKeys(tableId: string): Promise<string[]>;
-  compactTable(tableId: string): Promise<PageRow[]>;
   deleteTableData(tableId: string): Promise<void>;
 
   // KV operations (used by B-tree index nodes)
@@ -125,8 +117,3 @@ export type IRowManager = Pick<
   "prepareInsert" | "prepareUpdate" | "prepareDelete" | "scanTable" | "readRow"
 >;
 
-export interface IVacuum {
-  shouldVacuum(tableId: string): Promise<boolean>;
-  vacuumTable(tableId: string): Promise<void>;
-  vacuumIfNeeded(tableId: string): Promise<void>;
-}

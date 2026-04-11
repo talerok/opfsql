@@ -62,8 +62,6 @@ export class Engine {
     engine.catalog = await initCatalog(storage.backend);
     engine.binder = new Binder(engine.catalog);
 
-    await storage.initAndVacuum(engine.catalog.getAllTables().map((t) => t.name), engine.catalog);
-
     return engine;
   }
 

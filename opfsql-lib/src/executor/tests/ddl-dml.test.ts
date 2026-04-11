@@ -58,14 +58,12 @@ function mockCatalog(tables: TableSchema[] = [usersSchema]): ICatalog {
 
 function mockPageManager(): IPageManager {
   return {
-    prepareInsert: vi.fn(async () => ({ pageId: 0, slotId: 0 })),
-    prepareUpdate: vi.fn(async () => ({ pageId: 0, slotId: 0 })),
+    prepareInsert: vi.fn(async () => 0),
+    prepareUpdate: vi.fn(async () => 0),
     prepareDelete: vi.fn(async () => {}),
     scanTable: async function* () {},
     readRow: vi.fn(async () => null),
-    getPageMeta: vi.fn(async () => ({ lastPageId: -1, totalRowCount: 0, deadRowCount: 0 })),
     getAllPageKeys: vi.fn(async () => []),
-    compactTable: vi.fn(async () => []),
     deleteTableData: vi.fn(async () => {}),
     readKey: vi.fn(async () => null),
     getAllKeys: vi.fn(async () => []),
@@ -251,19 +249,19 @@ function mockRowManager(
   rows: Array<{ id: number; name: string; age: number | null }> = [],
 ): IRowManager {
   const stored = rows.map((r, i) => ({
-    rowId: { pageId: 0, slotId: i },
+    rowId: i as RowId,
     row: r as unknown as Row,
   }));
 
-  let nextSlot = stored.length;
+  let nextId = stored.length;
   return {
     scanTable: async function* () {
       for (const entry of stored) {
         yield entry;
       }
     },
-    prepareInsert: vi.fn(async (): Promise<RowId> => ({ pageId: 0, slotId: nextSlot++ })),
-    prepareUpdate: vi.fn(async (): Promise<RowId> => ({ pageId: 0, slotId: nextSlot++ })),
+    prepareInsert: vi.fn(async (): Promise<RowId> => nextId++),
+    prepareUpdate: vi.fn(async (_t: string, rowId: RowId): Promise<RowId> => rowId),
     prepareDelete: vi.fn(async () => {}),
     readRow: vi.fn(async () => null),
   };
@@ -422,7 +420,7 @@ describe('DML executors', () => {
 
       const result = await executeUpdate(op, rm, noopCtx);
       expect(result.rowsAffected).toBe(1);
-      expect(rm.prepareUpdate).toHaveBeenCalledWith('users', { pageId: 0, slotId: 0 }, expect.objectContaining({ name: 'UPDATED' }));
+      expect(rm.prepareUpdate).toHaveBeenCalledWith('users', 0, expect.objectContaining({ name: 'UPDATED' }));
     });
   });
 
@@ -476,7 +474,7 @@ describe('DML executors', () => {
 
       const result = await executeDelete(op, rm, noopCtx);
       expect(result.rowsAffected).toBe(1);
-      expect(rm.prepareDelete).toHaveBeenCalledWith('users', { pageId: 0, slotId: 1 });
+      expect(rm.prepareDelete).toHaveBeenCalledWith('users', 1);
     });
   });
 });

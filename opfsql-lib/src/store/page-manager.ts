@@ -1,9 +1,12 @@
 import { StorageError, wrapStorageError } from './errors.js';
-import type { IPageManager, IStorage, Page, PageMeta, PageRow, Row, RowId } from './types.js';
+import type { IPageManager, IStorage, Page, PageMeta, Row, RowId } from './types.js';
 import { PAGE_SIZE } from './types.js';
 
 const PAGE_ID_WIDTH = 6;
-const DEFAULT_META: PageMeta = { lastPageId: -1, totalRowCount: 0, deadRowCount: 0 };
+const DEFAULT_META: PageMeta = { lastPageId: -1, nextRowId: 0, totalRowCount: 0, freePageIds: [] };
+
+type RowMapShard = Record<number, number>; // logicalId → pageId
+const ROW_MAP_SHARD_SIZE = 65536;
 
 export class PageManager implements IPageManager {
   private wal = new Map<string, unknown>();
@@ -12,34 +15,39 @@ export class PageManager implements IPageManager {
   constructor(private readonly storage: IStorage) {}
 
   // ---------------------------------------------------------------------------
-  // Row operations (absorbed from RowManager)
+  // Row operations
   // ---------------------------------------------------------------------------
 
   async prepareInsert(tableId: string, row: Row): Promise<RowId> {
     try {
       const meta = await this.getPageMeta(tableId);
 
+      const id = meta.nextRowId++;
+
+      // Find a page with room
       let page: Page | null = null;
       if (meta.lastPageId >= 0) {
         page = await this.readPage(tableId, meta.lastPageId);
       }
 
       let writable: Page;
-      if (!page || this.liveRowCount(page) >= PAGE_SIZE) {
-        meta.lastPageId++;
-        writable = { pageId: meta.lastPageId, tableId, rows: [] };
+      if (!page || this.rowCount(page) >= PAGE_SIZE) {
+        const freeId = meta.freePageIds.pop();
+        const newPageId = freeId !== undefined ? freeId : ++meta.lastPageId;
+        writable = { pageId: newPageId, tableId, rows: {} };
         this.writePage(tableId, writable);
       } else {
         writable = this.ensureWritable(tableId, page);
       }
 
-      const slotId = writable.rows.length;
-      writable.rows.push({ slotId, deleted: false, data: row });
+      writable.rows[id] = row;
+      const shard = await this.readRowMapShard(tableId, id);
+      shard[id] = writable.pageId;
       meta.totalRowCount++;
 
       this.writeMeta(tableId, meta);
 
-      return { pageId: writable.pageId, slotId };
+      return id;
     } catch (err) {
       throw wrapStorageError(err);
     }
@@ -51,35 +59,17 @@ export class PageManager implements IPageManager {
     row: Row,
   ): Promise<RowId> {
     try {
-      const meta = await this.getPageMeta(tableId);
-      const oldPage = await this.requirePage(tableId, rowId.pageId);
-
-      // Mark old slot as deleted in-place on writable page
-      const writableOld = this.ensureWritable(tableId, oldPage);
-      writableOld.rows[rowId.slotId] = { ...writableOld.rows[rowId.slotId], deleted: true };
-      meta.deadRowCount++;
-
-      let writableNew: Page;
-      if (rowId.pageId === meta.lastPageId) {
-        writableNew = writableOld;
-      } else {
-        const lastPage = await this.requirePage(tableId, meta.lastPageId);
-        writableNew = this.ensureWritable(tableId, lastPage);
+      const shard = await this.readRowMapShard(tableId, rowId);
+      const pageId = shard[rowId];
+      if (pageId === undefined) {
+        throw new StorageError(`Row ${rowId} not found in table ${tableId}`);
       }
 
-      if (this.liveRowCount(writableNew) >= PAGE_SIZE) {
-        meta.lastPageId++;
-        writableNew = { pageId: meta.lastPageId, tableId, rows: [] };
-        this.writePage(tableId, writableNew);
-      }
+      const page = await this.requirePage(tableId, pageId);
+      const writable = this.ensureWritable(tableId, page);
+      writable.rows[rowId] = row;
 
-      const slotId = writableNew.rows.length;
-      writableNew.rows.push({ slotId, deleted: false, data: row });
-      meta.totalRowCount++;
-
-      this.writeMeta(tableId, meta);
-
-      return { pageId: writableNew.pageId, slotId };
+      return rowId;
     } catch (err) {
       throw wrapStorageError(err);
     }
@@ -88,11 +78,22 @@ export class PageManager implements IPageManager {
   async prepareDelete(tableId: string, rowId: RowId): Promise<void> {
     try {
       const meta = await this.getPageMeta(tableId);
-      const page = await this.requirePage(tableId, rowId.pageId);
+      const shard = await this.readRowMapShard(tableId, rowId);
+      const pageId = shard[rowId];
+      if (pageId === undefined) {
+        throw new StorageError(`Row ${rowId} not found in table ${tableId}`);
+      }
 
+      const page = await this.requirePage(tableId, pageId);
       const writable = this.ensureWritable(tableId, page);
-      writable.rows[rowId.slotId] = { ...writable.rows[rowId.slotId], deleted: true };
-      meta.deadRowCount++;
+      delete writable.rows[rowId];
+      delete shard[rowId];
+      meta.totalRowCount--;
+
+      // Reclaim empty non-last pages
+      if (this.rowCount(writable) === 0 && pageId !== meta.lastPageId) {
+        meta.freePageIds.push(pageId);
+      }
 
       this.writeMeta(tableId, meta);
     } catch (err) {
@@ -107,24 +108,53 @@ export class PageManager implements IPageManager {
     for (let pid = 0; pid <= meta.lastPageId; pid++) {
       const page = await this.readPage(tableId, pid);
       if (!page) continue;
-      for (const pr of page.rows) {
-        if (!pr.deleted) {
-          yield { rowId: { pageId: pid, slotId: pr.slotId }, row: pr.data };
-        }
+      for (const [id, data] of Object.entries(page.rows)) {
+        yield { rowId: Number(id), row: data };
       }
     }
   }
 
   async readRow(tableId: string, rowId: RowId): Promise<Row | null> {
     try {
-      const page = await this.readPage(tableId, rowId.pageId);
+      const shard = await this.readRowMapShard(tableId, rowId);
+      const pageId = shard[rowId];
+      if (pageId === undefined) return null;
+
+      const page = await this.readPage(tableId, pageId);
       if (!page) return null;
-      const pr = page.rows[rowId.slotId];
-      if (!pr || pr.deleted) return null;
-      return pr.data;
+      return page.rows[rowId] ?? null;
     } catch (err) {
       throw wrapStorageError(err);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Row map (logicalId → pageId)
+  // ---------------------------------------------------------------------------
+
+  private async readRowMapShard(tableId: string, rowId: number): Promise<RowMapShard> {
+    const key = this.getRowMapShardKey(tableId, rowId);
+    if (this.wal.has(key)) return this.wal.get(key) as RowMapShard;
+    if (this.cache.has(key)) {
+      const copy = { ...(this.cache.get(key) as RowMapShard) };
+      this.wal.set(key, copy);
+      return copy;
+    }
+    const map = await this.storage.get<RowMapShard>(key);
+    if (map) {
+      this.cache.set(key, map);
+      const copy = { ...map };
+      this.wal.set(key, copy);
+      return copy;
+    }
+    const fresh: RowMapShard = {};
+    this.wal.set(key, fresh);
+    return fresh;
+  }
+
+  private getRowMapShardKey(tableId: string, rowId: number): string {
+    const shard = Math.floor(rowId / ROW_MAP_SHARD_SIZE);
+    return `rowmap:${tableId}:${shard}`;
   }
 
   // ---------------------------------------------------------------------------
@@ -149,7 +179,7 @@ export class PageManager implements IPageManager {
       this.cache.set(key, meta);
       return meta;
     }
-    return { ...DEFAULT_META };
+    return { ...DEFAULT_META, freePageIds: [] };
   }
 
   private writePage(tableId: string, page: Page): void {
@@ -173,11 +203,10 @@ export class PageManager implements IPageManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Delete all page data + meta for a table
+  // Delete all page data + meta + rowmap for a table
   // ---------------------------------------------------------------------------
 
   async deleteTableData(tableId: string): Promise<void> {
-    // Delete page keys from storage
     const pageKeys = await this.getAllPageKeys(tableId);
     for (const key of pageKeys) {
       this.deleteKey(key);
@@ -190,51 +219,12 @@ export class PageManager implements IPageManager {
       }
     }
     this.deleteKey(this.getMetaKey(tableId));
-  }
-
-  // ---------------------------------------------------------------------------
-  // Compaction — collects live rows, rewrites pages compactly
-  // ---------------------------------------------------------------------------
-
-  async compactTable(tableId: string): Promise<PageRow[]> {
-    const meta = await this.getPageMeta(tableId);
-    const oldKeys = await this.getAllPageKeys(tableId);
-
-    const liveRows: PageRow[] = [];
-    for (let pid = 0; pid <= meta.lastPageId; pid++) {
-      const page = await this.readPage(tableId, pid);
-      if (!page) continue;
-      for (const pr of page.rows) {
-        if (!pr.deleted) liveRows.push(pr);
-      }
-    }
-
-    // Delete all old page keys
-    for (const key of oldKeys) {
+    // Delete all rowmap shards
+    const rmPrefix = `rowmap:${tableId}:`;
+    const rmKeys = await this.getAllKeys(rmPrefix);
+    for (const key of rmKeys) {
       this.deleteKey(key);
     }
-
-    // Write new compacted pages
-    let pageId = 0;
-    for (let i = 0; i < liveRows.length; i += PAGE_SIZE) {
-      const chunk = liveRows.slice(i, i + PAGE_SIZE);
-      const rows = chunk.map((pr, slotId) => ({
-        slotId,
-        deleted: false,
-        data: pr.data,
-      }));
-      this.writePage(tableId, { pageId, tableId, rows });
-      pageId++;
-    }
-
-    const newMeta: PageMeta = {
-      lastPageId: liveRows.length === 0 ? -1 : pageId - 1,
-      totalRowCount: liveRows.length,
-      deadRowCount: 0,
-    };
-    this.writeMeta(tableId, newMeta);
-
-    return liveRows;
   }
 
   // ---------------------------------------------------------------------------
@@ -271,8 +261,6 @@ export class PageManager implements IPageManager {
   }
 
   writeKey(key: string, value: unknown): void {
-    // Invalidate cache to prevent stale data after rollback
-    // (BTree may have mutated the cached object in-place)
     this.cache.delete(key);
     this.wal.set(key, value);
   }
@@ -290,7 +278,6 @@ export class PageManager implements IPageManager {
     if (this.wal.size === 0) return;
     const entries: Array<[string, unknown]> = [...this.wal.entries()];
     await this.storage.putMany(entries);
-    // Move committed data to cache (buffer pool)
     for (const [key, value] of entries) {
       if (value === null) {
         this.cache.delete(key);
@@ -303,7 +290,6 @@ export class PageManager implements IPageManager {
 
   rollback(): void {
     this.wal.clear();
-    // cache stays intact — only uncommitted data is discarded
   }
 
   // ---------------------------------------------------------------------------
@@ -315,13 +301,13 @@ export class PageManager implements IPageManager {
     if (this.wal.has(key)) {
       return this.wal.get(key) as Page;
     }
-    const copy: Page = { ...page, rows: [...page.rows] };
+    const copy: Page = { ...page, rows: { ...page.rows } };
     this.wal.set(key, copy);
     return copy;
   }
 
-  private liveRowCount(page: Page): number {
-    return page.rows.filter((r) => !r.deleted).length;
+  private rowCount(page: Page): number {
+    return Object.keys(page.rows).length;
   }
 
   private async requirePage(tableId: string, pageId: number): Promise<Page> {

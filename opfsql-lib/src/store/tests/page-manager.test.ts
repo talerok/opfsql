@@ -12,13 +12,13 @@ describe('PageManager', () => {
   });
 
   describe('read defaults', () => {
-    it('readRow returns null for missing page', async () => {
-      expect(await pm.readRow('t1', { pageId: 0, slotId: 0 })).toBeNull();
+    it('readRow returns null for missing row', async () => {
+      expect(await pm.readRow('t1', 0)).toBeNull();
     });
 
     it('getPageMeta returns defaults for missing table', async () => {
       const meta = await pm.getPageMeta('t1');
-      expect(meta).toEqual({ lastPageId: -1, totalRowCount: 0, deadRowCount: 0 });
+      expect(meta).toEqual({ lastPageId: -1, nextRowId: 0, totalRowCount: 0, freePageIds: [] });
     });
   });
 
@@ -37,7 +37,7 @@ describe('PageManager', () => {
     });
 
     it('deleteKey → commit removes from storage', async () => {
-      await storage.put('page:t1:000000', { pageId: 0, tableId: 't1', rows: [] });
+      await storage.put('page:t1:000000', { pageId: 0, tableId: 't1', rows: {} });
       pm.deleteKey('page:t1:000000');
       await pm.commit();
       expect(await storage.get('page:t1:000000')).toBeNull();
@@ -49,18 +49,16 @@ describe('PageManager', () => {
       await pm.prepareInsert('t1', { id: 1 });
       await pm.commit();
 
-      // Verify data is in storage
       const page = await storage.get<any>('page:t1:000000');
       expect(page).not.toBeNull();
-      expect(page.rows).toHaveLength(1);
+      expect(Object.keys(page.rows)).toHaveLength(1);
     });
 
     it('data survives in cache after commit', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
+      const rowId = await pm.prepareInsert('t1', { id: 1 });
       await pm.commit();
 
-      // Read from cache (not storage)
-      const row = await pm.readRow('t1', { pageId: 0, slotId: 0 });
+      const row = await pm.readRow('t1', rowId);
       expect(row).toEqual({ id: 1 });
     });
 
@@ -71,20 +69,19 @@ describe('PageManager', () => {
 
   describe('rollback', () => {
     it('discards uncommitted data', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
+      const rowId = await pm.prepareInsert('t1', { id: 1 });
       pm.rollback();
-      expect(await pm.readRow('t1', { pageId: 0, slotId: 0 })).toBeNull();
+      expect(await pm.readRow('t1', rowId)).toBeNull();
     });
 
     it('does not affect committed data in cache', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
+      const rowId = await pm.prepareInsert('t1', { id: 1 });
       await pm.commit();
 
       await pm.prepareInsert('t1', { id: 2 });
       pm.rollback();
 
-      // First row still accessible from cache
-      expect(await pm.readRow('t1', { pageId: 0, slotId: 0 })).toEqual({ id: 1 });
+      expect(await pm.readRow('t1', rowId)).toEqual({ id: 1 });
     });
   });
 
@@ -99,7 +96,7 @@ describe('PageManager', () => {
   });
 
   describe('deleteTableData', () => {
-    it('removes all pages and meta for a table', async () => {
+    it('removes all pages, meta, and rowmap for a table', async () => {
       await pm.prepareInsert('t1', { id: 1 });
       await pm.prepareInsert('t1', { id: 2 });
       await pm.commit();
@@ -107,7 +104,6 @@ describe('PageManager', () => {
       await pm.deleteTableData('t1');
       await pm.commit();
 
-      // Fresh PM reads from storage
       const pm2 = new PageManager(storage);
       const meta = await pm2.getPageMeta('t1');
       expect(meta.lastPageId).toBe(-1);
@@ -136,7 +132,6 @@ describe('PageManager', () => {
       const val1 = await pm.readKey<{ data: number }>('some:key');
       expect(val1).toEqual({ data: 1 });
 
-      // Delete from storage — should still be in cache
       await storage.delete('some:key');
       const val2 = await pm.readKey<{ data: number }>('some:key');
       expect(val2).toEqual({ data: 1 });
@@ -146,7 +141,6 @@ describe('PageManager', () => {
       pm.writeKey('k', 'v');
       await pm.commit();
 
-      // Delete from storage — cache should serve it
       await storage.delete('k');
       expect(await pm.readKey<string>('k')).toBe('v');
     });

@@ -9,7 +9,7 @@ import type {
   ColumnBinding,
 } from '../binder/types.js';
 import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
-import type { ICatalog, IRowManager, Row } from '../store/types.js';
+import type { ICatalog, IRowManager, Row, RowId } from '../store/types.js';
 import type { IIndexManager } from '../store/index-manager.js';
 import type { IndexKey } from '../store/btree/types.js';
 import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
@@ -98,7 +98,7 @@ function buildIndexKey(row: Row, columns: string[]): IndexKey {
 async function maintainIndexesInsert(
   tableName: string,
   row: Row,
-  rowId: { pageId: number; slotId: number },
+  rowId: RowId,
   catalog?: ICatalog,
   indexManager?: IIndexManager,
 ): Promise<void> {
@@ -111,7 +111,7 @@ async function maintainIndexesInsert(
 async function maintainIndexesDelete(
   tableName: string,
   row: Row,
-  rowId: { pageId: number; slotId: number },
+  rowId: RowId,
   catalog?: ICatalog,
   indexManager?: IIndexManager,
 ): Promise<void> {

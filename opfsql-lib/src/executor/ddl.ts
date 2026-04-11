@@ -7,7 +7,7 @@ import type {
 import { compareIndexKeys } from "../store/btree/compare.js";
 import type { IndexKey } from "../store/btree/types.js";
 import type { IIndexManager } from "../store/index-manager.js";
-import type { ICatalog, IPageManager, IRowManager } from "../store/types.js";
+import type { ICatalog, IPageManager, IRowManager, RowId } from "../store/types.js";
 import { ExecutorError } from "./errors.js";
 import type { ExecuteResult } from "./types.js";
 
@@ -61,7 +61,7 @@ export async function executeCreateIndex(
   // Backfill: scan the table and build the index
   const entries: Array<{
     key: IndexKey;
-    rowId: { pageId: number; slotId: number };
+    rowId: RowId;
   }> = [];
 
   for await (const { rowId, row } of rowManager.scanTable(op.index.tableName)) {

@@ -1,13 +1,11 @@
 import { PageManager } from './page-manager.js';
-import { Vacuum } from './vacuum.js';
 import { IndexManager, type IIndexManager } from './index-manager.js';
-import type { ICatalog, IStorage } from './types.js';
+import type { IStorage } from './types.js';
 
 export class Storage {
   readonly backend: IStorage;
   pageManager!: PageManager;
   indexManager!: IIndexManager;
-  vacuum!: Vacuum;
 
   constructor(backend: IStorage) {
     this.backend = backend;
@@ -17,18 +15,9 @@ export class Storage {
     await this.backend.open();
     this.pageManager = new PageManager(this.backend);
     this.indexManager = new IndexManager(this.pageManager);
-    this.vacuum = new Vacuum(this.pageManager);
   }
 
   close(): void {
     this.backend.close();
-  }
-
-  async initAndVacuum(tableIds: string[], catalog: ICatalog): Promise<void> {
-    this.vacuum.catalog = catalog;
-    this.vacuum.indexManager = this.indexManager;
-    for (const id of tableIds) {
-      await this.vacuum.vacuumIfNeeded(id);
-    }
   }
 }

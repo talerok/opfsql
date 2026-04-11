@@ -104,7 +104,7 @@ export class BTree {
     if (pos >= leaf.keys.length || compareIndexKeys(leaf.keys[pos], key) !== 0) return false;
 
     const bucket = leaf.rowIds[pos];
-    const idx = bucket.findIndex(r => r.pageId === rowId.pageId && r.slotId === rowId.slotId);
+    const idx = bucket.indexOf(rowId);
     if (idx === -1) return false;
 
     bucket.splice(idx, 1);
