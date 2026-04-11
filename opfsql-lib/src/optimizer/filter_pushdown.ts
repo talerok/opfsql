@@ -148,8 +148,8 @@ class FilterPushdown {
           remaining.push(filter);
         }
       } else if (touchesLeft && touchesRight && op.joinType === 'INNER') {
-        // References both sides — try to convert to join condition
-        const joinCond = tryExtractJoinCondition(filter);
+        // References both sides — try to convert to equi-join condition
+        const joinCond = tryExtractJoinCondition(filter, leftTables, rightTables);
         if (joinCond) {
           op.conditions.push(joinCond);
         } else {
@@ -196,7 +196,7 @@ class FilterPushdown {
       } else if (touchesRight && !touchesLeft) {
         rightFilters.push(filter);
       } else if (touchesLeft && touchesRight) {
-        const joinCond = tryExtractJoinCondition(filter);
+        const joinCond = tryExtractJoinCondition(filter, leftTables, rightTables);
         if (joinCond) {
           joinConditions.push(joinCond);
         } else {
@@ -413,19 +413,42 @@ function remapThroughProjection(
 }
 
 /**
- * Try to extract a join condition from a comparison expression.
- * Returns null if the expression is not a simple comparison.
+ * Try to extract an equi-join condition from a comparison expression.
+ * Only EQUAL comparisons can be used as hash-join keys.
+ * Normalizes sides so cond.left references the left child and cond.right
+ * references the right child.
+ * Returns null if the expression is not a usable equi-join condition.
  */
 function tryExtractJoinCondition(
   expr: BoundExpression,
+  leftTables: Set<number>,
+  rightTables: Set<number>,
 ): JoinCondition | null {
   if (!isComparison(expr)) return null;
   const cmp = expr as BoundComparisonExpression;
-  return {
-    left: cmp.left,
-    right: cmp.right,
-    comparisonType: cmp.comparisonType,
-  };
+
+  // Only equality conditions can be used as hash-join keys
+  if (cmp.comparisonType !== 'EQUAL') return null;
+
+  const leftExprTables = getExpressionTables(cmp.left);
+  const rightExprTables = getExpressionTables(cmp.right);
+
+  const leftInLeft = [...leftExprTables].every((t) => leftTables.has(t));
+  const rightInRight = [...rightExprTables].every((t) => rightTables.has(t));
+
+  if (leftInLeft && rightInRight) {
+    return { left: cmp.left, right: cmp.right, comparisonType: 'EQUAL' };
+  }
+
+  const leftInRight = [...leftExprTables].every((t) => rightTables.has(t));
+  const rightInLeft = [...rightExprTables].every((t) => leftTables.has(t));
+
+  if (leftInRight && rightInLeft) {
+    return { left: cmp.right, right: cmp.left, comparisonType: 'EQUAL' };
+  }
+
+  // Mixed references — can't be used as a join condition
+  return null;
 }
 
 /**

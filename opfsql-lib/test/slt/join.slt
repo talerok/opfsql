@@ -161,6 +161,12 @@ HR|NULL
 Marketing|NULL
 Sales|Mercury
 
-# NOTE: Self-join tests with WHERE filters on cross-alias columns are skipped
-# here due to a separate filter-pushdown bug. Self-join condition normalization
-# is verified in binder unit tests instead.
+# ============================================================================
+# Self-join with reversed condition + cross-alias WHERE filter
+# ============================================================================
+
+query IT rowsort
+SELECT a.id, b.name AS colleague FROM employees a JOIN employees b ON b.department_id = a.department_id WHERE a.id = 5 AND b.id != a.id
+----
+5|Frank
+5|Jack
