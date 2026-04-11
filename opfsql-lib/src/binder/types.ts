@@ -26,6 +26,7 @@ export enum LogicalOperatorType {
   LOGICAL_DROP = 'LOGICAL_DROP',
   LOGICAL_CTE_REF = 'LOGICAL_CTE_REF',
   LOGICAL_MATERIALIZED_CTE = 'LOGICAL_MATERIALIZED_CTE',
+  LOGICAL_RECURSIVE_CTE = 'LOGICAL_RECURSIVE_CTE',
 }
 
 export enum BoundExpressionClass {
@@ -427,6 +428,18 @@ export interface LogicalMaterializedCTE {
   getColumnBindings(): ColumnBinding[];
 }
 
+export interface LogicalRecursiveCTE {
+  type: LogicalOperatorType.LOGICAL_RECURSIVE_CTE;
+  cteName: string;
+  cteIndex: number;
+  children: [LogicalOperator, LogicalOperator]; // [anchor, recursive]
+  isUnionAll: boolean;
+  expressions: BoundExpression[];
+  types: LogicalType[];
+  estimatedCardinality: number;
+  getColumnBindings(): ColumnBinding[];
+}
+
 export type LogicalOperator =
   | LogicalGet
   | LogicalFilter
@@ -446,4 +459,5 @@ export type LogicalOperator =
   | LogicalAlterTable
   | LogicalDrop
   | LogicalCTERef
-  | LogicalMaterializedCTE;
+  | LogicalMaterializedCTE
+  | LogicalRecursiveCTE;

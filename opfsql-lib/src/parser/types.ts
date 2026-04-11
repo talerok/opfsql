@@ -405,6 +405,7 @@ export interface CTENode {
 
 export interface CTEMap {
   map: Record<string, CTENode>;
+  recursive: boolean;
 }
 
 export interface SelectNode {

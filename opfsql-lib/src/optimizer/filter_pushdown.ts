@@ -69,6 +69,8 @@ class FilterPushdown {
         return this.pushdownSetOperation(op as LogicalUnion);
       case LogicalOperatorType.LOGICAL_MATERIALIZED_CTE:
         return this.pushdownMaterializedCTE(op);
+      case LogicalOperatorType.LOGICAL_RECURSIVE_CTE:
+        return this.pushdownRecursiveCTE(op);
       default:
         return this.finishPushdown(op);
     }
@@ -331,6 +333,21 @@ class FilterPushdown {
     op.children[1] = mainPushdown.rewrite(op.children[1]!);
 
     return op;
+  }
+
+  // ============================================================================
+  // RECURSIVE CTE — optimize anchor and recursive children independently,
+  // don't push external filters into the CTE (like UNION)
+  // ============================================================================
+
+  private pushdownRecursiveCTE(op: LogicalOperator): LogicalOperator {
+    const anchorPushdown = new FilterPushdown();
+    op.children[0] = anchorPushdown.rewrite(op.children[0]);
+
+    const recPushdown = new FilterPushdown();
+    op.children[1] = recPushdown.rewrite(op.children[1]);
+
+    return this.finishPushdown(op);
   }
 
   // ============================================================================

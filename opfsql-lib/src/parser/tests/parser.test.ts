@@ -724,8 +724,44 @@ describe('Errors', () => {
     expect(() => parse('SELECT WINDOW')).toThrow(/not supported/);
   });
 
-  it('reports error for WITH RECURSIVE', () => {
-    expect(() => parse('WITH RECURSIVE r AS (SELECT 1) SELECT * FROM r')).toThrow(/not supported/);
+  it('parses WITH RECURSIVE', () => {
+    const stmt = parseSelect(
+      'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 10) SELECT * FROM r',
+    );
+    const node = stmt.node as SelectNode;
+    expect(node.cte_map.recursive).toBe(true);
+    expect(node.cte_map.map['r']).toBeDefined();
+    expect(node.cte_map.map['r'].aliases).toEqual(['n']);
+    // CTE body is a UNION ALL set operation
+    const body = node.cte_map.map['r'].query.node;
+    expect(body.type).toBe('SET_OPERATION_NODE');
+    expect((body as SetOperationNode).set_op_type).toBe(SetOperationType.UNION_ALL);
+  });
+
+  it('parses WITH RECURSIVE with UNION (not ALL)', () => {
+    const stmt = parseSelect(
+      'WITH RECURSIVE r AS (SELECT 1 AS n UNION SELECT n + 1 FROM r WHERE n < 5) SELECT * FROM r',
+    );
+    const node = stmt.node as SelectNode;
+    expect(node.cte_map.recursive).toBe(true);
+    const body = node.cte_map.map['r'].query.node as SetOperationNode;
+    expect(body.set_op_type).toBe(SetOperationType.UNION);
+  });
+
+  it('parses WITH RECURSIVE with multiple CTEs', () => {
+    const stmt = parseSelect(
+      'WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM nums WHERE n < 5), doubled AS (SELECT n * 2 AS d FROM nums) SELECT * FROM doubled',
+    );
+    const node = stmt.node as SelectNode;
+    expect(node.cte_map.recursive).toBe(true);
+    expect(node.cte_map.map['nums']).toBeDefined();
+    expect(node.cte_map.map['doubled']).toBeDefined();
+  });
+
+  it('non-recursive WITH has recursive=false', () => {
+    const stmt = parseSelect('WITH a AS (SELECT 1) SELECT * FROM a');
+    const node = stmt.node as SelectNode;
+    expect(node.cte_map.recursive).toBe(false);
   });
 });
 

@@ -27,6 +27,7 @@ import type {
   LogicalUpdate,
   LogicalDelete,
   LogicalMaterializedCTE,
+  LogicalRecursiveCTE,
   LogicalCTERef,
   BoundColumnRefExpression,
   BoundConstantExpression,
@@ -2038,4 +2039,91 @@ describe('projection aliases', () => {
     const proj = bind('SELECT * FROM users') as LogicalProjection;
     expect(proj.aliases).toEqual([null, null, null, null]);
   });
+});
+
+// ============================================================================
+// Recursive CTE
+// ============================================================================
+
+describe('Recursive CTE', () => {
+  it('produces LogicalRecursiveCTE wrapped in LogicalMaterializedCTE', () => {
+    const plan = bind(
+      'WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 10) SELECT * FROM nums',
+    );
+    // Outermost is MaterializedCTE wrapping the recursive CTE definition + main query
+    expect(plan.type).toBe(LogicalOperatorType.LOGICAL_MATERIALIZED_CTE);
+    const matCte = plan as LogicalMaterializedCTE;
+    const recCte = matCte.children[0] as LogicalRecursiveCTE;
+    expect(recCte.type).toBe(LogicalOperatorType.LOGICAL_RECURSIVE_CTE);
+    expect(recCte.cteName).toBe('nums');
+    expect(recCte.isUnionAll).toBe(true);
+    expect(recCte.types).toHaveLength(1);
+    // children[0] = anchor, children[1] = recursive term
+    expect(recCte.children).toHaveLength(2);
+  });
+
+  it('binds UNION (not UNION ALL) recursive CTE', () => {
+    const plan = bind(
+      'WITH RECURSIVE nums AS (SELECT 1 AS n UNION SELECT n + 1 FROM nums WHERE n < 5) SELECT * FROM nums',
+    );
+    const matCte = plan as LogicalMaterializedCTE;
+    const recCte = matCte.children[0] as LogicalRecursiveCTE;
+    expect(recCte.isUnionAll).toBe(false);
+  });
+
+  it('non-recursive CTE under WITH RECURSIVE is bound normally', () => {
+    const plan = bind(
+      'WITH RECURSIVE helper AS (SELECT 1 AS x) SELECT * FROM helper',
+    );
+    const matCte = plan as LogicalMaterializedCTE;
+    // helper is not self-referencing, so it should be a regular plan, not LogicalRecursiveCTE
+    expect(matCte.children[0].type).not.toBe(LogicalOperatorType.LOGICAL_RECURSIVE_CTE);
+  });
+
+  it('non-self-referencing CTE under WITH RECURSIVE binds without error', () => {
+    expect(() => bind(
+      'WITH RECURSIVE r AS (SELECT 1 AS n FROM users) SELECT * FROM r',
+    )).not.toThrow(); // No UNION + no self-reference → bound as normal CTE
+  });
+
+  it('errors on column count mismatch between anchor and recursive term', () => {
+    expect(() => bind(
+      'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1, 2 FROM r) SELECT * FROM r',
+    )).toThrow(/column/i);
+  });
+
+  it('errors on type mismatch between anchor and recursive term', () => {
+    expect(() => bind(
+      "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT 'text' FROM r WHERE n < 5) SELECT * FROM r",
+    )).toThrow(/incompatible/i);
+  });
+
+  it('allows compatible numeric types between anchor and recursive term', () => {
+    // INTEGER anchor, REAL recursive — should be compatible
+    expect(() => bind(
+      'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 0.5 FROM r WHERE n < 5) SELECT * FROM r',
+    )).not.toThrow();
+  });
+
+  it('errors on aggregate in recursive term', () => {
+    expect(() => bind(
+      'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT SUM(n) FROM r) SELECT * FROM r',
+    )).toThrow(/aggregate/i);
+  });
+
+  it('errors on GROUP BY in recursive term', () => {
+    expect(() => bind(
+      'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n FROM r GROUP BY n) SELECT * FROM r',
+    )).toThrow(/GROUP BY/i);
+  });
+
+  it('errors on DISTINCT in recursive term', () => {
+    expect(() => bind(
+      'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT DISTINCT n + 1 FROM r WHERE n < 5) SELECT * FROM r',
+    )).toThrow(/DISTINCT/i);
+  });
+
+  // Note: ORDER BY and LIMIT after UNION are placed on the SetOperationNode
+  // by the parser, not on the recursive SelectNode. They cannot structurally
+  // appear on the recursive term in practice.
 });

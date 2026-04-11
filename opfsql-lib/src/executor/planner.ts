@@ -10,6 +10,7 @@ import type {
   LogicalUnion,
   LogicalCTERef,
   LogicalMaterializedCTE,
+  LogicalRecursiveCTE,
 } from '../binder/types.js';
 import { LogicalOperatorType } from '../binder/types.js';
 import type { IRowManager } from '../store/types.js';
@@ -25,7 +26,7 @@ import { PhysicalHashAggregate } from './operators/aggregate.js';
 import { PhysicalSort } from './operators/sort.js';
 import { PhysicalLimit } from './operators/limit.js';
 import { PhysicalDistinct, PhysicalUnion } from './operators/set.js';
-import { PhysicalMaterialize, PhysicalCTEScan } from './operators/cte.js';
+import { PhysicalMaterialize, PhysicalCTEScan, PhysicalRecursiveCTE } from './operators/cte.js';
 import { ExecutorError } from './errors.js';
 
 export function createPhysicalPlan(
@@ -95,6 +96,14 @@ export function createPhysicalPlan(
     case LogicalOperatorType.LOGICAL_MATERIALIZED_CTE: {
       const cte = node as LogicalMaterializedCTE;
       return new PhysicalMaterialize(plan(cte.children[0]), plan(cte.children[1]), cte.cteIndex, cteCache);
+    }
+
+    case LogicalOperatorType.LOGICAL_RECURSIVE_CTE: {
+      const rec = node as LogicalRecursiveCTE;
+      return new PhysicalRecursiveCTE(
+        plan(rec.children[0]), plan(rec.children[1]),
+        rec.cteIndex, cteCache, rec.isUnionAll,
+      );
     }
 
     case LogicalOperatorType.LOGICAL_CTE_REF:

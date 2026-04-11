@@ -1215,3 +1215,54 @@ describe('decorrelateExists', () => {
     expect(join.joinType).toBe('SEMI');
   });
 });
+
+// ============================================================================
+// Recursive CTE optimizer tests
+// ============================================================================
+
+describe('Recursive CTE optimization', () => {
+  it('removeUnusedColumns preserves all columns in recursive CTE anchor and recursive children', () => {
+    const plan = bind(
+      "WITH RECURSIVE cnt(n, label) AS (SELECT 1, 'a' UNION ALL SELECT n + 1, 'a' FROM cnt WHERE n < 3) SELECT n, label FROM cnt"
+    );
+    const optimized = removeUnusedColumns(plan);
+
+    // Find the RecursiveCTE node
+    const recCTE = findNode(optimized, LogicalOperatorType.LOGICAL_RECURSIVE_CTE);
+    expect(recCTE).toBeTruthy();
+
+    // Anchor should still have 2 columns (not pruned to 1)
+    const anchorBindings = recCTE!.children[0].getColumnBindings();
+    expect(anchorBindings.length).toBe(2);
+
+    // Recursive child should also have 2 columns
+    const recBindings = recCTE!.children[1].getColumnBindings();
+    expect(recBindings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('filter pushdown optimizes inside recursive CTE children independently', () => {
+    const plan = bind(
+      "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 10) SELECT n FROM r WHERE n > 5"
+    );
+    const optimized = pushdownFilters(plan);
+
+    // The outer filter (n > 5) should stay above the MaterializedCTE
+    // The inner filter (n < 10) should stay inside the recursive term
+    const recCTE = findNode(optimized, LogicalOperatorType.LOGICAL_RECURSIVE_CTE);
+    expect(recCTE).toBeTruthy();
+  });
+
+  it('full optimize pipeline preserves multi-column recursive CTE', () => {
+    const plan = bind(
+      "WITH RECURSIVE fib(a, b) AS (SELECT 0, 1 UNION ALL SELECT b, a + b FROM fib WHERE b < 20) SELECT a, b FROM fib"
+    );
+    const optimized = optimize(plan, catalog);
+
+    const recCTE = findNode(optimized, LogicalOperatorType.LOGICAL_RECURSIVE_CTE);
+    expect(recCTE).toBeTruthy();
+
+    // Both columns should be preserved after full optimization
+    const anchorBindings = recCTE!.children[0].getColumnBindings();
+    expect(anchorBindings.length).toBe(2);
+  });
+});

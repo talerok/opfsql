@@ -85,7 +85,7 @@ function parseSetOperation(p: BaseParser, left: SelectNode, cte_map: CTEMap): Se
   while (p.check(TokenType.UNION)) {
     p.advance();
     const isAll = p.match(TokenType.ALL);
-    const right = parseSelectNode(p, { map: {} });
+    const right = parseSelectNode(p, { map: {}, recursive: false });
 
     currentLeft = {
       type: 'SET_OPERATION_NODE',
@@ -151,11 +151,10 @@ function parseSelectExpression(p: BaseParser): ParsedExpression {
 
 function parseCTE(p: BaseParser): CTEMap {
   const map: Record<string, { query: SelectStatement; aliases: string[] }> = {};
-  if (!p.match(TokenType.WITH)) return { map };
+  if (!p.match(TokenType.WITH)) return { map, recursive: false };
 
-  if (p.check(TokenType.IDENTIFIER) && p.peek().value.toLowerCase() === 'recursive') {
-    p.error("WITH RECURSIVE is not supported");
-  }
+  const recursive = p.check(TokenType.IDENTIFIER) && p.peek().value.toLowerCase() === 'recursive';
+  if (recursive) p.advance();
 
   do {
     const nameToken = p.expect(TokenType.IDENTIFIER, `Expected CTE name after WITH`);
@@ -177,7 +176,7 @@ function parseCTE(p: BaseParser): CTEMap {
     map[name] = { query, aliases };
   } while (p.match(TokenType.COMMA));
 
-  return { map };
+  return { map, recursive };
 }
 
 // ===========================================================================

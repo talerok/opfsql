@@ -59,6 +59,8 @@ function prune(op: LogicalOperator, needed: Set<string>): LogicalOperator {
       return prunePassthrough(op, needed);
     case LogicalOperatorType.LOGICAL_MATERIALIZED_CTE:
       return pruneMaterializedCTE(op, needed);
+    case LogicalOperatorType.LOGICAL_RECURSIVE_CTE:
+      return pruneRecursiveCTE(op, needed);
     default:
       // DML, DDL, CTE ref, etc. — recurse but keep everything children provide
       for (let i = 0; i < op.children.length; i++) {
@@ -278,6 +280,25 @@ function pruneMaterializedCTE(op: LogicalOperator, needed: Set<string>): Logical
   const outerNeeded = new Set(needed);
   addNodeRefs(op, outerNeeded);
   op.children[1] = prune(op.children[1], outerNeeded);
+  return op;
+}
+
+// ============================================================================
+// RECURSIVE CTE — keep all columns in anchor and recursive children
+//
+// Both children must produce the same column set (anchor defines the schema,
+// recursive must match). Pruning either side would break the CTE output.
+// ============================================================================
+
+function pruneRecursiveCTE(op: LogicalOperator, needed: Set<string>): LogicalOperator {
+  for (let i = 0; i < op.children.length; i++) {
+    const childNeeded = new Set<string>();
+    collectAllRefs(op.children[i], childNeeded);
+    for (const b of op.children[i].getColumnBindings()) {
+      childNeeded.add(bk(b.tableIndex, b.columnIndex));
+    }
+    op.children[i] = prune(op.children[i], childNeeded);
+  }
   return op;
 }
 
