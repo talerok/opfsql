@@ -34,29 +34,13 @@ export interface CatalogData {
   indexes: IndexDef[];
 }
 
-/** Logical row identifier — auto-incrementing number, stable across page compaction. */
+/** Logical row identifier — auto-incrementing number managed by TableBTree. */
 export type RowId = number;
 
 export type Row = Record<string, string | number | boolean | null>;
 
-export interface Page {
-  pageId: number;
-  tableId: string;
-  /** logicalId → Row data. O(1) read/write/delete. */
-  rows: Record<number, Row>;
-}
-
-export interface PageMeta {
-  lastPageId: number;
-  nextRowId: number;
-  totalRowCount: number;
-  freePageIds: number[];
-}
-
-export const PAGE_SIZE = 1024;
-
 // ---------------------------------------------------------------------------
-// Storage backend interface
+// Storage backend interface (OPFS / IndexedDB / memory)
 // ---------------------------------------------------------------------------
 
 export interface IStorage {
@@ -70,7 +54,20 @@ export interface IStorage {
 }
 
 // ---------------------------------------------------------------------------
-// Component interfaces
+// KV store with WAL + cache (implemented by PageManager)
+// ---------------------------------------------------------------------------
+
+export interface IKVStore {
+  readKey<T>(key: string): Promise<T | null>;
+  getAllKeys(prefix: string): Promise<string[]>;
+  writeKey(key: string, value: unknown): void;
+  deleteKey(key: string): void;
+  commit(): Promise<void>;
+  rollback(): void;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog interface
 // ---------------------------------------------------------------------------
 
 export interface ICatalog {
@@ -88,32 +85,15 @@ export interface ICatalog {
   serialize(): CatalogData;
 }
 
-export interface IPageManager {
-  // Row operations
+// ---------------------------------------------------------------------------
+// Row manager interface (implemented by TableManager)
+// ---------------------------------------------------------------------------
+
+export interface IRowManager {
   prepareInsert(tableId: string, row: Row): Promise<RowId>;
   prepareUpdate(tableId: string, rowId: RowId, row: Row): Promise<RowId>;
   prepareDelete(tableId: string, rowId: RowId): Promise<void>;
   scanTable(tableId: string): AsyncGenerator<{ rowId: RowId; row: Row }>;
   readRow(tableId: string, rowId: RowId): Promise<Row | null>;
-
-  // Page metadata & management
-  getAllPageKeys(tableId: string): Promise<string[]>;
   deleteTableData(tableId: string): Promise<void>;
-
-  // KV operations (used by B-tree index nodes)
-  readKey<T>(key: string): Promise<T | null>;
-  getAllKeys(prefix: string): Promise<string[]>;
-  writeKey(key: string, value: unknown): void;
-  deleteKey(key: string): void;
-
-  // Transaction control
-  commit(): Promise<void>;
-  rollback(): void;
 }
-
-/** Subset of IPageManager used by executor / physical operators. */
-export type IRowManager = Pick<
-  IPageManager,
-  "prepareInsert" | "prepareUpdate" | "prepareDelete" | "scanTable" | "readRow"
->;
-

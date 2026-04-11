@@ -1,56 +1,51 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { TableManager } from '../table-manager.js';
 import { PageManager } from '../page-manager.js';
 import { MemoryStorage } from './memory-storage.js';
-import { PAGE_SIZE } from '../types.js';
 
-describe('PageManager row operations', () => {
+describe('TableManager (row operations via TableBTree)', () => {
   let storage: MemoryStorage;
-  let pm: PageManager;
+  let kv: PageManager;
+  let rm: TableManager;
 
   beforeEach(() => {
     storage = new MemoryStorage();
-    pm = new PageManager(storage);
+    kv = new PageManager(storage);
+    rm = new TableManager(kv);
   });
 
   async function commitAndReset() {
-    await pm.commit();
+    await kv.commit();
   }
 
   async function collectScan(tableId: string) {
     const rows = [];
-    for await (const r of pm.scanTable(tableId)) rows.push(r);
+    for await (const r of rm.scanTable(tableId)) rows.push(r);
     return rows;
   }
 
   // -- prepareInsert --
   describe('prepareInsert', () => {
     it('inserts and reads back via scanTable', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
+      await rm.prepareInsert('t1', { id: 1 });
       const rows = await collectScan('t1');
       expect(rows).toHaveLength(1);
       expect(rows[0].row).toEqual({ id: 1 });
     });
 
-    it('increments totalRowCount', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
-      await pm.prepareInsert('t1', { id: 2 });
-      const meta = await pm.getPageMeta('t1');
-      expect(meta.totalRowCount).toBe(2);
-    });
-
     it('assigns sequential rowIds', async () => {
-      const r1 = await pm.prepareInsert('t1', { id: 1 });
-      const r2 = await pm.prepareInsert('t1', { id: 2 });
+      const r1 = await rm.prepareInsert('t1', { id: 1 });
+      const r2 = await rm.prepareInsert('t1', { id: 2 });
       expect(r1).toBe(0);
       expect(r2).toBe(1);
     });
 
-    it('creates new page when PAGE_SIZE exceeded', async () => {
-      for (let i = 0; i < PAGE_SIZE + 1; i++) {
-        await pm.prepareInsert('t1', { id: i });
+    it('inserts many rows (triggers B-tree splits)', async () => {
+      for (let i = 0; i < 2000; i++) {
+        await rm.prepareInsert('t1', { id: i });
       }
-      const meta = await pm.getPageMeta('t1');
-      expect(meta.lastPageId).toBe(1);
+      const rows = await collectScan('t1');
+      expect(rows).toHaveLength(2000);
     });
   });
 
@@ -59,25 +54,25 @@ describe('PageManager row operations', () => {
     let rowId: number;
 
     beforeEach(async () => {
-      rowId = await pm.prepareInsert('t1', { id: 1, val: 'old' });
+      rowId = await rm.prepareInsert('t1', { id: 1, val: 'old' });
       await commitAndReset();
     });
 
     it('replaces row data', async () => {
-      await pm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
+      await rm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
       const rows = await collectScan('t1');
       expect(rows).toHaveLength(1);
       expect(rows[0].row).toEqual({ id: 1, val: 'new' });
     });
 
     it('returns same rowId (in-place update)', async () => {
-      const newRowId = await pm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
+      const newRowId = await rm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
       expect(newRowId).toBe(rowId);
     });
 
     it('old rowId still reads updated data', async () => {
-      await pm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
-      const row = await pm.readRow('t1', rowId);
+      await rm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
+      const row = await rm.readRow('t1', rowId);
       expect(row).toEqual({ id: 1, val: 'new' });
     });
   });
@@ -87,19 +82,13 @@ describe('PageManager row operations', () => {
     let rowId: number;
 
     beforeEach(async () => {
-      rowId = await pm.prepareInsert('t1', { id: 1 });
+      rowId = await rm.prepareInsert('t1', { id: 1 });
       await commitAndReset();
     });
 
     it('removes row from scan', async () => {
-      await pm.prepareDelete('t1', rowId);
+      await rm.prepareDelete('t1', rowId);
       expect(await collectScan('t1')).toHaveLength(0);
-    });
-
-    it('decrements totalRowCount', async () => {
-      await pm.prepareDelete('t1', rowId);
-      const meta = await pm.getPageMeta('t1');
-      expect(meta.totalRowCount).toBe(0);
     });
   });
 
@@ -109,9 +98,9 @@ describe('PageManager row operations', () => {
       expect(await collectScan('t1')).toHaveLength(0);
     });
 
-    it('yields inserted rows', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
-      await pm.prepareInsert('t1', { id: 2 });
+    it('yields inserted rows in rowId order', async () => {
+      await rm.prepareInsert('t1', { id: 1 });
+      await rm.prepareInsert('t1', { id: 2 });
       const rows = await collectScan('t1');
       expect(rows).toHaveLength(2);
       expect(rows[0].row).toEqual({ id: 1 });
@@ -119,68 +108,60 @@ describe('PageManager row operations', () => {
     });
 
     it('skips deleted rows', async () => {
-      const r1 = await pm.prepareInsert('t1', { id: 1 });
-      await pm.prepareInsert('t1', { id: 2 });
-      await pm.prepareDelete('t1', r1);
+      const r1 = await rm.prepareInsert('t1', { id: 1 });
+      await rm.prepareInsert('t1', { id: 2 });
+      await rm.prepareDelete('t1', r1);
       const rows = await collectScan('t1');
       expect(rows).toHaveLength(1);
       expect(rows[0].row).toEqual({ id: 2 });
-    });
-
-    it('traverses multiple pages', async () => {
-      for (let i = 0; i <= PAGE_SIZE; i++) {
-        await pm.prepareInsert('t1', { id: i });
-      }
-      const rows = await collectScan('t1');
-      expect(rows).toHaveLength(PAGE_SIZE + 1);
     });
   });
 
   // -- readRow --
   describe('readRow', () => {
     it('reads inserted row by rowId', async () => {
-      const rowId = await pm.prepareInsert('t1', { id: 1, val: 'hello' });
-      const row = await pm.readRow('t1', rowId);
+      const rowId = await rm.prepareInsert('t1', { id: 1, val: 'hello' });
+      const row = await rm.readRow('t1', rowId);
       expect(row).toEqual({ id: 1, val: 'hello' });
     });
 
     it('returns null for deleted row', async () => {
-      const rowId = await pm.prepareInsert('t1', { id: 1 });
-      await pm.prepareDelete('t1', rowId);
-      expect(await pm.readRow('t1', rowId)).toBeNull();
+      const rowId = await rm.prepareInsert('t1', { id: 1 });
+      await rm.prepareDelete('t1', rowId);
+      expect(await rm.readRow('t1', rowId)).toBeNull();
     });
 
     it('returns null for non-existent row', async () => {
-      expect(await pm.readRow('t1', 99)).toBeNull();
+      expect(await rm.readRow('t1', 99)).toBeNull();
     });
   });
 
   // -- batch DML via WAL --
   describe('batch DML via WAL', () => {
-    it('multiple deletes on same page all persist after commit', async () => {
+    it('multiple deletes all persist after commit', async () => {
       for (let i = 0; i < 3; i++) {
-        await pm.prepareInsert('t1', { id: i });
+        await rm.prepareInsert('t1', { id: i });
       }
       await commitAndReset();
 
       const rows = await collectScan('t1');
       for (const { rowId } of rows) {
-        await pm.prepareDelete('t1', rowId);
+        await rm.prepareDelete('t1', rowId);
       }
       await commitAndReset();
 
       expect(await collectScan('t1')).toHaveLength(0);
     });
 
-    it('multiple updates on same page all persist after commit', async () => {
+    it('multiple updates all persist after commit', async () => {
       for (let i = 0; i < 3; i++) {
-        await pm.prepareInsert('t1', { id: i, val: 'old' });
+        await rm.prepareInsert('t1', { id: i, val: 'old' });
       }
       await commitAndReset();
 
       const rows = await collectScan('t1');
       for (const { rowId } of rows) {
-        await pm.prepareUpdate('t1', rowId, { id: rowId, val: 'new' });
+        await rm.prepareUpdate('t1', rowId, { id: rowId, val: 'new' });
       }
       await commitAndReset();
 
@@ -190,22 +171,24 @@ describe('PageManager row operations', () => {
     });
   });
 
-  // -- buffer pool --
-  describe('buffer pool', () => {
-    it('data survives commit in cache (no storage re-read)', async () => {
-      const rowId = await pm.prepareInsert('t1', { id: 1, val: 'cached' });
-      await pm.commit();
+  // -- persistence --
+  describe('persistence', () => {
+    it('data survives commit and reload', async () => {
+      const rowId = await rm.prepareInsert('t1', { id: 1, val: 'persisted' });
+      await kv.commit();
 
-      const row = await pm.readRow('t1', rowId);
-      expect(row).toEqual({ id: 1, val: 'cached' });
+      const kv2 = new PageManager(storage);
+      const rm2 = new TableManager(kv2);
+      const row = await rm2.readRow('t1', rowId);
+      expect(row).toEqual({ id: 1, val: 'persisted' });
     });
 
-    it('rollback discards uncommitted data but cache remains', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
-      await pm.commit();
+    it('rollback discards uncommitted data', async () => {
+      await rm.prepareInsert('t1', { id: 1 });
+      await kv.commit();
 
-      await pm.prepareInsert('t1', { id: 2 });
-      pm.rollback();
+      await rm.prepareInsert('t1', { id: 2 });
+      kv.rollback();
 
       const rows = await collectScan('t1');
       expect(rows).toHaveLength(1);
@@ -213,40 +196,17 @@ describe('PageManager row operations', () => {
     });
   });
 
-  // -- freePageIds --
-  describe('freePageIds reuse', () => {
-    it('reuses freed page after all rows deleted', async () => {
-      // Fill pages 0 and 1 fully
-      for (let i = 0; i < PAGE_SIZE * 2; i++) {
-        await pm.prepareInsert('t1', { id: i });
-      }
-      await commitAndReset();
+  // -- deleteTableData --
+  describe('deleteTableData', () => {
+    it('removes all table data', async () => {
+      await rm.prepareInsert('t1', { id: 1 });
+      await rm.prepareInsert('t1', { id: 2 });
+      await kv.commit();
 
-      // Delete all rows from page 0 (rowIds 0..PAGE_SIZE-1)
-      for (let i = 0; i < PAGE_SIZE; i++) {
-        await pm.prepareDelete('t1', i);
-      }
-      await commitAndReset();
+      await rm.deleteTableData('t1');
+      await kv.commit();
 
-      const meta = await pm.getPageMeta('t1');
-      expect(meta.freePageIds).toContain(0);
-
-      // lastPage (page 1) is full, so next insert must reuse page 0
-      await pm.prepareInsert('t1', { id: 9999 });
-      const metaAfter = await pm.getPageMeta('t1');
-      expect(metaAfter.freePageIds).not.toContain(0);
-    });
-  });
-
-  // -- row map persistence --
-  describe('row map persistence', () => {
-    it('row map survives commit and reload', async () => {
-      const rowId = await pm.prepareInsert('t1', { id: 1, val: 'persisted' });
-      await pm.commit();
-
-      const pm2 = new PageManager(storage);
-      const row = await pm2.readRow('t1', rowId);
-      expect(row).toEqual({ id: 1, val: 'persisted' });
+      expect(await collectScan('t1')).toHaveLength(0);
     });
   });
 });

@@ -110,7 +110,7 @@ export class Engine {
 
       if (autocommit) {
         this.writeCatalog();
-        await this.storage.pageManager.commit();
+        await this.storage.kv.commit();
         this.catalogSnapshot = null;
       }
 
@@ -118,14 +118,14 @@ export class Engine {
     } catch (err) {
       if (autocommit) {
         // Single-statement: rollback WAL and catalog
-        this.storage.pageManager.rollback();
+        this.storage.kv.rollback();
         this.catalog = Catalog.deserialize(this.catalogSnapshot!);
         this.binder = new Binder(this.catalog);
         this.catalogSnapshot = null;
       } else {
         // Inside explicit transaction: abort, rollback entire WAL + catalog
         this.transactionAborted = true;
-        this.storage.pageManager.rollback();
+        this.storage.kv.rollback();
         if (this.catalogSnapshot) {
           this.catalog = Catalog.deserialize(this.catalogSnapshot);
           this.binder = new Binder(this.catalog);
@@ -166,7 +166,7 @@ export class Engine {
           );
         }
         this.writeCatalog();
-        await this.storage.pageManager.commit();
+        await this.storage.kv.commit();
         this.catalogSnapshot = null;
         this.inTransaction = false;
         return ok;
@@ -178,7 +178,7 @@ export class Engine {
         // If not already aborted (error path already did rollback),
         // rollback now for explicit user ROLLBACK.
         if (!this.transactionAborted) {
-          this.storage.pageManager.rollback();
+          this.storage.kv.rollback();
           if (this.catalogSnapshot) {
             this.catalog = Catalog.deserialize(this.catalogSnapshot);
             this.binder = new Binder(this.catalog);
@@ -204,7 +204,7 @@ export class Engine {
     const optimized = optimize(bound, this.catalog);
     const result = await execute(
       optimized,
-      this.storage.pageManager,
+      this.storage.rowManager,
       this.catalog,
       this.storage.indexManager,
     );
@@ -248,6 +248,6 @@ export class Engine {
 
   private writeCatalog(): void {
     const [key, data] = serializeCatalogEntry(this.catalog);
-    this.storage.pageManager.writeKey(key, data);
+    this.storage.kv.writeKey(key, data);
   }
 }

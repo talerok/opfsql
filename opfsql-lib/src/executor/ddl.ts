@@ -7,7 +7,7 @@ import type {
 import { compareIndexKeys } from "../store/btree/compare.js";
 import type { IndexKey } from "../store/btree/types.js";
 import type { IIndexManager } from "../store/index-manager.js";
-import type { ICatalog, IPageManager, IRowManager, RowId } from "../store/types.js";
+import type { ICatalog, IRowManager, RowId } from "../store/types.js";
 import { ExecutorError } from "./errors.js";
 import type { ExecuteResult } from "./types.js";
 
@@ -111,11 +111,11 @@ export function executeAlterTable(
 export async function executeDrop(
   op: LogicalDrop,
   catalog: ICatalog,
-  pageManager: IPageManager,
+  rowManager: IRowManager,
   indexManager: IIndexManager,
 ): Promise<ExecuteResult> {
   if (op.dropType === "TABLE") {
-    return executeDropTable(op, catalog, pageManager, indexManager);
+    return executeDropTable(op, catalog, rowManager, indexManager);
   }
   return executeDropIndex(op, catalog, indexManager);
 }
@@ -123,7 +123,7 @@ export async function executeDrop(
 async function executeDropTable(
   op: LogicalDrop,
   catalog: ICatalog,
-  pageManager: IPageManager,
+  rowManager: IRowManager,
   indexManager: IIndexManager,
 ): Promise<ExecuteResult> {
   const schema = catalog.getTable(op.name);
@@ -132,8 +132,8 @@ async function executeDropTable(
     throw new ExecutorError(`Table "${op.name}" not found`);
   }
 
-  // Delete table data pages + meta
-  await pageManager.deleteTableData(op.name);
+  // Delete table B-tree data
+  await rowManager.deleteTableData(op.name);
 
   // Delete B-tree data for all table indexes
   const indexes = catalog.getTableIndexes(op.name);

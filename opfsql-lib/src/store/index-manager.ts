@@ -1,4 +1,4 @@
-import type { IPageManager, RowId } from './types.js';
+import type { IKVStore, RowId } from './types.js';
 import type { IndexKey } from './btree/types.js';
 import { BTree, type SearchPredicate } from './btree/btree.js';
 
@@ -24,7 +24,7 @@ export interface IIndexManager {
 // ---------------------------------------------------------------------------
 
 export class IndexManager implements IIndexManager {
-  constructor(private readonly pm: IPageManager) {}
+  constructor(private readonly pm: IKVStore) {}
 
   /** BTree instances are stateless (all state in PM), so we create on demand. */
   private getTree(indexName: string, unique: boolean): BTree {

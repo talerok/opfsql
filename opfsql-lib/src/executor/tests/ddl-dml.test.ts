@@ -12,7 +12,7 @@ import type {
   LogicalFilter,
   BoundExpression,
 } from '../../binder/types.js';
-import type { ICatalog, IPageManager, IRowManager, TableSchema, Row, RowId } from '../../store/types.js';
+import type { ICatalog, IRowManager, TableSchema, Row, RowId } from '../../store/types.js';
 import type { IIndexManager } from '../../store/index-manager.js';
 import {
   executeCreateTable,
@@ -56,23 +56,6 @@ function mockCatalog(tables: TableSchema[] = [usersSchema]): ICatalog {
   };
 }
 
-function mockPageManager(): IPageManager {
-  return {
-    prepareInsert: vi.fn(async () => 0),
-    prepareUpdate: vi.fn(async () => 0),
-    prepareDelete: vi.fn(async () => {}),
-    scanTable: async function* () {},
-    readRow: vi.fn(async () => null),
-    getAllPageKeys: vi.fn(async () => []),
-    deleteTableData: vi.fn(async () => {}),
-    readKey: vi.fn(async () => null),
-    getAllKeys: vi.fn(async () => []),
-    writeKey: vi.fn(),
-    deleteKey: vi.fn(),
-    commit: vi.fn(async () => {}),
-    rollback: vi.fn(),
-  };
-}
 
 // ---------------------------------------------------------------------------
 // DDL Tests
@@ -191,9 +174,9 @@ describe('DDL executors', () => {
   });
 
   describe('executeDrop', () => {
-    it('DROP TABLE — deletes keys via pageManager', async () => {
+    it('DROP TABLE — deletes data via rowManager', async () => {
       const catalog = mockCatalog();
-      const pm = mockPageManager();
+      const rm = mockRowManager();
       const op = {
         type: LogicalOperatorType.LOGICAL_DROP,
         dropType: 'TABLE',
@@ -203,14 +186,14 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalDrop;
 
-      const result = await executeDrop(op, catalog, pm, mockIndexManager());
+      const result = await executeDrop(op, catalog, rm, mockIndexManager());
       expect(result.catalogChanges[0].type).toBe('DROP_TABLE');
-      expect(pm.deleteTableData).toHaveBeenCalledWith('users');
+      expect(rm.deleteTableData).toHaveBeenCalledWith('users');
     });
 
     it('DROP TABLE IF EXISTS — no-op when missing', async () => {
       const catalog = mockCatalog([]);
-      const pm = mockPageManager();
+      const rm = mockRowManager();
       const op = {
         type: LogicalOperatorType.LOGICAL_DROP,
         dropType: 'TABLE',
@@ -220,13 +203,13 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalDrop;
 
-      const result = await executeDrop(op, catalog, pm, mockIndexManager());
+      const result = await executeDrop(op, catalog, rm, mockIndexManager());
       expect(result.catalogChanges).toHaveLength(0);
     });
 
     it('DROP TABLE — throws if not found and no IF EXISTS', async () => {
       const catalog = mockCatalog([]);
-      const pm = mockPageManager();
+      const rm = mockRowManager();
       const op = {
         type: LogicalOperatorType.LOGICAL_DROP,
         dropType: 'TABLE',
@@ -236,7 +219,7 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalDrop;
 
-      await expect(executeDrop(op, catalog, pm, mockIndexManager())).rejects.toThrow('not found');
+      await expect(executeDrop(op, catalog, rm, mockIndexManager())).rejects.toThrow('not found');
     });
   });
 });
@@ -264,6 +247,7 @@ function mockRowManager(
     prepareUpdate: vi.fn(async (_t: string, rowId: RowId): Promise<RowId> => rowId),
     prepareDelete: vi.fn(async () => {}),
     readRow: vi.fn(async () => null),
+    deleteTableData: vi.fn(async () => {}),
   };
 }
 

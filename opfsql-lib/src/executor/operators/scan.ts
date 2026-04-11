@@ -1,6 +1,7 @@
 import type { LogicalGet, ColumnBinding } from '../../binder/types.js';
 import type { IRowManager } from '../../store/types.js';
-import { PAGE_SIZE } from '../../store/types.js';
+
+const SCAN_BATCH = 1024;
 import type { PhysicalOperator, Tuple, Value } from '../types.js';
 import type { EvalContext } from '../evaluate/context.js';
 import { rowToTuple, passesFilters } from './utils.js';
@@ -70,7 +71,7 @@ export class PhysicalScan implements PhysicalOperator {
 
     while (!this.done) {
       const batch: Tuple[] = [];
-      for (let i = 0; i < PAGE_SIZE; i++) {
+      for (let i = 0; i < SCAN_BATCH; i++) {
         const { value, done } = await this.generator.next();
         if (done) {
           this.done = true;

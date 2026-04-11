@@ -218,8 +218,9 @@ export async function executeUpdate(
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const scan = extractDmlScan(op.children[0]);
-  let affected = 0;
 
+  // Collect phase — read all matching rows and compute new values before mutating
+  const targets: Array<{ rowId: RowId; oldRow: Row; newRow: Row }> = [];
   for await (const { rowId, row } of rowManager.scanTable(op.tableName)) {
     const tuple = rowToTuple(row, scan.get);
     if (!(await passesFilter(tuple, scan, ctx))) continue;
@@ -231,14 +232,17 @@ export async function executeUpdate(
         op.expressions[i], tuple, scan.resolver, ctx,
       );
     }
-
-    await maintainIndexesDelete(op.tableName, row, rowId, catalog, indexManager);
-    const newRowId = await rowManager.prepareUpdate(op.tableName, rowId, newRow);
-    await maintainIndexesInsert(op.tableName, newRow, newRowId, catalog, indexManager);
-    affected++;
+    targets.push({ rowId, oldRow: row, newRow });
   }
 
-  return { rows: [], rowsAffected: affected, catalogChanges: [] };
+  // Mutation phase
+  for (const { rowId, oldRow, newRow } of targets) {
+    await maintainIndexesDelete(op.tableName, oldRow, rowId, catalog, indexManager);
+    const newRowId = await rowManager.prepareUpdate(op.tableName, rowId, newRow);
+    await maintainIndexesInsert(op.tableName, newRow, newRowId, catalog, indexManager);
+  }
+
+  return { rows: [], rowsAffected: targets.length, catalogChanges: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -253,16 +257,21 @@ export async function executeDelete(
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const scan = extractDmlScan(op.children[0]);
-  let affected = 0;
 
+  // Collect phase — read all matching rows before mutating
+  const targets: Array<{ rowId: RowId; row: Row }> = [];
   for await (const { rowId, row } of rowManager.scanTable(op.tableName)) {
     const tuple = rowToTuple(row, scan.get);
-    if (!(await passesFilter(tuple, scan, ctx))) continue;
-
-    await maintainIndexesDelete(op.tableName, row, rowId, catalog, indexManager);
-    await rowManager.prepareDelete(op.tableName, rowId);
-    affected++;
+    if (await passesFilter(tuple, scan, ctx)) {
+      targets.push({ rowId, row });
+    }
   }
 
-  return { rows: [], rowsAffected: affected, catalogChanges: [] };
+  // Mutation phase
+  for (const { rowId, row } of targets) {
+    await maintainIndexesDelete(op.tableName, row, rowId, catalog, indexManager);
+    await rowManager.prepareDelete(op.tableName, rowId);
+  }
+
+  return { rows: [], rowsAffected: targets.length, catalogChanges: [] };
 }

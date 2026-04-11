@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { PageManager } from '../page-manager.js';
 import { MemoryStorage } from './memory-storage.js';
 
-describe('PageManager', () => {
+describe('PageManager (KV store)', () => {
   let storage: MemoryStorage;
   let pm: PageManager;
 
@@ -11,55 +11,43 @@ describe('PageManager', () => {
     pm = new PageManager(storage);
   });
 
-  describe('read defaults', () => {
-    it('readRow returns null for missing row', async () => {
-      expect(await pm.readRow('t1', 0)).toBeNull();
-    });
-
-    it('getPageMeta returns defaults for missing table', async () => {
-      const meta = await pm.getPageMeta('t1');
-      expect(meta).toEqual({ lastPageId: -1, nextRowId: 0, totalRowCount: 0, freePageIds: [] });
-    });
-  });
-
-  describe('KV operations (writeKey/readKey)', () => {
+  describe('readKey / writeKey', () => {
     it('writeKey → readKey returns value from WAL', async () => {
-      pm.writeKey('custom:key', { data: 42 });
-      const val = await pm.readKey<{ data: number }>('custom:key');
-      expect(val).toEqual({ data: 42 });
+      pm.writeKey('k', { data: 42 });
+      expect(await pm.readKey<{ data: number }>('k')).toEqual({ data: 42 });
+    });
+
+    it('readKey returns null for missing key', async () => {
+      expect(await pm.readKey('missing')).toBeNull();
     });
 
     it('writeKey → commit persists to storage', async () => {
-      pm.writeKey('custom:key', { data: 42 });
+      pm.writeKey('k', { data: 42 });
       await pm.commit();
-      const val = await storage.get<{ data: number }>('custom:key');
-      expect(val).toEqual({ data: 42 });
+      expect(await storage.get<{ data: number }>('k')).toEqual({ data: 42 });
     });
 
     it('deleteKey → commit removes from storage', async () => {
-      await storage.put('page:t1:000000', { pageId: 0, tableId: 't1', rows: {} });
-      pm.deleteKey('page:t1:000000');
+      await storage.put('k', 'val');
+      pm.deleteKey('k');
       await pm.commit();
-      expect(await storage.get('page:t1:000000')).toBeNull();
+      expect(await storage.get('k')).toBeNull();
+    });
+
+    it('deleteKey → readKey returns null', async () => {
+      await storage.put('k', 'val');
+      pm.deleteKey('k');
+      expect(await pm.readKey('k')).toBeNull();
     });
   });
 
   describe('commit', () => {
     it('flushes WAL to storage', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
+      pm.writeKey('a', 1);
+      pm.writeKey('b', 2);
       await pm.commit();
-
-      const page = await storage.get<any>('page:t1:000000');
-      expect(page).not.toBeNull();
-      expect(Object.keys(page.rows)).toHaveLength(1);
-    });
-
-    it('data survives in cache after commit', async () => {
-      const rowId = await pm.prepareInsert('t1', { id: 1 });
-      await pm.commit();
-
-      const row = await pm.readRow('t1', rowId);
-      expect(row).toEqual({ id: 1 });
+      expect(await storage.get('a')).toBe(1);
+      expect(await storage.get('b')).toBe(2);
     });
 
     it('noop when WAL is empty', async () => {
@@ -68,45 +56,20 @@ describe('PageManager', () => {
   });
 
   describe('rollback', () => {
-    it('discards uncommitted data', async () => {
-      const rowId = await pm.prepareInsert('t1', { id: 1 });
+    it('discards uncommitted writes', async () => {
+      pm.writeKey('k', 'val');
       pm.rollback();
-      expect(await pm.readRow('t1', rowId)).toBeNull();
+      expect(await pm.readKey('k')).toBeNull();
     });
 
-    it('does not affect committed data in cache', async () => {
-      const rowId = await pm.prepareInsert('t1', { id: 1 });
+    it('does not affect committed data', async () => {
+      pm.writeKey('k', 'committed');
       await pm.commit();
 
-      await pm.prepareInsert('t1', { id: 2 });
+      pm.writeKey('k', 'uncommitted');
       pm.rollback();
 
-      expect(await pm.readRow('t1', rowId)).toEqual({ id: 1 });
-    });
-  });
-
-  describe('getAllPageKeys', () => {
-    it('returns keys from storage', async () => {
-      await storage.put('page:t1:000000', {});
-      await storage.put('page:t1:000001', {});
-      await storage.put('page:t2:000000', {});
-      const keys = await pm.getAllPageKeys('t1');
-      expect(keys).toEqual(['page:t1:000000', 'page:t1:000001']);
-    });
-  });
-
-  describe('deleteTableData', () => {
-    it('removes all pages, meta, and rowmap for a table', async () => {
-      await pm.prepareInsert('t1', { id: 1 });
-      await pm.prepareInsert('t1', { id: 2 });
-      await pm.commit();
-
-      await pm.deleteTableData('t1');
-      await pm.commit();
-
-      const pm2 = new PageManager(storage);
-      const meta = await pm2.getPageMeta('t1');
-      expect(meta.lastPageId).toBe(-1);
+      expect(await pm.readKey<string>('k')).toBe('committed');
     });
   });
 
@@ -126,4 +89,37 @@ describe('PageManager', () => {
     });
   });
 
+  describe('LRU cache', () => {
+    it('caches reads from storage', async () => {
+      await storage.put('k', { data: 1 });
+      expect(await pm.readKey<{ data: number }>('k')).toEqual({ data: 1 });
+
+      // Delete from storage directly — cache should still serve
+      await storage.delete('k');
+      expect(await pm.readKey<{ data: number }>('k')).toEqual({ data: 1 });
+    });
+
+    it('commit promotes WAL to cache', async () => {
+      pm.writeKey('k', 'v');
+      await pm.commit();
+
+      await storage.delete('k');
+      expect(await pm.readKey<string>('k')).toBe('v');
+    });
+
+    it('evicts oldest entries', async () => {
+      const pm2 = new PageManager(storage, 2); // capacity=2
+      await storage.put('a', 1);
+      await storage.put('b', 2);
+      await storage.put('c', 3);
+
+      await pm2.readKey('a'); // cached
+      await pm2.readKey('b'); // cached, evicts 'a'
+      await pm2.readKey('c'); // cached, evicts 'a' (already evicted) or 'a' was already evicted
+
+      // 'a' was first, should be evicted after reading b and c with capacity=2
+      await storage.delete('a');
+      expect(await pm2.readKey('a')).toBeNull(); // evicted from cache, deleted from storage
+    });
+  });
 });

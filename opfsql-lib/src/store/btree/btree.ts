@@ -1,4 +1,4 @@
-import type { IPageManager, RowId } from '../types.js';
+import type { IKVStore, RowId } from '../types.js';
 import type {
   BTreeMeta,
   BTreeNode,
@@ -16,7 +16,7 @@ const NODE_ID_WIDTH = 8;
 export class BTree {
   constructor(
     private readonly indexName: string,
-    private readonly pm: IPageManager,
+    private readonly pm: IKVStore,
     private readonly unique: boolean,
   ) {}
 

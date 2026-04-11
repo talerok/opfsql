@@ -5,7 +5,7 @@ import type {
   BoundAggregateExpression,
   LogicalProjection,
 } from '../binder/types.js';
-import type { ICatalog, IPageManager, Row } from '../store/types.js';
+import type { ICatalog, IRowManager, Row } from '../store/types.js';
 import type { IIndexManager } from '../store/index-manager.js';
 import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
 import type { EvalContext } from './evaluate/context.js';
@@ -26,14 +26,14 @@ import { ExecutorError } from './errors.js';
 
 export async function execute(
   plan: LogicalOperator,
-  pageManager: IPageManager,
+  rowManager: IRowManager,
   catalog: ICatalog,
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   // Build eval context for subquery support
   const ctx: EvalContext = {
     executeSubplan: (subplan, outerTuple, outerResolver, limit) =>
-      executeSubplan(subplan, pageManager, catalog, outerTuple, outerResolver, limit),
+      executeSubplan(subplan, rowManager, catalog, outerTuple, outerResolver, limit),
   };
 
   switch (plan.type) {
@@ -41,23 +41,23 @@ export async function execute(
     case LogicalOperatorType.LOGICAL_CREATE_TABLE:
       return executeCreateTable(plan, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_CREATE_INDEX:
-      return executeCreateIndex(plan, catalog, pageManager, indexManager!);
+      return executeCreateIndex(plan, catalog, rowManager, indexManager!);
     case LogicalOperatorType.LOGICAL_ALTER_TABLE:
       return executeAlterTable(plan, catalog);
     case LogicalOperatorType.LOGICAL_DROP:
-      return executeDrop(plan, catalog, pageManager, indexManager!);
+      return executeDrop(plan, catalog, rowManager, indexManager!);
 
     // DML
     case LogicalOperatorType.LOGICAL_INSERT:
-      return executeInsert(plan, pageManager, ctx, catalog, indexManager);
+      return executeInsert(plan, rowManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_UPDATE:
-      return executeUpdate(plan, pageManager, ctx, catalog, indexManager);
+      return executeUpdate(plan, rowManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_DELETE:
-      return executeDelete(plan, pageManager, ctx, catalog, indexManager);
+      return executeDelete(plan, rowManager, ctx, catalog, indexManager);
 
     // SELECT (physical pipeline)
     default:
-      return executeSelect(plan, pageManager, catalog, ctx, indexManager);
+      return executeSelect(plan, rowManager, catalog, ctx, indexManager);
   }
 }
 
@@ -67,13 +67,13 @@ export async function execute(
 
 async function executeSelect(
   plan: LogicalOperator,
-  pageManager: IPageManager,
+  rowManager: IRowManager,
   _catalog: ICatalog,
   ctx: EvalContext,
   indexManager?: IIndexManager,
 ): Promise<ExecuteResult> {
   const cteCache = new Map<number, CTECacheEntry>();
-  const physical = createPhysicalPlan(plan, pageManager, cteCache, ctx, indexManager);
+  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx, indexManager);
   const tuples = await drainOperator(physical);
   const columnNames = extractColumnNames(plan);
   const rows = tuplesToRows(tuples, columnNames);
@@ -91,7 +91,7 @@ async function executeSelect(
 
 async function executeSubplan(
   plan: LogicalOperator,
-  pageManager: IPageManager,
+  rowManager: IRowManager,
   catalog: ICatalog,
   outerTuple?: Tuple,
   outerResolver?: import('./resolve.js').Resolver,
@@ -99,12 +99,12 @@ async function executeSubplan(
 ): Promise<Tuple[]> {
   const ctx: EvalContext = {
     executeSubplan: (sub, ot, or_, lim) =>
-      executeSubplan(sub, pageManager, catalog, ot, or_, lim),
+      executeSubplan(sub, rowManager, catalog, ot, or_, lim),
     outerTuple,
     outerResolver,
   };
   const cteCache = new Map<number, CTECacheEntry>();
-  const physical = createPhysicalPlan(plan, pageManager, cteCache, ctx);
+  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx);
   if (limit !== undefined) {
     // Early termination — collect at most `limit` tuples then stop.
     const result: Tuple[] = [];
