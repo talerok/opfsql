@@ -1,12 +1,12 @@
 export type LogicalType =
-  | 'INTEGER'
-  | 'BIGINT'
-  | 'REAL'
-  | 'TEXT'
-  | 'BLOB'
-  | 'BOOLEAN'
-  | 'NULL'
-  | 'ANY';
+  | "INTEGER"
+  | "BIGINT"
+  | "REAL"
+  | "TEXT"
+  | "BLOB"
+  | "BOOLEAN"
+  | "NULL"
+  | "ANY";
 
 export interface ColumnDef {
   name: string;
@@ -59,7 +59,7 @@ export interface PageMeta {
   deadRowCount: number;
 }
 
-export const PAGE_SIZE = 500;
+export const PAGE_SIZE = 1024;
 
 // ---------------------------------------------------------------------------
 // Storage backend interface
@@ -122,7 +122,7 @@ export interface IPageManager {
 /** Subset of IPageManager used by executor / physical operators. */
 export type IRowManager = Pick<
   IPageManager,
-  'prepareInsert' | 'prepareUpdate' | 'prepareDelete' | 'scanTable' | 'readRow'
+  "prepareInsert" | "prepareUpdate" | "prepareDelete" | "scanTable" | "readRow"
 >;
 
 export interface IVacuum {

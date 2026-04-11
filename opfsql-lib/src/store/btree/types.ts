@@ -1,4 +1,4 @@
-import type { RowId } from '../types.js';
+import type { RowId } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Index key types
@@ -14,7 +14,7 @@ export type IndexKey = IndexKeyValue[];
 // ---------------------------------------------------------------------------
 
 export interface BTreeLeafNode {
-  kind: 'leaf';
+  kind: "leaf";
   nodeId: number;
   keys: IndexKey[];
   /** rowIds[i] = array of RowId for keys[i]. Non-unique indexes may have multiple. */
@@ -24,7 +24,7 @@ export interface BTreeLeafNode {
 }
 
 export interface BTreeInternalNode {
-  kind: 'internal';
+  kind: "internal";
   nodeId: number;
   /** Separator keys. keys.length === children.length - 1. */
   keys: IndexKey[];
@@ -53,4 +53,4 @@ export interface BTreeMeta {
 // ---------------------------------------------------------------------------
 
 /** Maximum keys per leaf node. Internal nodes hold ORDER-1 keys and ORDER children. */
-export const ORDER = 100;
+export const ORDER = 1024;
