@@ -3,11 +3,13 @@ import { BoundExpressionClass } from '../types.js';
 
 export function sameExpression(a: BT.BoundExpression, b: BT.BoundExpression): boolean {
   if (a.expressionClass !== b.expressionClass) return false;
+
   switch (a.expressionClass) {
     case BoundExpressionClass.BOUND_COLUMN_REF: {
       const ar = a as BT.BoundColumnRefExpression;
       const br = b as BT.BoundColumnRefExpression;
-      return ar.binding.tableIndex === br.binding.tableIndex && ar.binding.columnIndex === br.binding.columnIndex;
+      return ar.binding.tableIndex === br.binding.tableIndex
+        && ar.binding.columnIndex === br.binding.columnIndex;
     }
     case BoundExpressionClass.BOUND_CONSTANT: {
       const ac = a as BT.BoundConstantExpression;
@@ -17,38 +19,22 @@ export function sameExpression(a: BT.BoundExpression, b: BT.BoundExpression): bo
     case BoundExpressionClass.BOUND_COMPARISON: {
       const ac = a as BT.BoundComparisonExpression;
       const bc = b as BT.BoundComparisonExpression;
-      return ac.comparisonType === bc.comparisonType && sameExpression(ac.left, bc.left) && sameExpression(ac.right, bc.right);
+      return ac.comparisonType === bc.comparisonType
+        && sameExpression(ac.left, bc.left) && sameExpression(ac.right, bc.right);
     }
-    case BoundExpressionClass.BOUND_CONJUNCTION: {
-      const ac = a as BT.BoundConjunctionExpression;
-      const bc = b as BT.BoundConjunctionExpression;
-      if (ac.conjunctionType !== bc.conjunctionType) return false;
-      if (ac.children.length !== bc.children.length) return false;
-      return ac.children.every((c, i) => sameExpression(c, bc.children[i]));
-    }
-    case BoundExpressionClass.BOUND_OPERATOR: {
-      const ao = a as BT.BoundOperatorExpression;
-      const bo = b as BT.BoundOperatorExpression;
-      if (ao.operatorType !== bo.operatorType) return false;
-      if (ao.children.length !== bo.children.length) return false;
-      return ao.children.every((c, i) => sameExpression(c, bo.children[i]));
-    }
-    case BoundExpressionClass.BOUND_FUNCTION: {
-      const af = a as BT.BoundFunctionExpression;
-      const bf = b as BT.BoundFunctionExpression;
-      if (af.functionName !== bf.functionName) return false;
-      if (af.children.length !== bf.children.length) return false;
-      return af.children.every((c, i) => sameExpression(c, bf.children[i]));
-    }
-    case BoundExpressionClass.BOUND_AGGREGATE: {
-      const aa = a as BT.BoundAggregateExpression;
-      const ba = b as BT.BoundAggregateExpression;
-      return sameAggregate(aa, ba);
-    }
+    case BoundExpressionClass.BOUND_CONJUNCTION:
+      return sameTaggedChildren(a as BT.BoundConjunctionExpression, b as BT.BoundConjunctionExpression, 'conjunctionType');
+    case BoundExpressionClass.BOUND_OPERATOR:
+      return sameTaggedChildren(a as BT.BoundOperatorExpression, b as BT.BoundOperatorExpression, 'operatorType');
+    case BoundExpressionClass.BOUND_FUNCTION:
+      return sameTaggedChildren(a as BT.BoundFunctionExpression, b as BT.BoundFunctionExpression, 'functionName');
+    case BoundExpressionClass.BOUND_AGGREGATE:
+      return sameAggregate(a as BT.BoundAggregateExpression, b as BT.BoundAggregateExpression);
     case BoundExpressionClass.BOUND_BETWEEN: {
       const ab = a as BT.BoundBetweenExpression;
       const bb = b as BT.BoundBetweenExpression;
-      return sameExpression(ab.input, bb.input) && sameExpression(ab.lower, bb.lower) && sameExpression(ab.upper, bb.upper);
+      return sameExpression(ab.input, bb.input)
+        && sameExpression(ab.lower, bb.lower) && sameExpression(ab.upper, bb.upper);
     }
     case BoundExpressionClass.BOUND_CAST: {
       const ac = a as BT.BoundCastExpression;
@@ -60,16 +46,22 @@ export function sameExpression(a: BT.BoundExpression, b: BT.BoundExpression): bo
   }
 }
 
+/** Compare two expressions that share a tag field + children array pattern. */
+function sameTaggedChildren<T extends { children: BT.BoundExpression[] }>(
+  a: T, b: T, tagKey: keyof T,
+): boolean {
+  if (a[tagKey] !== b[tagKey]) return false;
+  if (a.children.length !== b.children.length) return false;
+  return a.children.every((c, i) => sameExpression(c, b.children[i]));
+}
+
 export function sameAggregate(
   a: BT.BoundAggregateExpression,
   b: BT.BoundAggregateExpression,
 ): boolean {
-  if (a.functionName !== b.functionName) return false;
-  if (a.isStar !== b.isStar) return false;
-  if (a.distinct !== b.distinct) return false;
-  if (a.children.length !== b.children.length) return false;
-  for (let i = 0; i < a.children.length; i++) {
-    if (!sameExpression(a.children[i], b.children[i])) return false;
-  }
-  return true;
+  return a.functionName === b.functionName
+    && a.isStar === b.isStar
+    && a.distinct === b.distinct
+    && a.children.length === b.children.length
+    && a.children.every((c, i) => sameExpression(c, b.children[i]));
 }

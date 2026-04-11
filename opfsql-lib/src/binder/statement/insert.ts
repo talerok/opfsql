@@ -12,53 +12,62 @@ export function bindInsert(
   stmt: InsertStatement,
 ): BT.LogicalInsert {
   const schema = requireTable(ctx, stmt.table);
-
-  let columnIndices: number[];
-  if (stmt.columns.length > 0) {
-    const seen = new Set<string>();
-    columnIndices = stmt.columns.map((colName) => {
-      const lower = colName.toLowerCase();
-      if (seen.has(lower)) {
-        throw new BindError(`Duplicate column "${colName}" in INSERT`);
-      }
-      seen.add(lower);
-      const idx = schema.columns.findIndex(
-        (c) => c.name.toLowerCase() === lower,
-      );
-      if (idx === -1) {
-        throw new BindError(
-          `Column "${colName}" not found in table "${stmt.table}"`,
-        );
-      }
-      return idx;
-    });
-  } else {
-    columnIndices = schema.columns.map((_, i) => i);
-  }
+  const columnIndices = resolveColumns(stmt, schema);
 
   if (stmt.select_statement) {
-    const scope = ctx.createScope();
-    const selectPlan = bindQueryNode(ctx, stmt.select_statement.node, scope);
-    if (selectPlan.types.length !== columnIndices.length) {
-      throw new BindError(
-        `INSERT SELECT column count mismatch: expected ${columnIndices.length}, got ${selectPlan.types.length}`,
-      );
-    }
-    return {
-      type: LogicalOperatorType.LOGICAL_INSERT,
-      tableName: schema.name,
-      schema,
-      columns: columnIndices,
-      children: [selectPlan],
-      expressions: [],
-      types: [],
-      estimatedCardinality: 0,
-      getColumnBindings: () => [],
-    };
+    return bindInsertSelect(ctx, stmt, schema, columnIndices);
+  }
+  return bindInsertValues(ctx, stmt, schema, columnIndices);
+}
+
+function resolveColumns(stmt: InsertStatement, schema: BT.TableSchema): number[] {
+  if (stmt.columns.length === 0) {
+    return schema.columns.map((_, i) => i);
   }
 
+  const seen = new Set<string>();
+  return stmt.columns.map((colName) => {
+    const lower = colName.toLowerCase();
+    if (seen.has(lower)) {
+      throw new BindError(`Duplicate column "${colName}" in INSERT`);
+    }
+    seen.add(lower);
+
+    const idx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
+    if (idx === -1) {
+      throw new BindError(`Column "${colName}" not found in table "${schema.name}"`);
+    }
+    return idx;
+  });
+}
+
+function bindInsertSelect(
+  ctx: BindContext,
+  stmt: InsertStatement,
+  schema: BT.TableSchema,
+  columnIndices: number[],
+): BT.LogicalInsert {
+  const scope = ctx.createScope();
+  const selectPlan = bindQueryNode(ctx, stmt.select_statement!.node, scope);
+
+  if (selectPlan.types.length !== columnIndices.length) {
+    throw new BindError(
+      `INSERT SELECT column count mismatch: expected ${columnIndices.length}, got ${selectPlan.types.length}`,
+    );
+  }
+
+  return makeInsert(schema, columnIndices, [selectPlan], []);
+}
+
+function bindInsertValues(
+  ctx: BindContext,
+  stmt: InsertStatement,
+  schema: BT.TableSchema,
+  columnIndices: number[],
+): BT.LogicalInsert {
   const scope = ctx.createScope();
   const boundExprs: BT.BoundExpression[] = [];
+
   for (const row of stmt.values) {
     if (row.length !== columnIndices.length) {
       throw new BindError(
@@ -70,13 +79,22 @@ export function bindInsert(
     }
   }
 
+  return makeInsert(schema, columnIndices, [], boundExprs);
+}
+
+function makeInsert(
+  schema: BT.TableSchema,
+  columns: number[],
+  children: BT.LogicalOperator[],
+  expressions: BT.BoundExpression[],
+): BT.LogicalInsert {
   return {
     type: LogicalOperatorType.LOGICAL_INSERT,
     tableName: schema.name,
     schema,
-    columns: columnIndices,
-    children: [],
-    expressions: boundExprs,
+    columns,
+    children,
+    expressions,
     types: [],
     estimatedCardinality: 0,
     getColumnBindings: () => [],
