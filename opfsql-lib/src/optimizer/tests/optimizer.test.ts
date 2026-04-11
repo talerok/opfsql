@@ -551,6 +551,76 @@ describe('FilterPushdown', () => {
     expect((join as LogicalComparisonJoin).conditions.length).toBeGreaterThan(0);
   });
 
+  it('does not convert non-equality cross-table filter to join condition', () => {
+    // b.id > a.id references both sides but is NOT an equality — must stay as post-join filter
+    const plan = bind(
+      'SELECT * FROM users a JOIN users b ON a.id = b.id WHERE b.age > a.age',
+    );
+    const pulled = pullupFilters(plan);
+    const optimized = pushdownFilters(pulled);
+
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).not.toBeNull();
+
+    // Only the equality condition should be a join condition
+    for (const cond of join.conditions) {
+      expect(cond.comparisonType).toBe('EQUAL');
+    }
+
+    // The non-equality filter (b.age > a.age) should remain as a LogicalFilter above the join
+    const filter = findNode(optimized, LogicalOperatorType.LOGICAL_FILTER) as LogicalFilter;
+    expect(filter).not.toBeNull();
+    const filterCmp = filter.expressions[0] as BoundComparisonExpression;
+    expect(filterCmp.comparisonType).toBe('GREATER');
+  });
+
+  it('normalizes sides of extracted join conditions (left=left-child, right=right-child)', () => {
+    // WHERE o.user_id = u.id — after pullup+pushdown the extracted condition
+    // should be normalized so cond.left refs left child, cond.right refs right child
+    const plan = bind(
+      'SELECT * FROM users u CROSS JOIN orders o WHERE o.user_id = u.id',
+    );
+    const optimized = pushdownFilters(plan);
+
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).not.toBeNull();
+    expect(join.conditions.length).toBeGreaterThan(0);
+
+    const leftTables = new Set(join.children[0].getColumnBindings().map((b) => b.tableIndex));
+    const rightTables = new Set(join.children[1].getColumnBindings().map((b) => b.tableIndex));
+
+    for (const cond of join.conditions) {
+      const condLeftRef = cond.left as BoundColumnRefExpression;
+      const condRightRef = cond.right as BoundColumnRefExpression;
+      expect(leftTables.has(condLeftRef.binding.tableIndex)).toBe(true);
+      expect(rightTables.has(condRightRef.binding.tableIndex)).toBe(true);
+    }
+  });
+
+  it('normalizes sides when adding join condition to existing join', () => {
+    // ON u.id = o.user_id WHERE o.amount = u.age — the WHERE equality
+    // references both sides and should be normalized when added as join condition
+    const plan = bind(
+      'SELECT * FROM users u JOIN orders o ON u.id = o.user_id WHERE o.amount = u.age',
+    );
+    const pulled = pullupFilters(plan);
+    const optimized = pushdownFilters(pulled);
+
+    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN) as LogicalComparisonJoin;
+    expect(join).not.toBeNull();
+
+    const leftTables = new Set(join.children[0].getColumnBindings().map((b) => b.tableIndex));
+    const rightTables = new Set(join.children[1].getColumnBindings().map((b) => b.tableIndex));
+
+    for (const cond of join.conditions) {
+      expect(cond.comparisonType).toBe('EQUAL');
+      const condLeftRef = cond.left as BoundColumnRefExpression;
+      const condRightRef = cond.right as BoundColumnRefExpression;
+      expect(leftTables.has(condLeftRef.binding.tableIndex)).toBe(true);
+      expect(rightTables.has(condRightRef.binding.tableIndex)).toBe(true);
+    }
+  });
+
   it('optimizes CTE definition independently', () => {
     const plan = bind(
       `WITH filtered AS (SELECT id, name FROM users WHERE age > 21)
