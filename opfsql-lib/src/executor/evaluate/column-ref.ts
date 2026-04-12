@@ -4,7 +4,7 @@ import type {
 } from '../../binder/types.js';
 import type { Value, Tuple } from '../types.js';
 import type { Resolver } from '../resolve.js';
-import type { EvalContext } from './context.js';
+import type { SyncEvalContext as EvalContext } from './context.js';
 import { ExecutorError } from '../errors.js';
 
 export function evalColumnRef(

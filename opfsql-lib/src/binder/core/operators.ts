@@ -1,12 +1,12 @@
-import type { TableSchema } from '../../store/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import type { BindContext } from './context.js';
-import type { BindingEntry } from './scope.js';
+import type { TableSchema } from "../../store/types.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
+import type { BindContext } from "./context.js";
+import type { BindingEntry } from "./scope.js";
 
 export function makeEmptyGet(ctx: BindContext): BT.LogicalGet {
   const tableIndex = ctx.nextTableIndex();
-  const emptySchema: TableSchema = { name: '__empty', columns: [] };
+  const emptySchema: TableSchema = { name: "__empty", columns: [] };
   return {
     type: LogicalOperatorType.LOGICAL_GET,
     children: [],
@@ -14,7 +14,7 @@ export function makeEmptyGet(ctx: BindContext): BT.LogicalGet {
     types: [],
     estimatedCardinality: 1,
     tableIndex,
-    tableName: '__empty',
+    tableName: "__empty",
     schema: emptySchema,
     columnIds: [],
     tableFilters: [],
@@ -22,7 +22,10 @@ export function makeEmptyGet(ctx: BindContext): BT.LogicalGet {
   };
 }
 
-export function makeGet(entry: BindingEntry, schema: TableSchema): BT.LogicalGet {
+export function makeGet(
+  entry: BindingEntry,
+  schema: TableSchema,
+): BT.LogicalGet {
   const columnIds = schema.columns.map((_, i) => i);
   const types = schema.columns.map((c) => c.type);
   return {

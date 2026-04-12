@@ -1,36 +1,35 @@
 import type {
   BoundExpression,
   BoundSubqueryExpression,
-} from '../../binder/types.js';
-import type { Value, Tuple } from '../types.js';
-import type { Resolver } from '../resolve.js';
-import type { EvalContext } from './context.js';
-import { ExecutorError } from '../errors.js';
-import { evaluateExpression } from './index.js';
-import { applyComparison } from './helpers.js';
+} from "../../binder/types.js";
+import { applyComparison } from "../../executor/evaluate/helpers.js";
+import { ExecutorError } from "../errors.js";
+import type { Resolver } from "../resolve.js";
+import type { Tuple, Value } from "../types.js";
+import type { SyncEvalContext } from "./context.js";
+import { evaluateExpression } from "./index.js";
 
-export async function evalSubquery(
+export function evalSubquery(
   expr: BoundExpression,
   tuple: Tuple,
   resolver: Resolver,
-  ctx: EvalContext,
-): Promise<Value> {
+  ctx: SyncEvalContext,
+): Value {
   const sq = expr as BoundSubqueryExpression;
 
-  // EXISTS/NOT_EXISTS only need to know if ≥1 row exists — limit to 1 for early exit
-  if (sq.subqueryType === 'EXISTS' || sq.subqueryType === 'NOT_EXISTS') {
-    const rows = await ctx.executeSubplan(sq.subplan, tuple, resolver, 1);
-    return sq.subqueryType === 'EXISTS' ? rows.length > 0 : rows.length === 0;
+  if (sq.subqueryType === "EXISTS" || sq.subqueryType === "NOT_EXISTS") {
+    const rows = ctx.executeSubplan(sq.subplan, tuple, resolver, 1);
+    return sq.subqueryType === "EXISTS" ? rows.length > 0 : rows.length === 0;
   }
 
-  const rows = await ctx.executeSubplan(sq.subplan, tuple, resolver);
+  const rows = ctx.executeSubplan(sq.subplan, tuple, resolver);
 
   switch (sq.subqueryType) {
-    case 'SCALAR':
+    case "SCALAR":
       return evalScalar(rows);
-    case 'ANY':
+    case "ANY":
       return evalQuantified(sq, rows, tuple, resolver, ctx, false);
-    case 'ALL':
+    case "ALL":
       return evalQuantified(sq, rows, tuple, resolver, ctx, true);
   }
 }
@@ -38,22 +37,22 @@ export async function evalSubquery(
 function evalScalar(rows: Tuple[]): Value {
   if (rows.length === 0) return null;
   if (rows.length > 1) {
-    throw new ExecutorError('Scalar subquery returned more than one row');
+    throw new ExecutorError("Scalar subquery returned more than one row");
   }
   return rows[0][0] ?? null;
 }
 
-async function evalQuantified(
+function evalQuantified(
   sq: BoundSubqueryExpression,
   rows: Tuple[],
   tuple: Tuple,
   resolver: Resolver,
-  ctx: EvalContext,
+  ctx: SyncEvalContext,
   isAll: boolean,
-): Promise<Value> {
+): Value {
   if (!sq.child || !sq.comparisonType) return null;
 
-  const input = await evaluateExpression(sq.child, tuple, resolver, ctx);
+  const input = evaluateExpression(sq.child, tuple, resolver, ctx);
   if (input === null) return null;
   if (rows.length === 0) return isAll;
 
@@ -67,7 +66,5 @@ async function evalQuantified(
     if (isAll && result !== true) return false;
     if (!isAll && result === true) return true;
   }
-  // ALL: all non-null passed but had nulls → NULL; no nulls → true
-  // ANY: no non-null matched but had nulls → NULL; no nulls → false
   return hasNull ? null : isAll;
 }

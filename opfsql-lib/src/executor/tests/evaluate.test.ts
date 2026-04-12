@@ -32,31 +32,31 @@ function eval_(expr: Parameters<typeof evaluateExpression>[0], t = tuple, r = re
 
 describe('evaluateExpression', () => {
   describe('constants', () => {
-    it('returns integer', async () => {
-      expect(await eval_(constant(42))).toBe(42);
+    it('returns integer', () => {
+      expect(eval_(constant(42))).toBe(42);
     });
 
-    it('returns string', async () => {
-      expect(await eval_(constant('abc'))).toBe('abc');
+    it('returns string', () => {
+      expect(eval_(constant('abc'))).toBe('abc');
     });
 
-    it('returns null', async () => {
-      expect(await eval_(constant(null))).toBeNull();
+    it('returns null', () => {
+      expect(eval_(constant(null))).toBeNull();
     });
 
-    it('returns boolean', async () => {
-      expect(await eval_(constant(true))).toBe(true);
+    it('returns boolean', () => {
+      expect(eval_(constant(true))).toBe(true);
     });
   });
 
   describe('column refs', () => {
-    it('resolves by binding', async () => {
-      expect(await eval_(colRef(0, 0))).toBe(10);
-      expect(await eval_(colRef(0, 1))).toBe('hello');
+    it('resolves by binding', () => {
+      expect(eval_(colRef(0, 0))).toBe(10);
+      expect(eval_(colRef(0, 1))).toBe('hello');
     });
 
-    it('resolves null column', async () => {
-      expect(await eval_(colRef(0, 2))).toBeNull();
+    it('resolves null column', () => {
+      expect(eval_(colRef(0, 2))).toBeNull();
     });
   });
 
@@ -65,39 +65,39 @@ describe('evaluateExpression', () => {
   // ---------------------------------------------------------------------------
 
   describe('comparisons', () => {
-    it('EQUAL — true', async () => {
-      expect(await eval_(comparison(constant(5), constant(5)))).toBe(true);
+    it('EQUAL — true', () => {
+      expect(eval_(comparison(constant(5), constant(5)))).toBe(true);
     });
 
-    it('EQUAL — false', async () => {
-      expect(await eval_(comparison(constant(5), constant(6)))).toBe(false);
+    it('EQUAL — false', () => {
+      expect(eval_(comparison(constant(5), constant(6)))).toBe(false);
     });
 
-    it('EQUAL — null propagation', async () => {
-      expect(await eval_(comparison(constant(null), constant(5)))).toBeNull();
+    it('EQUAL — null propagation', () => {
+      expect(eval_(comparison(constant(null), constant(5)))).toBeNull();
     });
 
-    it('LESS', async () => {
-      expect(await eval_(comparison(constant(3), constant(5), 'LESS'))).toBe(true);
-      expect(await eval_(comparison(constant(5), constant(3), 'LESS'))).toBe(false);
+    it('LESS', () => {
+      expect(eval_(comparison(constant(3), constant(5), 'LESS'))).toBe(true);
+      expect(eval_(comparison(constant(5), constant(3), 'LESS'))).toBe(false);
     });
 
-    it('GREATER', async () => {
-      expect(await eval_(comparison(constant(5), constant(3), 'GREATER'))).toBe(true);
+    it('GREATER', () => {
+      expect(eval_(comparison(constant(5), constant(3), 'GREATER'))).toBe(true);
     });
 
-    it('LESS_EQUAL', async () => {
-      expect(await eval_(comparison(constant(5), constant(5), 'LESS_EQUAL'))).toBe(true);
+    it('LESS_EQUAL', () => {
+      expect(eval_(comparison(constant(5), constant(5), 'LESS_EQUAL'))).toBe(true);
     });
 
-    it('NOT_EQUAL', async () => {
-      expect(await eval_(comparison(constant(1), constant(2), 'NOT_EQUAL'))).toBe(true);
-      expect(await eval_(comparison(constant(1), constant(1), 'NOT_EQUAL'))).toBe(false);
+    it('NOT_EQUAL', () => {
+      expect(eval_(comparison(constant(1), constant(2), 'NOT_EQUAL'))).toBe(true);
+      expect(eval_(comparison(constant(1), constant(1), 'NOT_EQUAL'))).toBe(false);
     });
 
-    it('compares strings', async () => {
-      expect(await eval_(comparison(constant('a'), constant('b'), 'LESS'))).toBe(true);
-      expect(await eval_(comparison(constant('b'), constant('a'), 'LESS'))).toBe(false);
+    it('compares strings', () => {
+      expect(eval_(comparison(constant('a'), constant('b'), 'LESS'))).toBe(true);
+      expect(eval_(comparison(constant('b'), constant('a'), 'LESS'))).toBe(false);
     });
   });
 
@@ -106,32 +106,32 @@ describe('evaluateExpression', () => {
   // ---------------------------------------------------------------------------
 
   describe('conjunctions', () => {
-    it('AND — both true', async () => {
-      expect(await eval_(conjunction('AND', constant(true), constant(true)))).toBe(true);
+    it('AND — both true', () => {
+      expect(eval_(conjunction('AND', constant(true), constant(true)))).toBe(true);
     });
 
-    it('AND — one false', async () => {
-      expect(await eval_(conjunction('AND', constant(true), constant(false)))).toBe(false);
+    it('AND — one false', () => {
+      expect(eval_(conjunction('AND', constant(true), constant(false)))).toBe(false);
     });
 
-    it('AND — false and null → false', async () => {
-      expect(await eval_(conjunction('AND', constant(false), constant(null, 'BOOLEAN')))).toBe(false);
+    it('AND — false and null → false', () => {
+      expect(eval_(conjunction('AND', constant(false), constant(null, 'BOOLEAN')))).toBe(false);
     });
 
-    it('AND — true and null → null', async () => {
-      expect(await eval_(conjunction('AND', constant(true), constant(null, 'BOOLEAN')))).toBeNull();
+    it('AND — true and null → null', () => {
+      expect(eval_(conjunction('AND', constant(true), constant(null, 'BOOLEAN')))).toBeNull();
     });
 
-    it('OR — one true', async () => {
-      expect(await eval_(conjunction('OR', constant(false), constant(true)))).toBe(true);
+    it('OR — one true', () => {
+      expect(eval_(conjunction('OR', constant(false), constant(true)))).toBe(true);
     });
 
-    it('OR — true and null → true', async () => {
-      expect(await eval_(conjunction('OR', constant(true), constant(null, 'BOOLEAN')))).toBe(true);
+    it('OR — true and null → true', () => {
+      expect(eval_(conjunction('OR', constant(true), constant(null, 'BOOLEAN')))).toBe(true);
     });
 
-    it('OR — false and null → null', async () => {
-      expect(await eval_(conjunction('OR', constant(false), constant(null, 'BOOLEAN')))).toBeNull();
+    it('OR — false and null → null', () => {
+      expect(eval_(conjunction('OR', constant(false), constant(null, 'BOOLEAN')))).toBeNull();
     });
   });
 
@@ -140,77 +140,77 @@ describe('evaluateExpression', () => {
   // ---------------------------------------------------------------------------
 
   describe('operators', () => {
-    it('ADD', async () => {
-      expect(await eval_(operator('ADD', [constant(3), constant(4)]))).toBe(7);
+    it('ADD', () => {
+      expect(eval_(operator('ADD', [constant(3), constant(4)]))).toBe(7);
     });
 
-    it('SUBTRACT', async () => {
-      expect(await eval_(operator('SUBTRACT', [constant(10), constant(3)]))).toBe(7);
+    it('SUBTRACT', () => {
+      expect(eval_(operator('SUBTRACT', [constant(10), constant(3)]))).toBe(7);
     });
 
-    it('MULTIPLY', async () => {
-      expect(await eval_(operator('MULTIPLY', [constant(3), constant(4)]))).toBe(12);
+    it('MULTIPLY', () => {
+      expect(eval_(operator('MULTIPLY', [constant(3), constant(4)]))).toBe(12);
     });
 
-    it('DIVIDE', async () => {
-      expect(await eval_(operator('DIVIDE', [constant(10), constant(3)]))).toBeCloseTo(3.333, 2);
+    it('DIVIDE', () => {
+      expect(eval_(operator('DIVIDE', [constant(10), constant(3)]))).toBeCloseTo(3.333, 2);
     });
 
-    it('DIVIDE by zero → null', async () => {
-      expect(await eval_(operator('DIVIDE', [constant(10), constant(0)]))).toBeNull();
+    it('DIVIDE by zero → null', () => {
+      expect(eval_(operator('DIVIDE', [constant(10), constant(0)]))).toBeNull();
     });
 
-    it('MOD', async () => {
-      expect(await eval_(operator('MOD', [constant(10), constant(3)]))).toBe(1);
+    it('MOD', () => {
+      expect(eval_(operator('MOD', [constant(10), constant(3)]))).toBe(1);
     });
 
-    it('MOD by zero → null', async () => {
-      expect(await eval_(operator('MOD', [constant(10), constant(0)]))).toBeNull();
+    it('MOD by zero → null', () => {
+      expect(eval_(operator('MOD', [constant(10), constant(0)]))).toBeNull();
     });
 
-    it('NEGATE', async () => {
-      expect(await eval_(operator('NEGATE', [constant(5)]))).toBe(-5);
+    it('NEGATE', () => {
+      expect(eval_(operator('NEGATE', [constant(5)]))).toBe(-5);
     });
 
-    it('NOT', async () => {
-      expect(await eval_(operator('NOT', [constant(true)], 'BOOLEAN'))).toBe(false);
-      expect(await eval_(operator('NOT', [constant(false)], 'BOOLEAN'))).toBe(true);
+    it('NOT', () => {
+      expect(eval_(operator('NOT', [constant(true)], 'BOOLEAN'))).toBe(false);
+      expect(eval_(operator('NOT', [constant(false)], 'BOOLEAN'))).toBe(true);
     });
 
-    it('NOT null → null', async () => {
-      expect(await eval_(operator('NOT', [constant(null, 'BOOLEAN')], 'BOOLEAN'))).toBeNull();
+    it('NOT null → null', () => {
+      expect(eval_(operator('NOT', [constant(null, 'BOOLEAN')], 'BOOLEAN'))).toBeNull();
     });
 
-    it('IS_NULL', async () => {
-      expect(await eval_(operator('IS_NULL', [constant(null)], 'BOOLEAN'))).toBe(true);
-      expect(await eval_(operator('IS_NULL', [constant(5)], 'BOOLEAN'))).toBe(false);
+    it('IS_NULL', () => {
+      expect(eval_(operator('IS_NULL', [constant(null)], 'BOOLEAN'))).toBe(true);
+      expect(eval_(operator('IS_NULL', [constant(5)], 'BOOLEAN'))).toBe(false);
     });
 
-    it('IS_NOT_NULL', async () => {
-      expect(await eval_(operator('IS_NOT_NULL', [constant(null)], 'BOOLEAN'))).toBe(false);
-      expect(await eval_(operator('IS_NOT_NULL', [constant(5)], 'BOOLEAN'))).toBe(true);
+    it('IS_NOT_NULL', () => {
+      expect(eval_(operator('IS_NOT_NULL', [constant(null)], 'BOOLEAN'))).toBe(false);
+      expect(eval_(operator('IS_NOT_NULL', [constant(5)], 'BOOLEAN'))).toBe(true);
     });
 
-    it('IN — found', async () => {
-      expect(await eval_(operator('IN', [constant(2), constant(1), constant(2), constant(3)], 'BOOLEAN'))).toBe(true);
+    it('IN — found', () => {
+      expect(eval_(operator('IN', [constant(2), constant(1), constant(2), constant(3)], 'BOOLEAN'))).toBe(true);
     });
 
-    it('IN — not found', async () => {
-      expect(await eval_(operator('IN', [constant(5), constant(1), constant(2)], 'BOOLEAN'))).toBe(false);
+    it('IN — not found', () => {
+      expect(eval_(operator('IN', [constant(5), constant(1), constant(2)], 'BOOLEAN'))).toBe(false);
     });
 
-    it('IN — null input → null', async () => {
-      expect(await eval_(operator('IN', [constant(null), constant(1)], 'BOOLEAN'))).toBeNull();
+    it('IN — null input → null', () => {
+      expect(eval_(operator('IN', [constant(null), constant(1)], 'BOOLEAN'))).toBeNull();
     });
 
-    it('NOT_IN', async () => {
-      expect(await eval_(operator('NOT_IN', [constant(5), constant(1), constant(2)], 'BOOLEAN'))).toBe(true);
-      expect(await eval_(operator('NOT_IN', [constant(1), constant(1), constant(2)], 'BOOLEAN'))).toBe(false);
+    it('NOT_IN', () => {
+      expect(eval_(operator('NOT_IN', [constant(5), constant(1), constant(2)], 'BOOLEAN'))).toBe(true);
+      expect(eval_(operator('NOT_IN', [constant(1), constant(1), constant(2)], 'BOOLEAN'))).toBe(false);
     });
 
-    it('arithmetic with null → null', async () => {
-      expect(await eval_(operator('ADD', [constant(null), constant(3)]))).toBeNull();
-      expect(await eval_(operator('ADD', [constant(3), constant(null)]))).toBeNull();
+    it('arithmetic with null → null', () => {
+      expect(eval_(operator('ADD', [constant(null), constant(3)]))).toBeNull();
+      expect(eval_(operator('ADD', [constant(3), constant(null)]))).toBeNull();
     });
   });
 
@@ -219,21 +219,21 @@ describe('evaluateExpression', () => {
   // ---------------------------------------------------------------------------
 
   describe('between', () => {
-    it('value in range', async () => {
-      expect(await eval_(between(constant(5), constant(1), constant(10)))).toBe(true);
+    it('value in range', () => {
+      expect(eval_(between(constant(5), constant(1), constant(10)))).toBe(true);
     });
 
-    it('value at boundary', async () => {
-      expect(await eval_(between(constant(1), constant(1), constant(10)))).toBe(true);
-      expect(await eval_(between(constant(10), constant(1), constant(10)))).toBe(true);
+    it('value at boundary', () => {
+      expect(eval_(between(constant(1), constant(1), constant(10)))).toBe(true);
+      expect(eval_(between(constant(10), constant(1), constant(10)))).toBe(true);
     });
 
-    it('value out of range', async () => {
-      expect(await eval_(between(constant(0), constant(1), constant(10)))).toBe(false);
+    it('value out of range', () => {
+      expect(eval_(between(constant(0), constant(1), constant(10)))).toBe(false);
     });
 
-    it('null input → null', async () => {
-      expect(await eval_(between(constant(null), constant(1), constant(10)))).toBeNull();
+    it('null input → null', () => {
+      expect(eval_(between(constant(null), constant(1), constant(10)))).toBeNull();
     });
   });
 
@@ -242,88 +242,88 @@ describe('evaluateExpression', () => {
   // ---------------------------------------------------------------------------
 
   describe('functions', () => {
-    it('UPPER', async () => {
-      expect(await eval_(fnCall('UPPER', [constant('hello')]))).toBe('HELLO');
+    it('UPPER', () => {
+      expect(eval_(fnCall('UPPER', [constant('hello')]))).toBe('HELLO');
     });
 
-    it('LOWER', async () => {
-      expect(await eval_(fnCall('LOWER', [constant('HELLO')]))).toBe('hello');
+    it('LOWER', () => {
+      expect(eval_(fnCall('LOWER', [constant('HELLO')]))).toBe('hello');
     });
 
-    it('LENGTH', async () => {
-      expect(await eval_(fnCall('LENGTH', [constant('abc')], 'INTEGER'))).toBe(3);
+    it('LENGTH', () => {
+      expect(eval_(fnCall('LENGTH', [constant('abc')], 'INTEGER'))).toBe(3);
     });
 
-    it('TRIM', async () => {
-      expect(await eval_(fnCall('TRIM', [constant('  hi  ')]))).toBe('hi');
+    it('TRIM', () => {
+      expect(eval_(fnCall('TRIM', [constant('  hi  ')]))).toBe('hi');
     });
 
-    it('SUBSTR', async () => {
-      expect(await eval_(fnCall('SUBSTR', [constant('hello'), constant(2), constant(3)]))).toBe('ell');
+    it('SUBSTR', () => {
+      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(2), constant(3)]))).toBe('ell');
     });
 
-    it('REPLACE', async () => {
-      expect(await eval_(fnCall('REPLACE', [constant('hello'), constant('l'), constant('r')]))).toBe('herro');
+    it('REPLACE', () => {
+      expect(eval_(fnCall('REPLACE', [constant('hello'), constant('l'), constant('r')]))).toBe('herro');
     });
 
-    it('CONCAT', async () => {
-      expect(await eval_(fnCall('CONCAT', [constant('a'), constant('b'), constant('c')]))).toBe('abc');
+    it('CONCAT', () => {
+      expect(eval_(fnCall('CONCAT', [constant('a'), constant('b'), constant('c')]))).toBe('abc');
     });
 
-    it('ABS', async () => {
-      expect(await eval_(fnCall('ABS', [constant(-5)], 'INTEGER'))).toBe(5);
+    it('ABS', () => {
+      expect(eval_(fnCall('ABS', [constant(-5)], 'INTEGER'))).toBe(5);
     });
 
-    it('ROUND', async () => {
-      expect(await eval_(fnCall('ROUND', [constant(3.7)], 'INTEGER'))).toBe(4);
+    it('ROUND', () => {
+      expect(eval_(fnCall('ROUND', [constant(3.7)], 'INTEGER'))).toBe(4);
     });
 
-    it('FLOOR', async () => {
-      expect(await eval_(fnCall('FLOOR', [constant(3.7)], 'INTEGER'))).toBe(3);
+    it('FLOOR', () => {
+      expect(eval_(fnCall('FLOOR', [constant(3.7)], 'INTEGER'))).toBe(3);
     });
 
-    it('CEIL', async () => {
-      expect(await eval_(fnCall('CEIL', [constant(3.2)], 'INTEGER'))).toBe(4);
+    it('CEIL', () => {
+      expect(eval_(fnCall('CEIL', [constant(3.2)], 'INTEGER'))).toBe(4);
     });
 
-    it('COALESCE — returns first non-null', async () => {
-      expect(await eval_(fnCall('COALESCE', [constant(null), constant(null), constant(5)], 'INTEGER'))).toBe(5);
+    it('COALESCE — returns first non-null', () => {
+      expect(eval_(fnCall('COALESCE', [constant(null), constant(null), constant(5)], 'INTEGER'))).toBe(5);
     });
 
-    it('COALESCE — all null', async () => {
-      expect(await eval_(fnCall('COALESCE', [constant(null), constant(null)], 'INTEGER'))).toBeNull();
+    it('COALESCE — all null', () => {
+      expect(eval_(fnCall('COALESCE', [constant(null), constant(null)], 'INTEGER'))).toBeNull();
     });
 
-    it('NULLIF — equal → null', async () => {
-      expect(await eval_(fnCall('NULLIF', [constant(5), constant(5)], 'INTEGER'))).toBeNull();
+    it('NULLIF — equal → null', () => {
+      expect(eval_(fnCall('NULLIF', [constant(5), constant(5)], 'INTEGER'))).toBeNull();
     });
 
-    it('NULLIF — not equal → first', async () => {
-      expect(await eval_(fnCall('NULLIF', [constant(5), constant(3)], 'INTEGER'))).toBe(5);
+    it('NULLIF — not equal → first', () => {
+      expect(eval_(fnCall('NULLIF', [constant(5), constant(3)], 'INTEGER'))).toBe(5);
     });
 
-    it('LIKE — match', async () => {
-      expect(await eval_(fnCall('LIKE', [constant('hello'), constant('hel%')], 'BOOLEAN'))).toBe(true);
+    it('LIKE — match', () => {
+      expect(eval_(fnCall('LIKE', [constant('hello'), constant('hel%')], 'BOOLEAN'))).toBe(true);
     });
 
-    it('LIKE — no match', async () => {
-      expect(await eval_(fnCall('LIKE', [constant('hello'), constant('xyz%')], 'BOOLEAN'))).toBe(false);
+    it('LIKE — no match', () => {
+      expect(eval_(fnCall('LIKE', [constant('hello'), constant('xyz%')], 'BOOLEAN'))).toBe(false);
     });
 
-    it('LIKE — underscore wildcard', async () => {
-      expect(await eval_(fnCall('LIKE', [constant('hello'), constant('h_llo')], 'BOOLEAN'))).toBe(true);
+    it('LIKE — underscore wildcard', () => {
+      expect(eval_(fnCall('LIKE', [constant('hello'), constant('h_llo')], 'BOOLEAN'))).toBe(true);
     });
 
-    it('TYPEOF', async () => {
-      expect(await eval_(fnCall('TYPEOF', [constant(42)]))).toBe('number');
-      expect(await eval_(fnCall('TYPEOF', [constant('abc')]))).toBe('string');
-      expect(await eval_(fnCall('TYPEOF', [constant(null)]))).toBe('null');
-      expect(await eval_(fnCall('TYPEOF', [constant(true)]))).toBe('boolean');
+    it('TYPEOF', () => {
+      expect(eval_(fnCall('TYPEOF', [constant(42)]))).toBe('number');
+      expect(eval_(fnCall('TYPEOF', [constant('abc')]))).toBe('string');
+      expect(eval_(fnCall('TYPEOF', [constant(null)]))).toBe('null');
+      expect(eval_(fnCall('TYPEOF', [constant(true)]))).toBe('boolean');
     });
 
-    it('function with null input → null (except COALESCE/TYPEOF)', async () => {
-      expect(await eval_(fnCall('UPPER', [constant(null)]))).toBeNull();
-      expect(await eval_(fnCall('ABS', [constant(null)], 'INTEGER'))).toBeNull();
+    it('function with null input → null (except COALESCE/TYPEOF)', () => {
+      expect(eval_(fnCall('UPPER', [constant(null)]))).toBeNull();
+      expect(eval_(fnCall('ABS', [constant(null)], 'INTEGER'))).toBeNull();
     });
   });
 
@@ -332,28 +332,28 @@ describe('evaluateExpression', () => {
   // ---------------------------------------------------------------------------
 
   describe('case', () => {
-    it('matches first truthy WHEN', async () => {
+    it('matches first truthy WHEN', () => {
       const expr = caseExpr(
         [
           { when: constant(false), then: constant(1) },
-          { when: constant(true), then: constant(2) },
+          { when: constant(true),  then: constant(2) },
         ],
         constant(99),
       );
-      expect(await eval_(expr)).toBe(2);
+      expect(eval_(expr)).toBe(2);
     });
 
-    it('falls through to ELSE', async () => {
+    it('falls through to ELSE', () => {
       const expr = caseExpr(
         [{ when: constant(false), then: constant(1) }],
         constant(99),
       );
-      expect(await eval_(expr)).toBe(99);
+      expect(eval_(expr)).toBe(99);
     });
 
-    it('no ELSE → null', async () => {
+    it('no ELSE → null', () => {
       const expr = caseExpr([{ when: constant(false), then: constant(1) }]);
-      expect(await eval_(expr)).toBeNull();
+      expect(eval_(expr)).toBeNull();
     });
   });
 
@@ -362,25 +362,25 @@ describe('evaluateExpression', () => {
   // ---------------------------------------------------------------------------
 
   describe('cast', () => {
-    it('TEXT → INTEGER', async () => {
-      expect(await eval_(cast(constant('42'), 'INTEGER'))).toBe(42);
+    it('TEXT → INTEGER', () => {
+      expect(eval_(cast(constant('42'), 'INTEGER'))).toBe(42);
     });
 
-    it('INTEGER → TEXT', async () => {
-      expect(await eval_(cast(constant(42), 'TEXT'))).toBe('42');
+    it('INTEGER → TEXT', () => {
+      expect(eval_(cast(constant(42), 'TEXT'))).toBe('42');
     });
 
-    it('REAL → INTEGER (truncate)', async () => {
-      expect(await eval_(cast(constant(3.9), 'INTEGER'))).toBe(3);
+    it('REAL → INTEGER (truncate)', () => {
+      expect(eval_(cast(constant(3.9), 'INTEGER'))).toBe(3);
     });
 
-    it('TEXT → BOOLEAN', async () => {
-      expect(await eval_(cast(constant('true'), 'BOOLEAN'))).toBe(true);
-      expect(await eval_(cast(constant('false'), 'BOOLEAN'))).toBe(false);
+    it('TEXT → BOOLEAN', () => {
+      expect(eval_(cast(constant('true'), 'BOOLEAN'))).toBe(true);
+      expect(eval_(cast(constant('false'), 'BOOLEAN'))).toBe(false);
     });
 
-    it('NULL cast → null', async () => {
-      expect(await eval_(cast(constant(null), 'INTEGER'))).toBeNull();
+    it('NULL cast → null', () => {
+      expect(eval_(cast(constant(null), 'INTEGER'))).toBeNull();
     });
   });
 });
@@ -392,15 +392,15 @@ describe('evaluateExpression', () => {
 import { evalSubquery } from '../evaluate/subquery.js';
 import { BoundExpressionClass } from '../../binder/types.js';
 import type { LogicalOperator } from '../../binder/types.js';
-import type { EvalContext } from '../evaluate/context.js';
+import type { SyncEvalContext } from '../evaluate/context.js';
 
 const dummySubplan = {} as LogicalOperator;
 
-function mockCtx(): EvalContext & { calls: Array<{ limit?: number }> } {
+function mockCtx(): SyncEvalContext & { calls: Array<{ limit?: number }> } {
   const calls: Array<{ limit?: number }> = [];
   return {
     calls,
-    executeSubplan: async (_plan, _ot, _or, limit) => {
+    executeSubplan: (_plan, _ot, _or, limit) => {
       calls.push({ limit });
       return limit !== undefined ? [[1]] : [[1], [2], [3]];
     },
@@ -417,58 +417,54 @@ function subqueryExpr(type: 'EXISTS' | 'NOT_EXISTS' | 'SCALAR') {
 }
 
 describe('evalSubquery — EXISTS early termination', () => {
-  it('EXISTS passes limit=1 to executeSubplan', async () => {
+  it('EXISTS passes limit=1 to executeSubplan', () => {
     const ctx = mockCtx();
-    await evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
     expect(ctx.calls).toHaveLength(1);
     expect(ctx.calls[0].limit).toBe(1);
   });
 
-  it('NOT_EXISTS passes limit=1 to executeSubplan', async () => {
+  it('NOT_EXISTS passes limit=1 to executeSubplan', () => {
     const ctx = mockCtx();
-    await evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
     expect(ctx.calls).toHaveLength(1);
     expect(ctx.calls[0].limit).toBe(1);
   });
 
-  it('SCALAR does NOT pass limit', async () => {
+  it('SCALAR does NOT pass limit', () => {
     const calls: Array<{ limit?: number }> = [];
-    const ctx: EvalContext = {
-      executeSubplan: async (_plan, _ot, _or, limit) => {
+    const ctx: SyncEvalContext = {
+      executeSubplan: (_plan, _ot, _or, limit) => {
         calls.push({ limit });
-        return [[42]]; // single row for SCALAR
+        return [[42]];
       },
     };
-    await evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
+    evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
     expect(calls).toHaveLength(1);
     expect(calls[0].limit).toBeUndefined();
   });
 
-  it('EXISTS returns true when rows exist', async () => {
+  it('EXISTS returns true when rows exist', () => {
     const ctx = mockCtx();
-    const result = await evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
     expect(result).toBe(true);
   });
 
-  it('EXISTS returns false when no rows', async () => {
-    const ctx: EvalContext = {
-      executeSubplan: async () => [],
-    };
-    const result = await evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+  it('EXISTS returns false when no rows', () => {
+    const ctx: SyncEvalContext = { executeSubplan: () => [] };
+    const result = evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
     expect(result).toBe(false);
   });
 
-  it('NOT_EXISTS returns false when rows exist', async () => {
+  it('NOT_EXISTS returns false when rows exist', () => {
     const ctx = mockCtx();
-    const result = await evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
     expect(result).toBe(false);
   });
 
-  it('NOT_EXISTS returns true when no rows', async () => {
-    const ctx: EvalContext = {
-      executeSubplan: async () => [],
-    };
-    const result = await evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+  it('NOT_EXISTS returns true when no rows', () => {
+    const ctx: SyncEvalContext = { executeSubplan: () => [] };
+    const result = evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
     expect(result).toBe(true);
   });
 });

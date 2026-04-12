@@ -1,30 +1,37 @@
 import type {
-  LogicalGet,
   ColumnBinding,
-  TableFilter,
   IndexSearchPredicate,
-} from '../../binder/types.js';
-import type { IRowManager, IndexDef, RowId } from '../../store/types.js';
-import type { IIndexManager } from '../../store/index-manager.js';
-import type { SearchPredicate } from '../../store/index-btree/index-btree.js';
-import type { PhysicalOperator, Tuple } from '../types.js';
-import type { EvalContext } from '../evaluate/context.js';
-import { rowToTuple, passesFilters, resolveFilterValue, SCAN_BATCH } from './utils.js';
+  LogicalGet,
+  TableFilter,
+} from "../../binder/types.js";
+import type { SearchPredicate } from "../../store/index-btree/index-btree.js";
+import type {
+  SyncIIndexManager,
+  SyncIRowManager,
+} from "../../store/types.js";
+import type { SyncEvalContext } from "../evaluate/context.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
+import {
+  passesFilters,
+  resolveFilterValue,
+  rowToTuple,
+  SCAN_BATCH,
+} from "./utils.js";
 
-export class PhysicalIndexScan implements PhysicalOperator {
-  private rowIds: RowId[] | null = null;
+export class PhysicalIndexScan implements SyncPhysicalOperator {
+  private rowIds: number[] | null = null;
   private cursor = 0;
   private done = false;
   private readonly layout: ColumnBinding[];
 
   constructor(
     private readonly op: LogicalGet,
-    private readonly rowManager: IRowManager,
-    private readonly indexManager: IIndexManager,
-    private readonly indexDef: IndexDef,
+    private readonly rowManager: SyncIRowManager,
+    private readonly indexManager: SyncIIndexManager,
+    private readonly indexDef: import("../../store/types.js").IndexDef,
     private readonly indexPredicates: IndexSearchPredicate[],
     private readonly residualFilters: TableFilter[],
-    private readonly ctx: EvalContext,
+    private readonly ctx: SyncEvalContext,
   ) {
     this.layout = op.getColumnBindings();
   }
@@ -33,11 +40,11 @@ export class PhysicalIndexScan implements PhysicalOperator {
     return this.layout;
   }
 
-  async next(): Promise<Tuple[] | null> {
+  next(): Tuple[] | null {
     if (this.done) return null;
 
     if (this.rowIds === null) {
-      this.rowIds = await this.fetchRowIds();
+      this.rowIds = this.fetchRowIds();
     }
 
     while (this.cursor < this.rowIds.length) {
@@ -45,11 +52,18 @@ export class PhysicalIndexScan implements PhysicalOperator {
 
       while (this.cursor < this.rowIds.length && batch.length < SCAN_BATCH) {
         const rowId = this.rowIds[this.cursor++];
-        const row = await this.rowManager.readRow(this.op.tableName, rowId);
-        if (row === null) continue; // row was deleted
+        const row = this.rowManager.readRow(this.op.tableName, rowId);
+        if (row === null) continue;
 
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
-        if (passesFilters(tuple, this.residualFilters, this.op.columnIds, this.ctx.params)) {
+        if (
+          passesFilters(
+            tuple,
+            this.residualFilters,
+            this.op.columnIds,
+            this.ctx.params,
+          )
+        ) {
           batch.push(tuple);
         }
       }
@@ -61,13 +75,13 @@ export class PhysicalIndexScan implements PhysicalOperator {
     return null;
   }
 
-  async reset(): Promise<void> {
+  reset(): void {
     this.rowIds = null;
     this.cursor = 0;
     this.done = false;
   }
 
-  private async fetchRowIds(): Promise<RowId[]> {
+  private fetchRowIds(): number[] {
     const predicates: SearchPredicate[] = this.indexPredicates.map((p) => ({
       columnPosition: p.columnPosition,
       comparisonType: p.comparisonType,

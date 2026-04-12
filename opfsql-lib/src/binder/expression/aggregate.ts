@@ -1,24 +1,33 @@
-import type { LogicalType } from '../../store/types.js';
 import type {
-  ParsedExpression,
-  FunctionExpression,
-  ComparisonExpression,
-  ConjunctionExpression,
-  OperatorExpression,
   BetweenExpression,
   CaseExpression,
   CastExpression,
-} from '../../parser/types.js';
-import { ExpressionClass } from '../../parser/types.js';
-import type { BoundAggregateExpression, AggregateFunctionName } from '../types.js';
-import { BoundExpressionClass } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { BindError } from '../core/errors.js';
-import { bindExpression } from './index.js';
-import { sameAggregate } from './same-expression.js';
+  ComparisonExpression,
+  ConjunctionExpression,
+  FunctionExpression,
+  OperatorExpression,
+  ParsedExpression,
+} from "../../parser/types.js";
+import { ExpressionClass } from "../../parser/types.js";
+import type { LogicalType } from "../../store/types.js";
+import type { BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
+import type { BindScope } from "../core/scope.js";
+import type {
+  AggregateFunctionName,
+  BoundAggregateExpression,
+} from "../types.js";
+import { BoundExpressionClass } from "../types.js";
+import { bindExpression } from "./index.js";
+import { sameAggregate } from "./same-expression.js";
 
-export const AGGREGATE_FUNCTIONS = new Set(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']);
+export const AGGREGATE_FUNCTIONS = new Set([
+  "COUNT",
+  "SUM",
+  "AVG",
+  "MIN",
+  "MAX",
+]);
 
 // ---------------------------------------------------------------------------
 // Child expression traversal (single source of truth for expression structure)
@@ -67,14 +76,21 @@ export function detectAggregates(exprs: ParsedExpression[]): boolean {
 
 export function exprContainsAggregate(expr: ParsedExpression): boolean {
   if (expr.expression_class === ExpressionClass.FUNCTION) {
-    if (AGGREGATE_FUNCTIONS.has((expr as FunctionExpression).function_name.toUpperCase())) {
+    if (
+      AGGREGATE_FUNCTIONS.has(
+        (expr as FunctionExpression).function_name.toUpperCase(),
+      )
+    ) {
       return true;
     }
   }
   return getChildren(expr).some(exprContainsAggregate);
 }
 
-export function checkNoAggregates(expr: ParsedExpression, context = 'WHERE clause'): void {
+export function checkNoAggregates(
+  expr: ParsedExpression,
+  context = "WHERE clause",
+): void {
   if (exprContainsAggregate(expr)) {
     throw new BindError(`Aggregate function not allowed in ${context}`);
   }
@@ -140,7 +156,7 @@ export function bindAggregate(
   if (!expr.is_star) {
     for (const child of expr.children) {
       if (exprContainsAggregate(child)) {
-        throw new BindError('Nested aggregate functions are not allowed');
+        throw new BindError("Nested aggregate functions are not allowed");
       }
     }
   }
@@ -151,12 +167,19 @@ export function bindAggregate(
 
   let returnType: LogicalType;
   switch (name) {
-    case 'COUNT': returnType = 'INTEGER'; break;
-    case 'SUM':
-    case 'AVG': returnType = 'REAL'; break;
-    case 'MIN':
-    case 'MAX': returnType = children.length > 0 ? children[0].returnType : 'ANY'; break;
-    default: returnType = 'ANY';
+    case "COUNT":
+      returnType = "INTEGER";
+      break;
+    case "SUM":
+    case "AVG":
+      returnType = "REAL";
+      break;
+    case "MIN":
+    case "MAX":
+      returnType = children.length > 0 ? children[0].returnType : "ANY";
+      break;
+    default:
+      returnType = "ANY";
   }
 
   return {

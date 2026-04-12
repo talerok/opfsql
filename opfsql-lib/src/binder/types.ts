@@ -1,47 +1,52 @@
-import type { LogicalType, TableSchema, ColumnDef, IndexDef } from '../store/types.js';
+import type {
+  ColumnDef,
+  IndexDef,
+  LogicalType,
+  TableSchema,
+} from "../store/types.js";
 
-export type { LogicalType, TableSchema, ColumnDef, IndexDef };
+export type { ColumnDef, IndexDef, LogicalType, TableSchema };
 
 // ============================================================================
 // Enums
 // ============================================================================
 
 export enum LogicalOperatorType {
-  LOGICAL_GET = 'LOGICAL_GET',
-  LOGICAL_FILTER = 'LOGICAL_FILTER',
-  LOGICAL_PROJECTION = 'LOGICAL_PROJECTION',
-  LOGICAL_AGGREGATE_AND_GROUP_BY = 'LOGICAL_AGGREGATE_AND_GROUP_BY',
-  LOGICAL_COMPARISON_JOIN = 'LOGICAL_COMPARISON_JOIN',
-  LOGICAL_CROSS_PRODUCT = 'LOGICAL_CROSS_PRODUCT',
-  LOGICAL_ORDER_BY = 'LOGICAL_ORDER_BY',
-  LOGICAL_LIMIT = 'LOGICAL_LIMIT',
-  LOGICAL_DISTINCT = 'LOGICAL_DISTINCT',
-  LOGICAL_UNION = 'LOGICAL_UNION',
-  LOGICAL_INSERT = 'LOGICAL_INSERT',
-  LOGICAL_UPDATE = 'LOGICAL_UPDATE',
-  LOGICAL_DELETE = 'LOGICAL_DELETE',
-  LOGICAL_CREATE_TABLE = 'LOGICAL_CREATE_TABLE',
-  LOGICAL_CREATE_INDEX = 'LOGICAL_CREATE_INDEX',
-  LOGICAL_ALTER_TABLE = 'LOGICAL_ALTER_TABLE',
-  LOGICAL_DROP = 'LOGICAL_DROP',
-  LOGICAL_CTE_REF = 'LOGICAL_CTE_REF',
-  LOGICAL_MATERIALIZED_CTE = 'LOGICAL_MATERIALIZED_CTE',
-  LOGICAL_RECURSIVE_CTE = 'LOGICAL_RECURSIVE_CTE',
+  LOGICAL_GET = "LOGICAL_GET",
+  LOGICAL_FILTER = "LOGICAL_FILTER",
+  LOGICAL_PROJECTION = "LOGICAL_PROJECTION",
+  LOGICAL_AGGREGATE_AND_GROUP_BY = "LOGICAL_AGGREGATE_AND_GROUP_BY",
+  LOGICAL_COMPARISON_JOIN = "LOGICAL_COMPARISON_JOIN",
+  LOGICAL_CROSS_PRODUCT = "LOGICAL_CROSS_PRODUCT",
+  LOGICAL_ORDER_BY = "LOGICAL_ORDER_BY",
+  LOGICAL_LIMIT = "LOGICAL_LIMIT",
+  LOGICAL_DISTINCT = "LOGICAL_DISTINCT",
+  LOGICAL_UNION = "LOGICAL_UNION",
+  LOGICAL_INSERT = "LOGICAL_INSERT",
+  LOGICAL_UPDATE = "LOGICAL_UPDATE",
+  LOGICAL_DELETE = "LOGICAL_DELETE",
+  LOGICAL_CREATE_TABLE = "LOGICAL_CREATE_TABLE",
+  LOGICAL_CREATE_INDEX = "LOGICAL_CREATE_INDEX",
+  LOGICAL_ALTER_TABLE = "LOGICAL_ALTER_TABLE",
+  LOGICAL_DROP = "LOGICAL_DROP",
+  LOGICAL_CTE_REF = "LOGICAL_CTE_REF",
+  LOGICAL_MATERIALIZED_CTE = "LOGICAL_MATERIALIZED_CTE",
+  LOGICAL_RECURSIVE_CTE = "LOGICAL_RECURSIVE_CTE",
 }
 
 export enum BoundExpressionClass {
-  BOUND_COLUMN_REF = 'BOUND_COLUMN_REF',
-  BOUND_CONSTANT = 'BOUND_CONSTANT',
-  BOUND_PARAMETER = 'BOUND_PARAMETER',
-  BOUND_COMPARISON = 'BOUND_COMPARISON',
-  BOUND_CONJUNCTION = 'BOUND_CONJUNCTION',
-  BOUND_OPERATOR = 'BOUND_OPERATOR',
-  BOUND_BETWEEN = 'BOUND_BETWEEN',
-  BOUND_FUNCTION = 'BOUND_FUNCTION',
-  BOUND_AGGREGATE = 'BOUND_AGGREGATE',
-  BOUND_SUBQUERY = 'BOUND_SUBQUERY',
-  BOUND_CASE = 'BOUND_CASE',
-  BOUND_CAST = 'BOUND_CAST',
+  BOUND_COLUMN_REF = "BOUND_COLUMN_REF",
+  BOUND_CONSTANT = "BOUND_CONSTANT",
+  BOUND_PARAMETER = "BOUND_PARAMETER",
+  BOUND_COMPARISON = "BOUND_COMPARISON",
+  BOUND_CONJUNCTION = "BOUND_CONJUNCTION",
+  BOUND_OPERATOR = "BOUND_OPERATOR",
+  BOUND_BETWEEN = "BOUND_BETWEEN",
+  BOUND_FUNCTION = "BOUND_FUNCTION",
+  BOUND_AGGREGATE = "BOUND_AGGREGATE",
+  BOUND_SUBQUERY = "BOUND_SUBQUERY",
+  BOUND_CASE = "BOUND_CASE",
+  BOUND_CAST = "BOUND_CAST",
 }
 
 // ============================================================================
@@ -79,40 +84,40 @@ export interface BoundParameterExpression {
 }
 
 export type ComparisonType =
-  | 'EQUAL'
-  | 'NOT_EQUAL'
-  | 'LESS'
-  | 'GREATER'
-  | 'LESS_EQUAL'
-  | 'GREATER_EQUAL';
+  | "EQUAL"
+  | "NOT_EQUAL"
+  | "LESS"
+  | "GREATER"
+  | "LESS_EQUAL"
+  | "GREATER_EQUAL";
 
 export interface BoundComparisonExpression {
   expressionClass: BoundExpressionClass.BOUND_COMPARISON;
   comparisonType: ComparisonType;
   left: BoundExpression;
   right: BoundExpression;
-  returnType: 'BOOLEAN';
+  returnType: "BOOLEAN";
 }
 
 export interface BoundConjunctionExpression {
   expressionClass: BoundExpressionClass.BOUND_CONJUNCTION;
-  conjunctionType: 'AND' | 'OR';
+  conjunctionType: "AND" | "OR";
   children: BoundExpression[];
-  returnType: 'BOOLEAN';
+  returnType: "BOOLEAN";
 }
 
 export type OperatorType =
-  | 'NOT'
-  | 'IS_NULL'
-  | 'IS_NOT_NULL'
-  | 'NEGATE'
-  | 'IN'
-  | 'NOT_IN'
-  | 'ADD'
-  | 'SUBTRACT'
-  | 'MULTIPLY'
-  | 'DIVIDE'
-  | 'MOD';
+  | "NOT"
+  | "IS_NULL"
+  | "IS_NOT_NULL"
+  | "NEGATE"
+  | "IN"
+  | "NOT_IN"
+  | "ADD"
+  | "SUBTRACT"
+  | "MULTIPLY"
+  | "DIVIDE"
+  | "MOD";
 
 export interface BoundOperatorExpression {
   expressionClass: BoundExpressionClass.BOUND_OPERATOR;
@@ -126,7 +131,7 @@ export interface BoundBetweenExpression {
   input: BoundExpression;
   lower: BoundExpression;
   upper: BoundExpression;
-  returnType: 'BOOLEAN';
+  returnType: "BOOLEAN";
 }
 
 export interface BoundFunctionExpression {
@@ -136,7 +141,7 @@ export interface BoundFunctionExpression {
   returnType: LogicalType;
 }
 
-export type AggregateFunctionName = 'COUNT' | 'SUM' | 'AVG' | 'MIN' | 'MAX';
+export type AggregateFunctionName = "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
 
 export interface BoundAggregateExpression {
   expressionClass: BoundExpressionClass.BOUND_AGGREGATE;
@@ -151,7 +156,7 @@ export interface BoundAggregateExpression {
 
 export interface BoundSubqueryExpression {
   expressionClass: BoundExpressionClass.BOUND_SUBQUERY;
-  subqueryType: 'SCALAR' | 'EXISTS' | 'NOT_EXISTS' | 'ANY' | 'ALL';
+  subqueryType: "SCALAR" | "EXISTS" | "NOT_EXISTS" | "ANY" | "ALL";
   subplan: LogicalOperator;
   comparisonType?: ComparisonType;
   child?: BoundExpression;
@@ -205,14 +210,14 @@ export interface JoinCondition {
 
 export interface BoundOrderByNode {
   expression: BoundExpression;
-  orderType: 'ASCENDING' | 'DESCENDING';
-  nullOrder: 'NULLS_FIRST' | 'NULLS_LAST';
+  orderType: "ASCENDING" | "DESCENDING";
+  nullOrder: "NULLS_FIRST" | "NULLS_LAST";
 }
 
 export interface IndexSearchPredicate {
   /** Column position in the index's column list (0-based). */
   columnPosition: number;
-  comparisonType: Exclude<ComparisonType, 'NOT_EQUAL'>;
+  comparisonType: Exclude<ComparisonType, "NOT_EQUAL">;
   /** Constant or runtime parameter — resolved to a raw value at execute time. */
   value: BoundConstantExpression | BoundParameterExpression;
 }
@@ -276,7 +281,7 @@ export interface LogicalAggregate {
 
 export interface LogicalComparisonJoin {
   type: LogicalOperatorType.LOGICAL_COMPARISON_JOIN;
-  joinType: 'INNER' | 'LEFT' | 'SEMI' | 'ANTI';
+  joinType: "INNER" | "LEFT" | "SEMI" | "ANTI";
   children: [LogicalOperator, LogicalOperator];
   conditions: JoinCondition[];
   expressions: BoundExpression[];
@@ -396,8 +401,8 @@ export interface LogicalAlterTable {
   type: LogicalOperatorType.LOGICAL_ALTER_TABLE;
   tableName: string;
   action:
-    | { type: 'ADD_COLUMN'; column: ColumnDef }
-    | { type: 'DROP_COLUMN'; columnName: string };
+    | { type: "ADD_COLUMN"; column: ColumnDef }
+    | { type: "DROP_COLUMN"; columnName: string };
   children: LogicalOperator[];
   expressions: BoundExpression[];
   types: LogicalType[];
@@ -407,7 +412,7 @@ export interface LogicalAlterTable {
 
 export interface LogicalDrop {
   type: LogicalOperatorType.LOGICAL_DROP;
-  dropType: 'TABLE' | 'INDEX';
+  dropType: "TABLE" | "INDEX";
   name: string;
   ifExists: boolean;
   children: LogicalOperator[];

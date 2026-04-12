@@ -1,16 +1,16 @@
-import { type LogicalOperator, LogicalOperatorType } from '../binder/types.js';
-import type { ICatalog } from '../store/types.js';
-import { rewriteExpressions } from './expression_rewriter.js';
-import { pullupFilters } from './filter_pullup.js';
-import { pushdownFilters } from './filter_pushdown.js';
-import { rewriteInClauses } from './in_clause_rewriter.js';
-import { optimizeJoinOrder } from './join_order.js';
-import { removeUnusedColumns } from './remove_unused_columns.js';
-import { optimizeBuildProbeSide } from './build_probe_side.js';
-import { pushdownLimit } from './limit_pushdown.js';
-import { reorderFilters } from './reorder_filter.js';
-import { selectIndexes } from './index_selection.js';
-import { decorrelateExists } from './decorrelate_exists.js';
+import { type LogicalOperator, LogicalOperatorType } from "../binder/types.js";
+import type { ICatalog } from "../store/types.js";
+import { optimizeBuildProbeSide } from "./build_probe_side.js";
+import { decorrelateExists } from "./decorrelate_exists.js";
+import { rewriteExpressions } from "./expression_rewriter.js";
+import { pullupFilters } from "./filter_pullup.js";
+import { pushdownFilters } from "./filter_pushdown.js";
+import { rewriteInClauses } from "./in_clause_rewriter.js";
+import { selectIndexes } from "./index_selection.js";
+import { optimizeJoinOrder } from "./join_order.js";
+import { pushdownLimit } from "./limit_pushdown.js";
+import { removeUnusedColumns } from "./remove_unused_columns.js";
+import { reorderFilters } from "./reorder_filter.js";
 
 // ============================================================================
 // Optimizer — orchestrates all optimization passes
@@ -86,15 +86,15 @@ export function optimize(
 }
 
 // Re-export individual passes for fine-grained usage
-export { rewriteExpressions } from './expression_rewriter.js';
-export { pullupFilters } from './filter_pullup.js';
-export { pushdownFilters } from './filter_pushdown.js';
-export { rewriteInClauses } from './in_clause_rewriter.js';
-export { optimizeJoinOrder } from './join_order.js';
-export { removeUnusedColumns } from './remove_unused_columns.js';
-export { optimizeBuildProbeSide } from './build_probe_side.js';
-export { pushdownLimit } from './limit_pushdown.js';
-export { reorderFilters } from './reorder_filter.js';
-export { FilterCombiner } from './filter_combiner.js';
-export { decorrelateExists } from './decorrelate_exists.js';
-export { selectIndexes } from './index_selection.js';
+export { optimizeBuildProbeSide } from "./build_probe_side.js";
+export { decorrelateExists } from "./decorrelate_exists.js";
+export { rewriteExpressions } from "./expression_rewriter.js";
+export { FilterCombiner } from "./filter_combiner.js";
+export { pullupFilters } from "./filter_pullup.js";
+export { pushdownFilters } from "./filter_pushdown.js";
+export { rewriteInClauses } from "./in_clause_rewriter.js";
+export { selectIndexes } from "./index_selection.js";
+export { optimizeJoinOrder } from "./join_order.js";
+export { pushdownLimit } from "./limit_pushdown.js";
+export { removeUnusedColumns } from "./remove_unused_columns.js";
+export { reorderFilters } from "./reorder_filter.js";

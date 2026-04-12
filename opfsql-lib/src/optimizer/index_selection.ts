@@ -1,12 +1,12 @@
 import type {
-  LogicalOperator,
-  LogicalGet,
   IndexHint,
   IndexSearchPredicate,
+  LogicalGet,
+  LogicalOperator,
   TableFilter,
-} from '../binder/types.js';
-import { LogicalOperatorType } from '../binder/types.js';
-import type { ICatalog, IndexDef } from '../store/types.js';
+} from "../binder/types.js";
+import { LogicalOperatorType } from "../binder/types.js";
+import type { ICatalog, IndexDef } from "../store/types.js";
 
 // ---------------------------------------------------------------------------
 // Index selection optimizer pass
@@ -35,7 +35,7 @@ function walkAndAnnotate(
   if (node.type !== LogicalOperatorType.LOGICAL_GET) return node;
 
   const get = node as LogicalGet;
-  if (get.tableName === '__empty') return node;
+  if (get.tableName === "__empty") return node;
   if (get.tableFilters.length === 0) return node;
 
   const indexes = catalog.getTableIndexes(get.tableName);
@@ -90,13 +90,13 @@ function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
 
     // Find equality filter
     const eqFilter = get.tableFilters.find(
-      (f) => f.columnIndex === colIndex && f.comparisonType === 'EQUAL',
+      (f) => f.columnIndex === colIndex && f.comparisonType === "EQUAL",
     );
 
     if (eqFilter) {
       predicates.push({
         columnPosition: i,
-        comparisonType: 'EQUAL',
+        comparisonType: "EQUAL",
         value: eqFilter.constant,
       });
       covered.push(eqFilter);
@@ -106,15 +106,16 @@ function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
       const rangeFilters = get.tableFilters.filter(
         (f) =>
           f.columnIndex === colIndex &&
-          (f.comparisonType === 'LESS' ||
-            f.comparisonType === 'GREATER' ||
-            f.comparisonType === 'LESS_EQUAL' ||
-            f.comparisonType === 'GREATER_EQUAL'),
+          (f.comparisonType === "LESS" ||
+            f.comparisonType === "GREATER" ||
+            f.comparisonType === "LESS_EQUAL" ||
+            f.comparisonType === "GREATER_EQUAL"),
       );
       for (const rf of rangeFilters) {
         predicates.push({
           columnPosition: i,
-          comparisonType: rf.comparisonType as IndexSearchPredicate['comparisonType'],
+          comparisonType:
+            rf.comparisonType as IndexSearchPredicate["comparisonType"],
           value: rf.constant,
         });
         covered.push(rf);

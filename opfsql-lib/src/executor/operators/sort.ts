@@ -1,16 +1,12 @@
 import type { LogicalOrderBy, ColumnBinding } from '../../binder/types.js';
-import type { PhysicalOperator, Tuple, Value } from '../types.js';
-import type { EvalContext } from '../evaluate/context.js';
+import type { SyncPhysicalOperator, Tuple, Value } from '../types.js';
+import type { SyncEvalContext } from '../evaluate/context.js';
 import { buildResolver } from '../resolve.js';
 import { evaluateExpression } from '../evaluate/index.js';
 import { drainOperator, SCAN_BATCH } from './utils.js';
 
 type KeyedTuple = { tuple: Tuple; keys: Value[] };
 type Comparator = (a: KeyedTuple, b: KeyedTuple) => number;
-
-// ---------------------------------------------------------------------------
-// Max-heap helpers (standalone — no closures, easy to test in isolation)
-// ---------------------------------------------------------------------------
 
 function heapSiftDown(heap: KeyedTuple[], i: number, cmp: Comparator): void {
   const n = heap.length;
@@ -35,7 +31,6 @@ function heapSiftUp(heap: KeyedTuple[], i: number, cmp: Comparator): void {
   }
 }
 
-/** Extract all elements from a max-heap in ascending sort order. */
 function heapExtractSorted(heap: KeyedTuple[], cmp: Comparator): KeyedTuple[] {
   const sorted: KeyedTuple[] = [];
   while (heap.length > 0) {
@@ -48,42 +43,35 @@ function heapExtractSorted(heap: KeyedTuple[], cmp: Comparator): KeyedTuple[] {
   return sorted;
 }
 
-// ---------------------------------------------------------------------------
-// PhysicalSort operator
-// ---------------------------------------------------------------------------
-
-export class PhysicalSort implements PhysicalOperator {
+export class PhysicalSort implements SyncPhysicalOperator {
   private sorted: Tuple[] | null = null;
   private offset = 0;
 
   constructor(
-    private readonly child: PhysicalOperator,
+    private readonly child: SyncPhysicalOperator,
     private readonly op: LogicalOrderBy,
-    private readonly ctx: EvalContext,
+    private readonly ctx: SyncEvalContext,
   ) {}
 
   getLayout(): ColumnBinding[] {
     return this.child.getLayout();
   }
 
-  async next(): Promise<Tuple[] | null> {
+  next(): Tuple[] | null {
     if (!this.sorted) {
-      this.sorted = this.op.topN !== undefined
-        ? await this.topKSort()
-        : await this.sortAll();
+      this.sorted = this.op.topN !== undefined ? this.topKSort() : this.sortAll();
     }
 
     if (this.offset >= this.sorted.length) return null;
-
     const batch = this.sorted.slice(this.offset, this.offset + SCAN_BATCH);
     this.offset += batch.length;
     return batch;
   }
 
-  async reset(): Promise<void> {
+  reset(): void {
     this.sorted = null;
     this.offset = 0;
-    await this.child.reset();
+    this.child.reset();
   }
 
   private compare(a: KeyedTuple, b: KeyedTuple): number {
@@ -92,12 +80,10 @@ export class PhysicalSort implements PhysicalOperator {
       const va = a.keys[i];
       const vb = b.keys[i];
 
-      // Null handling
       if (va === null && vb === null) continue;
       if (va === null) return order.nullOrder === 'NULLS_FIRST' ? -1 : 1;
       if (vb === null) return order.nullOrder === 'NULLS_FIRST' ? 1 : -1;
 
-      // Value comparison
       let cmp: number;
       if (typeof va === 'number' && typeof vb === 'number') {
         cmp = va - vb;
@@ -107,58 +93,39 @@ export class PhysicalSort implements PhysicalOperator {
         cmp = sa < sb ? -1 : sa > sb ? 1 : 0;
       }
 
-      if (cmp !== 0) {
-        return order.orderType === 'DESCENDING' ? -cmp : cmp;
-      }
+      if (cmp !== 0) return order.orderType === 'DESCENDING' ? -cmp : cmp;
     }
     return 0;
   }
 
-  private async computeKeys(
-    tuple: Tuple,
-    resolver: ReturnType<typeof buildResolver>,
-  ): Promise<KeyedTuple> {
+  private computeKeys(tuple: Tuple, resolver: ReturnType<typeof buildResolver>): KeyedTuple {
     const keys: Value[] = [];
     for (const order of this.op.orders) {
-      keys.push(
-        await evaluateExpression(order.expression, tuple, resolver, this.ctx),
-      );
+      keys.push(evaluateExpression(order.expression, tuple, resolver, this.ctx));
     }
     return { tuple, keys };
   }
 
-  private async sortAll(): Promise<Tuple[]> {
-    const tuples = await drainOperator(this.child);
+  private sortAll(): Tuple[] {
+    const tuples = drainOperator(this.child);
     const resolver = buildResolver(this.child.getLayout());
-
-    const keyed: KeyedTuple[] = [];
-    for (const tuple of tuples) {
-      keyed.push(await this.computeKeys(tuple, resolver));
-    }
-
+    const keyed = tuples.map((t) => this.computeKeys(t, resolver));
     keyed.sort((a, b) => this.compare(a, b));
     return keyed.map((k) => k.tuple);
   }
 
-  /**
-   * Top-K sort using a binary max-heap of size K.
-   * The heap root is the "worst" element (last in sort order among K kept).
-   * For each incoming row: if better than root, replace and sift down.
-   * O(N log K) instead of O(N log N).
-   */
-  private async topKSort(): Promise<Tuple[]> {
+  private topKSort(): Tuple[] {
     const K = this.op.topN!;
     const resolver = buildResolver(this.child.getLayout());
     const cmp: Comparator = (a, b) => this.compare(a, b);
     const heap: KeyedTuple[] = [];
 
     while (true) {
-      const batch = await this.child.next();
+      const batch = this.child.next();
       if (!batch) break;
 
       for (const tuple of batch) {
-        const entry = await this.computeKeys(tuple, resolver);
-
+        const entry = this.computeKeys(tuple, resolver);
         if (heap.length < K) {
           heap.push(entry);
           heapSiftUp(heap, heap.length - 1, cmp);

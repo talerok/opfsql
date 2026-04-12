@@ -1,10 +1,7 @@
-import type { TableSchema } from '../../store/types.js';
-import type {
-  BoundColumnRefExpression,
-  LogicalOperator,
-} from '../types.js';
-import { BoundExpressionClass } from '../types.js';
-import { BindError } from './errors.js';
+import type { TableSchema } from "../../store/types.js";
+import type { BoundColumnRefExpression, LogicalOperator } from "../types.js";
+import { BoundExpressionClass } from "../types.js";
+import { BindError } from "./errors.js";
 
 export interface BindingEntry {
   tableIndex: number;
@@ -92,13 +89,11 @@ export class BindScope {
       if (this.parent) {
         return this.parent.resolveColumn(columnName, tableAlias);
       }
-      throw new BindError(
-        `Column "${columnName}" not found in any table`,
-      );
+      throw new BindError(`Column "${columnName}" not found in any table`);
     }
 
     if (matches.length > 1) {
-      const tables = matches.map((m) => `"${m.entry.tableName}"`).join(' and ');
+      const tables = matches.map((m) => `"${m.entry.tableName}"`).join(" and ");
       throw new BindError(
         `Column "${columnName}" is ambiguous — exists in ${tables}`,
       );
@@ -133,9 +128,7 @@ export class BindScope {
         };
       }
     }
-    throw new BindError(
-      `Column "${columnName}" not found in any table`,
-    );
+    throw new BindError(`Column "${columnName}" not found in any table`);
   }
 
   findByAlias(alias: string): BindingEntry | undefined {
@@ -147,7 +140,12 @@ export class BindScope {
     return this.bindings;
   }
 
-  addCTE(name: string, plan: LogicalOperator, index: number, aliases: string[] = []): void {
+  addCTE(
+    name: string,
+    plan: LogicalOperator,
+    index: number,
+    aliases: string[] = [],
+  ): void {
     this.ctes.set(name.toLowerCase(), { plan, index, aliases });
   }
 

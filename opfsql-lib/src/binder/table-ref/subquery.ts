@@ -1,11 +1,11 @@
-import type { ColumnDef, TableSchema } from '../../store/types.js';
-import type { SubqueryRef } from '../../parser/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { extractColumnsFromPlan } from '../core/plan-utils.js';
-import { bindQueryNode } from '../statement/query-node.js';
+import type { SubqueryRef } from "../../parser/types.js";
+import type { ColumnDef, TableSchema } from "../../store/types.js";
+import type { BindContext } from "../core/context.js";
+import { extractColumnsFromPlan } from "../core/plan-utils.js";
+import type { BindScope } from "../core/scope.js";
+import { bindQueryNode } from "../statement/query-node.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
 
 export function bindSubqueryRef(
   ctx: BindContext,
@@ -15,7 +15,7 @@ export function bindSubqueryRef(
   const childScope = scope.createIsolatedScope();
   const subplan = bindQueryNode(ctx, ref.subquery.node, childScope);
 
-  const alias = ref.alias ?? '__subquery';
+  const alias = ref.alias ?? "__subquery";
   const inferredColumns = extractColumnsFromPlan(subplan, subplan.types);
   const columns: ColumnDef[] = subplan.types.map((t, i) => ({
     name: ref.column_name_alias[i] ?? inferredColumns[i]?.name ?? `column${i}`,

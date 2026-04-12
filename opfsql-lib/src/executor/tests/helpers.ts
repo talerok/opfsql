@@ -1,14 +1,14 @@
-import type { ColumnBinding, BoundExpression } from '../../binder/types.js';
+import type { BoundExpression, ColumnBinding } from '../../binder/types.js';
 import { BoundExpressionClass } from '../../binder/types.js';
 import type { LogicalType } from '../../store/types.js';
-import type { PhysicalOperator, Tuple } from '../types.js';
-import type { EvalContext } from '../evaluate/context.js';
+import type { SyncEvalContext } from '../evaluate/context.js';
+import type { SyncPhysicalOperator, Tuple } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Mock physical operator — returns predefined batches
+// Mock physical operator — returns predefined batches (sync)
 // ---------------------------------------------------------------------------
 
-export class MockOperator implements PhysicalOperator {
+export class MockOperator implements SyncPhysicalOperator {
   private index = 0;
 
   constructor(
@@ -20,18 +20,18 @@ export class MockOperator implements PhysicalOperator {
     return this.layout;
   }
 
-  async next(): Promise<Tuple[] | null> {
+  next(): Tuple[] | null {
     if (this.index >= this.batches.length) return null;
     return this.batches[this.index++];
   }
 
-  async reset(): Promise<void> {
+  reset(): void {
     this.index = 0;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Expression builders — shorthand for constructing BoundExpression nodes
+// Expression builders
 // ---------------------------------------------------------------------------
 
 export function colRef(
@@ -58,10 +58,10 @@ export function constant(
     (typeof value === 'string'
       ? 'TEXT'
       : typeof value === 'number'
-        ? 'INTEGER'
-        : typeof value === 'boolean'
-          ? 'BOOLEAN'
-          : 'NULL');
+      ? 'INTEGER'
+      : typeof value === 'boolean'
+      ? 'BOOLEAN'
+      : 'NULL');
   return {
     expressionClass: BoundExpressionClass.BOUND_CONSTANT,
     value,
@@ -72,7 +72,13 @@ export function constant(
 export function comparison(
   left: BoundExpression,
   right: BoundExpression,
-  comparisonType: 'EQUAL' | 'NOT_EQUAL' | 'LESS' | 'GREATER' | 'LESS_EQUAL' | 'GREATER_EQUAL' = 'EQUAL',
+  comparisonType:
+    | 'EQUAL'
+    | 'NOT_EQUAL'
+    | 'LESS'
+    | 'GREATER'
+    | 'LESS_EQUAL'
+    | 'GREATER_EQUAL' = 'EQUAL',
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_COMPARISON,
@@ -160,23 +166,16 @@ export function caseExpr(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Layout builders
-// ---------------------------------------------------------------------------
-
 export function layout(
   ...bindings: Array<[tableIndex: number, columnIndex: number]>
 ): ColumnBinding[] {
-  return bindings.map(([tableIndex, columnIndex]) => ({
-    tableIndex,
-    columnIndex,
-  }));
+  return bindings.map(([tableIndex, columnIndex]) => ({ tableIndex, columnIndex }));
 }
 
 // ---------------------------------------------------------------------------
-// Noop eval context
+// Noop eval context (sync)
 // ---------------------------------------------------------------------------
 
-export const noopCtx: EvalContext = {
-  executeSubplan: async () => [],
+export const noopCtx: SyncEvalContext = {
+  executeSubplan: () => [],
 };

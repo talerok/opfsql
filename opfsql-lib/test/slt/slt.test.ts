@@ -2,7 +2,7 @@ import { describe, it } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { Engine } from '../../src/index.js';
-import { MemoryStorage } from '../../src/store/tests/memory-storage.js';
+import { MemoryStorage } from '../../src/store/memory-storage.js';
 import { parseSlt, runSlt } from './runner.js';
 
 const sltDir = new URL('.', import.meta.url).pathname;

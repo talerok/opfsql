@@ -1,21 +1,21 @@
 import type {
-  BoundExpression,
   BoundComparisonExpression,
-} from '../../binder/types.js';
-import type { Value, Tuple } from '../types.js';
-import type { Resolver } from '../resolve.js';
-import type { EvalContext } from './context.js';
-import { evaluateExpression } from './index.js';
-import { applyComparison } from './helpers.js';
+  BoundExpression,
+} from "../../binder/types.js";
+import { applyComparison } from "../../executor/evaluate/helpers.js";
+import type { Resolver } from "../resolve.js";
+import type { Tuple, Value } from "../types.js";
+import type { SyncEvalContext } from "./context.js";
+import { evaluateExpression } from "./index.js";
 
-export async function evalComparison(
+export function evalComparison(
   expr: BoundExpression,
   tuple: Tuple,
   resolver: Resolver,
-  ctx: EvalContext,
-): Promise<Value> {
+  ctx: SyncEvalContext,
+): Value {
   const cmp = expr as BoundComparisonExpression;
-  const left = await evaluateExpression(cmp.left, tuple, resolver, ctx);
-  const right = await evaluateExpression(cmp.right, tuple, resolver, ctx);
+  const left = evaluateExpression(cmp.left, tuple, resolver, ctx);
+  const right = evaluateExpression(cmp.right, tuple, resolver, ctx);
   return applyComparison(left, right, cmp.comparisonType);
 }

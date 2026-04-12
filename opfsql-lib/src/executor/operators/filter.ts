@@ -1,17 +1,17 @@
-import type { BoundExpression, ColumnBinding } from '../../binder/types.js';
-import type { PhysicalOperator, Tuple } from '../types.js';
-import type { EvalContext } from '../evaluate/context.js';
-import { buildResolver } from '../resolve.js';
-import { evaluateExpression } from '../evaluate/index.js';
-import { isTruthy } from '../evaluate/helpers.js';
+import type { BoundExpression, ColumnBinding } from "../../binder/types.js";
+import { isTruthy } from "../../executor/evaluate/helpers.js";
+import type { SyncEvalContext } from "../evaluate/context.js";
+import { evaluateExpression } from "../evaluate/index.js";
+import { buildResolver } from "../resolve.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
 
-export class PhysicalFilter implements PhysicalOperator {
+export class PhysicalFilter implements SyncPhysicalOperator {
   private readonly resolver;
 
   constructor(
-    private readonly child: PhysicalOperator,
+    private readonly child: SyncPhysicalOperator,
     private readonly condition: BoundExpression,
-    private readonly ctx: EvalContext,
+    private readonly ctx: SyncEvalContext,
   ) {
     this.resolver = buildResolver(child.getLayout());
   }
@@ -20,29 +20,27 @@ export class PhysicalFilter implements PhysicalOperator {
     return this.child.getLayout();
   }
 
-  async next(): Promise<Tuple[] | null> {
+  next(): Tuple[] | null {
     while (true) {
-      const batch = await this.child.next();
+      const batch = this.child.next();
       if (!batch) return null;
 
       const result: Tuple[] = [];
       for (const tuple of batch) {
-        const val = await evaluateExpression(
+        const val = evaluateExpression(
           this.condition,
           tuple,
           this.resolver,
           this.ctx,
         );
-        if (isTruthy(val)) {
-          result.push(tuple);
-        }
+        if (isTruthy(val)) result.push(tuple);
       }
 
       if (result.length > 0) return result;
     }
   }
 
-  async reset(): Promise<void> {
-    await this.child.reset();
+  reset(): void {
+    this.child.reset();
   }
 }

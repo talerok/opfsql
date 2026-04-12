@@ -1,45 +1,49 @@
-import type { LogicalOperator } from '../binder/types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
 import type {
-  BoundColumnRefExpression,
   BoundAggregateExpression,
+  BoundColumnRefExpression,
+  LogicalOperator,
   LogicalProjection,
-} from '../binder/types.js';
-import type { ICatalog, IRowManager, Row } from '../store/types.js';
-import type { IIndexManager } from '../store/index-manager.js';
-import type { ExecuteResult, Tuple, CTECacheEntry, Value } from './types.js';
-import type { EvalContext } from './evaluate/context.js';
-import { createPhysicalPlan } from './planner.js';
-import { drainOperator } from './operators/utils.js';
+} from "../binder/types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../binder/types.js";
+import type {
+  SyncIIndexManager,
+  SyncIRowManager,
+} from "../store/types.js";
+import type { ICatalog, Row } from "../store/types.js";
 import {
-  executeCreateTable,
-  executeCreateIndex,
   executeAlterTable,
+  executeCreateIndex,
+  executeCreateTable,
   executeDrop,
-} from './ddl.js';
-import { executeInsert, executeUpdate, executeDelete } from './dml.js';
-import { ExecutorError } from './errors.js';
+} from "./ddl.js";
+import { executeDelete, executeInsert, executeUpdate } from "./dml.js";
+import type { SyncEvalContext } from "./evaluate/context.js";
+import { drainOperator } from "./operators/utils.js";
+import { createPhysicalPlan } from "./planner.js";
+import type { CTECacheEntry, ExecuteResult, Tuple, Value } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Main entry point
-// ---------------------------------------------------------------------------
-
-export async function execute(
+export function execute(
   plan: LogicalOperator,
-  rowManager: IRowManager,
+  rowManager: SyncIRowManager,
   catalog: ICatalog,
-  indexManager?: IIndexManager,
+  indexManager?: SyncIIndexManager,
   params?: readonly Value[],
-): Promise<ExecuteResult> {
-  // Build eval context for subquery support
-  const ctx: EvalContext = {
+): ExecuteResult {
+  const ctx: SyncEvalContext = {
     executeSubplan: (subplan, outerTuple, outerResolver, limit) =>
-      executeSubplan(subplan, rowManager, catalog, outerTuple, outerResolver, limit, params),
+      executeSubplan(
+        subplan,
+        rowManager,
+        catalog,
+        outerTuple,
+        outerResolver,
+        limit,
+        params,
+      ),
     params,
   };
 
   switch (plan.type) {
-    // DDL
     case LogicalOperatorType.LOGICAL_CREATE_TABLE:
       return executeCreateTable(plan, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_CREATE_INDEX:
@@ -48,59 +52,48 @@ export async function execute(
       return executeAlterTable(plan, catalog);
     case LogicalOperatorType.LOGICAL_DROP:
       return executeDrop(plan, catalog, rowManager, indexManager!);
-
-    // DML
     case LogicalOperatorType.LOGICAL_INSERT:
       return executeInsert(plan, rowManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_UPDATE:
       return executeUpdate(plan, rowManager, ctx, catalog, indexManager);
     case LogicalOperatorType.LOGICAL_DELETE:
       return executeDelete(plan, rowManager, ctx, catalog, indexManager);
-
-    // SELECT (physical pipeline)
     default:
-      return executeSelect(plan, rowManager, catalog, ctx, indexManager);
+      return executeSelect(plan, rowManager, ctx, indexManager);
   }
 }
 
-// ---------------------------------------------------------------------------
-// SELECT execution
-// ---------------------------------------------------------------------------
-
-async function executeSelect(
+function executeSelect(
   plan: LogicalOperator,
-  rowManager: IRowManager,
-  _catalog: ICatalog,
-  ctx: EvalContext,
-  indexManager?: IIndexManager,
-): Promise<ExecuteResult> {
+  rowManager: SyncIRowManager,
+  ctx: SyncEvalContext,
+  indexManager?: SyncIIndexManager,
+): ExecuteResult {
   const cteCache = new Map<number, CTECacheEntry>();
-  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx, indexManager);
-  const tuples = await drainOperator(physical);
+  const physical = createPhysicalPlan(
+    plan,
+    rowManager,
+    cteCache,
+    ctx,
+    indexManager,
+  );
+  const tuples = drainOperator(physical);
   const columnNames = extractColumnNames(plan);
   const rows = tuplesToRows(tuples, columnNames);
 
-  return {
-    rows,
-    rowsAffected: 0,
-    catalogChanges: [],
-  };
+  return { rows, rowsAffected: 0, catalogChanges: [] };
 }
 
-// ---------------------------------------------------------------------------
-// Subplan execution (for subquery evaluation)
-// ---------------------------------------------------------------------------
-
-async function executeSubplan(
+function executeSubplan(
   plan: LogicalOperator,
-  rowManager: IRowManager,
+  rowManager: SyncIRowManager,
   catalog: ICatalog,
   outerTuple?: Tuple,
-  outerResolver?: import('./resolve.js').Resolver,
+  outerResolver?: import("./resolve.js").Resolver,
   limit?: number,
   params?: readonly Value[],
-): Promise<Tuple[]> {
-  const ctx: EvalContext = {
+): Tuple[] {
+  const ctx: SyncEvalContext = {
     executeSubplan: (sub, ot, or_, lim) =>
       executeSubplan(sub, rowManager, catalog, ot, or_, lim, params),
     outerTuple,
@@ -109,11 +102,11 @@ async function executeSubplan(
   };
   const cteCache = new Map<number, CTECacheEntry>();
   const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx);
+
   if (limit !== undefined) {
-    // Early termination — collect at most `limit` tuples then stop.
     const result: Tuple[] = [];
     while (result.length < limit) {
-      const batch = await physical.next();
+      const batch = physical.next();
       if (!batch) break;
       for (const tuple of batch) {
         result.push(tuple);
@@ -122,23 +115,20 @@ async function executeSubplan(
     }
     return result;
   }
+
   return drainOperator(physical);
 }
 
 // ---------------------------------------------------------------------------
-// Tuple → Row conversion
+// Tuple → Row conversion (shared logic from async executor)
 // ---------------------------------------------------------------------------
 
 function extractColumnNames(plan: LogicalOperator): string[] {
   const proj = findProjection(plan);
-  if (!proj) {
-    return plan.types.map((_, i) => `column${i}`);
-  }
+  if (!proj) return plan.types.map((_, i) => `column${i}`);
 
   return proj.expressions.map((expr, i) => {
-    if (proj.aliases[i]) {
-      return proj.aliases[i]!;
-    }
+    if (proj.aliases[i]) return proj.aliases[i]!;
     if (expr.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF) {
       return (expr as BoundColumnRefExpression).columnName;
     }
@@ -153,10 +143,8 @@ function extractColumnNames(plan: LogicalOperator): string[] {
 }
 
 function findProjection(plan: LogicalOperator): LogicalProjection | null {
-  if (plan.type === LogicalOperatorType.LOGICAL_PROJECTION) {
+  if (plan.type === LogicalOperatorType.LOGICAL_PROJECTION)
     return plan as LogicalProjection;
-  }
-  // For CTE, only search the outer query (children[1]), not the CTE definition
   if (plan.type === LogicalOperatorType.LOGICAL_MATERIALIZED_CTE) {
     return findProjection(plan.children[1]);
   }

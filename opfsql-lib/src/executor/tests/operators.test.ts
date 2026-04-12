@@ -35,37 +35,36 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('PhysicalFilter', () => {
-  it('keeps matching tuples', async () => {
+  it('keeps matching tuples', () => {
     const child = new MockOperator(
       [[[1, 'a'], [2, 'b'], [3, 'c']]],
       layout([0, 0], [0, 1]),
     );
-    // condition: col0 > 1
     const cond = comparison(colRef(0, 0), constant(1), 'GREATER');
     const filter = new PhysicalFilter(child, cond, noopCtx);
-    const result = await drainOperator(filter);
+    const result = drainOperator(filter);
     expect(result).toEqual([[2, 'b'], [3, 'c']]);
   });
 
-  it('returns null when all filtered out', async () => {
+  it('returns empty when all filtered out', () => {
     const child = new MockOperator(
       [[[1, 'a']]],
       layout([0, 0], [0, 1]),
     );
     const cond = comparison(colRef(0, 0), constant(100), 'GREATER');
     const filter = new PhysicalFilter(child, cond, noopCtx);
-    const result = await drainOperator(filter);
+    const result = drainOperator(filter);
     expect(result).toEqual([]);
   });
 
-  it('null condition filters tuple out', async () => {
+  it('null condition filters tuple out', () => {
     const child = new MockOperator(
       [[[null, 'a']]],
       layout([0, 0], [0, 1]),
     );
     const cond = comparison(colRef(0, 0), constant(1), 'EQUAL');
     const filter = new PhysicalFilter(child, cond, noopCtx);
-    const result = await drainOperator(filter);
+    const result = drainOperator(filter);
     expect(result).toEqual([]);
   });
 });
@@ -75,7 +74,7 @@ describe('PhysicalFilter', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhysicalProjection', () => {
-  it('projects expressions', async () => {
+  it('projects expressions', () => {
     const child = new MockOperator(
       [[[10, 'hello']]],
       layout([0, 0], [0, 1]),
@@ -90,11 +89,11 @@ describe('PhysicalProjection', () => {
     } as unknown as LogicalProjection;
 
     const proj = new PhysicalProjection(child, op, noopCtx);
-    const result = await drainOperator(proj);
+    const result = drainOperator(proj);
     expect(result).toEqual([['hello', 15]]);
   });
 
-  it('handles constant projection', async () => {
+  it('handles constant projection', () => {
     const child = new MockOperator(
       [[[1], [2]]],
       layout([0, 0]),
@@ -106,7 +105,7 @@ describe('PhysicalProjection', () => {
     } as unknown as LogicalProjection;
 
     const proj = new PhysicalProjection(child, op, noopCtx);
-    const result = await drainOperator(proj);
+    const result = drainOperator(proj);
     expect(result).toEqual([[42], [42]]);
   });
 });
@@ -116,15 +115,6 @@ describe('PhysicalProjection', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhysicalHashJoin', () => {
-  const probeData = new MockOperator(
-    [[[1, 'a'], [2, 'b'], [3, 'c']]],
-    layout([0, 0], [0, 1]),
-  );
-  const buildData = new MockOperator(
-    [[[1, 'x'], [2, 'y']]],
-    layout([1, 0], [1, 1]),
-  );
-
   function makeJoinOp(joinType: 'INNER' | 'LEFT'): LogicalComparisonJoin {
     return {
       type: LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
@@ -139,22 +129,22 @@ describe('PhysicalHashJoin', () => {
     } as unknown as LogicalComparisonJoin;
   }
 
-  it('INNER JOIN — matching rows only', async () => {
+  it('INNER JOIN — matching rows only', () => {
     const probe = new MockOperator([[[1, 'a'], [2, 'b'], [3, 'c']]], layout([0, 0], [0, 1]));
     const build = new MockOperator([[[1, 'x'], [2, 'y']]], layout([1, 0], [1, 1]));
     const join = new PhysicalHashJoin(probe, build, makeJoinOp('INNER'), noopCtx);
-    const result = await drainOperator(join);
+    const result = drainOperator(join);
     expect(result).toEqual([
       [1, 'a', 1, 'x'],
       [2, 'b', 2, 'y'],
     ]);
   });
 
-  it('LEFT JOIN — unmatched probe gets nulls', async () => {
+  it('LEFT JOIN — unmatched probe gets nulls', () => {
     const probe = new MockOperator([[[1, 'a'], [2, 'b'], [3, 'c']]], layout([0, 0], [0, 1]));
     const build = new MockOperator([[[1, 'x']]], layout([1, 0], [1, 1]));
     const join = new PhysicalHashJoin(probe, build, makeJoinOp('LEFT'), noopCtx);
-    const result = await drainOperator(join);
+    const result = drainOperator(join);
     expect(result).toEqual([
       [1, 'a', 1, 'x'],
       [2, 'b', null, null],
@@ -162,19 +152,19 @@ describe('PhysicalHashJoin', () => {
     ]);
   });
 
-  it('NULL join key — never matches', async () => {
+  it('NULL join key — never matches', () => {
     const probe = new MockOperator([[[null, 'a']]], layout([0, 0], [0, 1]));
     const build = new MockOperator([[[null, 'x']]], layout([1, 0], [1, 1]));
     const join = new PhysicalHashJoin(probe, build, makeJoinOp('INNER'), noopCtx);
-    const result = await drainOperator(join);
+    const result = drainOperator(join);
     expect(result).toEqual([]);
   });
 
-  it('empty build side', async () => {
+  it('empty build side', () => {
     const probe = new MockOperator([[[1, 'a']]], layout([0, 0], [0, 1]));
     const build = new MockOperator([], layout([1, 0], [1, 1]));
     const join = new PhysicalHashJoin(probe, build, makeJoinOp('INNER'), noopCtx);
-    const result = await drainOperator(join);
+    const result = drainOperator(join);
     expect(result).toEqual([]);
   });
 });
@@ -184,11 +174,11 @@ describe('PhysicalHashJoin', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhysicalNestedLoopJoin', () => {
-  it('produces cartesian product', async () => {
+  it('produces cartesian product', () => {
     const left = new MockOperator([[[1], [2]]], layout([0, 0]));
     const right = new MockOperator([[['a'], ['b']]], layout([1, 0]));
     const join = new PhysicalNestedLoopJoin(left, right);
-    const result = await drainOperator(join);
+    const result = drainOperator(join);
     expect(result).toEqual([
       [1, 'a'],
       [1, 'b'],
@@ -197,11 +187,11 @@ describe('PhysicalNestedLoopJoin', () => {
     ]);
   });
 
-  it('empty right side → no output', async () => {
+  it('empty right side → no output', () => {
     const left = new MockOperator([[[1]]], layout([0, 0]));
     const right = new MockOperator([], layout([1, 0]));
     const join = new PhysicalNestedLoopJoin(left, right);
-    const result = await drainOperator(join);
+    const result = drainOperator(join);
     expect(result).toEqual([]);
   });
 });
@@ -252,63 +242,54 @@ describe('PhysicalHashAggregate', () => {
     } as unknown as LogicalAggregate;
   }
 
-  it('COUNT(*) on non-empty data', async () => {
+  it('COUNT(*) on non-empty data', () => {
     const child = new MockOperator([[[1], [2], [3]]], layout([0, 0]));
     const op = makeAggOp([makeAgg('COUNT', undefined, true)]);
     const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    expect(result).toEqual([[3]]);
+    expect(drainOperator(agg)).toEqual([[3]]);
   });
 
-  it('COUNT(*) on empty → 0', async () => {
+  it('COUNT(*) on empty → 0', () => {
     const child = new MockOperator([], layout([0, 0]));
     const op = makeAggOp([makeAgg('COUNT', undefined, true)]);
     const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    expect(result).toEqual([[0]]);
+    expect(drainOperator(agg)).toEqual([[0]]);
   });
 
-  it('SUM', async () => {
+  it('SUM', () => {
     const child = new MockOperator([[[10], [20], [30]]], layout([0, 0]));
     const op = makeAggOp([makeAgg('SUM')]);
-    const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    expect(result).toEqual([[60]]);
+    expect(drainOperator(new PhysicalHashAggregate(child, op, noopCtx))).toEqual([[60]]);
   });
 
-  it('SUM on empty → null', async () => {
+  it('SUM on empty → null', () => {
     const child = new MockOperator([], layout([0, 0]));
     const op = makeAggOp([makeAgg('SUM')]);
-    const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    expect(result).toEqual([[null]]);
+    expect(drainOperator(new PhysicalHashAggregate(child, op, noopCtx))).toEqual([[null]]);
   });
 
-  it('AVG', async () => {
+  it('AVG', () => {
     const child = new MockOperator([[[10], [20], [30]]], layout([0, 0]));
     const op = makeAggOp([makeAgg('AVG')]);
-    const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    expect(result).toEqual([[20]]);
+    expect(drainOperator(new PhysicalHashAggregate(child, op, noopCtx))).toEqual([[20]]);
   });
 
-  it('MIN / MAX', async () => {
+  it('MIN / MAX', () => {
     const child = new MockOperator([[[5], [1], [9]]], layout([0, 0]));
-    const op = makeAggOp([makeAgg('MIN', colRef(0, 0), false, false, 0), makeAgg('MAX', colRef(0, 0), false, false, 1)]);
-    const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    expect(result).toEqual([[1, 9]]);
+    const op = makeAggOp([
+      makeAgg('MIN', colRef(0, 0), false, false, 0),
+      makeAgg('MAX', colRef(0, 0), false, false, 1),
+    ]);
+    expect(drainOperator(new PhysicalHashAggregate(child, op, noopCtx))).toEqual([[1, 9]]);
   });
 
-  it('COUNT(expr) ignores NULL', async () => {
+  it('COUNT(expr) ignores NULL', () => {
     const child = new MockOperator([[[1], [null], [3]]], layout([0, 0]));
     const op = makeAggOp([makeAgg('COUNT')]);
-    const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    expect(result).toEqual([[2]]);
+    expect(drainOperator(new PhysicalHashAggregate(child, op, noopCtx))).toEqual([[2]]);
   });
 
-  it('GROUP BY', async () => {
+  it('GROUP BY', () => {
     const child = new MockOperator(
       [[['a', 10], ['b', 20], ['a', 30]]],
       layout([0, 0], [0, 1]),
@@ -317,9 +298,7 @@ describe('PhysicalHashAggregate', () => {
       [makeAgg('SUM', colRef(0, 1))],
       [colRef(0, 0, 'group', 'TEXT')],
     );
-    const agg = new PhysicalHashAggregate(child, op, noopCtx);
-    const result = await drainOperator(agg);
-    // Groups: 'a' → 40, 'b' → 20
+    const result = drainOperator(new PhysicalHashAggregate(child, op, noopCtx));
     expect(result).toHaveLength(2);
     const sorted = [...result].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     expect(sorted).toEqual([['a', 40], ['b', 20]]);
@@ -338,44 +317,36 @@ describe('PhysicalSort', () => {
     } as unknown as LogicalOrderBy;
   }
 
-  it('sorts ASC', async () => {
+  it('sorts ASC', () => {
     const child = new MockOperator([[[3], [1], [2]]], layout([0, 0]));
     const op = makeOrderBy([
       { expression: colRef(0, 0), orderType: 'ASCENDING', nullOrder: 'NULLS_LAST' },
     ]);
-    const sort = new PhysicalSort(child, op, noopCtx);
-    const result = await drainOperator(sort);
-    expect(result).toEqual([[1], [2], [3]]);
+    expect(drainOperator(new PhysicalSort(child, op, noopCtx))).toEqual([[1], [2], [3]]);
   });
 
-  it('sorts DESC', async () => {
+  it('sorts DESC', () => {
     const child = new MockOperator([[[3], [1], [2]]], layout([0, 0]));
     const op = makeOrderBy([
       { expression: colRef(0, 0), orderType: 'DESCENDING', nullOrder: 'NULLS_LAST' },
     ]);
-    const sort = new PhysicalSort(child, op, noopCtx);
-    const result = await drainOperator(sort);
-    expect(result).toEqual([[3], [2], [1]]);
+    expect(drainOperator(new PhysicalSort(child, op, noopCtx))).toEqual([[3], [2], [1]]);
   });
 
-  it('NULLS FIRST', async () => {
+  it('NULLS FIRST', () => {
     const child = new MockOperator([[[3], [null], [1]]], layout([0, 0]));
     const op = makeOrderBy([
       { expression: colRef(0, 0), orderType: 'ASCENDING', nullOrder: 'NULLS_FIRST' },
     ]);
-    const sort = new PhysicalSort(child, op, noopCtx);
-    const result = await drainOperator(sort);
-    expect(result).toEqual([[null], [1], [3]]);
+    expect(drainOperator(new PhysicalSort(child, op, noopCtx))).toEqual([[null], [1], [3]]);
   });
 
-  it('NULLS LAST', async () => {
+  it('NULLS LAST', () => {
     const child = new MockOperator([[[null], [3], [1]]], layout([0, 0]));
     const op = makeOrderBy([
       { expression: colRef(0, 0), orderType: 'ASCENDING', nullOrder: 'NULLS_LAST' },
     ]);
-    const sort = new PhysicalSort(child, op, noopCtx);
-    const result = await drainOperator(sort);
-    expect(result).toEqual([[1], [3], [null]]);
+    expect(drainOperator(new PhysicalSort(child, op, noopCtx))).toEqual([[1], [3], [null]]);
   });
 });
 
@@ -392,32 +363,24 @@ describe('PhysicalLimit', () => {
     } as unknown as LogicalLimit;
   }
 
-  it('limits rows', async () => {
+  it('limits rows', () => {
     const child = new MockOperator([[[1], [2], [3], [4], [5]]], layout([0, 0]));
-    const limit = new PhysicalLimitOp(child, makeLimit(3));
-    const result = await drainOperator(limit);
-    expect(result).toEqual([[1], [2], [3]]);
+    expect(drainOperator(new PhysicalLimitOp(child, makeLimit(3)))).toEqual([[1], [2], [3]]);
   });
 
-  it('offset skips rows', async () => {
+  it('offset skips rows', () => {
     const child = new MockOperator([[[1], [2], [3], [4], [5]]], layout([0, 0]));
-    const limit = new PhysicalLimitOp(child, makeLimit(2, 2));
-    const result = await drainOperator(limit);
-    expect(result).toEqual([[3], [4]]);
+    expect(drainOperator(new PhysicalLimitOp(child, makeLimit(2, 2)))).toEqual([[3], [4]]);
   });
 
-  it('offset beyond data → empty', async () => {
+  it('offset beyond data → empty', () => {
     const child = new MockOperator([[[1], [2]]], layout([0, 0]));
-    const limit = new PhysicalLimitOp(child, makeLimit(10, 100));
-    const result = await drainOperator(limit);
-    expect(result).toEqual([]);
+    expect(drainOperator(new PhysicalLimitOp(child, makeLimit(10, 100)))).toEqual([]);
   });
 
-  it('limit null → all rows (only offset)', async () => {
+  it('limit null → all rows (only offset)', () => {
     const child = new MockOperator([[[1], [2], [3]]], layout([0, 0]));
-    const limit = new PhysicalLimitOp(child, makeLimit(null, 1));
-    const result = await drainOperator(limit);
-    expect(result).toEqual([[2], [3]]);
+    expect(drainOperator(new PhysicalLimitOp(child, makeLimit(null, 1)))).toEqual([[2], [3]]);
   });
 });
 
@@ -426,24 +389,17 @@ describe('PhysicalLimit', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhysicalDistinct', () => {
-  it('removes duplicates', async () => {
+  it('removes duplicates', () => {
     const child = new MockOperator(
       [[[1, 'a'], [2, 'b'], [1, 'a'], [3, 'c']]],
       layout([0, 0], [0, 1]),
     );
-    const distinct = new PhysicalDistinct(child);
-    const result = await drainOperator(distinct);
-    expect(result).toEqual([[1, 'a'], [2, 'b'], [3, 'c']]);
+    expect(drainOperator(new PhysicalDistinct(child))).toEqual([[1, 'a'], [2, 'b'], [3, 'c']]);
   });
 
-  it('all duplicates → one row', async () => {
-    const child = new MockOperator(
-      [[[1], [1], [1]]],
-      layout([0, 0]),
-    );
-    const distinct = new PhysicalDistinct(child);
-    const result = await drainOperator(distinct);
-    expect(result).toEqual([[1]]);
+  it('all duplicates → one row', () => {
+    const child = new MockOperator([[[1], [1], [1]]], layout([0, 0]));
+    expect(drainOperator(new PhysicalDistinct(child))).toEqual([[1]]);
   });
 });
 
@@ -452,20 +408,16 @@ describe('PhysicalDistinct', () => {
 // ---------------------------------------------------------------------------
 
 describe('PhysicalUnion', () => {
-  it('UNION ALL — all rows', async () => {
+  it('UNION ALL — all rows', () => {
     const left = new MockOperator([[[1], [2]]], layout([0, 0]));
     const right = new MockOperator([[[2], [3]]], layout([0, 0]));
-    const union = new PhysicalUnion(left, right, true);
-    const result = await drainOperator(union);
-    expect(result).toEqual([[1], [2], [2], [3]]);
+    expect(drainOperator(new PhysicalUnion(left, right, true))).toEqual([[1], [2], [2], [3]]);
   });
 
-  it('UNION — deduplicates', async () => {
+  it('UNION — deduplicates', () => {
     const left = new MockOperator([[[1], [2]]], layout([0, 0]));
     const right = new MockOperator([[[2], [3]]], layout([0, 0]));
-    const union = new PhysicalUnion(left, right, false);
-    const result = await drainOperator(union);
-    expect(result).toEqual([[1], [2], [3]]);
+    expect(drainOperator(new PhysicalUnion(left, right, false))).toEqual([[1], [2], [3]]);
   });
 });
 
@@ -474,20 +426,20 @@ describe('PhysicalUnion', () => {
 // ---------------------------------------------------------------------------
 
 describe('CTE operators', () => {
-  it('materialize caches and delegates to main plan', async () => {
+  it('materialize caches and delegates to main plan', () => {
     const cteCache = new Map<number, CTECacheEntry>();
     const cteDef = new MockOperator([[[10], [20]]], layout([0, 0]));
     const mainPlan = new MockOperator([[['result']]], layout([1, 0]));
 
     const mat = new PhysicalMaterialize(cteDef, mainPlan, 0, cteCache);
-    const result = await drainOperator(mat);
+    const result = drainOperator(mat);
 
     expect(result).toEqual([['result']]);
     expect(cteCache.has(0)).toBe(true);
     expect(cteCache.get(0)!.tuples).toEqual([[10], [20]]);
   });
 
-  it('CTE scan reads from cache', async () => {
+  it('CTE scan reads from cache', () => {
     const cteCache = new Map<number, CTECacheEntry>();
     cteCache.set(0, {
       tuples: [[1, 'a'], [2, 'b']],
@@ -502,11 +454,10 @@ describe('CTE operators', () => {
     } as any;
 
     const scan = new PhysicalCTEScan(ref, cteCache);
-    const result = await drainOperator(scan);
-    expect(result).toEqual([[1, 'a'], [2, 'b']]);
+    expect(drainOperator(scan)).toEqual([[1, 'a'], [2, 'b']]);
   });
 
-  it('CTE scan throws if not materialized', async () => {
+  it('CTE scan throws if not materialized', () => {
     const cteCache = new Map<number, CTECacheEntry>();
     const ref = {
       type: LogicalOperatorType.LOGICAL_CTE_REF,
@@ -516,6 +467,6 @@ describe('CTE operators', () => {
     } as any;
 
     const scan = new PhysicalCTEScan(ref, cteCache);
-    await expect(scan.next()).rejects.toThrow('not materialized');
+    expect(() => scan.next()).toThrow('not materialized');
   });
 });

@@ -1,11 +1,22 @@
-import { compareValues } from '../../executor/evaluate/helpers.js';
 import type { IndexKey } from './types.js';
 
-/**
- * Compare two composite index keys lexicographically.
- * NULL sorts LAST (greater than all non-null values).
- * Two NULLs in the same position are considered equal.
- */
+// Inlined from executor/evaluate/helpers.ts to keep store-sync self-contained.
+function compareValues(a: string | number | boolean, b: string | number | boolean): number {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'boolean' && typeof b === 'boolean') return (a ? 1 : 0) - (b ? 1 : 0);
+  if (typeof a === 'number' && typeof b === 'string') {
+    const nb = Number(b);
+    if (!Number.isNaN(nb)) return a - nb;
+  }
+  if (typeof b === 'number' && typeof a === 'string') {
+    const na = Number(a);
+    if (!Number.isNaN(na)) return na - b;
+  }
+  const sa = String(a);
+  const sb = String(b);
+  return sa < sb ? -1 : sa > sb ? 1 : 0;
+}
+
 export function compareIndexKeys(a: IndexKey, b: IndexKey): number {
   const len = Math.min(a.length, b.length);
   for (let i = 0; i < len; i++) {
@@ -20,11 +31,6 @@ export function compareIndexKeys(a: IndexKey, b: IndexKey): number {
   return a.length - b.length;
 }
 
-/**
- * Check if a key contains any NULL components.
- * Used for UNIQUE constraint: rows with NULL in any indexed column
- * are exempt from uniqueness checks (SQL standard).
- */
 export function keyHasNull(key: IndexKey): boolean {
   return key.some((v) => v === null);
 }

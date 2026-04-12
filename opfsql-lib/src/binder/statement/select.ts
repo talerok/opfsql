@@ -1,18 +1,36 @@
-import type { LogicalType } from '../../store/types.js';
-import type { SelectNode, StarExpression, OrderByNode } from '../../parser/types.js';
-import { ExpressionClass, ResultModifierType } from '../../parser/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../types.js';
-import type { BindContext, AggregateContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { makeEmptyGet, makeFilter, makeDistinct, makeOrderBy, makeLimit } from '../core/operators.js';
-import { evalConstantInt } from '../core/helpers.js';
-import { checkNoAggregates, detectAggregates, extractAggregates, extractAggregatesFromExpr } from '../expression/aggregate.js';
-import { sameExpression, sameAggregate } from '../expression/same-expression.js';
-import { bindExpression } from '../expression/index.js';
-import { bindStar } from '../expression/star.js';
-import { bindTableRef } from '../table-ref/index.js';
-import { collectCTEs } from './cte.js';
+import type {
+  OrderByNode,
+  SelectNode,
+  StarExpression,
+} from "../../parser/types.js";
+import { ExpressionClass, ResultModifierType } from "../../parser/types.js";
+import type { LogicalType } from "../../store/types.js";
+import type { AggregateContext, BindContext } from "../core/context.js";
+import { evalConstantInt } from "../core/helpers.js";
+import {
+  makeDistinct,
+  makeEmptyGet,
+  makeFilter,
+  makeLimit,
+  makeOrderBy,
+} from "../core/operators.js";
+import type { BindScope } from "../core/scope.js";
+import {
+  checkNoAggregates,
+  detectAggregates,
+  extractAggregates,
+  extractAggregatesFromExpr,
+} from "../expression/aggregate.js";
+import { bindExpression } from "../expression/index.js";
+import {
+  sameAggregate,
+  sameExpression,
+} from "../expression/same-expression.js";
+import { bindStar } from "../expression/star.js";
+import { bindTableRef } from "../table-ref/index.js";
+import type * as BT from "../types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
+import { collectCTEs } from "./cte.js";
 
 export function bindSelect(
   ctx: BindContext,
@@ -71,10 +89,12 @@ function bindAggregation(
   }
 
   for (const g of node.groups.group_expressions) {
-    checkNoAggregates(g, 'GROUP BY clause');
+    checkNoAggregates(g, "GROUP BY clause");
   }
 
-  const groups = node.groups.group_expressions.map((g) => bindExpression(ctx, g, scope));
+  const groups = node.groups.group_expressions.map((g) =>
+    bindExpression(ctx, g, scope),
+  );
 
   // Collect aggregates from SELECT and HAVING
   const aggregates = extractAggregates(ctx, node.select_list, scope);
@@ -95,11 +115,16 @@ function bindAggregation(
   }
 
   const aggCtx: AggregateContext = { aggregates, groups, groupIndex };
-  const havingBound = node.having ? bindExpression(ctx, node.having, scope, aggCtx) : null;
+  const havingBound = node.having
+    ? bindExpression(ctx, node.having, scope, aggCtx)
+    : null;
 
   const groupBindings: BT.ColumnBinding[] = [
     ...groups.map((_, i) => ({ tableIndex: groupIndex, columnIndex: i })),
-    ...aggregates.map((_, i) => ({ tableIndex: aggregateIndex, columnIndex: i })),
+    ...aggregates.map((_, i) => ({
+      tableIndex: aggregateIndex,
+      columnIndex: i,
+    })),
   ];
 
   const aggregatePlan: BT.LogicalAggregate = {
@@ -110,7 +135,10 @@ function bindAggregation(
     expressions: aggregates,
     groups,
     havingExpression: havingBound,
-    types: [...groups.map((g) => g.returnType), ...aggregates.map((a) => a.returnType)],
+    types: [
+      ...groups.map((g) => g.returnType),
+      ...aggregates.map((a) => a.returnType),
+    ],
     estimatedCardinality: 0,
     getColumnBindings: () => groupBindings,
   };
@@ -155,7 +183,8 @@ function buildProjection(
   const tableIndex = ctx.nextTableIndex();
   const types = expressions.map((e) => e.returnType);
   const bindings: BT.ColumnBinding[] = expressions.map((_, i) => ({
-    tableIndex, columnIndex: i,
+    tableIndex,
+    columnIndex: i,
   }));
 
   const projPlan: BT.LogicalProjection = {
@@ -227,10 +256,14 @@ function applyOrderBy(
   // ORDER BY sits above projection, so expressions must use projection bindings.
   const rewrittenOrders: BT.BoundOrderByNode[] = boundOrders.map((order) => {
     const idx = proj.expressions.findIndex((sel) =>
-      sameExpression(sel, order.expression));
+      sameExpression(sel, order.expression),
+    );
 
     if (idx !== -1) {
-      return { ...order, expression: projRef(proj.bindings[idx], order.expression.returnType) };
+      return {
+        ...order,
+        expression: projRef(proj.bindings[idx], order.expression.returnType),
+      };
     }
 
     // Expression not in select list — extend projection so sort can access it
@@ -238,9 +271,15 @@ function applyOrderBy(
     proj.expressions.push(order.expression);
     proj.aliases.push(null);
     proj.types.push(order.expression.returnType);
-    const binding: BT.ColumnBinding = { tableIndex: proj.tableIndex, columnIndex: colIndex };
+    const binding: BT.ColumnBinding = {
+      tableIndex: proj.tableIndex,
+      columnIndex: colIndex,
+    };
     proj.bindings.push(binding);
-    return { ...order, expression: projRef(binding, order.expression.returnType) };
+    return {
+      ...order,
+      expression: projRef(binding, order.expression.returnType),
+    };
   });
 
   let plan: BT.LogicalOperator = makeOrderBy(proj.plan, rewrittenOrders);
@@ -261,7 +300,8 @@ function buildTrimProjection(
 ): BT.LogicalProjection {
   const trimIdx = ctx.nextTableIndex();
   const trimBindings = Array.from({ length: originalCount }, (_, i) => ({
-    tableIndex: trimIdx, columnIndex: i,
+    tableIndex: trimIdx,
+    columnIndex: i,
   }));
 
   return {
@@ -270,8 +310,10 @@ function buildTrimProjection(
     children: [plan],
     expressions: Array.from({ length: originalCount }, (_, i) => {
       const orig = proj.expressions[i];
-      const name = orig.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF
-        ? (orig as BT.BoundColumnRefExpression).columnName : '';
+      const name =
+        orig.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF
+          ? (orig as BT.BoundColumnRefExpression).columnName
+          : "";
       return projRef(proj.bindings[i], proj.types[i], name);
     }),
     aliases: proj.aliases.slice(0, originalCount),
@@ -310,11 +352,15 @@ function wrapCTEs(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function projRef(binding: BT.ColumnBinding, returnType: LogicalType, columnName = ''): BT.BoundColumnRefExpression {
+function projRef(
+  binding: BT.ColumnBinding,
+  returnType: LogicalType,
+  columnName = "",
+): BT.BoundColumnRefExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
     binding,
-    tableName: '',
+    tableName: "",
     columnName,
     returnType,
   };

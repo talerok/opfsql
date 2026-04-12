@@ -1,41 +1,47 @@
 import type {
-  LogicalOperator,
-  LogicalGet,
-  LogicalFilter,
-  LogicalProjection,
   LogicalAggregate,
   LogicalComparisonJoin,
-  LogicalOrderBy,
-  LogicalLimit,
-  LogicalUnion,
   LogicalCTERef,
+  LogicalFilter,
+  LogicalGet,
+  LogicalLimit,
   LogicalMaterializedCTE,
+  LogicalOperator,
+  LogicalOrderBy,
+  LogicalProjection,
   LogicalRecursiveCTE,
-} from '../binder/types.js';
-import { LogicalOperatorType } from '../binder/types.js';
-import type { IRowManager } from '../store/types.js';
-import type { IIndexManager } from '../store/index-manager.js';
-import type { PhysicalOperator, CTECacheEntry } from './types.js';
-import type { EvalContext } from './evaluate/context.js';
-import { PhysicalScan } from './operators/scan.js';
-import { PhysicalIndexScan } from './operators/index-scan.js';
-import { PhysicalFilter } from './operators/filter.js';
-import { PhysicalProjection } from './operators/projection.js';
-import { PhysicalHashJoin, PhysicalNestedLoopJoin } from './operators/join.js';
-import { PhysicalHashAggregate } from './operators/aggregate.js';
-import { PhysicalSort } from './operators/sort.js';
-import { PhysicalLimit } from './operators/limit.js';
-import { PhysicalDistinct, PhysicalUnion } from './operators/set.js';
-import { PhysicalMaterialize, PhysicalCTEScan, PhysicalRecursiveCTE } from './operators/cte.js';
-import { ExecutorError } from './errors.js';
+  LogicalUnion,
+} from "../binder/types.js";
+import { LogicalOperatorType } from "../binder/types.js";
+import type {
+  SyncIIndexManager,
+  SyncIRowManager,
+} from "../store/types.js";
+import { ExecutorError } from "./errors.js";
+import type { SyncEvalContext } from "./evaluate/context.js";
+import { PhysicalHashAggregate } from "./operators/aggregate.js";
+import {
+  PhysicalCTEScan,
+  PhysicalMaterialize,
+  PhysicalRecursiveCTE,
+} from "./operators/cte.js";
+import { PhysicalFilter } from "./operators/filter.js";
+import { PhysicalIndexScan } from "./operators/index-scan.js";
+import { PhysicalHashJoin, PhysicalNestedLoopJoin } from "./operators/join.js";
+import { PhysicalLimit } from "./operators/limit.js";
+import { PhysicalProjection } from "./operators/projection.js";
+import { PhysicalScan } from "./operators/scan.js";
+import { PhysicalDistinct, PhysicalUnion } from "./operators/set.js";
+import { PhysicalSort } from "./operators/sort.js";
+import type { CTECacheEntry, SyncPhysicalOperator } from "./types.js";
 
 export function createPhysicalPlan(
   node: LogicalOperator,
-  rowManager: IRowManager,
+  rowManager: SyncIRowManager,
   cteCache: Map<number, CTECacheEntry>,
-  ctx: EvalContext,
-  indexManager?: IIndexManager,
-): PhysicalOperator {
+  ctx: SyncEvalContext,
+  indexManager?: SyncIIndexManager,
+): SyncPhysicalOperator {
   const plan = (child: LogicalOperator) =>
     createPhysicalPlan(child, rowManager, cteCache, ctx, indexManager);
 
@@ -44,17 +50,27 @@ export function createPhysicalPlan(
       const get = node as LogicalGet;
       if (get.indexHint && indexManager) {
         return new PhysicalIndexScan(
-          get, rowManager, indexManager,
-          get.indexHint.indexDef, get.indexHint.predicates, get.indexHint.residualFilters, ctx,
+          get,
+          rowManager,
+          indexManager,
+          get.indexHint.indexDef,
+          get.indexHint.predicates,
+          get.indexHint.residualFilters,
+          ctx,
         );
       }
-      const childOp = get.children.length > 0 ? plan(get.children[0]) : undefined;
+      const childOp =
+        get.children.length > 0 ? plan(get.children[0]) : undefined;
       return new PhysicalScan(get, rowManager, ctx, childOp);
     }
 
     case LogicalOperatorType.LOGICAL_FILTER: {
       const filter = node as LogicalFilter;
-      return new PhysicalFilter(plan(filter.children[0]), filter.expressions[0], ctx);
+      return new PhysicalFilter(
+        plan(filter.children[0]),
+        filter.expressions[0],
+        ctx,
+      );
     }
 
     case LogicalOperatorType.LOGICAL_PROJECTION: {
@@ -69,11 +85,19 @@ export function createPhysicalPlan(
 
     case LogicalOperatorType.LOGICAL_COMPARISON_JOIN: {
       const join = node as LogicalComparisonJoin;
-      return new PhysicalHashJoin(plan(join.children[0]), plan(join.children[1]), join, ctx);
+      return new PhysicalHashJoin(
+        plan(join.children[0]),
+        plan(join.children[1]),
+        join,
+        ctx,
+      );
     }
 
     case LogicalOperatorType.LOGICAL_CROSS_PRODUCT:
-      return new PhysicalNestedLoopJoin(plan(node.children[0]), plan(node.children[1]));
+      return new PhysicalNestedLoopJoin(
+        plan(node.children[0]),
+        plan(node.children[1]),
+      );
 
     case LogicalOperatorType.LOGICAL_ORDER_BY: {
       const order = node as LogicalOrderBy;
@@ -90,19 +114,31 @@ export function createPhysicalPlan(
 
     case LogicalOperatorType.LOGICAL_UNION: {
       const union = node as LogicalUnion;
-      return new PhysicalUnion(plan(union.children[0]), plan(union.children[1]), union.all);
+      return new PhysicalUnion(
+        plan(union.children[0]),
+        plan(union.children[1]),
+        union.all,
+      );
     }
 
     case LogicalOperatorType.LOGICAL_MATERIALIZED_CTE: {
       const cte = node as LogicalMaterializedCTE;
-      return new PhysicalMaterialize(plan(cte.children[0]), plan(cte.children[1]), cte.cteIndex, cteCache);
+      return new PhysicalMaterialize(
+        plan(cte.children[0]),
+        plan(cte.children[1]),
+        cte.cteIndex,
+        cteCache,
+      );
     }
 
     case LogicalOperatorType.LOGICAL_RECURSIVE_CTE: {
       const rec = node as LogicalRecursiveCTE;
       return new PhysicalRecursiveCTE(
-        plan(rec.children[0]), plan(rec.children[1]),
-        rec.cteIndex, cteCache, rec.isUnionAll,
+        plan(rec.children[0]),
+        plan(rec.children[1]),
+        rec.cteIndex,
+        cteCache,
+        rec.isUnionAll,
       );
     }
 

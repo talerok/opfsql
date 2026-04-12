@@ -1,77 +1,56 @@
-import type { IKVStore, RowId } from './types.js';
-import type { IndexKey } from './index-btree/types.js';
-import { BTree, type SearchPredicate } from './index-btree/index-btree.js';
+import { SyncBTree } from "./index-btree/index-btree.js";
+import type {
+  IndexKey,
+  RowId,
+  SearchPredicate,
+  SyncIIndexManager,
+  SyncIKVStore,
+} from "./types.js";
 
-// ---------------------------------------------------------------------------
-// IIndexManager — public interface
-// ---------------------------------------------------------------------------
+export class SyncIndexManager implements SyncIIndexManager {
+  private readonly trees = new Map<string, SyncBTree>();
 
-export interface IIndexManager {
-  /** Insert a key/rowId pair. Throws on unique constraint violation. */
-  insert(indexName: string, key: IndexKey, rowId: RowId): Promise<void>;
-  delete(indexName: string, key: IndexKey, rowId: RowId): Promise<void>;
-  search(indexName: string, predicates: SearchPredicate[], totalColumns?: number): Promise<RowId[]>;
-  bulkLoad(
-    indexName: string,
-    entries: Array<{ key: IndexKey; rowId: RowId }>,
-    unique: boolean,
-  ): Promise<void>;
-  dropIndex(indexName: string): Promise<void>;
-}
+  constructor(private readonly pm: SyncIKVStore) {}
 
-// ---------------------------------------------------------------------------
-// IndexManager — delegates to BTree instances
-// ---------------------------------------------------------------------------
-
-export class IndexManager implements IIndexManager {
-  private readonly trees = new Map<string, BTree>();
-
-  constructor(private readonly pm: IKVStore) {}
-
-  /**
-   * Returns the cached BTree for the given index, creating it if necessary.
-   * The unique flag is read from persisted BTreeMeta so callers don't need to supply it.
-   */
-  private async getTree(indexName: string): Promise<BTree> {
+  private tree(indexName: string): SyncBTree {
     const key = indexName.toLowerCase();
     const cached = this.trees.get(key);
     if (cached) return cached;
-
-    // Read the unique flag from stored meta — avoids passing it on every operation.
-    const metaRaw = await this.pm.readKey<{ unique?: boolean }>(`btree:${key}:meta`);
+    const metaRaw = this.pm.readKey<{ unique?: boolean }>(`btree:${key}:meta`);
     const unique = metaRaw?.unique ?? false;
-
-    const tree = new BTree(key, this.pm, unique);
+    const tree = new SyncBTree(key, this.pm, unique);
     this.trees.set(key, tree);
     return tree;
   }
 
-  async insert(indexName: string, key: IndexKey, rowId: RowId): Promise<void> {
-    await (await this.getTree(indexName)).insert(key, rowId);
+  insert(indexName: string, key: IndexKey, rowId: RowId): void {
+    this.tree(indexName).insert(key, rowId);
+  }
+  delete(indexName: string, key: IndexKey, rowId: RowId): void {
+    this.tree(indexName).delete(key, rowId);
+  }
+  search(
+    indexName: string,
+    predicates: SearchPredicate[],
+    totalColumns?: number,
+  ): RowId[] {
+    return this.tree(indexName).search(predicates, totalColumns);
   }
 
-  async delete(indexName: string, key: IndexKey, rowId: RowId): Promise<void> {
-    await (await this.getTree(indexName)).delete(key, rowId);
-  }
-
-  async search(indexName: string, predicates: SearchPredicate[], totalColumns?: number): Promise<RowId[]> {
-    return (await this.getTree(indexName)).search(predicates, totalColumns);
-  }
-
-  async bulkLoad(
+  bulkLoad(
     indexName: string,
     entries: Array<{ key: IndexKey; rowId: RowId }>,
     unique: boolean,
-  ): Promise<void> {
+  ): void {
     const key = indexName.toLowerCase();
-    const tree = new BTree(key, this.pm, unique);
+    const tree = new SyncBTree(key, this.pm, unique);
     this.trees.set(key, tree);
-    await tree.bulkLoad(entries);
+    tree.bulkLoad(entries);
   }
 
-  async dropIndex(indexName: string): Promise<void> {
+  dropIndex(indexName: string): void {
     const key = indexName.toLowerCase();
-    await (await this.getTree(indexName)).drop();
+    this.tree(indexName).drop();
     this.trees.delete(key);
   }
 }

@@ -1,42 +1,19 @@
-import type {
-  TableSchema,
-  IndexDef,
-  Row,
-} from '../store/types.js';
-import type { ColumnBinding } from '../binder/types.js';
-
-// ---------------------------------------------------------------------------
-// Core value types
-// ---------------------------------------------------------------------------
+import type { ColumnBinding } from "../binder/types.js";
+import type { Row } from "../store/types.js";
 
 export type Value = string | number | boolean | null;
 export type Tuple = Value[];
 
-// ---------------------------------------------------------------------------
-// Physical operator interface (Volcano pull model)
-// ---------------------------------------------------------------------------
-
-export interface PhysicalOperator {
-  /** Column layout — position in layout = position in output tuple */
+export interface SyncPhysicalOperator {
   getLayout(): ColumnBinding[];
-  /** Next batch of tuples, null = exhausted */
-  next(): Promise<Tuple[] | null>;
-  /** Reset to beginning (used by nested loop join) */
-  reset(): Promise<void>;
+  next(): Tuple[] | null;
+  reset(): void;
 }
-
-// ---------------------------------------------------------------------------
-// CTE cache
-// ---------------------------------------------------------------------------
 
 export interface CTECacheEntry {
   tuples: Tuple[];
   layout: ColumnBinding[];
 }
-
-// ---------------------------------------------------------------------------
-// Execution result
-// ---------------------------------------------------------------------------
 
 export interface ExecuteResult {
   rows: Row[];
@@ -44,14 +21,16 @@ export interface ExecuteResult {
   catalogChanges: CatalogChange[];
 }
 
+import type { IndexDef, TableSchema } from "../store/types.js";
+
 export type CatalogChange =
-  | { type: 'CREATE_TABLE'; schema: TableSchema }
-  | { type: 'DROP_TABLE'; name: string; schema: TableSchema }
+  | { type: "CREATE_TABLE"; schema: TableSchema }
+  | { type: "DROP_TABLE"; name: string; schema: TableSchema }
   | {
-      type: 'ALTER_TABLE';
+      type: "ALTER_TABLE";
       name: string;
       before: TableSchema;
       after: TableSchema;
     }
-  | { type: 'CREATE_INDEX'; index: IndexDef }
-  | { type: 'DROP_INDEX'; name: string; index: IndexDef };
+  | { type: "CREATE_INDEX"; index: IndexDef }
+  | { type: "DROP_INDEX"; name: string; index: IndexDef };

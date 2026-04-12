@@ -1,23 +1,19 @@
 import type { ColumnBinding } from '../../binder/types.js';
-import type { PhysicalOperator, Tuple } from '../types.js';
+import type { SyncPhysicalOperator, Tuple } from '../types.js';
 import { serializeKey } from './utils.js';
 
-// ---------------------------------------------------------------------------
-// Distinct
-// ---------------------------------------------------------------------------
-
-export class PhysicalDistinct implements PhysicalOperator {
+export class PhysicalDistinct implements SyncPhysicalOperator {
   private readonly seen = new Set<string>();
 
-  constructor(private readonly child: PhysicalOperator) {}
+  constructor(private readonly child: SyncPhysicalOperator) {}
 
   getLayout(): ColumnBinding[] {
     return this.child.getLayout();
   }
 
-  async next(): Promise<Tuple[] | null> {
+  next(): Tuple[] | null {
     while (true) {
-      const batch = await this.child.next();
+      const batch = this.child.next();
       if (!batch) return null;
 
       const result: Tuple[] = [];
@@ -33,23 +29,19 @@ export class PhysicalDistinct implements PhysicalOperator {
     }
   }
 
-  async reset(): Promise<void> {
+  reset(): void {
     this.seen.clear();
-    await this.child.reset();
+    this.child.reset();
   }
 }
 
-// ---------------------------------------------------------------------------
-// Union
-// ---------------------------------------------------------------------------
-
-export class PhysicalUnion implements PhysicalOperator {
+export class PhysicalUnion implements SyncPhysicalOperator {
   private leftDone = false;
   private readonly seen: Set<string> | null;
 
   constructor(
-    private readonly left: PhysicalOperator,
-    private readonly right: PhysicalOperator,
+    private readonly left: SyncPhysicalOperator,
+    private readonly right: SyncPhysicalOperator,
     private readonly all: boolean,
   ) {
     this.seen = all ? null : new Set();
@@ -59,34 +51,31 @@ export class PhysicalUnion implements PhysicalOperator {
     return this.left.getLayout();
   }
 
-  async next(): Promise<Tuple[] | null> {
+  next(): Tuple[] | null {
     while (!this.leftDone) {
-      const batch = await this.left.next();
-      if (!batch) {
-        this.leftDone = true;
-        break;
-      }
+      const batch = this.left.next();
+      if (!batch) { this.leftDone = true; break; }
       const result = this.dedup(batch);
       if (result) return result;
     }
 
     while (true) {
-      const batch = await this.right.next();
+      const batch = this.right.next();
       if (!batch) return null;
       const result = this.dedup(batch);
       if (result) return result;
     }
   }
 
-  async reset(): Promise<void> {
+  reset(): void {
     this.leftDone = false;
     this.seen?.clear();
-    await this.left.reset();
-    await this.right.reset();
+    this.left.reset();
+    this.right.reset();
   }
 
   private dedup(batch: Tuple[]): Tuple[] | null {
-    if (!this.seen) return batch; // UNION ALL
+    if (!this.seen) return batch;
 
     const result: Tuple[] = [];
     for (const tuple of batch) {

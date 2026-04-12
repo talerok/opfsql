@@ -5,11 +5,9 @@
   import { createAlasqlRunner } from './runners/alasql.js';
   import { createWaSqliteRunner } from './runners/wa-sqlite.js';
   import { createRawIdbRunner } from './runners/raw-idb.js';
-  import { createOpfsqlMemoryRunner } from './runners/opfsql-memory.js';
 
   const runners: BenchmarkRunner[] = [
     createOpfsqlRunner(),
-    // createOpfsqlMemoryRunner(),
     // createAlasqlRunner(),
     createWaSqliteRunner(),
     // createRawIdbRunner(),
@@ -61,7 +59,7 @@
 
 <div class="bench">
   <h1>opfsql Benchmark</h1>
-  <p class="subtitle">opfsql (OPFS / In-memory) vs alasql (memory) vs wa-sqlite (IndexedDB) vs Raw IndexedDB</p>
+  <p class="subtitle">opfsql (OPFS) vs wa-sqlite (IndexedDB)</p>
 
   <button onclick={runAll} disabled={running}>Run Benchmark</button>
   <div class="status">{status}</div>
