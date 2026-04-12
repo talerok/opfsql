@@ -24,7 +24,7 @@ describe("IndexManager", () => {
 
   describe("insert and search", () => {
     it("insert and find a single entry", async () => {
-      await im.insert("idx1", [10], rid(0, 0), false);
+      await im.insert("idx1", [10], rid(0, 0));
       await pm.commit();
 
       const results = await im.search("idx1", [
@@ -34,16 +34,17 @@ describe("IndexManager", () => {
     });
 
     it("insert with unique=true enforces uniqueness", async () => {
-      await im.insert("idx1", [1], rid(0, 0), true);
+      await im.bulkLoad("idx1", [], true);
+      await im.insert("idx1", [1], rid(0, 0));
 
-      await expect(im.insert("idx1", [1], rid(0, 1), true)).rejects.toThrow(
+      await expect(im.insert("idx1", [1], rid(0, 1))).rejects.toThrow(
         "UNIQUE constraint failed",
       );
     });
 
     it("different indexes are independent", async () => {
-      await im.insert("idx_a", [1], rid(0, 0), false);
-      await im.insert("idx_b", [1], rid(0, 1), false);
+      await im.insert("idx_a", [1], rid(0, 0));
+      await im.insert("idx_b", [1], rid(0, 1));
       await pm.commit();
 
       const ra = await im.search("idx_a", [
@@ -60,7 +61,7 @@ describe("IndexManager", () => {
 
   describe("delete", () => {
     it("delete removes entry from index", async () => {
-      await im.insert("idx1", [5], rid(0, 0), false);
+      await im.insert("idx1", [5], rid(0, 0));
       await pm.commit();
 
       await im.delete("idx1", [5], rid(0, 0));
@@ -109,8 +110,8 @@ describe("IndexManager", () => {
 
   describe("dropIndex", () => {
     it("drop removes all index data", async () => {
-      await im.insert("idx1", [1], rid(0, 0), false);
-      await im.insert("idx1", [2], rid(0, 1), false);
+      await im.insert("idx1", [1], rid(0, 0));
+      await im.insert("idx1", [2], rid(0, 1));
       await pm.commit();
 
       await im.dropIndex("idx1");
@@ -123,8 +124,8 @@ describe("IndexManager", () => {
     });
 
     it("drop one index does not affect another", async () => {
-      await im.insert("idx_a", [1], rid(0, 0), false);
-      await im.insert("idx_b", [1], rid(0, 1), false);
+      await im.insert("idx_a", [1], rid(0, 0));
+      await im.insert("idx_b", [1], rid(0, 1));
       await pm.commit();
 
       await im.dropIndex("idx_a");
@@ -148,9 +149,9 @@ describe("IndexManager", () => {
 
   describe("search with totalColumns", () => {
     it("prefix scan with totalColumns", async () => {
-      await im.insert("idx1", ["a", 1], rid(0, 0), false);
-      await im.insert("idx1", ["a", 2], rid(0, 1), false);
-      await im.insert("idx1", ["b", 1], rid(0, 2), false);
+      await im.insert("idx1", ["a", 1], rid(0, 0));
+      await im.insert("idx1", ["a", 2], rid(0, 1));
+      await im.insert("idx1", ["b", 1], rid(0, 2));
       await pm.commit();
 
       const results = await im.search(
@@ -164,8 +165,8 @@ describe("IndexManager", () => {
     });
 
     it("point lookup with all columns covered", async () => {
-      await im.insert("idx1", ["a", 1], rid(0, 0), false);
-      await im.insert("idx1", ["a", 2], rid(0, 1), false);
+      await im.insert("idx1", ["a", 1], rid(0, 0));
+      await im.insert("idx1", ["a", 2], rid(0, 1));
       await pm.commit();
 
       const results = await im.search(
@@ -186,7 +187,7 @@ describe("IndexManager", () => {
 
   describe("case insensitivity", () => {
     it("index names are lowercased", async () => {
-      await im.insert("MyIndex", [1], rid(0, 0), false);
+      await im.insert("MyIndex", [1], rid(0, 0));
       await pm.commit();
 
       const results = await im.search("myindex", [

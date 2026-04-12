@@ -1,5 +1,4 @@
 import type { IKVStore, Row, RowId } from './types.js';
-
 const NODE_ID_WIDTH = 8;
 const ORDER = 1024;
 
@@ -45,20 +44,25 @@ export class TableBTree {
   // --- Public API ----------------------------------------------------------
 
   async insert(row: Row): Promise<RowId> {
-    const meta = (await this.readMeta()) ?? this.initEmpty();
+    const baseMeta = await this.readMeta();
+    const meta: TableBTreeMeta = baseMeta ? { ...baseMeta } : this.initEmpty();
     const rowId = meta.nextRowId++;
     const path = await this.findLeafPath(meta, rowId);
     const leaf = path.at(-1) as TableLeafNode;
 
     const pos = this.bisectLeft(leaf.keys, rowId);
-    leaf.keys.splice(pos, 0, rowId);
-    leaf.values.splice(pos, 0, row);
+    const newLeaf: TableLeafNode = {
+      ...leaf,
+      keys: [...leaf.keys.slice(0, pos), rowId, ...leaf.keys.slice(pos)],
+      values: [...leaf.values.slice(0, pos), row, ...leaf.values.slice(pos)],
+    };
     meta.size++;
+    path[path.length - 1] = newLeaf;
 
-    if (leaf.keys.length >= ORDER) {
-      await this.splitLeaf(meta, leaf, path);
+    if (newLeaf.keys.length >= ORDER) {
+      await this.splitLeaf(meta, newLeaf, path);
     } else {
-      this.writeNode(leaf);
+      this.writeNode(newLeaf);
     }
     this.writeMeta(meta);
     return rowId;
@@ -85,23 +89,30 @@ export class TableBTree {
     if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId) {
       throw new Error(`Row ${rowId} not found in table "${this.tableName}"`);
     }
-    leaf.values[pos] = row;
-    this.writeNode(leaf);
+    const newLeaf: TableLeafNode = {
+      ...leaf,
+      values: leaf.values.map((v, i) => i === pos ? row : v),
+    };
+    this.writeNode(newLeaf);
   }
 
   async delete(rowId: RowId): Promise<void> {
-    const meta = await this.readMeta();
-    if (!meta) return;
+    const baseMeta = await this.readMeta();
+    if (!baseMeta) return;
+    const meta = { ...baseMeta };
 
     const leaf = (await this.findLeafPath(meta, rowId)).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
     if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId) return;
 
-    leaf.keys.splice(pos, 1);
-    leaf.values.splice(pos, 1);
+    const newLeaf: TableLeafNode = {
+      ...leaf,
+      keys: [...leaf.keys.slice(0, pos), ...leaf.keys.slice(pos + 1)],
+      values: [...leaf.values.slice(0, pos), ...leaf.values.slice(pos + 1)],
+    };
     meta.size--;
 
-    this.writeNode(leaf);
+    this.writeNode(newLeaf);
     this.writeMeta(meta);
   }
 
@@ -133,13 +144,18 @@ export class TableBTree {
     const newLeaf: TableLeafNode = {
       kind: 'leaf',
       nodeId: this.allocNodeId(meta),
-      keys: leaf.keys.splice(mid),
-      values: leaf.values.splice(mid),
+      keys: leaf.keys.slice(mid),
+      values: leaf.values.slice(mid),
       nextLeafId: leaf.nextLeafId,
     };
-    leaf.nextLeafId = newLeaf.nodeId;
+    const updatedLeaf: TableLeafNode = {
+      ...leaf,
+      keys: leaf.keys.slice(0, mid),
+      values: leaf.values.slice(0, mid),
+      nextLeafId: newLeaf.nodeId,
+    };
 
-    this.writeNode(leaf);
+    this.writeNode(updatedLeaf);
     this.writeNode(newLeaf);
     await this.propagateSplit(meta, path, path.length - 2, newLeaf.keys[0], newLeaf.nodeId);
   }
@@ -155,12 +171,15 @@ export class TableBTree {
 
     const parent = path[parentIdx] as TableInternalNode;
     const pos = this.bisectRight(parent.keys, key);
-    parent.keys.splice(pos, 0, key);
-    parent.children.splice(pos + 1, 0, rightChildId);
-    this.writeNode(parent);
+    const newParent: TableInternalNode = {
+      ...parent,
+      keys: [...parent.keys.slice(0, pos), key, ...parent.keys.slice(pos)],
+      children: [...parent.children.slice(0, pos + 1), rightChildId, ...parent.children.slice(pos + 1)],
+    };
+    this.writeNode(newParent);
 
-    if (parent.keys.length >= ORDER) {
-      await this.splitInternal(meta, parent, path, parentIdx);
+    if (newParent.keys.length >= ORDER) {
+      await this.splitInternal(meta, newParent, path, parentIdx);
     }
   }
 
@@ -174,12 +193,16 @@ export class TableBTree {
     const newNode: TableInternalNode = {
       kind: 'internal',
       nodeId: this.allocNodeId(meta),
-      keys: node.keys.splice(mid + 1),
-      children: node.children.splice(mid + 1),
+      keys: node.keys.slice(mid + 1),
+      children: node.children.slice(mid + 1),
     };
-    node.keys.splice(mid, 1);
+    const updatedNode: TableInternalNode = {
+      ...node,
+      keys: node.keys.slice(0, mid),
+      children: node.children.slice(0, mid + 1),
+    };
 
-    this.writeNode(node);
+    this.writeNode(updatedNode);
     this.writeNode(newNode);
     await this.propagateSplit(meta, path, nodeIdx - 1, promotedKey, newNode.nodeId);
   }

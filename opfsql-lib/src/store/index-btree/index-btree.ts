@@ -17,36 +17,41 @@ export class BTree {
   constructor(
     private readonly indexName: string,
     private readonly pm: IKVStore,
-    private readonly unique: boolean,
+    /** Used only when creating a new tree (meta doesn't exist yet). Persisted in BTreeMeta. */
+    private readonly unique: boolean = false,
   ) {}
 
   // --- Public API -----------------------------------------------------------
 
   async insert(key: IndexKey, rowId: RowId): Promise<void> {
-    const meta = (await this.readMeta()) ?? this.initEmptyTree();
+    const baseMeta = await this.readMeta();
+    const meta: BTreeMeta = baseMeta ? { ...baseMeta } : this.initEmptyTree();
     const path = await this.findLeafPath(meta, key);
     const leaf = path.at(-1) as BTreeLeafNode;
 
-    this.insertIntoLeaf(leaf, key, rowId);
+    const newLeaf = this.insertIntoLeaf(leaf, key, rowId);
     meta.size++;
+    path[path.length - 1] = newLeaf;
 
-    if (leaf.keys.length >= ORDER) {
-      await this.splitLeaf(meta, leaf, path);
+    if (newLeaf.keys.length >= ORDER) {
+      await this.splitLeaf(meta, newLeaf, path);
     } else {
-      this.writeNode(leaf);
+      this.writeNode(newLeaf);
     }
     this.writeMeta(meta);
   }
 
   async delete(key: IndexKey, rowId: RowId): Promise<void> {
-    const meta = await this.readMeta();
-    if (!meta) return;
+    const baseMeta = await this.readMeta();
+    if (!baseMeta) return;
+    const meta = { ...baseMeta };
 
     const leaf = (await this.findLeafPath(meta, key)).at(-1) as BTreeLeafNode;
-    if (!this.removeFromLeaf(leaf, key, rowId)) return;
+    const newLeaf = this.removeFromLeaf(leaf, key, rowId);
+    if (!newLeaf) return;
 
     meta.size--;
-    this.writeNode(leaf);
+    this.writeNode(newLeaf);
     this.writeMeta(meta);
   }
 
@@ -57,7 +62,7 @@ export class BTree {
   }
 
   async bulkLoad(entries: Array<{ key: IndexKey; rowId: RowId }>): Promise<void> {
-    const meta: BTreeMeta = { rootNodeId: 0, height: 1, nextNodeId: 0, size: 0 };
+    const meta: BTreeMeta = { rootNodeId: 0, height: 1, nextNodeId: 0, size: 0, unique: this.unique };
 
     if (entries.length === 0) {
       meta.rootNodeId = this.createLeaf(meta, [], [], null);
@@ -84,7 +89,7 @@ export class BTree {
 
   // --- Leaf operations ------------------------------------------------------
 
-  private insertIntoLeaf(leaf: BTreeLeafNode, key: IndexKey, rowId: RowId): void {
+  private insertIntoLeaf(leaf: BTreeLeafNode, key: IndexKey, rowId: RowId): BTreeLeafNode {
     const pos = this.bisectLeft(leaf.keys, key);
     const isExisting = pos < leaf.keys.length && compareIndexKeys(leaf.keys[pos], key) === 0;
 
@@ -92,27 +97,41 @@ export class BTree {
       if (this.unique && !keyHasNull(key)) {
         throw new Error(`UNIQUE constraint failed: index "${this.indexName}"`);
       }
-      leaf.rowIds[pos].push(rowId);
-    } else {
-      leaf.keys.splice(pos, 0, key);
-      leaf.rowIds.splice(pos, 0, [rowId]);
+      return {
+        ...leaf,
+        rowIds: leaf.rowIds.map((bucket, i) => i === pos ? [...bucket, rowId] : bucket),
+      };
     }
+
+    return {
+      ...leaf,
+      keys: [...leaf.keys.slice(0, pos), key, ...leaf.keys.slice(pos)],
+      rowIds: [...leaf.rowIds.slice(0, pos), [rowId], ...leaf.rowIds.slice(pos)],
+    };
   }
 
-  private removeFromLeaf(leaf: BTreeLeafNode, key: IndexKey, rowId: RowId): boolean {
+  private removeFromLeaf(leaf: BTreeLeafNode, key: IndexKey, rowId: RowId): BTreeLeafNode | null {
     const pos = this.bisectLeft(leaf.keys, key);
-    if (pos >= leaf.keys.length || compareIndexKeys(leaf.keys[pos], key) !== 0) return false;
+    if (pos >= leaf.keys.length || compareIndexKeys(leaf.keys[pos], key) !== 0) return null;
 
     const bucket = leaf.rowIds[pos];
     const idx = bucket.indexOf(rowId);
-    if (idx === -1) return false;
+    if (idx === -1) return null;
 
-    bucket.splice(idx, 1);
-    if (bucket.length === 0) {
-      leaf.keys.splice(pos, 1);
-      leaf.rowIds.splice(pos, 1);
+    const newBucket = [...bucket.slice(0, idx), ...bucket.slice(idx + 1)];
+
+    if (newBucket.length === 0) {
+      return {
+        ...leaf,
+        keys: [...leaf.keys.slice(0, pos), ...leaf.keys.slice(pos + 1)],
+        rowIds: [...leaf.rowIds.slice(0, pos), ...leaf.rowIds.slice(pos + 1)],
+      };
     }
-    return true;
+
+    return {
+      ...leaf,
+      rowIds: leaf.rowIds.map((b, i) => i === pos ? newBucket : b),
+    };
   }
 
   // --- Range scan -----------------------------------------------------------
@@ -252,13 +271,18 @@ export class BTree {
     const newLeaf: BTreeLeafNode = {
       kind: 'leaf',
       nodeId: this.allocNodeId(meta),
-      keys: leaf.keys.splice(mid),
-      rowIds: leaf.rowIds.splice(mid),
+      keys: leaf.keys.slice(mid),
+      rowIds: leaf.rowIds.slice(mid),
       nextLeafId: leaf.nextLeafId,
     };
-    leaf.nextLeafId = newLeaf.nodeId;
+    const updatedLeaf: BTreeLeafNode = {
+      ...leaf,
+      keys: leaf.keys.slice(0, mid),
+      rowIds: leaf.rowIds.slice(0, mid),
+      nextLeafId: newLeaf.nodeId,
+    };
 
-    this.writeNode(leaf);
+    this.writeNode(updatedLeaf);
     this.writeNode(newLeaf);
     await this.propagateSplit(meta, path, path.length - 2, newLeaf.keys[0], newLeaf.nodeId);
   }
@@ -274,12 +298,15 @@ export class BTree {
 
     const parent = path[parentIdx] as BTreeInternalNode;
     const pos = this.bisectRight(parent.keys, key);
-    parent.keys.splice(pos, 0, key);
-    parent.children.splice(pos + 1, 0, rightChildId);
-    this.writeNode(parent);
+    const newParent: BTreeInternalNode = {
+      ...parent,
+      keys: [...parent.keys.slice(0, pos), key, ...parent.keys.slice(pos)],
+      children: [...parent.children.slice(0, pos + 1), rightChildId, ...parent.children.slice(pos + 1)],
+    };
+    this.writeNode(newParent);
 
-    if (parent.keys.length >= ORDER) {
-      await this.splitInternal(meta, parent, path, parentIdx);
+    if (newParent.keys.length >= ORDER) {
+      await this.splitInternal(meta, newParent, path, parentIdx);
     }
   }
 
@@ -293,12 +320,16 @@ export class BTree {
     const newNode: BTreeInternalNode = {
       kind: 'internal',
       nodeId: this.allocNodeId(meta),
-      keys: node.keys.splice(mid + 1),
-      children: node.children.splice(mid + 1),
+      keys: node.keys.slice(mid + 1),
+      children: node.children.slice(mid + 1),
     };
-    node.keys.splice(mid, 1);
+    const updatedNode: BTreeInternalNode = {
+      ...node,
+      keys: node.keys.slice(0, mid),
+      children: node.children.slice(0, mid + 1),
+    };
 
-    this.writeNode(node);
+    this.writeNode(updatedNode);
     this.writeNode(newNode);
     await this.propagateSplit(meta, path, nodeIdx - 1, promotedKey, newNode.nodeId);
   }
@@ -390,7 +421,7 @@ export class BTree {
   }
 
   private initEmptyTree(): BTreeMeta {
-    const meta: BTreeMeta = { rootNodeId: 0, height: 1, nextNodeId: 0, size: 0 };
+    const meta: BTreeMeta = { rootNodeId: 0, height: 1, nextNodeId: 0, size: 0, unique: this.unique };
     meta.rootNodeId = this.createLeaf(meta, [], [], null);
     return meta;
   }

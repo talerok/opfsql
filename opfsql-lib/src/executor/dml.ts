@@ -104,7 +104,7 @@ async function maintainIndexesInsert(
 ): Promise<void> {
   if (!catalog || !indexManager) return;
   for (const idx of catalog.getTableIndexes(tableName)) {
-    await indexManager.insert(idx.name, buildIndexKey(row, idx.columns), rowId, idx.unique);
+    await indexManager.insert(idx.name, buildIndexKey(row, idx.columns), rowId);
   }
 }
 
@@ -169,7 +169,7 @@ async function executeInsertValues(
     const rowId = await rowManager.prepareInsert(op.tableName, row);
     if (indexManager) {
       for (const idx of indexes) {
-        await indexManager.insert(idx.name, buildIndexKey(row, idx.columns), rowId, idx.unique);
+        await indexManager.insert(idx.name, buildIndexKey(row, idx.columns), rowId);
       }
     }
   }

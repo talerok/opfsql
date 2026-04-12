@@ -46,6 +46,8 @@ export interface BTreeMeta {
   nextNodeId: number;
   /** Total number of index entries. */
   size: number;
+  /** Whether this index enforces uniqueness. */
+  unique: boolean;
 }
 
 // ---------------------------------------------------------------------------

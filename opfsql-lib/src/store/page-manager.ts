@@ -47,12 +47,10 @@ export class PageManager implements IKVStore {
   }
 
   writeKey(key: string, value: unknown): void {
-    this.cache.delete(key);
     this.wal.set(key, value);
   }
 
   deleteKey(key: string): void {
-    this.cache.delete(key);
     this.wal.set(key, null);
   }
 
