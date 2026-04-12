@@ -48,6 +48,7 @@ export class Engine {
   private inTransaction = false;
   private transactionAborted = false;
   private catalogSnapshot: CatalogData | null = null;
+  private catalogDirty = false;
 
   private constructor(storage: Storage) {
     this.storage = storage;
@@ -109,7 +110,10 @@ export class Engine {
       const result = await this.runPipeline(stmt);
 
       if (autocommit) {
-        this.writeCatalog();
+        if (this.catalogDirty) {
+          this.writeCatalog();
+          this.catalogDirty = false;
+        }
         await this.storage.kv.commit();
         this.catalogSnapshot = null;
       }
@@ -119,12 +123,14 @@ export class Engine {
       if (autocommit) {
         // Single-statement: rollback WAL and catalog
         this.storage.kv.rollback();
+        this.catalogDirty = false;
         this.catalog = Catalog.deserialize(this.catalogSnapshot!);
         this.binder = new Binder(this.catalog);
         this.catalogSnapshot = null;
       } else {
         // Inside explicit transaction: abort, rollback entire WAL + catalog
         this.transactionAborted = true;
+        this.catalogDirty = false;
         this.storage.kv.rollback();
         if (this.catalogSnapshot) {
           this.catalog = Catalog.deserialize(this.catalogSnapshot);
@@ -165,7 +171,10 @@ export class Engine {
             'current transaction is aborted, COMMIT treated as ROLLBACK',
           );
         }
-        this.writeCatalog();
+        if (this.catalogDirty) {
+          this.writeCatalog();
+          this.catalogDirty = false;
+        }
         await this.storage.kv.commit();
         this.catalogSnapshot = null;
         this.inTransaction = false;
@@ -184,6 +193,7 @@ export class Engine {
             this.binder = new Binder(this.catalog);
           }
         }
+        this.catalogDirty = false;
         this.catalogSnapshot = null;
         this.inTransaction = false;
         this.transactionAborted = false;
@@ -213,6 +223,7 @@ export class Engine {
       this.applyCatalogChange(change);
     }
     if (result.catalogChanges.length > 0) {
+      this.catalogDirty = true;
       this.binder = new Binder(this.catalog);
     }
 
