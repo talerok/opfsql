@@ -18,7 +18,7 @@ import { buildResolver, type Resolver } from './resolve.js';
 import { evaluateExpression } from './evaluate/index.js';
 import { applyComparison, isTruthy } from './evaluate/helpers.js';
 import { createPhysicalPlan } from './planner.js';
-import { drainOperator } from './operators/utils.js';
+import { drainOperator, resolveFilterValue } from './operators/utils.js';
 import { ExecutorError } from './errors.js';
 
 // ---------------------------------------------------------------------------
@@ -76,7 +76,8 @@ async function passesFilter(
   ctx: EvalContext,
 ): Promise<boolean> {
   for (const tf of scan.get.tableFilters) {
-    if (applyComparison(tuple[tf.columnIndex], tf.constant.value, tf.comparisonType) !== true) {
+    const val = resolveFilterValue(tf.constant, ctx.params);
+    if (applyComparison(tuple[tf.columnIndex], val, tf.comparisonType) !== true) {
       return false;
     }
   }

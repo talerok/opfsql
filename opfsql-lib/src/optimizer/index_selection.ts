@@ -97,7 +97,7 @@ function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
       predicates.push({
         columnPosition: i,
         comparisonType: 'EQUAL',
-        value: eqFilter.constant.value,
+        value: eqFilter.constant,
       });
       covered.push(eqFilter);
       prefixMatched++;
@@ -115,7 +115,7 @@ function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
         predicates.push({
           columnPosition: i,
           comparisonType: rf.comparisonType as IndexSearchPredicate['comparisonType'],
-          value: rf.constant.value,
+          value: rf.constant,
         });
         covered.push(rf);
       }

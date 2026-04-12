@@ -1,25 +1,28 @@
-import { Storage } from '../store/storage.js';
-import { Catalog, initCatalog, serializeCatalogEntry } from '../store/catalog.js';
-import { Binder } from '../binder/index.js';
-import { optimize } from '../optimizer/index.js';
-import { execute } from '../executor/index.js';
-import { Parser } from '../parser/index.js';
+import { Binder } from "../binder/index.js";
+import { execute } from "../executor/index.js";
+import type { CatalogChange } from "../executor/types.js";
+import { optimize } from "../optimizer/index.js";
+import { Parser } from "../parser/index.js";
 import {
   StatementType,
   TransactionType,
   type Statement,
   type TransactionStatement,
-} from '../parser/types.js';
-import type { CatalogData, IStorage, Row } from '../store/types.js';
-import type { CatalogChange } from '../executor/types.js';
-
+} from "../parser/types.js";
+import {
+  Catalog,
+  initCatalog,
+  serializeCatalogEntry,
+} from "../store/catalog.js";
+import { Storage } from "../store/storage.js";
+import type { CatalogData, IStorage, Row } from "../store/types.js";
 
 // ---------------------------------------------------------------------------
 // Result type returned to the caller
 // ---------------------------------------------------------------------------
 
 export interface Result {
-  type: 'rows' | 'ok';
+  type: "rows" | "ok";
   rows?: Row[];
   rowsAffected?: number;
 }
@@ -31,7 +34,27 @@ export interface Result {
 export class EngineError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'EngineError';
+    this.name = "EngineError";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prepared statement
+// ---------------------------------------------------------------------------
+
+export type ParamValue = string | number | boolean | null;
+
+/**
+ * A pre-parsed and pre-bound query plan.
+ * Call run(params) to execute without repeating parse+bind+optimize.
+ */
+export class PreparedStatement {
+  constructor(
+    private readonly executeFn: (params: ParamValue[]) => Promise<Result>,
+  ) {}
+
+  run(params: ParamValue[] = []): Promise<Result> {
+    return this.executeFn(params);
   }
 }
 
@@ -70,13 +93,22 @@ export class Engine {
   // Public API
   // -------------------------------------------------------------------------
 
-  async execute(sql: string): Promise<Result[]> {
+  async execute(sql: string, params?: ParamValue[]): Promise<Result[]> {
     const statements = this.parser.parse(sql);
     const results: Result[] = [];
     for (const stmt of statements) {
-      results.push(await this.executeOne(stmt));
+      results.push(await this.executeOne(stmt, params));
     }
     return results;
+  }
+
+  prepare(sql: string): PreparedStatement {
+    const stmts = this.parser.parse(sql);
+    if (stmts.length !== 1) {
+      throw new EngineError("prepare() requires exactly one statement");
+    }
+    const stmt = stmts[0];
+    return new PreparedStatement((params) => this.executeOne(stmt, params));
   }
 
   close(): void {
@@ -87,7 +119,10 @@ export class Engine {
   // Statement dispatch
   // -------------------------------------------------------------------------
 
-  private async executeOne(stmt: Statement): Promise<Result> {
+  private async executeOne(
+    stmt: Statement,
+    params?: ParamValue[],
+  ): Promise<Result> {
     if (stmt.type === StatementType.TRANSACTION_STATEMENT) {
       return this.executeTCL(stmt as TransactionStatement);
     }
@@ -96,7 +131,7 @@ export class Engine {
     // until ROLLBACK.
     if (this.transactionAborted) {
       throw new EngineError(
-        'current transaction is aborted, commands ignored until end of transaction block',
+        "current transaction is aborted, commands ignored until end of transaction block",
       );
     }
 
@@ -107,7 +142,7 @@ export class Engine {
     }
 
     try {
-      const result = await this.runPipeline(stmt);
+      const result = await this.runPipeline(stmt, params);
 
       if (autocommit) {
         if (this.catalogDirty) {
@@ -147,12 +182,12 @@ export class Engine {
   // -------------------------------------------------------------------------
 
   private async executeTCL(stmt: TransactionStatement): Promise<Result> {
-    const ok: Result = { type: 'ok' };
+    const ok: Result = { type: "ok" };
 
     switch (stmt.transaction_type) {
       case TransactionType.BEGIN:
         if (this.inTransaction) {
-          throw new EngineError('already in a transaction');
+          throw new EngineError("already in a transaction");
         }
         this.catalogSnapshot = this.catalog.serialize();
         this.inTransaction = true;
@@ -168,7 +203,7 @@ export class Engine {
           this.inTransaction = false;
           this.transactionAborted = false;
           throw new EngineError(
-            'current transaction is aborted, COMMIT treated as ROLLBACK',
+            "current transaction is aborted, COMMIT treated as ROLLBACK",
           );
         }
         if (this.catalogDirty) {
@@ -209,7 +244,10 @@ export class Engine {
     return stmt.type === StatementType.SELECT_STATEMENT;
   }
 
-  private async runPipeline(stmt: Statement): Promise<Result> {
+  private async runPipeline(
+    stmt: Statement,
+    params?: readonly ParamValue[],
+  ): Promise<Result> {
     const bound = this.binder.bindStatement(stmt);
     const optimized = optimize(bound, this.catalog);
     const result = await execute(
@@ -217,6 +255,7 @@ export class Engine {
       this.storage.rowManager,
       this.catalog,
       this.storage.indexManager,
+      params,
     );
 
     for (const change of result.catalogChanges) {
@@ -228,9 +267,9 @@ export class Engine {
     }
 
     if (this.isQuery(stmt)) {
-      return { type: 'rows', rows: result.rows };
+      return { type: "rows", rows: result.rows };
     }
-    return { type: 'ok', rowsAffected: result.rowsAffected };
+    return { type: "ok", rowsAffected: result.rowsAffected };
   }
 
   // -------------------------------------------------------------------------
@@ -239,19 +278,19 @@ export class Engine {
 
   private applyCatalogChange(change: CatalogChange): void {
     switch (change.type) {
-      case 'CREATE_TABLE':
+      case "CREATE_TABLE":
         this.catalog.addTable(change.schema);
         break;
-      case 'DROP_TABLE':
+      case "DROP_TABLE":
         this.catalog.removeTable(change.name);
         break;
-      case 'ALTER_TABLE':
+      case "ALTER_TABLE":
         this.catalog.updateTable(change.after);
         break;
-      case 'CREATE_INDEX':
+      case "CREATE_INDEX":
         this.catalog.addIndex(change.index);
         break;
-      case 'DROP_INDEX':
+      case "DROP_INDEX":
         this.catalog.removeIndex(change.name);
         break;
     }

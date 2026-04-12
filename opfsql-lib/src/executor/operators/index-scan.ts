@@ -8,7 +8,8 @@ import type { IRowManager, IndexDef, RowId } from '../../store/types.js';
 import type { IIndexManager } from '../../store/index-manager.js';
 import type { SearchPredicate } from '../../store/index-btree/index-btree.js';
 import type { PhysicalOperator, Tuple } from '../types.js';
-import { rowToTuple, passesFilters, SCAN_BATCH } from './utils.js';
+import type { EvalContext } from '../evaluate/context.js';
+import { rowToTuple, passesFilters, resolveFilterValue, SCAN_BATCH } from './utils.js';
 
 export class PhysicalIndexScan implements PhysicalOperator {
   private rowIds: RowId[] | null = null;
@@ -23,6 +24,7 @@ export class PhysicalIndexScan implements PhysicalOperator {
     private readonly indexDef: IndexDef,
     private readonly indexPredicates: IndexSearchPredicate[],
     private readonly residualFilters: TableFilter[],
+    private readonly ctx: EvalContext,
   ) {
     this.layout = op.getColumnBindings();
   }
@@ -47,7 +49,7 @@ export class PhysicalIndexScan implements PhysicalOperator {
         if (row === null) continue; // row was deleted
 
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
-        if (passesFilters(tuple, this.residualFilters, this.op.columnIds)) {
+        if (passesFilters(tuple, this.residualFilters, this.op.columnIds, this.ctx.params)) {
           batch.push(tuple);
         }
       }
@@ -69,7 +71,7 @@ export class PhysicalIndexScan implements PhysicalOperator {
     const predicates: SearchPredicate[] = this.indexPredicates.map((p) => ({
       columnPosition: p.columnPosition,
       comparisonType: p.comparisonType,
-      value: p.value,
+      value: resolveFilterValue(p.value, this.ctx.params),
     }));
     return this.indexManager.search(
       this.indexDef.name,

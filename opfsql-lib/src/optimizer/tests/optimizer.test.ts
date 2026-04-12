@@ -374,7 +374,7 @@ describe('FilterCombiner', () => {
     expect(tableFilters).toHaveLength(1);
     expect(tableFilters[0].columnIndex).toBe(2);
     expect(tableFilters[0].comparisonType).toBe('GREATER');
-    expect(tableFilters[0].constant.value).toBe(18);
+    expect((tableFilters[0].constant as BoundConstantExpression).value).toBe(18);
   });
 
   it('detects unsatisfiable range: x > 10 AND x < 5 → false', () => {
@@ -1081,7 +1081,7 @@ describe('IndexSelection', () => {
     expect(get.indexHint!.indexDef.name).toBe('idx_age');
     expect(get.indexHint!.predicates).toHaveLength(1);
     expect(get.indexHint!.predicates[0].comparisonType).toBe('EQUAL');
-    expect(get.indexHint!.predicates[0].value).toBe(30);
+    expect((get.indexHint!.predicates[0].value as BoundConstantExpression).value).toBe(30);
   });
 
   it('annotates LogicalGet with indexHint for range filter', () => {

@@ -2,6 +2,7 @@ import type {
   ParsedExpression,
   ColumnRefExpression,
   ConstantExpression,
+  ParameterExpression,
   ComparisonExpression,
   ConjunctionExpression,
   OperatorExpression,
@@ -19,6 +20,7 @@ import type { BindScope } from '../core/scope.js';
 import { BindError } from '../core/errors.js';
 import { bindColumnRef } from './column-ref.js';
 import { bindConstant } from './constant.js';
+import { bindParameter } from './parameter.js';
 import { bindComparison } from './comparison.js';
 import { bindConjunction } from './conjunction.js';
 import { bindOperator } from './operator.js';
@@ -39,6 +41,8 @@ export function bindExpression(
       return bindColumnRef(expr as ColumnRefExpression, scope, aggCtx);
     case ExpressionClass.CONSTANT:
       return bindConstant(expr as ConstantExpression);
+    case ExpressionClass.PARAMETER:
+      return bindParameter(expr as ParameterExpression);
     case ExpressionClass.COMPARISON:
       return bindComparison(ctx, expr as ComparisonExpression, scope, aggCtx);
     case ExpressionClass.CONJUNCTION:

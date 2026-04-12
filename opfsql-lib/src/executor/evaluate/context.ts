@@ -1,5 +1,5 @@
 import type { LogicalOperator } from '../../binder/types.js';
-import type { Tuple } from '../types.js';
+import type { Tuple, Value } from '../types.js';
 import type { Resolver } from '../resolve.js';
 
 /**
@@ -21,4 +21,6 @@ export interface EvalContext {
   outerTuple?: Tuple;
   /** Outer resolver for correlated subquery resolution */
   outerResolver?: Resolver;
+  /** Bound parameter values for $1, $2, ... placeholders (0-based). */
+  params?: readonly Value[];
 }

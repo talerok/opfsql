@@ -1,6 +1,23 @@
-import type { TableFilter, TableSchema } from '../../binder/types.js';
+import type {
+  TableFilter,
+  TableSchema,
+  BoundConstantExpression,
+  BoundParameterExpression,
+} from '../../binder/types.js';
+import { BoundExpressionClass } from '../../binder/types.js';
 import type { PhysicalOperator, Tuple, Value } from '../types.js';
 import { applyComparison, serializeValue } from '../evaluate/helpers.js';
+
+/** Resolve a filter value expression (literal or $N parameter) to its runtime scalar. */
+export function resolveFilterValue(
+  constant: BoundConstantExpression | BoundParameterExpression,
+  params?: readonly Value[],
+): Value {
+  if (constant.expressionClass === BoundExpressionClass.BOUND_CONSTANT) {
+    return constant.value;
+  }
+  return params?.[constant.index] ?? null;
+}
 
 /** Batch sizes used across operators. */
 export const SCAN_BATCH = 500;
@@ -36,11 +53,13 @@ export function passesFilters(
   tuple: Tuple,
   filters: TableFilter[],
   columnIds: number[],
+  params?: readonly Value[],
 ): boolean {
   for (const filter of filters) {
     const pos = columnIds.indexOf(filter.columnIndex);
     if (pos === -1) continue;
-    if (applyComparison(tuple[pos], filter.constant.value, filter.comparisonType) !== true) {
+    const val = resolveFilterValue(filter.constant, params);
+    if (applyComparison(tuple[pos], val, filter.comparisonType) !== true) {
       return false;
     }
   }

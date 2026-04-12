@@ -8,13 +8,16 @@ export type LogicalType =
   | "NULL"
   | "ANY";
 
+/** A SQL scalar value: string, number, boolean, or NULL. */
+export type Value = string | number | boolean | null;
+
 export interface ColumnDef {
   name: string;
   type: LogicalType;
   nullable: boolean;
   primaryKey: boolean;
   unique: boolean;
-  defaultValue: string | number | boolean | null;
+  defaultValue: Value;
 }
 
 export interface TableSchema {
@@ -37,7 +40,7 @@ export interface CatalogData {
 /** Logical row identifier — auto-incrementing number managed by TableBTree. */
 export type RowId = number;
 
-export type Row = Record<string, string | number | boolean | null>;
+export type Row = Record<string, Value>;
 
 // ---------------------------------------------------------------------------
 // Storage backend interface (OPFS / IndexedDB / memory)

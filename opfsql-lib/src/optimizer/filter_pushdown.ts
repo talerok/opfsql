@@ -6,21 +6,17 @@ import type {
   LogicalCrossProduct,
   LogicalGet,
   LogicalAggregate,
-  LogicalOrderBy,
-  LogicalLimit,
-  LogicalDistinct,
   LogicalUnion,
   BoundExpression,
   BoundColumnRefExpression,
   BoundComparisonExpression,
   BoundConstantExpression,
+  BoundParameterExpression,
   JoinCondition,
-  ComparisonType,
 } from '../binder/types.js';
 import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
 import {
   flattenConjunction,
-  makeConjunction,
   getExpressionTables,
   getOperatorTables,
   isColumnRef,
@@ -264,16 +260,23 @@ class FilterPushdown {
     const remaining = optimizedFilters.filter((f) => {
       if (!isComparison(f)) return true;
       const cmp = f as BoundComparisonExpression;
-      if (!isColumnRef(cmp.left) || !isConstant(cmp.right)) return true;
+      if (!isColumnRef(cmp.left)) return true;
       const ref = cmp.left as BoundColumnRefExpression;
       if (ref.binding.tableIndex !== op.tableIndex) return true;
-      // Check if this exact filter is in tableFilters
-      return !tableFilters.some(
-        (tf) =>
-          tf.columnIndex === ref.binding.columnIndex &&
-          tf.comparisonType === cmp.comparisonType &&
-          tf.constant.value === (cmp.right as BoundConstantExpression).value,
-      );
+      // Check if this exact filter is already covered by a tableFilter
+      return !tableFilters.some((tf) => {
+        if (tf.columnIndex !== ref.binding.columnIndex) return false;
+        if (tf.comparisonType !== cmp.comparisonType) return false;
+        // For constants: compare values; for parameters: compare indices
+        if (isConstant(tf.constant) && isConstant(cmp.right)) {
+          return (tf.constant as BoundConstantExpression).value === (cmp.right as BoundConstantExpression).value;
+        }
+        if (tf.constant.expressionClass === BoundExpressionClass.BOUND_PARAMETER &&
+            cmp.right.expressionClass === BoundExpressionClass.BOUND_PARAMETER) {
+          return (tf.constant as BoundParameterExpression).index === (cmp.right as BoundParameterExpression).index;
+        }
+        return false;
+      });
     });
 
     this.filters = remaining;

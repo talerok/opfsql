@@ -2,6 +2,7 @@ import type {
   BoundExpression,
   BoundColumnRefExpression,
   BoundConstantExpression,
+  BoundParameterExpression,
   BoundComparisonExpression,
   ComparisonType,
   TableFilter,
@@ -11,12 +12,13 @@ import {
   isConstant,
   isColumnRef,
   isComparison,
-  isConjunction,
   flattenConjunction,
-  makeConjunction,
   makeBoolConstant,
-  expressionsEqual,
 } from './utils/index.js';
+
+function isParameter(expr: BoundExpression): expr is BoundParameterExpression {
+  return expr.expressionClass === BoundExpressionClass.BOUND_PARAMETER;
+}
 
 // ============================================================================
 // FilterCombiner — optimizes a set of AND-combined filter conditions
@@ -31,7 +33,7 @@ import {
 
 interface ConstantComparison {
   comparisonType: ComparisonType;
-  constant: BoundConstantExpression;
+  constant: BoundConstantExpression | BoundParameterExpression;
 }
 
 type FilterResult = 'KEEP' | 'PRUNE' | 'UNSATISFIABLE';
@@ -76,18 +78,18 @@ export class FilterCombiner {
       return;
     }
 
-    // Column COMP Constant → constant filter
-    if (isColumnRef(cmp.left) && isConstant(cmp.right)) {
+    // Column COMP Constant/Parameter → constant filter
+    if (isColumnRef(cmp.left) && (isConstant(cmp.right) || isParameter(cmp.right))) {
       const key = bindingKey(cmp.left as BoundColumnRefExpression);
-      this.addConstantFilter(key, cmp.comparisonType, cmp.right as BoundConstantExpression);
+      this.addConstantFilter(key, cmp.comparisonType, cmp.right as BoundConstantExpression | BoundParameterExpression);
       return;
     }
 
-    // Constant COMP Column → flip and add
-    if (isConstant(cmp.left) && isColumnRef(cmp.right)) {
+    // Constant/Parameter COMP Column → flip and add
+    if ((isConstant(cmp.left) || isParameter(cmp.left)) && isColumnRef(cmp.right)) {
       const key = bindingKey(cmp.right as BoundColumnRefExpression);
       const flipped = flipComparisonType(cmp.comparisonType);
-      this.addConstantFilter(key, flipped, cmp.left as BoundConstantExpression);
+      this.addConstantFilter(key, flipped, cmp.left as BoundConstantExpression | BoundParameterExpression);
       return;
     }
 
@@ -128,7 +130,7 @@ export class FilterCombiner {
   private addConstantFilter(
     key: string,
     comparisonType: ComparisonType,
-    constant: BoundConstantExpression,
+    constant: BoundConstantExpression | BoundParameterExpression,
   ): void {
     let existing = this.constantFilters.get(key);
     if (!existing) {
@@ -165,11 +167,12 @@ export class FilterCombiner {
 
     // Emit constant filters
     for (const [key, filters] of this.constantFilters) {
-      // Check for unsatisfiable marker
+      // Check for unsatisfiable marker (only constants can be unsatisfiable markers)
       if (
         filters.length === 1 &&
         filters[0].comparisonType === 'EQUAL' &&
-        filters[0].constant.value === false &&
+        isConstant(filters[0].constant) &&
+        (filters[0].constant as BoundConstantExpression).value === false &&
         filters[0].constant.returnType === 'BOOLEAN'
       ) {
         return [makeBoolConstant(false)];
@@ -193,7 +196,7 @@ export class FilterCombiner {
       }
     }
 
-    // Generate transitive filters
+    // Generate transitive filters (only propagate constant values, not parameters)
     for (const [key, equivSet] of this.equivalences) {
       const filters = this.constantFilters.get(key);
       if (!filters) continue;
@@ -204,6 +207,8 @@ export class FilterCombiner {
 
         const [tableIndex, columnIndex] = equivKey.split(':').map(Number);
         for (const filter of filters) {
+          // Don't propagate parameter filters transitively — value is unknown at optimize time
+          if (!isConstant(filter.constant)) continue;
           result.push({
             expressionClass: BoundExpressionClass.BOUND_COMPARISON,
             comparisonType: filter.comparisonType,
@@ -238,7 +243,7 @@ export class FilterCombiner {
       if (tIdx !== tableIndex) continue;
 
       for (const filter of filters) {
-        if (filter.constant.returnType === 'BOOLEAN' && filter.constant.value === false) {
+        if (isConstant(filter.constant) && filter.constant.returnType === 'BOOLEAN' && (filter.constant as BoundConstantExpression).value === false) {
           continue; // Skip unsatisfiable markers
         }
         result.push({
@@ -288,8 +293,11 @@ function compareFilters(
   existing: ConstantComparison,
   incoming: ConstantComparison,
 ): FilterResult {
-  const eVal = existing.constant.value;
-  const iVal = incoming.constant.value;
+  // Can't compare at optimize time when either side is a runtime parameter
+  if (!isConstant(existing.constant) || !isConstant(incoming.constant)) return 'KEEP';
+
+  const eVal = (existing.constant as BoundConstantExpression).value;
+  const iVal = (incoming.constant as BoundConstantExpression).value;
 
   // Can only compare numeric values
   if (typeof eVal !== 'number' || typeof iVal !== 'number') {

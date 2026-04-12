@@ -33,6 +33,13 @@ async function exec(sql: string): Promise<unknown[]> {
   return rows;
 }
 
+async function execPrepared(sql: string, bindFn: (stmt: number) => void): Promise<void> {
+  for await (const stmt of sqlite3.statements(db, sql)) {
+    bindFn(stmt);
+    await sqlite3.step(stmt);
+  }
+}
+
 export function createWaSqliteRunner(): BenchmarkRunner {
   return {
     name: 'wa-sqlite',
@@ -56,14 +63,19 @@ export function createWaSqliteRunner(): BenchmarkRunner {
     },
 
     async insertBatch(rows: Row[]) {
-      const stmts = ['BEGIN'];
+      await exec('BEGIN');
       for (const r of rows) {
-        stmts.push(
-          `INSERT INTO products VALUES (${r.id}, '${r.name}', ${r.price}, '${r.category}')`,
+        await execPrepared(
+          'INSERT INTO products VALUES (?, ?, ?, ?)',
+          (stmt) => {
+            sqlite3.bind_int(stmt, 1, r.id);
+            sqlite3.bind_text(stmt, 2, r.name);
+            sqlite3.bind_double(stmt, 3, r.price);
+            sqlite3.bind_text(stmt, 4, r.category);
+          },
         );
       }
-      stmts.push('COMMIT');
-      await exec(stmts.join(';\n'));
+      await exec('COMMIT');
     },
 
     async selectAll() {
@@ -71,7 +83,17 @@ export function createWaSqliteRunner(): BenchmarkRunner {
     },
 
     async selectPoint(id: number) {
-      const rows = await exec(`SELECT * FROM products WHERE id = ${id}`);
+      const rows: unknown[] = [];
+      for await (const stmt of sqlite3.statements(db, 'SELECT * FROM products WHERE id = ?')) {
+        sqlite3.bind_int(stmt, 1, id);
+        const result = await sqlite3.step(stmt);
+        if (result === SQLite.SQLITE_ROW) {
+          const columns = sqlite3.column_names(stmt);
+          const obj: Record<string, unknown> = {};
+          columns.forEach((col: string, i: number) => (obj[col] = sqlite3.column(stmt, i)));
+          rows.push(obj);
+        }
+      }
       return rows[0];
     },
 

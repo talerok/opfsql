@@ -32,6 +32,7 @@ export enum LogicalOperatorType {
 export enum BoundExpressionClass {
   BOUND_COLUMN_REF = 'BOUND_COLUMN_REF',
   BOUND_CONSTANT = 'BOUND_CONSTANT',
+  BOUND_PARAMETER = 'BOUND_PARAMETER',
   BOUND_COMPARISON = 'BOUND_COMPARISON',
   BOUND_CONJUNCTION = 'BOUND_CONJUNCTION',
   BOUND_OPERATOR = 'BOUND_OPERATOR',
@@ -67,6 +68,13 @@ export interface BoundColumnRefExpression {
 export interface BoundConstantExpression {
   expressionClass: BoundExpressionClass.BOUND_CONSTANT;
   value: string | number | boolean | null;
+  returnType: LogicalType;
+}
+
+export interface BoundParameterExpression {
+  expressionClass: BoundExpressionClass.BOUND_PARAMETER;
+  /** 0-based index into the params array supplied at execution time. */
+  index: number;
   returnType: LogicalType;
 }
 
@@ -167,6 +175,7 @@ export interface BoundCastExpression {
 export type BoundExpression =
   | BoundColumnRefExpression
   | BoundConstantExpression
+  | BoundParameterExpression
   | BoundComparisonExpression
   | BoundConjunctionExpression
   | BoundOperatorExpression
@@ -184,7 +193,8 @@ export type BoundExpression =
 export interface TableFilter {
   columnIndex: number;
   comparisonType: ComparisonType;
-  constant: BoundConstantExpression;
+  /** Constant or runtime parameter — resolved to a value at execute time. */
+  constant: BoundConstantExpression | BoundParameterExpression;
 }
 
 export interface JoinCondition {
@@ -203,7 +213,8 @@ export interface IndexSearchPredicate {
   /** Column position in the index's column list (0-based). */
   columnPosition: number;
   comparisonType: Exclude<ComparisonType, 'NOT_EQUAL'>;
-  value: string | number | boolean | null;
+  /** Constant or runtime parameter — resolved to a raw value at execute time. */
+  value: BoundConstantExpression | BoundParameterExpression;
 }
 
 export interface IndexHint {

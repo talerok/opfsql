@@ -2,6 +2,7 @@ import type { BoundExpression } from "../../binder/types.js";
 import { BoundExpressionClass } from "../../binder/types.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
+import { ExecutorError } from "../errors.js";
 import { evalAggregate } from "./aggregate.js";
 import { evalBetween } from "./between.js";
 import { evalCase } from "./case.js";
@@ -31,6 +32,14 @@ export async function evaluateExpression(
       return evalColumnRef(expr, tuple, resolver, ctx);
     case BoundExpressionClass.BOUND_CONSTANT:
       return expr.value;
+    case BoundExpressionClass.BOUND_PARAMETER: {
+      const params = ctx.params;
+      if (!params) throw new ExecutorError('No parameters provided for parameterized query');
+      if (expr.index >= params.length) {
+        throw new ExecutorError(`Parameter $${expr.index + 1} not provided (${params.length} params given)`);
+      }
+      return params[expr.index];
+    }
     case BoundExpressionClass.BOUND_COMPARISON:
       return evalComparison(expr, tuple, resolver, ctx);
     case BoundExpressionClass.BOUND_CONJUNCTION:

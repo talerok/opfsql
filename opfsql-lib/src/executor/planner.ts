@@ -45,7 +45,7 @@ export function createPhysicalPlan(
       if (get.indexHint && indexManager) {
         return new PhysicalIndexScan(
           get, rowManager, indexManager,
-          get.indexHint.indexDef, get.indexHint.predicates, get.indexHint.residualFilters,
+          get.indexHint.indexDef, get.indexHint.predicates, get.indexHint.residualFilters, ctx,
         );
       }
       const childOp = get.children.length > 0 ? plan(get.children[0]) : undefined;

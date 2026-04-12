@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { Engine, EngineError } from '../index.js';
+import { Engine, EngineError, PreparedStatement } from '../index.js';
 import { MemoryStorage } from '../../store/tests/memory-storage.js';
 
 let engine: Engine;
@@ -674,5 +674,117 @@ describe('GROUP BY + aggregates', () => {
       { name: 'b', price: 1.50 },
       { name: 'd', price: 3.25 },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parameterized queries ($1, $2, ...)
+// ---------------------------------------------------------------------------
+
+describe('parameterized queries', () => {
+  it('execute() with $1 in INSERT', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)');
+    await engine.execute('INSERT INTO t (id, name) VALUES ($1, $2)', [1, 'alice']);
+
+    const [result] = await engine.execute('SELECT * FROM t');
+    expect(result.rows).toEqual([{ id: 1, name: 'alice' }]);
+  });
+
+  it('execute() with $1 in WHERE', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)');
+    await engine.execute("INSERT INTO t VALUES (1, 'alice')");
+    await engine.execute("INSERT INTO t VALUES (2, 'bob')");
+
+    const [result] = await engine.execute('SELECT * FROM t WHERE id = $1', [1]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows![0]).toEqual({ id: 1, name: 'alice' });
+  });
+
+  it('execute() with null parameter', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)');
+    await engine.execute('INSERT INTO t (id, val) VALUES ($1, $2)', [1, null]);
+
+    const [result] = await engine.execute('SELECT * FROM t');
+    expect(result.rows![0].val).toBeNull();
+  });
+
+  it('prepare() + run() executes multiple times with different params', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)');
+
+    const stmt = engine.prepare('INSERT INTO t (id, name) VALUES ($1, $2)');
+    expect(stmt).toBeInstanceOf(PreparedStatement);
+
+    await stmt.run([1, 'alice']);
+    await stmt.run([2, 'bob']);
+    await stmt.run([3, 'charlie']);
+
+    const [result] = await engine.execute('SELECT * FROM t ORDER BY id');
+    expect(result.rows).toHaveLength(3);
+    expect(result.rows![0]).toEqual({ id: 1, name: 'alice' });
+    expect(result.rows![1]).toEqual({ id: 2, name: 'bob' });
+    expect(result.rows![2]).toEqual({ id: 3, name: 'charlie' });
+  });
+
+  it('prepare() SELECT with $1 in WHERE returns correct row', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)');
+    await engine.execute('INSERT INTO t VALUES (1, 100)');
+    await engine.execute('INSERT INTO t VALUES (2, 200)');
+    await engine.execute('INSERT INTO t VALUES (3, 300)');
+
+    const stmt = engine.prepare('SELECT val FROM t WHERE id = $1');
+    const r1 = await stmt.run([2]);
+    expect(r1.type).toBe('rows');
+    expect(r1.rows).toHaveLength(1);
+    expect(r1.rows![0].val).toBe(200);
+
+    const r3 = await stmt.run([3]);
+    expect(r3.rows![0].val).toBe(300);
+  });
+
+  it('prepare() requires exactly one statement', async () => {
+    await createEngine();
+    expect(() =>
+      engine.prepare('SELECT 1; SELECT 2'),
+    ).toThrow(EngineError);
+  });
+
+  it('execute() reuses same params array independently per call', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)');
+
+    await engine.execute('INSERT INTO t VALUES ($1, $2)', [10, 99]);
+    await engine.execute('INSERT INTO t VALUES ($1, $2)', [20, 88]);
+
+    const [r] = await engine.execute('SELECT * FROM t ORDER BY id');
+    expect(r.rows).toEqual([{ id: 10, v: 99 }, { id: 20, v: 88 }]);
+  });
+
+  it('UPDATE with parameterized SET and WHERE', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)');
+    await engine.execute("INSERT INTO t VALUES (1, 'old')");
+
+    await engine.execute('UPDATE t SET name = $1 WHERE id = $2', ['new', 1]);
+
+    const [result] = await engine.execute('SELECT name FROM t WHERE id = 1');
+    expect(result.rows![0].name).toBe('new');
+  });
+
+  it('DELETE with parameterized WHERE', async () => {
+    await createEngine();
+    await engine.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+    await engine.execute('INSERT INTO t VALUES (1)');
+    await engine.execute('INSERT INTO t VALUES (2)');
+
+    await engine.execute('DELETE FROM t WHERE id = $1', [1]);
+
+    const [result] = await engine.execute('SELECT * FROM t');
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows![0].id).toBe(2);
   });
 });

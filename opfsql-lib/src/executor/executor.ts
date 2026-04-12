@@ -29,11 +29,13 @@ export async function execute(
   rowManager: IRowManager,
   catalog: ICatalog,
   indexManager?: IIndexManager,
+  params?: readonly Value[],
 ): Promise<ExecuteResult> {
   // Build eval context for subquery support
   const ctx: EvalContext = {
     executeSubplan: (subplan, outerTuple, outerResolver, limit) =>
-      executeSubplan(subplan, rowManager, catalog, outerTuple, outerResolver, limit),
+      executeSubplan(subplan, rowManager, catalog, outerTuple, outerResolver, limit, params),
+    params,
   };
 
   switch (plan.type) {
@@ -96,12 +98,14 @@ async function executeSubplan(
   outerTuple?: Tuple,
   outerResolver?: import('./resolve.js').Resolver,
   limit?: number,
+  params?: readonly Value[],
 ): Promise<Tuple[]> {
   const ctx: EvalContext = {
     executeSubplan: (sub, ot, or_, lim) =>
-      executeSubplan(sub, rowManager, catalog, ot, or_, lim),
+      executeSubplan(sub, rowManager, catalog, ot, or_, lim, params),
     outerTuple,
     outerResolver,
+    params,
   };
   const cteCache = new Map<number, CTECacheEntry>();
   const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx);

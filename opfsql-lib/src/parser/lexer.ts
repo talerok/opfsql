@@ -230,6 +230,19 @@ export class Lexer {
             this.error(`Unexpected character '!'`, startLine, startCol);
           }
           break;
+        case '$': {
+          this.advance();
+          let digits = '';
+          while (this.pos < this.source.length && this.isDigit(this.source[this.pos])) {
+            digits += this.source[this.pos];
+            this.advance();
+          }
+          if (digits.length === 0) {
+            this.error("Expected parameter index after '$'", startLine, startCol);
+          }
+          this.addToken(TokenType.PARAMETER, digits, startLine, startCol);
+          break;
+        }
         default:
           this.error(`Unexpected character '${ch}'`, startLine, startCol);
       }

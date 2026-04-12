@@ -55,7 +55,7 @@ export class PhysicalScan implements PhysicalOperator {
       const result: Tuple[] = [];
       for (const childTuple of batch) {
         const tuple: Tuple = this.op.columnIds.map((colId) => childTuple[colId] ?? null);
-        if (passesFilters(tuple, this.op.tableFilters, this.op.columnIds)) {
+        if (passesFilters(tuple, this.op.tableFilters, this.op.columnIds, this._ctx.params)) {
           result.push(tuple);
         }
       }
@@ -79,7 +79,7 @@ export class PhysicalScan implements PhysicalOperator {
         }
 
         const tuple = rowToTuple(value.row, this.op.columnIds, this.op.schema);
-        if (passesFilters(tuple, this.op.tableFilters, this.op.columnIds)) {
+        if (passesFilters(tuple, this.op.tableFilters, this.op.columnIds, this._ctx.params)) {
           batch.push(tuple);
         }
       }

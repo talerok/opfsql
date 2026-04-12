@@ -55,4 +55,4 @@ export interface BTreeMeta {
 // ---------------------------------------------------------------------------
 
 /** Maximum keys per leaf node. Internal nodes hold ORDER-1 keys and ORDER children. */
-export const ORDER = 1024;
+export const ORDER = 128;

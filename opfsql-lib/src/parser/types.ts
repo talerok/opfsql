@@ -7,6 +7,7 @@ export enum TokenType {
   INTEGER_LITERAL,
   FLOAT_LITERAL,
   STRING_LITERAL,
+  PARAMETER,
 
   // Identifiers
   IDENTIFIER,
@@ -163,6 +164,7 @@ export interface Value {
 export enum ExpressionClass {
   COLUMN_REF = 'COLUMN_REF',
   CONSTANT = 'CONSTANT',
+  PARAMETER = 'PARAMETER',
   COMPARISON = 'COMPARISON',
   CONJUNCTION = 'CONJUNCTION',
   OPERATOR = 'OPERATOR',
@@ -221,6 +223,13 @@ export interface ConstantExpression {
   expression_class: ExpressionClass.CONSTANT;
   alias: string | null;
   value: Value;
+}
+
+/** $1-based parameter placeholder. index is 0-based internally. */
+export interface ParameterExpression {
+  expression_class: ExpressionClass.PARAMETER;
+  alias: string | null;
+  index: number;
 }
 
 export interface ComparisonExpression {
@@ -294,6 +303,7 @@ export interface StarExpression {
 export type ParsedExpression =
   | ColumnRefExpression
   | ConstantExpression
+  | ParameterExpression
   | ComparisonExpression
   | ConjunctionExpression
   | OperatorExpression

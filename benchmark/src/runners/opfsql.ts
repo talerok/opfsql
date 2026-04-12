@@ -1,22 +1,27 @@
-import { Engine } from "../../../opfsql-lib/src/index.js";
-import { OPFSStorage } from "../../../opfsql-lib/src/store/storage/opfs-storage.js";
-import type { BenchmarkRunner, Row, OrderRow } from "../types.js";
+import { Engine, PreparedStatement } from '../../../opfsql-lib/src/index.js';
+import { OPFSStorage } from '../../../opfsql-lib/src/store/storage/opfs-storage.js';
+import type { BenchmarkRunner, Row, OrderRow } from '../types.js';
 
-const DB_NAME = "bench-opfsql";
+const DB_NAME = 'bench-opfsql';
+
+async function cleanOpfs() {
+  const root = await navigator.storage.getDirectory();
+  try {
+    await root.removeEntry(DB_NAME, { recursive: true });
+  } catch {}
+}
 
 export function createOpfsqlRunner(): BenchmarkRunner {
   let engine: Engine;
+  let insertStmt: PreparedStatement;
+  let selectPointStmt: PreparedStatement;
 
   return {
-    name: "opfsql",
-    storage: "OPFS",
+    name: 'opfsql',
+    storage: 'OPFS',
 
     async setup() {
-      const root = await navigator.storage.getDirectory();
-      try {
-        await root.removeEntry(DB_NAME, { recursive: true });
-      } catch {}
-
+      await cleanOpfs();
       const storage = new OPFSStorage(DB_NAME);
       engine = await Engine.create(storage);
       await engine.execute(`
@@ -27,36 +32,30 @@ export function createOpfsqlRunner(): BenchmarkRunner {
           category TEXT
         )
       `);
+      insertStmt = engine.prepare('INSERT INTO products VALUES ($1, $2, $3, $4)');
+      selectPointStmt = engine.prepare('SELECT * FROM products WHERE id = $1');
     },
 
     async teardown() {
       engine.close();
-      const root = await navigator.storage.getDirectory();
-      try {
-        await root.removeEntry(DB_NAME, { recursive: true });
-      } catch {}
+      await cleanOpfs();
     },
 
     async insertBatch(rows: Row[]) {
-      const stmts = ['BEGIN'];
+      await engine.execute('BEGIN');
       for (const r of rows) {
-        stmts.push(
-          `INSERT INTO products VALUES (${r.id}, '${r.name}', ${r.price}, '${r.category}')`,
-        );
+        await insertStmt.run([r.id, r.name, r.price, r.category]);
       }
-      stmts.push('COMMIT');
-      await engine.execute(stmts.join(';\n'));
+      await engine.execute('COMMIT');
     },
 
     async selectAll() {
-      const [r] = await engine.execute("SELECT * FROM products");
+      const [r] = await engine.execute('SELECT * FROM products');
       return r.rows!;
     },
 
     async selectPoint(id: number) {
-      const [r] = await engine.execute(
-        `SELECT * FROM products WHERE id = ${id}`,
-      );
+      const r = await selectPointStmt.run([id]);
       return r.rows![0];
     },
 
@@ -69,17 +68,13 @@ export function createOpfsqlRunner(): BenchmarkRunner {
 
     async aggregate() {
       const [r] = await engine.execute(
-        "SELECT category, COUNT(*) AS cnt, AVG(price) AS avg_price FROM products GROUP BY category",
+        'SELECT category, COUNT(*) AS cnt, AVG(price) AS avg_price FROM products GROUP BY category',
       );
       return r.rows!;
     },
 
     async setupComplex(productRows: Row[], orderRows: OrderRow[]) {
-      const root = await navigator.storage.getDirectory();
-      try {
-        await root.removeEntry(DB_NAME, { recursive: true });
-      } catch {}
-
+      await cleanOpfs();
       const storage = new OPFSStorage(DB_NAME);
       engine = await Engine.create(storage);
 
@@ -103,36 +98,27 @@ export function createOpfsqlRunner(): BenchmarkRunner {
       await engine.execute('CREATE INDEX idx_orders_product ON orders(product_id)');
       await engine.execute('CREATE INDEX idx_orders_customer ON orders(customer_id)');
 
-      // Insert products
-      const pStmts = ['BEGIN'];
+      const pStmt = engine.prepare('INSERT INTO products VALUES ($1, $2, $3, $4)');
+      await engine.execute('BEGIN');
       for (const r of productRows) {
-        pStmts.push(
-          `INSERT INTO products VALUES (${r.id}, '${r.name}', ${r.price}, '${r.category}')`,
-        );
+        await pStmt.run([r.id, r.name, r.price, r.category]);
       }
-      pStmts.push('COMMIT');
-      await engine.execute(pStmts.join(';\n'));
+      await engine.execute('COMMIT');
 
-      // Insert orders in batches of 10k
+      const oStmt = engine.prepare('INSERT INTO orders VALUES ($1, $2, $3, $4, $5)');
       for (let i = 0; i < orderRows.length; i += 10000) {
         const batch = orderRows.slice(i, i + 10000);
-        const oStmts = ['BEGIN'];
+        await engine.execute('BEGIN');
         for (const r of batch) {
-          oStmts.push(
-            `INSERT INTO orders VALUES (${r.id}, ${r.product_id}, ${r.customer_id}, ${r.quantity}, ${r.total})`,
-          );
+          await oStmt.run([r.id, r.product_id, r.customer_id, r.quantity, r.total]);
         }
-        oStmts.push('COMMIT');
-        await engine.execute(oStmts.join(';\n'));
+        await engine.execute('COMMIT');
       }
     },
 
     async teardownComplex() {
       engine.close();
-      const root = await navigator.storage.getDirectory();
-      try {
-        await root.removeEntry(DB_NAME, { recursive: true });
-      } catch {}
+      await cleanOpfs();
     },
 
     async joinAgg() {

@@ -6,6 +6,7 @@ import {
   FunctionExpression, SubqueryExpression, CaseExpression,
   CastExpression,
   SelectStatement,
+  ParseError,
 } from '../types.js';
 import { parseTypeToken } from './type-parser.js';
 
@@ -375,6 +376,19 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
       expression_class: ExpressionClass.CONSTANT,
       alias: null,
       value: { type: { id: LogicalTypeId.INTEGER }, is_null: true, value: null },
+    };
+  }
+
+  if (p.check(TokenType.PARAMETER)) {
+    p.advance();
+    const index = parseInt(token.value, 10) - 1; // $1 → index 0
+    if (index < 0) {
+      throw new ParseError(`Parameter index must be >= 1`, token.line, token.column, token);
+    }
+    return {
+      expression_class: ExpressionClass.PARAMETER,
+      alias: null,
+      index,
     };
   }
 
