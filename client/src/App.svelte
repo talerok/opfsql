@@ -1,19 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Engine, type Result } from '../../opfsql-lib/src/index.js';
-  import { OPFSStorage } from '../../opfsql-lib/src/store/storage/opfs-storage.js';
+  import { WorkerEngine } from '../../opfsql-lib/src/worker/client.js';
+  import type { Result } from '../../opfsql-lib/src/engine/index.js';
 
-  let engine: Engine | null = $state(null);
+  const DB_NAME = 'sql-client';
+  const WORKER_URL = new URL('../../opfsql-lib/src/worker/worker.ts', import.meta.url);
+
+  const engine = new WorkerEngine(WORKER_URL);
+
   let sql = $state('');
   let results: Result[] = $state([]);
   let error: string | null = $state(null);
   let loading = $state(false);
-  let status = $state('Initializing engine...');
+  let status = $state('Initializing...');
 
   onMount(async () => {
     try {
-      const backend = new OPFSStorage('sql-client');
-      engine = await Engine.create(backend);
+      await engine.open(DB_NAME);
       status = 'Ready';
     } catch (e: any) {
       status = 'Failed to initialize';
@@ -22,13 +25,11 @@
   });
 
   async function execute() {
-    if (!engine || !sql.trim()) return;
-
+    if (!sql.trim()) return;
     loading = true;
     error = null;
-
     try {
-      results = await engine.execute(sql);
+      results = await engine.exec(sql);
     } catch (e: any) {
       error = e.message;
       results = [];
@@ -37,10 +38,25 @@
     }
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      execute();
+  async function clearDb() {
+    loading = true;
+    error = null;
+    try {
+      await engine.close();
+      const root = await navigator.storage.getDirectory();
+      try { await root.removeEntry(`${DB_NAME}.opfsql`); } catch {}
+      await engine.open(DB_NAME);
+      results = [];
+      status = 'Ready';
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loading = false;
     }
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') execute();
   }
 </script>
 
@@ -90,10 +106,15 @@
       onkeydown={handleKeydown}
       placeholder="Enter SQL query... (Ctrl+Enter to execute)"
       rows="5"
-      disabled={!engine}
+      disabled={status !== 'Ready'}
     ></textarea>
-    <button onclick={execute} disabled={!engine || loading || !sql.trim()}>
-      {loading ? 'Executing...' : 'Execute'}
-    </button>
+    <div class="actions">
+      <button onclick={execute} disabled={status !== 'Ready' || loading || !sql.trim()}>
+        {loading ? 'Executing...' : 'Execute'}
+      </button>
+      <button class="danger" onclick={clearDb} disabled={loading}>
+        Clear DB
+      </button>
+    </div>
   </div>
 </div>

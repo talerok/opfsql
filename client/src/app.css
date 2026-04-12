@@ -120,8 +120,13 @@ textarea:disabled {
   opacity: 0.5;
 }
 
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 button {
-  align-self: flex-end;
   background: #89b4fa;
   color: #1e1e2e;
   border: none;
@@ -130,6 +135,11 @@ button {
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+button.danger {
+  background: #313244;
+  color: #f38ba8;
 }
 
 button:hover:not(:disabled) {
