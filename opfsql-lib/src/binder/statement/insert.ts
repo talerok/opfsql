@@ -1,4 +1,4 @@
-import type { InsertStatement, OnConflictClause } from '../../parser/types.js';
+import type { InsertStatement, OnConflictClause, OnConflictUpdate } from '../../parser/types.js';
 import type * as BT from '../types.js';
 import { LogicalOperatorType } from '../types.js';
 import { BindError } from '../core/errors.js';
@@ -95,10 +95,22 @@ function bindOnConflict(
   clause: OnConflictClause,
   schema: BT.TableSchema,
 ): BT.BoundOnConflict {
-  // Resolve conflict target columns
-  let conflictColumns: number[];
+  const conflictColumns = resolveConflictColumns(ctx, clause, schema);
+  validateConflictTarget(conflictColumns, schema, ctx);
+
+  if (clause.action === 'NOTHING') {
+    return bindDoNothing(conflictColumns);
+  }
+  return bindDoUpdate(ctx, clause.action, conflictColumns, schema);
+}
+
+function resolveConflictColumns(
+  ctx: BindContext,
+  clause: OnConflictClause,
+  schema: BT.TableSchema,
+): number[] {
   if (clause.conflictTarget) {
-    conflictColumns = clause.conflictTarget.map((colName) => {
+    return clause.conflictTarget.map((colName) => {
       const lower = colName.toLowerCase();
       const idx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
       if (idx === -1) {
@@ -106,46 +118,57 @@ function bindOnConflict(
       }
       return idx;
     });
-  } else {
-    // No explicit target: use primary key columns
-    conflictColumns = schema.columns
-      .map((c, i) => (c.primaryKey ? i : -1))
-      .filter((i) => i !== -1);
-    if (conflictColumns.length === 0) {
-      // Fall back to first unique column
-      const uniqueIdx = schema.columns.findIndex((c) => c.unique);
-      if (uniqueIdx === -1) {
-        throw new BindError(
-          `ON CONFLICT requires a conflict target or a PRIMARY KEY / UNIQUE constraint on table "${schema.name}"`,
-        );
-      }
-      conflictColumns = [uniqueIdx];
-    }
   }
 
-  // Validate conflict columns form a unique or pk constraint
-  validateConflictTarget(conflictColumns, schema, ctx);
+  // No explicit target — infer from PK
+  const pkCols = schema.columns
+    .map((c, i) => (c.primaryKey ? i : -1))
+    .filter((i) => i !== -1);
+  if (pkCols.length > 0) return pkCols;
 
-  if (clause.action === 'NOTHING') {
-    return {
-      conflictColumns,
-      action: 'NOTHING',
-      updateColumns: [],
-      updateExpressions: [],
-      whereExpression: null,
-      targetTableIndex: -1,
-      excludedTableIndex: -1,
-    };
+  // Fall back to first inline unique column
+  const uniqueIdx = schema.columns.findIndex((c) => c.unique);
+  if (uniqueIdx !== -1) return [uniqueIdx];
+
+  // Fall back to first unique index
+  const uIdx = ctx.catalog.getTableIndexes(schema.name).find((idx) => idx.unique);
+  if (uIdx) {
+    return uIdx.columns.map((colName) => {
+      const lower = colName.toLowerCase();
+      return schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
+    });
   }
 
-  // DO UPDATE — bind SET clauses and WHERE with both target table and excluded in scope
+  throw new BindError(
+    `ON CONFLICT requires a conflict target or a PRIMARY KEY / UNIQUE constraint on table "${schema.name}"`,
+  );
+}
+
+function bindDoNothing(conflictColumns: number[]): BT.BoundOnConflict {
+  return {
+    conflictColumns,
+    action: 'NOTHING',
+    updateColumns: [],
+    updateExpressions: [],
+    whereExpression: null,
+    targetTableIndex: -1,
+    excludedTableIndex: -1,
+  };
+}
+
+function bindDoUpdate(
+  ctx: BindContext,
+  action: OnConflictUpdate,
+  conflictColumns: number[],
+  schema: BT.TableSchema,
+): BT.BoundOnConflict {
   const scope = ctx.createScope();
-  const tableEntry = scope.addTable(schema.name, schema.name, schema);
-  const excludedEntry = scope.addTable(schema.name, 'excluded', schema);
+  const tableEntry = scope.addTable(schema.name, schema.name, schema); // target table
+  const excludedEntry = scope.addTable(schema.name, 'excluded', schema); // pseudo-table for new row values
 
   const updateColumns: number[] = [];
   const updateExpressions: BT.BoundExpression[] = [];
-  for (const sc of clause.action.setClauses) {
+  for (const sc of action.setClauses) {
     const lower = sc.column.toLowerCase();
     const colIdx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
     if (colIdx === -1) {
@@ -155,10 +178,9 @@ function bindOnConflict(
     updateExpressions.push(bindExpression(ctx, sc.value, scope));
   }
 
-  let whereExpression: BT.BoundExpression | null = null;
-  if (clause.action.whereClause) {
-    whereExpression = bindExpression(ctx, clause.action.whereClause, scope);
-  }
+  const whereExpression = action.whereClause
+    ? bindExpression(ctx, action.whereClause, scope)
+    : null;
 
   return {
     conflictColumns,

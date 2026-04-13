@@ -428,7 +428,11 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
     return expr;
   }
 
-  if (p.check(TokenType.IDENTIFIER) || p.check(TokenType.QUOTED_IDENTIFIER) || p.check(TokenType.EXCLUDED)) {
+  if (
+    p.check(TokenType.IDENTIFIER) ||
+    p.check(TokenType.QUOTED_IDENTIFIER) ||
+    p.check(TokenType.EXCLUDED)
+  ) {
     return parseColumnOrFunction(p);
   }
 

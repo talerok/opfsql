@@ -1,0 +1,154 @@
+# autoincrement.slt — INTEGER PRIMARY KEY AUTOINCREMENT
+
+# --- Basic autoincrement ---
+
+statement ok
+CREATE TABLE t1 (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)
+
+statement ok
+INSERT INTO t1 (name) VALUES ('Alice')
+
+statement ok
+INSERT INTO t1 (name) VALUES ('Bob')
+
+statement ok
+INSERT INTO t1 (name) VALUES ('Charlie')
+
+query IT nosort
+SELECT * FROM t1
+----
+1|Alice
+2|Bob
+3|Charlie
+
+# --- Explicit value advances the sequence ---
+
+statement ok
+INSERT INTO t1 (id, name) VALUES (10, 'Dave')
+
+statement ok
+INSERT INTO t1 (name) VALUES ('Eve')
+
+query IT nosort
+SELECT * FROM t1 WHERE id >= 10
+----
+10|Dave
+11|Eve
+
+# --- NULL in autoincrement column triggers auto-generation ---
+
+statement ok
+INSERT INTO t1 (id, name) VALUES (NULL, 'Frank')
+
+query IT nosort
+SELECT * FROM t1 WHERE name = 'Frank'
+----
+12|Frank
+
+# --- Explicit value lower than seq doesn't change seq ---
+
+statement ok
+INSERT INTO t1 (id, name) VALUES (5, 'Grace')
+
+statement ok
+INSERT INTO t1 (name) VALUES ('Heidi')
+
+query IT nosort
+SELECT * FROM t1 WHERE name = 'Heidi'
+----
+13|Heidi
+
+# --- Autoincrement with all columns specified ---
+
+statement ok
+CREATE TABLE t2 (id INTEGER PRIMARY KEY AUTOINCREMENT, a TEXT, b INTEGER)
+
+statement ok
+INSERT INTO t2 (a, b) VALUES ('x', 1)
+
+statement ok
+INSERT INTO t2 (a, b) VALUES ('y', 2)
+
+statement ok
+INSERT INTO t2 (id, a, b) VALUES (100, 'z', 3)
+
+statement ok
+INSERT INTO t2 (a, b) VALUES ('w', 4)
+
+query ITI nosort
+SELECT * FROM t2
+----
+1|x|1
+2|y|2
+100|z|3
+101|w|4
+
+# --- Autoincrement with default values ---
+
+statement ok
+CREATE TABLE t3 (id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT DEFAULT 'active')
+
+statement ok
+INSERT INTO t3 (status) VALUES ('active')
+
+statement ok
+INSERT INTO t3 (status) VALUES ('inactive')
+
+query IT nosort
+SELECT * FROM t3
+----
+1|active
+2|inactive
+
+# --- Autoincrement with INSERT ... SELECT ---
+
+statement ok
+CREATE TABLE names (name TEXT)
+
+statement ok
+INSERT INTO names (name) VALUES ('X'), ('Y'), ('Z')
+
+statement ok
+CREATE TABLE t4 (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)
+
+statement ok
+INSERT INTO t4 (name) SELECT name FROM names
+
+query IT nosort
+SELECT * FROM t4
+----
+1|X
+2|Y
+3|Z
+
+# --- AUTOINCREMENT on non-INTEGER column fails ---
+
+statement error
+CREATE TABLE bad1 (id TEXT PRIMARY KEY AUTOINCREMENT)
+
+# --- AUTOINCREMENT on non-PRIMARY KEY column fails ---
+
+statement error
+CREATE TABLE bad2 (id INTEGER AUTOINCREMENT, name TEXT)
+
+# --- Multiple AUTOINCREMENT columns fail ---
+
+statement error
+CREATE TABLE bad3 (a INTEGER PRIMARY KEY AUTOINCREMENT, b INTEGER PRIMARY KEY AUTOINCREMENT)
+
+# --- Cleanup ---
+
+statement ok
+DROP TABLE t1
+
+statement ok
+DROP TABLE t2
+
+statement ok
+DROP TABLE t3
+
+statement ok
+DROP TABLE names
+
+statement ok
+DROP TABLE t4

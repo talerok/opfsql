@@ -250,6 +250,17 @@ function executeInsertSelect(
  * Insert a single row, handling ON CONFLICT if present.
  * Returns true if the row was inserted or updated (counts as affected).
  */
+function doInsert(
+  tableName: string,
+  row: Row,
+  rowManager: SyncIRowManager,
+  catalog?: ICatalog,
+  indexManager?: SyncIIndexManager,
+): void {
+  const rowId = rowManager.prepareInsert(tableName, row);
+  maintainIndexesInsert(tableName, row, rowId, catalog, indexManager);
+}
+
 function insertOrUpsertRow(
   op: LogicalInsert,
   newRow: Row,
@@ -259,24 +270,19 @@ function insertOrUpsertRow(
   indexManager?: SyncIIndexManager,
 ): boolean {
   if (!op.onConflict) {
-    // Normal insert
-    const rowId = rowManager.prepareInsert(op.tableName, newRow);
-    maintainIndexesInsert(op.tableName, newRow, rowId, catalog, indexManager);
+    doInsert(op.tableName, newRow, rowManager, catalog, indexManager);
     return true;
   }
 
   const oc = op.onConflict;
   const conflictColNames = oc.conflictColumns.map((i) => op.schema.columns[i].name);
 
-  // Find conflicting row
   const conflict = findConflictingRow(
     op.tableName, newRow, conflictColNames, rowManager, catalog, indexManager,
   );
 
   if (!conflict) {
-    // No conflict — normal insert
-    const rowId = rowManager.prepareInsert(op.tableName, newRow);
-    maintainIndexesInsert(op.tableName, newRow, rowId, catalog, indexManager);
+    doInsert(op.tableName, newRow, rowManager, catalog, indexManager);
     return true;
   }
 
@@ -284,7 +290,6 @@ function insertOrUpsertRow(
     return false;
   }
 
-  // DO UPDATE
   return executeConflictUpdate(
     op, oc, conflict.rowId, conflict.row, newRow, rowManager, ctx, catalog, indexManager,
   );

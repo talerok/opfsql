@@ -1,0 +1,217 @@
+# upsert.slt — INSERT ... ON CONFLICT DO NOTHING / DO UPDATE
+
+statement ok
+CREATE TABLE kv (k INTEGER PRIMARY KEY, v TEXT)
+
+statement ok
+INSERT INTO kv (k, v) VALUES (1, 'one')
+
+statement ok
+INSERT INTO kv (k, v) VALUES (2, 'two')
+
+# --- DO NOTHING: skip on conflict ---
+
+statement ok
+INSERT INTO kv (k, v) VALUES (1, 'ONE') ON CONFLICT (k) DO NOTHING
+
+query IT rowsort
+SELECT * FROM kv
+----
+1|one
+2|two
+
+# --- DO NOTHING: insert when no conflict ---
+
+statement ok
+INSERT INTO kv (k, v) VALUES (3, 'three') ON CONFLICT (k) DO NOTHING
+
+query IT rowsort
+SELECT * FROM kv
+----
+1|one
+2|two
+3|three
+
+# --- DO UPDATE SET: update on conflict ---
+
+statement ok
+INSERT INTO kv (k, v) VALUES (1, 'ONE') ON CONFLICT (k) DO UPDATE SET v = excluded.v
+
+query IT rowsort
+SELECT * FROM kv
+----
+1|ONE
+2|two
+3|three
+
+# --- DO UPDATE with expression mixing target and excluded ---
+
+statement ok
+INSERT INTO kv (k, v) VALUES (2, 'TWO') ON CONFLICT (k) DO UPDATE SET v = concat(kv.v, '+', excluded.v)
+
+query IT rowsort
+SELECT * FROM kv
+----
+1|ONE
+2|two+TWO
+3|three
+
+# --- DO UPDATE with WHERE that rejects ---
+
+statement ok
+CREATE TABLE scores (id INTEGER PRIMARY KEY, name TEXT, score INTEGER)
+
+statement ok
+INSERT INTO scores (id, name, score) VALUES (1, 'Alice', 100)
+
+statement ok
+INSERT INTO scores (id, name, score) VALUES (1, 'Alice', 50) ON CONFLICT (id) DO UPDATE SET score = excluded.score WHERE excluded.score > scores.score
+
+# excluded.score=50 < scores.score=100, so no update
+query IIT nosort
+SELECT * FROM scores
+----
+1|Alice|100
+
+# --- DO UPDATE with WHERE that accepts ---
+
+statement ok
+INSERT INTO scores (id, name, score) VALUES (1, 'Alice', 200) ON CONFLICT (id) DO UPDATE SET score = excluded.score WHERE excluded.score > scores.score
+
+query IIT nosort
+SELECT * FROM scores
+----
+1|Alice|200
+
+# --- Multi-row insert with mixed conflicts ---
+
+statement ok
+INSERT INTO scores (id, name, score) VALUES (1, 'X', 0), (2, 'Bob', 80), (1, 'Y', 0), (3, 'Charlie', 90) ON CONFLICT (id) DO NOTHING
+
+query IIT rowsort
+SELECT * FROM scores
+----
+1|Alice|200
+2|Bob|80
+3|Charlie|90
+
+# --- DO NOTHING without explicit target (infer PK) ---
+
+statement ok
+INSERT INTO scores (id, name, score) VALUES (2, 'X', 0) ON CONFLICT DO NOTHING
+
+query I nosort
+SELECT count(*) FROM scores
+----
+3
+
+# --- DO UPDATE without explicit target (infer PK) ---
+
+statement ok
+INSERT INTO scores (id, name, score) VALUES (3, 'Charles', 95) ON CONFLICT DO UPDATE SET name = excluded.name, score = excluded.score
+
+query IT nosort
+SELECT name, score FROM scores WHERE id = 3
+----
+Charles|95
+
+# --- UPSERT with unique column (not PK) ---
+
+statement ok
+CREATE TABLE emails (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT)
+
+statement ok
+INSERT INTO emails (id, email, name) VALUES (1, 'a@b.com', 'Alice')
+
+statement ok
+INSERT INTO emails (id, email, name) VALUES (2, 'a@b.com', 'Bob') ON CONFLICT (email) DO UPDATE SET name = excluded.name
+
+query ITT nosort
+SELECT * FROM emails
+----
+1|a@b.com|Bob
+
+# --- UPSERT with unique index ---
+
+statement ok
+CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT)
+
+statement ok
+CREATE UNIQUE INDEX idx_sku ON products (sku)
+
+statement ok
+INSERT INTO products (id, sku, name) VALUES (1, 'ABC', 'Widget')
+
+statement ok
+INSERT INTO products (id, sku, name) VALUES (2, 'ABC', 'Gadget') ON CONFLICT (sku) DO UPDATE SET name = excluded.name
+
+query ITT nosort
+SELECT * FROM products
+----
+1|ABC|Gadget
+
+# --- DO UPDATE SET multiple columns ---
+
+statement ok
+INSERT INTO products (id, sku, name) VALUES (3, 'ABC', 'Thing') ON CONFLICT (sku) DO UPDATE SET name = excluded.name, sku = excluded.sku
+
+query ITT nosort
+SELECT * FROM products
+----
+1|ABC|Thing
+
+# --- NULL never conflicts ---
+
+statement ok
+CREATE TABLE nullable_uk (id INTEGER PRIMARY KEY, code TEXT UNIQUE)
+
+statement ok
+INSERT INTO nullable_uk (id, code) VALUES (1, NULL)
+
+statement ok
+INSERT INTO nullable_uk (id, code) VALUES (2, NULL) ON CONFLICT (code) DO NOTHING
+
+# Both rows inserted — NULL does not conflict
+query I nosort
+SELECT count(*) FROM nullable_uk
+----
+2
+
+# --- INSERT ... SELECT ... ON CONFLICT ---
+
+statement ok
+CREATE TABLE src (k INTEGER, v TEXT)
+
+statement ok
+INSERT INTO src (k, v) VALUES (1, 'new_one'), (4, 'four')
+
+statement ok
+INSERT INTO kv (k, v) SELECT k, v FROM src ON CONFLICT (k) DO UPDATE SET v = excluded.v
+
+query IT rowsort
+SELECT * FROM kv
+----
+1|new_one
+2|two+TWO
+3|three
+4|four
+
+# --- Cleanup ---
+
+statement ok
+DROP TABLE kv
+
+statement ok
+DROP TABLE scores
+
+statement ok
+DROP TABLE emails
+
+statement ok
+DROP TABLE products
+
+statement ok
+DROP TABLE nullable_uk
+
+statement ok
+DROP TABLE src
