@@ -144,6 +144,20 @@ describe('Lexer', () => {
     ]);
   });
 
+  it('tokenizes JSON keyword', () => {
+    const types = tokenTypes('JSON');
+    expect(types).toEqual([TokenType.JSON_KW, TokenType.EOF]);
+  });
+
+  it('tokenizes brackets', () => {
+    const types = tokenTypes('data[0]');
+    expect(types).toEqual([
+      TokenType.IDENTIFIER, TokenType.LEFT_BRACKET,
+      TokenType.INTEGER_LITERAL, TokenType.RIGHT_BRACKET,
+      TokenType.EOF,
+    ]);
+  });
+
   it('tokenizes a full SELECT statement', () => {
     const types = tokenTypes("SELECT id, name FROM users WHERE age > 18");
     expect(types).toEqual([

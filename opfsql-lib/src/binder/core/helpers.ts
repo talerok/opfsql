@@ -33,7 +33,7 @@ export function evalConstantValue(
 ): string | number | boolean | null {
   if (expr.expression_class === ExpressionClass.CONSTANT) {
     const c = expr as ConstantExpression;
-    return c.value.value;
+    return c.value.value as string | number | boolean | null;
   }
   return null;
 }

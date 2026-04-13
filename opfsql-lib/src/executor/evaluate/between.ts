@@ -2,7 +2,7 @@ import type {
   BoundBetweenExpression,
   BoundExpression,
 } from "../../binder/types.js";
-import { compareValues } from "../../executor/evaluate/helpers.js";
+import { compareValues } from "./utils/compare.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
 import type { SyncEvalContext } from "./context.js";

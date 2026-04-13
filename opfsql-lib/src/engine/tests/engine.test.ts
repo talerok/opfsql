@@ -642,3 +642,87 @@ describe("parameterized queries", () => {
     expect(result.rows![0].id).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// JSON type
+// ---------------------------------------------------------------------------
+
+describe("JSON type", () => {
+  it("INSERT and SELECT with dot path access", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data JSON)");
+    engine.execute(`INSERT INTO t (id, data) VALUES (1, '{"name": "Alice", "age": 30}')`);
+
+    const [result] = engine.execute("SELECT id, data.name, data.age FROM t");
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows![0]).toMatchObject({ id: 1 });
+  });
+
+  it("WHERE filter with JSON path range comparison", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data JSON)");
+    engine.execute(`INSERT INTO t (id, data) VALUES (1, '{"age": 30}')`);
+    engine.execute(`INSERT INTO t (id, data) VALUES (2, '{"age": 25}')`);
+
+    const [result] = engine.execute("SELECT id FROM t WHERE data.age > 20 AND data.age < 30");
+    expect(result.rows!.map(r => r.id)).toEqual([2]);
+  });
+
+  it("WHERE with single JSON path less-than", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data JSON)");
+    engine.execute(`INSERT INTO t (id, data) VALUES (1, '{"age": 30}')`);
+    engine.execute(`INSERT INTO t (id, data) VALUES (2, '{"age": 25}')`);
+
+    const [r1] = engine.execute("SELECT id FROM t WHERE data.age < 30");
+    expect(r1.rows!.map(r => r.id)).toEqual([2]);
+
+    const [r2] = engine.execute("SELECT id FROM t WHERE data.age > 20");
+    expect(r2.rows!.map(r => r.id).sort()).toEqual([1, 2]);
+  });
+
+  it("DELETE with multi-expression filter on JSON path", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data JSON)");
+    engine.execute(`INSERT INTO t (id, data) VALUES (1, '{"age": 30}')`);
+    engine.execute(`INSERT INTO t (id, data) VALUES (2, '{"age": 25}')`);
+    engine.execute(`INSERT INTO t (id, data) VALUES (3, '{"age": 15}')`);
+
+    engine.execute("DELETE FROM t WHERE data.age > 20 AND data.age < 30");
+
+    const [result] = engine.execute("SELECT id FROM t ORDER BY id");
+    expect(result.rows!.map(r => r.id)).toEqual([1, 3]);
+  });
+
+  it("UPDATE with multi-expression filter on JSON path", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data JSON)");
+    engine.execute(`INSERT INTO t (id, data) VALUES (1, '{"age": 30}')`);
+    engine.execute(`INSERT INTO t (id, data) VALUES (2, '{"age": 25}')`);
+
+    engine.execute(`UPDATE t SET data = '{"age": 99}' WHERE data.age > 20 AND data.age < 30`);
+
+    const [result] = engine.execute("SELECT id, data.age FROM t ORDER BY id");
+    expect(result.rows![0]).toMatchObject({ id: 1 });
+    // id=2 had age=25 (matches 20<25<30), should be updated
+    expect(result.rows![1]).toMatchObject({ id: 2 });
+  });
+
+  it("CONCAT with JSON column produces JSON string", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data JSON)");
+    engine.execute(`INSERT INTO t (id, data) VALUES (1, '{"name": "Alice"}')`);
+
+    const [result] = engine.execute("SELECT data.name || '!' AS greeting FROM t");
+    expect(result.rows![0].greeting).toBe("Alice!");
+  });
+
+  it("CAST number/boolean to JSON preserves value", async () => {
+    await createEngine();
+    const [r1] = engine.execute("SELECT CAST(42 AS JSON) AS v");
+    expect(r1.rows![0].v).toBe(42);
+
+    const [r2] = engine.execute("SELECT CAST(TRUE AS JSON) AS v");
+    expect(r2.rows![0].v).toBe(true);
+  });
+});

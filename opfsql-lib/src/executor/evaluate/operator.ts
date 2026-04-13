@@ -3,6 +3,8 @@ import type { Value, Tuple } from '../types.js';
 import type { Resolver } from '../resolve.js';
 import type { SyncEvalContext } from './context.js';
 import { evaluateExpression } from './index.js';
+import { compareValues } from './utils/compare.js';
+import { castText } from './utils/cast.js';
 import { ExecutorError } from '../errors.js';
 
 export function evalOperator(
@@ -36,7 +38,7 @@ export function evalOperator(
       const left = evaluateExpression(op.children[0], tuple, resolver, ctx);
       const right = evaluateExpression(op.children[1], tuple, resolver, ctx);
       if (left === null || right === null) return null;
-      return String(left) + String(right);
+      return castText(left) + castText(right);
     }
     case 'ADD':
     case 'SUBTRACT':
@@ -63,7 +65,7 @@ function evalIn(
   for (let i = 1; i < children.length; i++) {
     const val = evaluateExpression(children[i], tuple, resolver, ctx);
     if (val === null) { hasNull = true; continue; }
-    if (input === val) return !negate;
+    if (compareValues(input, val) === 0) return !negate;
   }
   return hasNull ? null : negate;
 }

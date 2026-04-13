@@ -1,5 +1,5 @@
 import type { ConstantExpression } from '../../parser/types.js';
-import type { BoundConstantExpression } from '../types.js';
+import type { BoundConstantExpression, JsonValue } from '../types.js';
 import { BoundExpressionClass } from '../types.js';
 import { mapParserType } from '../core/type-map.js';
 
@@ -13,7 +13,7 @@ export function bindConstant(expr: ConstantExpression): BoundConstantExpression 
   }
   return {
     expressionClass: BoundExpressionClass.BOUND_CONSTANT,
-    value: expr.value.value,
+    value: expr.value.value as string | number | boolean | JsonValue | null,
     returnType: mapParserType(expr.value.type),
   };
 }

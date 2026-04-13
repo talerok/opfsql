@@ -5,10 +5,19 @@ export type LogicalType =
   | 'TEXT'
   | 'BLOB'
   | 'BOOLEAN'
+  | 'JSON'
   | 'NULL'
   | 'ANY';
 
-export type Value = string | number | boolean | null;
+export type JsonValue =
+  | { [key: string]: JsonValue }
+  | JsonValue[]
+  | string
+  | number
+  | boolean
+  | null;
+
+export type Value = string | number | boolean | null | JsonValue;
 
 export interface ColumnDef {
   name: string;

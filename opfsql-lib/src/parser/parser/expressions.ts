@@ -7,6 +7,7 @@ import {
   CastExpression,
   SelectStatement,
   ParseError,
+  type JsonPathSegment,
 } from '../types.js';
 import { parseTypeToken } from './type-parser.js';
 
@@ -465,7 +466,7 @@ function parseColumnOrFunction(p: BaseParser): ParsedExpression {
     return parseFunctionCall(p, ident);
   }
 
-  // Qualified name: table.column or table.*
+  // Qualified name: table.column, table.*, or N-level dot path for JSON
   if (p.match(TokenType.DOT)) {
     if (p.check(TokenType.STAR)) {
       p.advance();
@@ -477,10 +478,34 @@ function parseColumnOrFunction(p: BaseParser): ParsedExpression {
     }
 
     const col = p.expectIdentifier(`Expected column name after '${ident}.'`);
+    const names = [ident, col.value];
+
+    // Continue collecting dot-separated identifiers (for JSON path: t.col.field1.field2)
+    while (p.check(TokenType.DOT) && p.peekAt(1).type !== TokenType.STAR) {
+      p.advance(); // consume DOT
+      const next = p.expectIdentifier(`Expected field name after '.'`);
+      names.push(next.value);
+    }
+
+    // Collect bracket access segments (for JSON array: col.items[0].name)
+    const pathSegments = parseBracketPath(p);
+
     return {
       expression_class: ExpressionClass.COLUMN_REF,
       alias: null,
-      column_names: [ident, col.value],
+      column_names: names,
+      ...(pathSegments.length > 0 && { path: pathSegments }),
+    };
+  }
+
+  // Single identifier — check for bracket access (e.g., col[0])
+  const pathSegments = parseBracketPath(p);
+  if (pathSegments.length > 0) {
+    return {
+      expression_class: ExpressionClass.COLUMN_REF,
+      alias: null,
+      column_names: [ident],
+      path: pathSegments,
     };
   }
 
@@ -489,6 +514,23 @@ function parseColumnOrFunction(p: BaseParser): ParsedExpression {
     alias: null,
     column_names: [ident],
   };
+}
+
+/** Parse bracket/dot path segments: [0].field[1].field2 ... */
+function parseBracketPath(p: BaseParser): JsonPathSegment[] {
+  const segments: JsonPathSegment[] = [];
+  while (p.check(TokenType.LEFT_BRACKET) || p.check(TokenType.DOT)) {
+    if (p.match(TokenType.LEFT_BRACKET)) {
+      const idx = p.expect(TokenType.INTEGER_LITERAL, `Expected integer index in bracket access`);
+      p.expect(TokenType.RIGHT_BRACKET, `Expected ']' after bracket index`);
+      segments.push({ type: 'index', value: parseInt(idx.value, 10) });
+    } else {
+      p.advance(); // consume DOT
+      const field = p.expectIdentifier(`Expected field name after '.'`);
+      segments.push({ type: 'field', name: field.value });
+    }
+  }
+  return segments;
 }
 
 function parseFunctionCall(p: BaseParser, name: string): FunctionExpression {

@@ -1,5 +1,6 @@
 import type {
   BoundExpression,
+  BoundColumnRefExpression,
   BoundComparisonExpression,
   BoundConjunctionExpression,
   BoundOperatorExpression,
@@ -9,6 +10,7 @@ import type {
   BoundSubqueryExpression,
   BoundCaseExpression,
   BoundCastExpression,
+  BoundJsonAccessExpression,
 } from '../../binder/types.js';
 import { BoundExpressionClass } from '../../binder/types.js';
 
@@ -95,6 +97,12 @@ export function mapExpression(
       const cast = expr as BoundCastExpression;
       const child = mapExpression(cast.child, fn);
       return fn(child === cast.child ? cast : { ...cast, child });
+    }
+
+    case BoundExpressionClass.BOUND_JSON_ACCESS: {
+      const ja = expr as BoundJsonAccessExpression;
+      const child = mapExpression(ja.child, fn);
+      return fn(child === ja.child ? ja : { ...ja, child: child as BoundColumnRefExpression });
     }
 
     default:

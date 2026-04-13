@@ -20,6 +20,8 @@ export function mapParserType(parserType: { id: string }): LogicalType {
       return "BLOB";
     case LogicalTypeId.BOOLEAN:
       return "BOOLEAN";
+    case LogicalTypeId.JSON:
+      return "JSON";
     default:
       return "ANY";
   }

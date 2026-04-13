@@ -1,4 +1,4 @@
-import type { TableSchema } from "../../store/types.js";
+import type { LogicalType, TableSchema } from "../../store/types.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";
 import type { BindContext } from "./context.js";
@@ -101,5 +101,57 @@ export function makeLimit(
     types: child.types,
     estimatedCardinality: 0,
     getColumnBindings: () => child.getColumnBindings(),
+  };
+}
+
+export function makeAggregate(
+  child: BT.LogicalOperator,
+  groups: BT.BoundExpression[],
+  aggregates: BT.BoundAggregateExpression[],
+  groupIndex: number,
+  aggregateIndex: number,
+  havingExpression: BT.BoundExpression | null,
+): BT.LogicalAggregate {
+  const bindings: BT.ColumnBinding[] = [
+    ...groups.map((_, i) => ({ tableIndex: groupIndex, columnIndex: i })),
+    ...aggregates.map((_, i) => ({ tableIndex: aggregateIndex, columnIndex: i })),
+  ];
+  return {
+    type: LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    groupIndex,
+    aggregateIndex,
+    children: [child],
+    expressions: aggregates,
+    groups,
+    havingExpression,
+    types: [
+      ...groups.map((g) => g.returnType),
+      ...aggregates.map((a) => a.returnType),
+    ],
+    estimatedCardinality: 0,
+    getColumnBindings: () => bindings,
+  };
+}
+
+export function makeProjection(
+  child: BT.LogicalOperator,
+  tableIndex: number,
+  expressions: BT.BoundExpression[],
+  aliases: (string | null)[],
+): BT.LogicalProjection {
+  const types: LogicalType[] = expressions.map((e) => e.returnType);
+  const bindings: BT.ColumnBinding[] = expressions.map((_, i) => ({
+    tableIndex,
+    columnIndex: i,
+  }));
+  return {
+    type: LogicalOperatorType.LOGICAL_PROJECTION,
+    tableIndex,
+    children: [child],
+    expressions,
+    aliases,
+    types,
+    estimatedCardinality: 0,
+    getColumnBindings: () => bindings,
   };
 }

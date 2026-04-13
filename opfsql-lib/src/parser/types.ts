@@ -30,6 +30,8 @@ export enum TokenType {
   // Punctuation
   LEFT_PAREN,
   RIGHT_PAREN,
+  LEFT_BRACKET,
+  RIGHT_BRACKET,
   COMMA,
   SEMICOLON,
   DOT,
@@ -123,6 +125,7 @@ export enum TokenType {
   BLOB_KW,
   BOOLEAN_KW,
   BOOL_KW,
+  JSON_KW,
 
   EOF,
 }
@@ -147,6 +150,7 @@ export enum LogicalTypeId {
   VARCHAR = 'VARCHAR',
   BLOB = 'BLOB',
   BOOLEAN = 'BOOLEAN',
+  JSON = 'JSON',
 }
 
 export interface LogicalType {
@@ -160,8 +164,12 @@ export interface LogicalType {
 export interface Value {
   type: LogicalType;
   is_null: boolean;
-  value: string | number | boolean | null;
+  value: string | number | boolean | Record<string, unknown> | unknown[] | null;
 }
+
+export type JsonPathSegment =
+  | { type: 'field'; name: string }
+  | { type: 'index'; value: number };
 
 // ============================================================================
 // Expression types (DuckDB-style enums)
@@ -226,6 +234,7 @@ export interface ColumnRefExpression {
   expression_class: ExpressionClass.COLUMN_REF;
   alias: string | null;
   column_names: string[];
+  path?: JsonPathSegment[];
 }
 
 export interface ConstantExpression {

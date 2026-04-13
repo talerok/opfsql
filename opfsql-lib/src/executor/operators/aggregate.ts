@@ -3,11 +3,8 @@ import type {
   ColumnBinding,
   LogicalAggregate,
 } from "../../binder/types.js";
-import {
-  compareValues,
-  isTruthy,
-  serializeValue,
-} from "../../executor/evaluate/helpers.js";
+import { compareValues, isTruthy } from "../evaluate/utils/compare.js";
+import { serializeValue } from "../evaluate/utils/serialize.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import { evaluateExpression } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";

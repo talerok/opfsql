@@ -23,6 +23,11 @@ export function bindCreateIndex(
         `Column "${col}" not found in table "${stmt.table_name}"`,
       );
     }
+    if (def.type === 'JSON') {
+      throw new BindError(
+        `Cannot create index on JSON column "${col}"`,
+      );
+    }
     resolvedColumns.push(def.name);
   }
 

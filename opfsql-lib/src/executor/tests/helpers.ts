@@ -1,4 +1,4 @@
-import type { BoundExpression, ColumnBinding } from '../../binder/types.js';
+import type { BoundExpression, BoundColumnRefExpression, ColumnBinding } from '../../binder/types.js';
 import { BoundExpressionClass } from '../../binder/types.js';
 import type { LogicalType } from '../../store/types.js';
 import type { SyncEvalContext } from '../evaluate/context.js';
@@ -163,6 +163,18 @@ export function caseExpr(
     caseChecks: checks,
     elseExpr,
     returnType,
+  };
+}
+
+export function jsonAccess(
+  child: BoundExpression,
+  path: Array<{ type: 'field'; name: string } | { type: 'index'; value: number }>,
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+    child: child as BoundColumnRefExpression,
+    path,
+    returnType: 'JSON',
   };
 }
 

@@ -112,6 +112,11 @@ function tryEvaluate(expr: BoundExpression): BoundConstantExpression | null {
           const [a] = vals;
           return makeBoolConstant(a !== null);
         }
+        case 'CONCAT': {
+          const [a, b] = vals;
+          if (a === null || b === null) return makeNullConstant('TEXT');
+          return makeConstant(String(a) + String(b), 'TEXT');
+        }
         default:
           return null;
       }

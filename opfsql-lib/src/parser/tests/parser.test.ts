@@ -3180,9 +3180,9 @@ describe('Feature interactions', () => {
     const node = selectNode('SELECT CASE x WHEN 1 THEN \'one\' WHEN 2 THEN \'two\' ELSE \'other\' END FROM t');
     const caseExpr = node.select_list[0] as CaseExpression;
     expect(caseExpr.expression_class).toBe(ExpressionClass.CASE);
-    // Simple CASE has operand
-    expect(caseExpr.case_operand).not.toBeNull();
+    // Parser desugars CASE x WHEN v into CASE WHEN x = v
     expect(caseExpr.case_checks.length).toBe(2);
+    expect(caseExpr.case_checks[0].when_expr.expression_class).toBe(ExpressionClass.COMPARISON);
     expect(caseExpr.else_expr).not.toBeNull();
   });
 
@@ -3224,5 +3224,44 @@ describe('Feature interactions', () => {
     expect(stmt.node.cte_map.recursive).toBe(true);
     expect(stmt.node.cte_map.map['r']).toBeDefined();
     expect(stmt.node.cte_map.map['r'].aliases).toEqual(['n']);
+  });
+
+  // --- JSON path access ---
+
+  it('parses simple dot access as column_names', () => {
+    const node = selectNode('SELECT data.name FROM t');
+    const col = node.select_list[0] as ColumnRefExpression;
+    expect(col.expression_class).toBe(ExpressionClass.COLUMN_REF);
+    expect(col.column_names).toEqual(['data', 'name']);
+    expect(col.path).toBeUndefined();
+  });
+
+  it('parses multi-level dot access', () => {
+    const node = selectNode('SELECT t.data.name.fname FROM t');
+    const col = node.select_list[0] as ColumnRefExpression;
+    expect(col.column_names).toEqual(['t', 'data', 'name', 'fname']);
+    expect(col.path).toBeUndefined();
+  });
+
+  it('parses bracket access', () => {
+    const node = selectNode('SELECT data.items[0] FROM t');
+    const col = node.select_list[0] as ColumnRefExpression;
+    expect(col.column_names).toEqual(['data', 'items']);
+    expect(col.path).toEqual([{ type: 'index', value: 0 }]);
+  });
+
+  it('parses mixed bracket and dot after bracket', () => {
+    const node = selectNode('SELECT data.items[0].title FROM t');
+    const col = node.select_list[0] as ColumnRefExpression;
+    expect(col.column_names).toEqual(['data', 'items']);
+    expect(col.path).toEqual([
+      { type: 'index', value: 0 },
+      { type: 'field', name: 'title' },
+    ]);
+  });
+
+  it('parses JSON type in CREATE TABLE', () => {
+    const stmt = parseOne('CREATE TABLE t (id INTEGER, data JSON)') as CreateTableStatement;
+    expect(stmt.columns[1].type!.id).toBe(LogicalTypeId.JSON);
   });
 });

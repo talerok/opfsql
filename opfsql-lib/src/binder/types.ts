@@ -3,9 +3,11 @@ import type {
   IndexDef,
   LogicalType,
   TableSchema,
+  JsonValue,
 } from "../store/types.js";
+import type { JsonPathSegment } from "../parser/types.js";
 
-export type { ColumnDef, IndexDef, LogicalType, TableSchema };
+export type { ColumnDef, IndexDef, LogicalType, TableSchema, JsonValue, JsonPathSegment };
 
 // ============================================================================
 // Enums
@@ -47,6 +49,7 @@ export enum BoundExpressionClass {
   BOUND_SUBQUERY = "BOUND_SUBQUERY",
   BOUND_CASE = "BOUND_CASE",
   BOUND_CAST = "BOUND_CAST",
+  BOUND_JSON_ACCESS = "BOUND_JSON_ACCESS",
 }
 
 // ============================================================================
@@ -70,9 +73,16 @@ export interface BoundColumnRefExpression {
   returnType: LogicalType;
 }
 
+export interface BoundJsonAccessExpression {
+  expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS;
+  child: BoundColumnRefExpression;
+  path: JsonPathSegment[];
+  returnType: LogicalType;
+}
+
 export interface BoundConstantExpression {
   expressionClass: BoundExpressionClass.BOUND_CONSTANT;
-  value: string | number | boolean | null;
+  value: string | number | boolean | JsonValue | null;
   returnType: LogicalType;
 }
 
@@ -190,7 +200,8 @@ export type BoundExpression =
   | BoundAggregateExpression
   | BoundSubqueryExpression
   | BoundCaseExpression
-  | BoundCastExpression;
+  | BoundCastExpression
+  | BoundJsonAccessExpression;
 
 // ============================================================================
 // LogicalOperator

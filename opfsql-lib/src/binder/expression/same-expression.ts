@@ -41,6 +41,19 @@ export function sameExpression(a: BT.BoundExpression, b: BT.BoundExpression): bo
       const bc = b as BT.BoundCastExpression;
       return ac.castType === bc.castType && sameExpression(ac.child, bc.child);
     }
+    case BoundExpressionClass.BOUND_JSON_ACCESS: {
+      const aj = a as BT.BoundJsonAccessExpression;
+      const bj = b as BT.BoundJsonAccessExpression;
+      if (!sameExpression(aj.child, bj.child)) return false;
+      if (aj.path.length !== bj.path.length) return false;
+      return aj.path.every((seg, i) => {
+        const other = bj.path[i];
+        if (seg.type !== other.type) return false;
+        return seg.type === 'field'
+          ? seg.name === (other as typeof seg).name
+          : seg.value === (other as { type: 'index'; value: number }).value;
+      });
+    }
     default:
       return false;
   }

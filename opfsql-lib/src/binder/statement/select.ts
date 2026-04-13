@@ -1,6 +1,7 @@
 import type {
   ColumnRefExpression,
   OrderByNode,
+  ParsedExpression,
   SelectNode,
   StarExpression,
 } from "../../parser/types.js";
@@ -9,11 +10,13 @@ import type { LogicalType } from "../../store/types.js";
 import type { AggregateContext, BindContext } from "../core/context.js";
 import { evalConstantInt } from "../core/helpers.js";
 import {
+  makeAggregate,
   makeDistinct,
   makeEmptyGet,
   makeFilter,
   makeLimit,
   makeOrderBy,
+  makeProjection,
 } from "../core/operators.js";
 import type { BindScope } from "../core/scope.js";
 import {
@@ -49,20 +52,14 @@ export function bindSelect(
     plan = makeFilter(plan, [bindExpression(ctx, node.where_clause, scope)]);
   }
 
-  // --- GROUP BY / aggregates ---
   const aggCtx = bindAggregation(ctx, node, scope, plan);
   if (aggCtx.aggregatePlan) plan = aggCtx.aggregatePlan;
 
-  // --- SELECT list ---
   const proj = buildProjection(ctx, node, scope, plan, aggCtx.context);
 
-  // --- Modifiers (DISTINCT, ORDER BY, LIMIT) ---
   plan = applyModifiers(ctx, node, scope, proj, aggCtx.context);
 
-  // --- Wrap CTEs ---
-  plan = wrapCTEs(plan, cteEntries);
-
-  return plan;
+  return wrapCTEs(plan, cteEntries);
 }
 
 // ---------------------------------------------------------------------------
@@ -96,20 +93,10 @@ function bindAggregation(
   const groups = node.groups.group_expressions.map((g) =>
     bindExpression(ctx, g, scope),
   );
-
-  // Collect aggregates from SELECT and HAVING
-  const aggregates = extractAggregates(ctx, node.select_list, scope);
-  if (node.having) {
-    for (const agg of extractAggregatesFromExpr(ctx, node.having, scope)) {
-      if (!aggregates.some((a) => sameAggregate(a, agg))) {
-        aggregates.push(agg);
-      }
-    }
-  }
+  const aggregates = collectAllAggregates(ctx, node.select_list, node.having, scope);
 
   const groupIndex = ctx.nextTableIndex();
   const aggregateIndex = ctx.nextTableIndex();
-
   for (let i = 0; i < aggregates.length; i++) {
     aggregates[i].aggregateIndex = i;
     aggregates[i].binding = { tableIndex: aggregateIndex, columnIndex: i };
@@ -120,31 +107,28 @@ function bindAggregation(
     ? bindExpression(ctx, node.having, scope, aggCtx)
     : null;
 
-  const groupBindings: BT.ColumnBinding[] = [
-    ...groups.map((_, i) => ({ tableIndex: groupIndex, columnIndex: i })),
-    ...aggregates.map((_, i) => ({
-      tableIndex: aggregateIndex,
-      columnIndex: i,
-    })),
-  ];
-
-  const aggregatePlan: BT.LogicalAggregate = {
-    type: LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
-    groupIndex,
-    aggregateIndex,
-    children: [plan],
-    expressions: aggregates,
-    groups,
-    havingExpression: havingBound,
-    types: [
-      ...groups.map((g) => g.returnType),
-      ...aggregates.map((a) => a.returnType),
-    ],
-    estimatedCardinality: 0,
-    getColumnBindings: () => groupBindings,
+  return {
+    aggregatePlan: makeAggregate(plan, groups, aggregates, groupIndex, aggregateIndex, havingBound),
+    context: aggCtx,
   };
+}
 
-  return { aggregatePlan, context: aggCtx };
+/** Collect unique aggregates from SELECT list and HAVING clause. */
+function collectAllAggregates(
+  ctx: BindContext,
+  selectList: ParsedExpression[],
+  having: ParsedExpression | null,
+  scope: BindScope,
+): BT.BoundAggregateExpression[] {
+  const aggregates = extractAggregates(ctx, selectList, scope);
+  if (having) {
+    for (const agg of extractAggregatesFromExpr(ctx, having, scope)) {
+      if (!aggregates.some((a) => sameAggregate(a, agg))) {
+        aggregates.push(agg);
+      }
+    }
+  }
+  return aggregates;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,22 +166,9 @@ function buildProjection(
   }
 
   const tableIndex = ctx.nextTableIndex();
-  const types = expressions.map((e) => e.returnType);
-  const bindings: BT.ColumnBinding[] = expressions.map((_, i) => ({
-    tableIndex,
-    columnIndex: i,
-  }));
-
-  const projPlan: BT.LogicalProjection = {
-    type: LogicalOperatorType.LOGICAL_PROJECTION,
-    tableIndex,
-    children: [plan],
-    expressions,
-    aliases,
-    types,
-    estimatedCardinality: 0,
-    getColumnBindings: () => bindings,
-  };
+  const projPlan = makeProjection(plan, tableIndex, expressions, aliases);
+  const { types, getColumnBindings } = projPlan;
+  const bindings = getColumnBindings();
 
   return { plan: projPlan, expressions, aliases, types, bindings, tableIndex };
 }
@@ -248,67 +219,73 @@ function applyOrderBy(
 ): BT.LogicalOperator {
   const originalCount = proj.expressions.length;
 
-  const rewrittenOrders: BT.BoundOrderByNode[] = orders.map((o) => {
-    // 1. Check if ORDER BY references a projection alias (e.g. ORDER BY total)
-    //    before binding, since the alias is not a real column and would fail.
-    if (o.expression.expression_class === ExpressionClass.COLUMN_REF) {
-      const ref = o.expression as ColumnRefExpression;
-      if (ref.column_names.length === 1) {
-        const name = ref.column_names[0].toLowerCase();
-        const aliasIdx = proj.aliases.findIndex(
-          (a) => a !== null && a.toLowerCase() === name,
-        );
-        if (aliasIdx !== -1) {
-          return {
-            expression: projRef(proj.bindings[aliasIdx], proj.types[aliasIdx]),
-            orderType: o.type,
-            nullOrder: o.null_order,
-          };
-        }
-      }
-    }
+  const boundOrders = orders.map((o) =>
+    resolveOrderExpression(ctx, o, scope, proj, aggCtx),
+  );
 
-    // 2. Bind normally and try structural match against projection expressions
-    const bound = bindExpression(ctx, o.expression, scope, aggCtx);
-    const idx = proj.expressions.findIndex((sel) =>
-      sameExpression(sel, bound),
-    );
+  let plan: BT.LogicalOperator = makeOrderBy(currentPlan, boundOrders);
 
-    if (idx !== -1) {
-      return {
-        expression: projRef(proj.bindings[idx], bound.returnType),
-        orderType: o.type,
-        nullOrder: o.null_order,
-      };
-    }
-
-    // 3. Expression not in select list — extend projection so sort can access it
-    const colIndex = proj.expressions.length;
-    proj.expressions.push(bound);
-    proj.aliases.push(null);
-    proj.types.push(bound.returnType);
-    const binding: BT.ColumnBinding = {
-      tableIndex: proj.tableIndex,
-      columnIndex: colIndex,
-    };
-    proj.bindings.push(binding);
-    return {
-      expression: projRef(binding, bound.returnType),
-      orderType: o.type,
-      nullOrder: o.null_order,
-    };
-  });
-
-  // Use currentPlan (not proj.plan) to preserve any operators (e.g. DISTINCT)
-  // that were applied between the projection and this ORDER BY.
-  let plan: BT.LogicalOperator = makeOrderBy(currentPlan, rewrittenOrders);
-
-  // If we extended the projection, add a trimming projection to remove extra columns
   if (proj.expressions.length > originalCount) {
     plan = buildTrimProjection(ctx, plan, proj, originalCount);
   }
 
   return plan;
+}
+
+/** Resolve a single ORDER BY expression against the projection. */
+function resolveOrderExpression(
+  ctx: BindContext,
+  order: OrderByNode,
+  scope: BindScope,
+  proj: ProjectionState,
+  aggCtx: AggregateContext | undefined,
+): BT.BoundOrderByNode {
+  // 1. Try alias match (e.g. ORDER BY total)
+  const aliasIdx = tryMatchAlias(order.expression, proj);
+  if (aliasIdx !== -1) {
+    return makeBoundOrder(order, projRef(proj.bindings[aliasIdx], proj.types[aliasIdx]));
+  }
+
+  // 2. Bind and try structural match against projection expressions
+  const bound = bindExpression(ctx, order.expression, scope, aggCtx);
+  const matchIdx = proj.expressions.findIndex((sel) =>
+    sameExpression(sel, bound),
+  );
+  if (matchIdx !== -1) {
+    return makeBoundOrder(order, projRef(proj.bindings[matchIdx], bound.returnType));
+  }
+
+  // 3. Not in select list — extend projection so sort can access it
+  const binding = extendProjection(proj, bound);
+  return makeBoundOrder(order, projRef(binding, bound.returnType));
+}
+
+/** Check if a column ref with a single name matches a projection alias. */
+function tryMatchAlias(expr: ParsedExpression, proj: ProjectionState): number {
+  if (expr.expression_class !== ExpressionClass.COLUMN_REF) return -1;
+  const ref = expr as ColumnRefExpression;
+  if (ref.column_names.length !== 1) return -1;
+  const name = ref.column_names[0].toLowerCase();
+  return proj.aliases.findIndex(
+    (a) => a !== null && a.toLowerCase() === name,
+  );
+}
+
+/** Add an expression to the projection and return its binding. */
+function extendProjection(
+  proj: ProjectionState,
+  expr: BT.BoundExpression,
+): BT.ColumnBinding {
+  const colIndex = proj.expressions.length;
+  proj.expressions.push(expr);
+  proj.aliases.push(null);
+  proj.types.push(expr.returnType);
+  const binding: BT.ColumnBinding = {
+    tableIndex: proj.tableIndex,
+    columnIndex: colIndex,
+  };
+  proj.bindings.push(binding);
+  return binding;
 }
 
 function buildTrimProjection(
@@ -318,28 +295,15 @@ function buildTrimProjection(
   originalCount: number,
 ): BT.LogicalProjection {
   const trimIdx = ctx.nextTableIndex();
-  const trimBindings = Array.from({ length: originalCount }, (_, i) => ({
-    tableIndex: trimIdx,
-    columnIndex: i,
-  }));
-
-  return {
-    type: LogicalOperatorType.LOGICAL_PROJECTION,
-    tableIndex: trimIdx,
-    children: [plan],
-    expressions: Array.from({ length: originalCount }, (_, i) => {
-      const orig = proj.expressions[i];
-      const name =
-        orig.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF
-          ? (orig as BT.BoundColumnRefExpression).columnName
-          : "";
-      return projRef(proj.bindings[i], proj.types[i], name);
-    }),
-    aliases: proj.aliases.slice(0, originalCount),
-    types: proj.types.slice(0, originalCount),
-    estimatedCardinality: 0,
-    getColumnBindings: () => trimBindings,
-  };
+  const trimExprs = Array.from({ length: originalCount }, (_, i) => {
+    const orig = proj.expressions[i];
+    const name =
+      orig.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF
+        ? (orig as BT.BoundColumnRefExpression).columnName
+        : "";
+    return projRef(proj.bindings[i], proj.types[i], name);
+  });
+  return makeProjection(plan, trimIdx, trimExprs, proj.aliases.slice(0, originalCount));
 }
 
 // ---------------------------------------------------------------------------
@@ -383,4 +347,11 @@ function projRef(
     columnName,
     returnType,
   };
+}
+
+function makeBoundOrder(
+  order: OrderByNode,
+  expression: BT.BoundExpression,
+): BT.BoundOrderByNode {
+  return { expression, orderType: order.type, nullOrder: order.null_order };
 }

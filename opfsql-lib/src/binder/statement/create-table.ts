@@ -19,6 +19,15 @@ export function bindCreateTable(
       );
     const colType = mapParserType(col.type);
 
+    if (colType === "JSON") {
+      if (isPk) {
+        throw new BindError(`JSON column "${col.name}" cannot be a PRIMARY KEY`);
+      }
+      if (col.is_unique) {
+        throw new BindError(`JSON column "${col.name}" cannot be UNIQUE`);
+      }
+    }
+
     if (col.is_autoincrement) {
       if (!isPk) {
         throw new BindError(

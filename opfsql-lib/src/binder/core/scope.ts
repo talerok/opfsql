@@ -133,7 +133,9 @@ export class BindScope {
 
   findByAlias(alias: string): BindingEntry | undefined {
     const lower = alias.toLowerCase();
-    return this.bindings.find((b) => b.alias.toLowerCase() === lower);
+    const found = this.bindings.find((b) => b.alias.toLowerCase() === lower);
+    if (found) return found;
+    return this.parent?.findByAlias(alias);
   }
 
   getAllBindings(): BindingEntry[] {

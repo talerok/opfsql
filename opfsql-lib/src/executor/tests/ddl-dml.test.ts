@@ -24,8 +24,8 @@ import {
   executeCreateIndex,
   executeCreateTable,
   executeDrop,
-} from '../ddl.js';
-import { executeDelete, executeInsert, executeUpdate } from '../dml.js';
+} from '../ddl/index.js';
+import { executeDelete, executeInsert, executeUpdate } from '../dml/index.js';
 import { colRef, comparison, constant, noopCtx } from './helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -901,5 +901,87 @@ describe('AUTOINCREMENT', () => {
 
     const result = executeInsert(op, rm, noopCtx);
     expect(result.catalogDirty).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DML with multi-expression filter (extractConditions)
+// ---------------------------------------------------------------------------
+
+describe('DML with multi-expression filter', () => {
+  it('DELETE with filter containing two expressions applies both', () => {
+    const rm = mockRowManager([
+      { id: 1, name: 'Alice', age: 25 },
+      { id: 2, name: 'Bob', age: 30 },
+      { id: 3, name: 'Charlie', age: 35 },
+    ]);
+    const get = makeGet();
+    // Filter with two expressions (as optimizer FilterCombiner produces)
+    const filter: LogicalFilter = {
+      type: LogicalOperatorType.LOGICAL_FILTER,
+      children: [get],
+      expressions: [
+        comparison(colRef(0, 2), constant(20), 'GREATER'),   // age > 20
+        comparison(colRef(0, 2), constant(30), 'LESS'),       // age < 30
+      ],
+      types: ['INTEGER', 'TEXT', 'INTEGER'],
+      estimatedCardinality: 0,
+      getColumnBindings: () => get.getColumnBindings(),
+    };
+    const op = {
+      type: LogicalOperatorType.LOGICAL_DELETE,
+      tableName: 'users',
+      schema: usersSchema,
+      children: [filter],
+      expressions: [],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalDelete;
+
+    const result = executeDelete(op, rm, noopCtx);
+    // Only Alice (age=25) matches age > 20 AND age < 30
+    expect(result.rowsAffected).toBe(1);
+    expect(rm.prepareDelete).toHaveBeenCalledTimes(1);
+    expect(rm.prepareDelete).toHaveBeenCalledWith('users', 0);
+  });
+
+  it('UPDATE with filter containing two expressions applies both', () => {
+    const rm = mockRowManager([
+      { id: 1, name: 'Alice', age: 25 },
+      { id: 2, name: 'Bob', age: 30 },
+      { id: 3, name: 'Charlie', age: 35 },
+    ]);
+    const get = makeGet();
+    const filter: LogicalFilter = {
+      type: LogicalOperatorType.LOGICAL_FILTER,
+      children: [get],
+      expressions: [
+        comparison(colRef(0, 2), constant(20), 'GREATER'),
+        comparison(colRef(0, 2), constant(30), 'LESS'),
+      ],
+      types: ['INTEGER', 'TEXT', 'INTEGER'],
+      estimatedCardinality: 0,
+      getColumnBindings: () => get.getColumnBindings(),
+    };
+    const op = {
+      type: LogicalOperatorType.LOGICAL_UPDATE,
+      tableName: 'users',
+      schema: usersSchema,
+      children: [filter],
+      updateColumns: [1],
+      expressions: [constant('UPDATED')],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalUpdate;
+
+    const result = executeUpdate(op, rm, noopCtx);
+    expect(result.rowsAffected).toBe(1);
+    expect(rm.prepareUpdate).toHaveBeenCalledWith(
+      'users',
+      0,
+      expect.objectContaining({ name: 'UPDATED', age: 25 }),
+    );
   });
 });

@@ -2,10 +2,8 @@ import type {
   BoundExpression,
   BoundFunctionExpression,
 } from "../../binder/types.js";
-import {
-  compareValues,
-  likeToRegex,
-} from "../../executor/evaluate/helpers.js";
+import { compareValues } from "./utils/compare.js";
+import { likeToRegex } from "./utils/like.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
 import type { SyncEvalContext } from "./context.js";

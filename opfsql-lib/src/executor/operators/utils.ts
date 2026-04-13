@@ -6,7 +6,8 @@ import type {
 } from '../../binder/types.js';
 import { BoundExpressionClass } from '../../binder/types.js';
 import type { SyncPhysicalOperator, Tuple, Value } from '../types.js';
-import { applyComparison, serializeValue } from '../evaluate/helpers.js';
+import { applyComparison } from '../evaluate/utils/compare.js';
+import { serializeValue } from '../evaluate/utils/serialize.js';
 
 export const SCAN_BATCH = 500;
 export const JOIN_BATCH = 2000;

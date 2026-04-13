@@ -15,6 +15,7 @@ const TYPE_MAP: Record<number, LogicalTypeId> = {
   [TokenType.BLOB_KW]: LogicalTypeId.BLOB,
   [TokenType.BOOLEAN_KW]: LogicalTypeId.BOOLEAN,
   [TokenType.BOOL_KW]: LogicalTypeId.BOOLEAN,
+  [TokenType.JSON_KW]: LogicalTypeId.JSON,
 };
 
 export function parseTypeToken(p: BaseParser): LogicalType {

@@ -14,6 +14,7 @@ import type {
   BoundConjunctionExpression,
   BoundConstantExpression,
   BoundFunctionExpression,
+  BoundJsonAccessExpression,
   BoundOperatorExpression,
   BoundSubqueryExpression,
   LogicalAggregate,
@@ -2474,5 +2475,251 @@ describe("Expression edge cases", () => {
     expect(
       (proj.expressions[0] as BoundFunctionExpression).functionName,
     ).toBe("CONCAT");
+  });
+});
+
+// ============================================================================
+// JSON
+// ============================================================================
+
+describe("JSON", () => {
+  const jsonSchema: TableSchema = {
+    name: "docs",
+    columns: [
+      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
+      { name: "data", type: "JSON", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      { name: "label", type: "TEXT", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+  };
+
+  beforeEach(() => {
+    catalog.addTable(jsonSchema);
+  });
+
+  it("SELECT data.name resolves to BoundJsonAccessExpression", () => {
+    const plan = bind("SELECT data.name FROM docs");
+    const proj = plan as LogicalProjection;
+    expect(proj.expressions[0].expressionClass).toBe(BoundExpressionClass.BOUND_JSON_ACCESS);
+    const ja = proj.expressions[0] as BoundJsonAccessExpression;
+    expect(ja.child.columnName).toBe("data");
+    expect(ja.path).toEqual([{ type: "field", name: "name" }]);
+    expect(ja.returnType).toBe("JSON");
+  });
+
+  it("SELECT docs.data.name with table alias", () => {
+    const plan = bind("SELECT docs.data.name FROM docs");
+    const proj = plan as LogicalProjection;
+    expect(proj.expressions[0].expressionClass).toBe(BoundExpressionClass.BOUND_JSON_ACCESS);
+  });
+
+  it("field access on non-JSON column throws BindError", () => {
+    expect(() => bind("SELECT label.x FROM docs")).toThrow(BindError);
+  });
+
+  it("ORDER BY JSON column binds successfully", () => {
+    const plan = bind("SELECT * FROM docs ORDER BY data");
+    expect(plan).toBeDefined();
+  });
+
+  it("GROUP BY JSON column binds successfully", () => {
+    const plan = bind("SELECT data, COUNT(*) FROM docs GROUP BY data");
+    expect(plan).toBeDefined();
+  });
+
+  it("DISTINCT with JSON column binds successfully", () => {
+    const plan = bind("SELECT DISTINCT data FROM docs");
+    expect(plan).toBeDefined();
+  });
+
+  it("CREATE INDEX on JSON column throws BindError", () => {
+    expect(() => bind("CREATE INDEX idx ON docs(data)")).toThrow(BindError);
+  });
+
+  it("arithmetic on JSON throws BindError", () => {
+    expect(() => bind("SELECT data + 1 FROM docs")).toThrow(BindError);
+  });
+
+  it("JSON PRIMARY KEY throws BindError", () => {
+    expect(() => bind("CREATE TABLE bad (data JSON PRIMARY KEY)")).toThrow(BindError);
+  });
+
+  it("JSON UNIQUE throws BindError", () => {
+    expect(() => bind("CREATE TABLE bad (id INTEGER, data JSON UNIQUE)")).toThrow(BindError);
+  });
+});
+
+// ============================================================================
+// sameExpression — BOUND_JSON_ACCESS
+// ============================================================================
+
+import { sameExpression } from "../expression/same-expression.js";
+
+describe("sameExpression — BOUND_JSON_ACCESS", () => {
+  it("identical JSON access expressions are equal", () => {
+    const a: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "name" }],
+      returnType: "JSON",
+    };
+    const b: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "name" }],
+      returnType: "JSON",
+    };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("different paths are not equal", () => {
+    const a: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "name" }],
+      returnType: "JSON",
+    };
+    const b: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "age" }],
+      returnType: "JSON",
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("different path lengths are not equal", () => {
+    const a: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "a" }, { type: "field", name: "b" }],
+      returnType: "JSON",
+    };
+    const b: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "a" }],
+      returnType: "JSON",
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("field vs index path segment are not equal", () => {
+    const a: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "items" }],
+      returnType: "JSON",
+    };
+    const b: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "index", value: 0 }],
+      returnType: "JSON",
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("different column bindings are not equal", () => {
+    const a: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "x" }],
+      returnType: "JSON",
+    };
+    const b: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 1, columnIndex: 1 },
+        tableName: "t2",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "x" }],
+      returnType: "JSON",
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("index path segments with same value are equal", () => {
+    const a: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "items" }, { type: "index", value: 2 }],
+      returnType: "JSON",
+    };
+    const b: BoundJsonAccessExpression = {
+      expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+      child: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
+      },
+      path: [{ type: "field", name: "items" }, { type: "index", value: 2 }],
+      returnType: "JSON",
+    };
+    expect(sameExpression(a, b)).toBe(true);
   });
 });

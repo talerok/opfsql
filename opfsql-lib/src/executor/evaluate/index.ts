@@ -12,6 +12,7 @@ import { evalComparison } from "./comparison.js";
 import { evalConjunction } from "./conjunction.js";
 import type { SyncEvalContext } from "./context.js";
 import { evalFunction } from "./function.js";
+import { evalJsonAccess } from "./json-access.js";
 import { evalOperator } from "./operator.js";
 import { evalSubquery } from "./subquery.js";
 
@@ -61,5 +62,7 @@ export function evaluateExpression(
       return evalCase(expr, tuple, resolver, ctx);
     case BoundExpressionClass.BOUND_CAST:
       return evalCast(expr, tuple, resolver, ctx);
+    case BoundExpressionClass.BOUND_JSON_ACCESS:
+      return evalJsonAccess(expr, tuple, resolver, ctx);
   }
 }

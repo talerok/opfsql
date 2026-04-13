@@ -15,8 +15,8 @@ import {
   executeCreateIndex,
   executeCreateTable,
   executeDrop,
-} from "./ddl.js";
-import { executeDelete, executeInsert, executeUpdate } from "./dml.js";
+} from "./ddl/index.js";
+import { executeDelete, executeInsert, executeUpdate } from "./dml/index.js";
 import type { SyncEvalContext } from "./evaluate/context.js";
 import { drainOperator } from "./operators/utils.js";
 import { createPhysicalPlan } from "./planner.js";

@@ -11,11 +11,11 @@ import {
   fnCall,
   cast,
   caseExpr,
+  jsonAccess,
   layout,
   noopCtx,
 } from './helpers.js';
 import type { Tuple } from '../types.js';
-import type { Resolver } from '../resolve.js';
 
 // Common setup: tuple [10, 'hello', null, true] with layout t0.c0..c3
 const testLayout = layout([0, 0], [0, 1], [0, 2], [0, 3]);
@@ -569,5 +569,262 @@ describe('evalSubquery — EXISTS early termination', () => {
     expect(() =>
       evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx),
     ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JSON access
+// ---------------------------------------------------------------------------
+
+describe('json access', () => {
+  const jsonObj = { name: 'Alice', age: 30, nested: { x: 1 }, items: [10, 20, 30] };
+  const jsonLayout = layout([0, 0]);
+  const jsonResolver = buildResolver(jsonLayout);
+  const jsonTuple: Tuple = [jsonObj];
+
+  function evalJson(expr: Parameters<typeof evaluateExpression>[0]) {
+    return evaluateExpression(expr, jsonTuple, jsonResolver, noopCtx);
+  }
+
+  it('extracts field', () => {
+    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'name' }]);
+    expect(evalJson(expr)).toBe('Alice');
+  });
+
+  it('extracts numeric field', () => {
+    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'age' }]);
+    expect(evalJson(expr)).toBe(30);
+  });
+
+  it('extracts nested field', () => {
+    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [
+      { type: 'field', name: 'nested' },
+      { type: 'field', name: 'x' },
+    ]);
+    expect(evalJson(expr)).toBe(1);
+  });
+
+  it('extracts array element', () => {
+    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [
+      { type: 'field', name: 'items' },
+      { type: 'index', value: 1 },
+    ]);
+    expect(evalJson(expr)).toBe(20);
+  });
+
+  it('returns null for missing field', () => {
+    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'nope' }]);
+    expect(evalJson(expr)).toBeNull();
+  });
+
+  it('returns null for null column', () => {
+    const nullTuple: Tuple = [null];
+    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'name' }]);
+    expect(evaluateExpression(expr, nullTuple, jsonResolver, noopCtx)).toBeNull();
+  });
+
+  it('numeric field compared with integer works', () => {
+    const ja = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'age' }]);
+    // age is 30, compare 30 > 20
+    expect(evalJson(comparison(ja, constant(20), 'GREATER'))).toBe(true);
+    // age is 30, compare 30 < 30
+    expect(evalJson(comparison(ja, constant(30), 'LESS'))).toBe(false);
+    // age is 30, compare 30 > 20 AND 30 < 30
+    expect(evalJson(conjunction('AND',
+      comparison(ja, constant(20), 'GREATER'),
+      comparison(ja, constant(30), 'LESS'),
+    ))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IN operator with JSON objects
+// ---------------------------------------------------------------------------
+
+describe('IN operator with JSON objects', () => {
+  const obj1 = { a: 1 };
+  const jsonLayout = layout([0, 0]);
+  const jsonResolver = buildResolver(jsonLayout);
+
+  function evalWithTuple(expr: Parameters<typeof evaluateExpression>[0], t: Tuple) {
+    return evaluateExpression(expr, t, jsonResolver, noopCtx);
+  }
+
+  it('IN finds matching JSON object', () => {
+    // input = {a:1}, list = [{b:2}, {a:1}]
+    const expr = operator('IN', [
+      colRef(0, 0, 'data', 'JSON'),
+      constant({ b: 2 } as any, 'JSON'),
+      constant({ a: 1 } as any, 'JSON'),
+    ], 'BOOLEAN');
+    expect(evalWithTuple(expr, [obj1])).toBe(true);
+  });
+
+  it('IN does not find non-matching JSON object', () => {
+    const expr = operator('IN', [
+      colRef(0, 0, 'data', 'JSON'),
+      constant({ x: 99 } as any, 'JSON'),
+    ], 'BOOLEAN');
+    expect(evalWithTuple(expr, [obj1])).toBe(false);
+  });
+
+  it('NOT_IN with JSON objects', () => {
+    const expr = operator('NOT_IN', [
+      colRef(0, 0, 'data', 'JSON'),
+      constant({ a: 1 } as any, 'JSON'),
+    ], 'BOOLEAN');
+    expect(evalWithTuple(expr, [obj1])).toBe(false);
+
+    const expr2 = operator('NOT_IN', [
+      colRef(0, 0, 'data', 'JSON'),
+      constant({ x: 99 } as any, 'JSON'),
+    ], 'BOOLEAN');
+    expect(evalWithTuple(expr2, [obj1])).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CONCAT with JSON objects
+// ---------------------------------------------------------------------------
+
+describe('CONCAT with JSON objects', () => {
+  const jsonLayout = layout([0, 0]);
+  const jsonResolver = buildResolver(jsonLayout);
+
+  it('CONCAT with JSON object produces JSON.stringify output', () => {
+    const expr = operator('CONCAT', [
+      colRef(0, 0, 'data', 'JSON'),
+      constant('!'),
+    ], 'TEXT');
+    const result = evaluateExpression(expr, [{ a: 1 }], jsonResolver, noopCtx);
+    expect(result).toBe('{"a":1}!');
+  });
+
+  it('CONCAT with JSON object on right side', () => {
+    const twoColLayout = layout([0, 0], [0, 1]);
+    const twoColResolver = buildResolver(twoColLayout);
+    const expr = operator('CONCAT', [
+      colRef(0, 0, 'prefix', 'TEXT'),
+      colRef(0, 1, 'data', 'JSON'),
+    ], 'TEXT');
+    const result = evaluateExpression(expr, ['prefix:', [1, 2]], twoColResolver, noopCtx);
+    expect(result).toBe('prefix:[1,2]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CAST to JSON
+// ---------------------------------------------------------------------------
+
+describe('castJson scalar values', () => {
+  it('CAST integer to JSON preserves value', () => {
+    expect(eval_(cast(constant(42), 'JSON'))).toBe(42);
+  });
+
+  it('CAST boolean to JSON preserves value', () => {
+    expect(eval_(cast(constant(true), 'JSON'))).toBe(true);
+  });
+
+  it('CAST string to JSON parses', () => {
+    expect(eval_(cast(constant('{"x":1}'), 'JSON'))).toEqual({ x: 1 });
+  });
+
+  it('CAST object to JSON returns same', () => {
+    const jsonLayout = layout([0, 0]);
+    const jsonResolver = buildResolver(jsonLayout);
+    const expr = cast(colRef(0, 0, 'data', 'JSON'), 'JSON');
+    const obj = { k: 'v' };
+    expect(evaluateExpression(expr, [obj], jsonResolver, noopCtx)).toBe(obj);
+  });
+
+  it('CAST null to JSON returns null', () => {
+    expect(eval_(cast(constant(null), 'JSON'))).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// compareValues with JSON objects
+// ---------------------------------------------------------------------------
+
+import { compareValues } from '../evaluate/utils/compare.js';
+import { serializeValue } from '../evaluate/utils/serialize.js';
+import { castValue } from '../evaluate/utils/cast.js';
+
+describe('compareValues with JSON objects', () => {
+  it('equal objects return 0', () => {
+    expect(compareValues({ a: 1 }, { a: 1 })).toBe(0);
+  });
+
+  it('different objects return -1 or 1 (lexicographic)', () => {
+    // {"a":1} vs {"b":2} — "a" < "b" in stringify
+    const cmp = compareValues({ a: 1 }, { b: 2 });
+    expect(cmp).toBe(-1);
+    expect(compareValues({ b: 2 }, { a: 1 })).toBe(1);
+  });
+
+  it('arrays compare via stringify', () => {
+    expect(compareValues([1, 2], [1, 2])).toBe(0);
+    expect(compareValues([1], [2])).toBe(-1);
+  });
+
+  it('mixed object vs primitive uses JSON.stringify for object side', () => {
+    // object on left, string on right — both go through stringify/String fallback
+    const cmp = compareValues({ a: 1 }, 'zzz' as any);
+    expect(typeof cmp).toBe('number');
+    // Should not produce "[object Object]"
+    expect(cmp).not.toBe(0); // {"a":1} !== "zzz"
+  });
+});
+
+// ---------------------------------------------------------------------------
+// castBoolean
+// ---------------------------------------------------------------------------
+
+describe('castBoolean', () => {
+  it('casts string "true" to true', () => {
+    expect(castValue('true', 'BOOLEAN')).toBe(true);
+  });
+
+  it('casts string "false" to false', () => {
+    expect(castValue('false', 'BOOLEAN')).toBe(false);
+  });
+
+  it('casts string "1" to true', () => {
+    expect(castValue('1', 'BOOLEAN')).toBe(true);
+  });
+
+  it('casts string "0" to false', () => {
+    expect(castValue('0', 'BOOLEAN')).toBe(false);
+  });
+
+  it('boolean passthrough', () => {
+    expect(castValue(true, 'BOOLEAN')).toBe(true);
+    expect(castValue(false, 'BOOLEAN')).toBe(false);
+  });
+
+  it('invalid string throws', () => {
+    expect(() => castValue('maybe', 'BOOLEAN')).toThrow('Cannot cast');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// serializeValue with JSON objects
+// ---------------------------------------------------------------------------
+
+describe('serializeValue with JSON', () => {
+  it('serializes object with j: prefix', () => {
+    expect(serializeValue({ a: 1 })).toBe('j:{"a":1}');
+  });
+
+  it('serializes array with j: prefix', () => {
+    expect(serializeValue([1, 2, 3])).toBe('j:[1,2,3]');
+  });
+
+  it('different objects produce different serializations', () => {
+    expect(serializeValue({ a: 1 })).not.toBe(serializeValue({ b: 2 }));
+  });
+
+  it('equal objects produce same serialization', () => {
+    expect(serializeValue({ a: 1 })).toBe(serializeValue({ a: 1 }));
   });
 });

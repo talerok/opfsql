@@ -1,4 +1,5 @@
 import type {
+  BoundExpression,
   LogicalAggregate,
   LogicalComparisonJoin,
   LogicalCTERef,
@@ -12,7 +13,7 @@ import type {
   LogicalRecursiveCTE,
   LogicalUnion,
 } from "../binder/types.js";
-import { LogicalOperatorType } from "../binder/types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../binder/types.js";
 import type {
   SyncIIndexManager,
   SyncIRowManager,
@@ -66,11 +67,18 @@ export function createPhysicalPlan(
 
     case LogicalOperatorType.LOGICAL_FILTER: {
       const filter = node as LogicalFilter;
-      return new PhysicalFilter(
-        plan(filter.children[0]),
-        filter.expressions[0],
-        ctx,
-      );
+      let condition: BoundExpression;
+      if (filter.expressions.length === 1) {
+        condition = filter.expressions[0];
+      } else {
+        condition = {
+          expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
+          conjunctionType: 'AND' as const,
+          children: filter.expressions,
+          returnType: 'BOOLEAN' as const,
+        };
+      }
+      return new PhysicalFilter(plan(filter.children[0]), condition, ctx);
     }
 
     case LogicalOperatorType.LOGICAL_PROJECTION: {

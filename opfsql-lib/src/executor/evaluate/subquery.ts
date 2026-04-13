@@ -2,7 +2,7 @@ import type {
   BoundExpression,
   BoundSubqueryExpression,
 } from "../../binder/types.js";
-import { applyComparison } from "../../executor/evaluate/helpers.js";
+import { applyComparison } from "./utils/compare.js";
 import { ExecutorError } from "../errors.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";

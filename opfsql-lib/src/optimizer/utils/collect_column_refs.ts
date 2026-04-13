@@ -3,6 +3,7 @@ import type {
   BoundColumnRefExpression,
   BoundAggregateExpression,
   BoundSubqueryExpression,
+  BoundJsonAccessExpression,
   LogicalOperator,
   ColumnBinding,
 } from '../../binder/types.js';
@@ -14,6 +15,8 @@ export function collectColumnRefs(expr: BoundExpression): ColumnBinding[] {
   mapExpression(expr, (e) => {
     if (e.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF) {
       refs.push((e as BoundColumnRefExpression).binding);
+    } else if (e.expressionClass === BoundExpressionClass.BOUND_JSON_ACCESS) {
+      refs.push((e as BoundJsonAccessExpression).child.binding);
     } else if (e.expressionClass === BoundExpressionClass.BOUND_AGGREGATE) {
       const agg = e as BoundAggregateExpression;
       if (agg.binding) refs.push(agg.binding);

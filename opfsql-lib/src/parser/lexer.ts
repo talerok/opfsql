@@ -88,6 +88,7 @@ const KEYWORDS: Record<string, TokenType> = {
   blob: TokenType.BLOB_KW,
   boolean: TokenType.BOOLEAN_KW,
   bool: TokenType.BOOL_KW,
+  json: TokenType.JSON_KW,
 };
 
 // Unsupported keywords that produce clear errors
@@ -179,6 +180,14 @@ export class Lexer {
           break;
         case '.':
           this.addToken(TokenType.DOT, '.', startLine, startCol);
+          this.advance();
+          break;
+        case '[':
+          this.addToken(TokenType.LEFT_BRACKET, '[', startLine, startCol);
+          this.advance();
+          break;
+        case ']':
+          this.addToken(TokenType.RIGHT_BRACKET, ']', startLine, startCol);
           this.advance();
           break;
         case '+':

@@ -1,0 +1,275 @@
+# json.slt — JSON type support
+
+# ============================================================================
+# CREATE TABLE with JSON column
+# ============================================================================
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, data JSON)
+
+# ============================================================================
+# INSERT with string literals (implicit cast to JSON)
+# ============================================================================
+
+statement ok
+INSERT INTO t (id, data) VALUES (1, '{"name": "Alice", "age": 30}')
+
+statement ok
+INSERT INTO t (id, data) VALUES (2, '{"name": "Bob", "age": 25, "tags": ["dev", "ops"]}')
+
+statement ok
+INSERT INTO t (id, data) VALUES (3, '{"name": "Carol", "nested": {"x": 1, "y": 2}}')
+
+statement ok
+INSERT INTO t (id, data) VALUES (4, '{"name": "Dave", "items": [10, 20, 30]}')
+
+statement ok
+INSERT INTO t (id, data) VALUES (5, NULL)
+
+# ============================================================================
+# SELECT with dot-path access
+# ============================================================================
+
+query IT rowsort
+SELECT id, data.name FROM t WHERE id <= 4
+----
+1|Alice
+2|Bob
+3|Carol
+4|Dave
+
+query II nosort
+SELECT id, data.age FROM t WHERE id = 1
+----
+1|30
+
+# ============================================================================
+# Nested dot-path access
+# ============================================================================
+
+query II nosort
+SELECT id, data.nested.x FROM t WHERE id = 3
+----
+3|1
+
+query II nosort
+SELECT id, data.nested.y FROM t WHERE id = 3
+----
+3|2
+
+# ============================================================================
+# Bracket (array) access
+# ============================================================================
+
+query II nosort
+SELECT id, data.items[0] FROM t WHERE id = 4
+----
+4|10
+
+query II nosort
+SELECT id, data.items[1] FROM t WHERE id = 4
+----
+4|20
+
+query II nosort
+SELECT id, data.items[2] FROM t WHERE id = 4
+----
+4|30
+
+# ============================================================================
+# Combined dot + bracket access
+# ============================================================================
+
+query IT nosort
+SELECT id, data.tags[0] FROM t WHERE id = 2
+----
+2|dev
+
+query IT nosort
+SELECT id, data.tags[1] FROM t WHERE id = 2
+----
+2|ops
+
+# ============================================================================
+# NULL propagation: NULL data → NULL path
+# ============================================================================
+
+query II nosort
+SELECT id, data.name FROM t WHERE id = 5
+----
+5|NULL
+
+# Missing field → NULL
+query II nosort
+SELECT id, data.nonexistent FROM t WHERE id = 1
+----
+1|NULL
+
+# Out-of-bounds array → NULL
+query II nosort
+SELECT id, data.items[99] FROM t WHERE id = 4
+----
+4|NULL
+
+# ============================================================================
+# WHERE with JSON path
+# ============================================================================
+
+query I nosort
+SELECT id FROM t WHERE data.name = 'Alice'
+----
+1
+
+query I rowsort
+SELECT id FROM t WHERE data.age > 20 AND data.age < 30
+----
+2
+
+# ============================================================================
+# JSON equality
+# ============================================================================
+
+query I nosort
+SELECT id FROM t WHERE data.nested = '{"x": 1, "y": 2}'
+----
+
+# ============================================================================
+# UPDATE with implicit JSON cast
+# ============================================================================
+
+statement ok
+UPDATE t SET data = '{"name": "Alice", "age": 31}' WHERE id = 1
+
+query II nosort
+SELECT id, data.age FROM t WHERE id = 1
+----
+1|31
+
+# ============================================================================
+# Table alias with JSON path
+# ============================================================================
+
+query IT nosort
+SELECT t.id, t.data.name FROM t WHERE t.id = 2
+----
+2|Bob
+
+# ============================================================================
+# JSON column in INSERT ... SELECT
+# ============================================================================
+
+statement ok
+CREATE TABLE t2 (id INTEGER PRIMARY KEY, info JSON)
+
+statement ok
+INSERT INTO t2 (id, info) SELECT id, data FROM t WHERE id <= 2
+
+query IT rowsort
+SELECT id, info.name FROM t2
+----
+1|Alice
+2|Bob
+
+# ============================================================================
+# Error: CREATE INDEX on JSON column
+# ============================================================================
+
+statement error
+CREATE INDEX idx ON t(data)
+
+# ============================================================================
+# ORDER BY JSON column (lexicographic via JSON.stringify)
+# ============================================================================
+
+query IT nosort
+SELECT id, data.name FROM t WHERE id IN (1, 2) ORDER BY data
+----
+1|Alice
+2|Bob
+
+# ============================================================================
+# GROUP BY JSON column
+# ============================================================================
+
+statement ok
+CREATE TABLE t3 (id INTEGER PRIMARY KEY, data JSON)
+
+statement ok
+INSERT INTO t3 VALUES (1, '{"k": "a"}')
+
+statement ok
+INSERT INTO t3 VALUES (2, '{"k": "a"}')
+
+statement ok
+INSERT INTO t3 VALUES (3, '{"k": "b"}')
+
+query I rowsort
+SELECT COUNT(*) FROM t3 GROUP BY data
+----
+1
+2
+
+statement ok
+DROP TABLE t3
+
+# ============================================================================
+# DISTINCT on JSON column
+# ============================================================================
+
+statement ok
+CREATE TABLE t4 (id INTEGER PRIMARY KEY, data JSON)
+
+statement ok
+INSERT INTO t4 VALUES (1, '{"x": 1}')
+
+statement ok
+INSERT INTO t4 VALUES (2, '{"x": 1}')
+
+statement ok
+INSERT INTO t4 VALUES (3, '{"x": 2}')
+
+query I nosort
+SELECT COUNT(*) FROM (SELECT DISTINCT data FROM t4)
+----
+2
+
+statement ok
+DROP TABLE t4
+
+# ============================================================================
+# Error: JSON column as PRIMARY KEY
+# ============================================================================
+
+statement error
+CREATE TABLE bad1 (data JSON PRIMARY KEY)
+
+# ============================================================================
+# Error: JSON column as UNIQUE
+# ============================================================================
+
+statement error
+CREATE TABLE bad2 (id INTEGER, data JSON UNIQUE)
+
+# ============================================================================
+# Error: arithmetic on JSON
+# ============================================================================
+
+statement error
+SELECT data + 1 FROM t
+
+# ============================================================================
+# Invalid JSON string
+# ============================================================================
+
+statement error
+INSERT INTO t (id, data) VALUES (99, 'not-json')
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE t2
+
+statement ok
+DROP TABLE t

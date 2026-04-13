@@ -2,7 +2,7 @@ import type {
   BoundCastExpression,
   BoundExpression,
 } from "../../binder/types.js";
-import { castValue } from "../../executor/evaluate/helpers.js";
+import { castValue } from "./utils/cast.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
 import type { SyncEvalContext } from "./context.js";

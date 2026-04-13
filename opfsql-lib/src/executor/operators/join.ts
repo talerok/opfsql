@@ -2,7 +2,7 @@ import type {
   ColumnBinding,
   LogicalComparisonJoin,
 } from "../../binder/types.js";
-import { serializeValue } from "../../executor/evaluate/helpers.js";
+import { serializeValue } from "../evaluate/utils/serialize.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import { evaluateExpression } from "../evaluate/index.js";
 import { buildResolver, type Resolver } from "../resolve.js";

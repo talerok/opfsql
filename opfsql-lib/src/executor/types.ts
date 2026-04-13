@@ -1,7 +1,7 @@
 import type { ColumnBinding } from "../binder/types.js";
-import type { Row } from "../store/types.js";
+import type { Row, Value as StoreValue } from "../store/types.js";
 
-export type Value = string | number | boolean | null;
+export type Value = StoreValue;
 export type Tuple = Value[];
 
 export interface SyncPhysicalOperator {

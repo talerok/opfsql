@@ -85,7 +85,8 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     const predicates: SearchPredicate[] = this.indexPredicates.map((p) => ({
       columnPosition: p.columnPosition,
       comparisonType: p.comparisonType,
-      value: resolveFilterValue(p.value, this.ctx.params),
+      value: resolveFilterValue(p.value, this.ctx.params) as
+        string | number | boolean | null,
     }));
     return this.indexManager.search(
       this.indexDef.name,

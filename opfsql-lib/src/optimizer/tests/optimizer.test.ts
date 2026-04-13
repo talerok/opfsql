@@ -2295,3 +2295,77 @@ describe("Recursive CTE optimization", () => {
     expect(anchorBindings.length).toBe(2);
   });
 });
+
+// ============================================================================
+// JSON filter pushdown safety
+// ============================================================================
+
+describe("JSON filter pushdown", () => {
+  const docsSchema: TableSchema = {
+    name: "docs",
+    columns: [
+      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
+      { name: "data", type: "JSON", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+  };
+
+  beforeEach(() => {
+    catalog.addTable(docsSchema);
+  });
+
+  it("JSON path AND range filter keeps both conditions after optimize", () => {
+    const plan = bind("SELECT id FROM docs WHERE data.age > 20 AND data.age < 30");
+    const optimized = optimize(plan, catalog);
+
+    // Find the filter node — both conditions must still exist
+    const filter = findNode(optimized, LogicalOperatorType.LOGICAL_FILTER);
+    // There should be a filter with 2 expressions (or 1 conjunction with 2 children)
+    if (filter) {
+      const totalConditions = filter.expressions.reduce((acc, e) => {
+        if (e.expressionClass === BoundExpressionClass.BOUND_CONJUNCTION) {
+          return acc + (e as BoundConjunctionExpression).children.length;
+        }
+        return acc + 1;
+      }, 0);
+      expect(totalConditions).toBeGreaterThanOrEqual(2);
+    }
+
+    // Ensure no tableFilters were created from JSON path expressions
+    const get = findNode(optimized, LogicalOperatorType.LOGICAL_GET) as LogicalGet;
+    expect(get).toBeTruthy();
+    for (const tf of get.tableFilters) {
+      expect(tf.columnIndex).not.toBe(1);
+    }
+  });
+
+  it("isolate which optimizer pass breaks JSON path AND filter", () => {
+    function countFilterExprs(p: LogicalOperator): number {
+      const f = findNode(p, LogicalOperatorType.LOGICAL_FILTER);
+      if (!f) return 0;
+      return f.expressions.reduce((acc, e) => {
+        if (e.expressionClass === BoundExpressionClass.BOUND_CONJUNCTION) {
+          return acc + (e as BoundConjunctionExpression).children.length;
+        }
+        return acc + 1;
+      }, 0);
+    }
+
+    // Test each pass independently
+    const passes = [
+      ["rewriteExpressions", rewriteExpressions],
+      ["decorrelateExists", decorrelateExists],
+      ["pullupFilters", pullupFilters],
+      ["pushdownFilters", pushdownFilters],
+      ["removeUnusedColumns", removeUnusedColumns],
+      ["reorderFilters", reorderFilters],
+    ] as const;
+
+    for (const [name, pass] of passes) {
+      const plan = bind("SELECT id FROM docs WHERE data.age > 20 AND data.age < 30");
+      const before = countFilterExprs(plan);
+      const result = pass(plan);
+      const after = countFilterExprs(result);
+      expect(after, `${name}: filter conditions dropped from ${before} to ${after}`).toBeGreaterThanOrEqual(2);
+    }
+  });
+});
