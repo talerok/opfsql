@@ -1,4 +1,5 @@
 import type {
+  ColumnRefExpression,
   OrderByNode,
   SelectNode,
   StarExpression,
@@ -221,7 +222,7 @@ function applyModifiers(
         break;
 
       case ResultModifierType.ORDER_MODIFIER:
-        plan = applyOrderBy(ctx, mod.orders, scope, proj, aggCtx);
+        plan = applyOrderBy(ctx, mod.orders, scope, proj, aggCtx, plan);
         break;
 
       case ResultModifierType.LIMIT_MODIFIER:
@@ -243,46 +244,64 @@ function applyOrderBy(
   scope: BindScope,
   proj: ProjectionState,
   aggCtx: AggregateContext | undefined,
+  currentPlan: BT.LogicalOperator,
 ): BT.LogicalOperator {
-  const boundOrders = orders.map((o) => ({
-    expression: bindExpression(ctx, o.expression, scope, aggCtx),
-    orderType: o.type,
-    nullOrder: o.null_order,
-  }));
-
   const originalCount = proj.expressions.length;
 
-  // Rewrite ORDER BY expressions to reference projection output.
-  // ORDER BY sits above projection, so expressions must use projection bindings.
-  const rewrittenOrders: BT.BoundOrderByNode[] = boundOrders.map((order) => {
+  const rewrittenOrders: BT.BoundOrderByNode[] = orders.map((o) => {
+    // 1. Check if ORDER BY references a projection alias (e.g. ORDER BY total)
+    //    before binding, since the alias is not a real column and would fail.
+    if (o.expression.expression_class === ExpressionClass.COLUMN_REF) {
+      const ref = o.expression as ColumnRefExpression;
+      if (ref.column_names.length === 1) {
+        const name = ref.column_names[0].toLowerCase();
+        const aliasIdx = proj.aliases.findIndex(
+          (a) => a !== null && a.toLowerCase() === name,
+        );
+        if (aliasIdx !== -1) {
+          return {
+            expression: projRef(proj.bindings[aliasIdx], proj.types[aliasIdx]),
+            orderType: o.type,
+            nullOrder: o.null_order,
+          };
+        }
+      }
+    }
+
+    // 2. Bind normally and try structural match against projection expressions
+    const bound = bindExpression(ctx, o.expression, scope, aggCtx);
     const idx = proj.expressions.findIndex((sel) =>
-      sameExpression(sel, order.expression),
+      sameExpression(sel, bound),
     );
 
     if (idx !== -1) {
       return {
-        ...order,
-        expression: projRef(proj.bindings[idx], order.expression.returnType),
+        expression: projRef(proj.bindings[idx], bound.returnType),
+        orderType: o.type,
+        nullOrder: o.null_order,
       };
     }
 
-    // Expression not in select list — extend projection so sort can access it
+    // 3. Expression not in select list — extend projection so sort can access it
     const colIndex = proj.expressions.length;
-    proj.expressions.push(order.expression);
+    proj.expressions.push(bound);
     proj.aliases.push(null);
-    proj.types.push(order.expression.returnType);
+    proj.types.push(bound.returnType);
     const binding: BT.ColumnBinding = {
       tableIndex: proj.tableIndex,
       columnIndex: colIndex,
     };
     proj.bindings.push(binding);
     return {
-      ...order,
-      expression: projRef(binding, order.expression.returnType),
+      expression: projRef(binding, bound.returnType),
+      orderType: o.type,
+      nullOrder: o.null_order,
     };
   });
 
-  let plan: BT.LogicalOperator = makeOrderBy(proj.plan, rewrittenOrders);
+  // Use currentPlan (not proj.plan) to preserve any operators (e.g. DISTINCT)
+  // that were applied between the projection and this ORDER BY.
+  let plan: BT.LogicalOperator = makeOrderBy(currentPlan, rewrittenOrders);
 
   // If we extended the projection, add a trimming projection to remove extra columns
   if (proj.expressions.length > originalCount) {

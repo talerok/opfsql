@@ -97,6 +97,7 @@ export function castValue(v: Value, targetType: string): Value {
 }
 
 function castNumber(v: Value, targetType: string) {
+  if (typeof v === "boolean") return v ? 1 : 0;
   const n = typeof v === "number" ? Math.trunc(v) : parseInt(String(v), 10);
   if (Number.isNaN(n)) {
     throw new ExecutorError(`Cannot cast '${v}' to ${targetType}`);

@@ -90,8 +90,16 @@ INSERT INTO grouped VALUES (4, 'C', 40)
 statement ok
 INSERT INTO grouped VALUES (5, 'B', 50)
 
+# ORDER BY using aggregate expression directly
 query TI nosort
 SELECT category, SUM(val) AS total FROM grouped GROUP BY category ORDER BY SUM(val) DESC LIMIT 2
+----
+B|70
+A|40
+
+# ORDER BY using alias
+query TI nosort
+SELECT category, SUM(val) AS total FROM grouped GROUP BY category ORDER BY total DESC LIMIT 2
 ----
 B|70
 A|40
@@ -100,8 +108,15 @@ A|40
 # LIMIT with aggregate results
 # ============================================================================
 
+# ORDER BY using aggregate expression
 query TI nosort
 SELECT category, COUNT(*) AS cnt FROM grouped GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1
+----
+A|2
+
+# ORDER BY using alias
+query TI nosort
+SELECT category, COUNT(*) AS cnt FROM grouped GROUP BY category ORDER BY cnt DESC LIMIT 1
 ----
 A|2
 
