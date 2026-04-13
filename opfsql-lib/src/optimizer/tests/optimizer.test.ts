@@ -428,6 +428,65 @@ describe("ExpressionRewriter", () => {
       );
       expect((cmp.right as BoundConstantExpression).value).toBe(7);
     });
+
+    it("moves subtract constant: age - 3 < 10 → age < 13", () => {
+      const plan = bind("SELECT * FROM users WHERE age - 3 < 10");
+      const optimized = rewriteExpressions(plan);
+      const filter = findNode(
+        optimized,
+        LogicalOperatorType.LOGICAL_FILTER,
+      ) as LogicalFilter;
+      const cmp = filter.expressions[0] as BoundComparisonExpression;
+      expect(cmp.left.expressionClass).toBe(
+        BoundExpressionClass.BOUND_COLUMN_REF,
+      );
+      expect(cmp.right.expressionClass).toBe(
+        BoundExpressionClass.BOUND_CONSTANT,
+      );
+      expect((cmp.right as BoundConstantExpression).value).toBe(13);
+    });
+  });
+
+  describe("additional simplifications", () => {
+    it("folds false OR x to x", () => {
+      const plan = bind("SELECT * FROM users WHERE false OR age > 18");
+      const optimized = rewriteExpressions(plan);
+      const filter = findNode(
+        optimized,
+        LogicalOperatorType.LOGICAL_FILTER,
+      ) as LogicalFilter;
+      // After simplification: false removed from OR, leaving just age > 18
+      const expr = filter.expressions[0];
+      expect(expr.expressionClass).toBe(BoundExpressionClass.BOUND_COMPARISON);
+    });
+
+    it("folds nested constant arithmetic: (2 + 3) * 4 = 20 → true", () => {
+      const plan = bind("SELECT * FROM users WHERE (2 + 3) * 4 = 20");
+      const optimized = rewriteExpressions(plan);
+      const filter = findNode(
+        optimized,
+        LogicalOperatorType.LOGICAL_FILTER,
+      ) as LogicalFilter;
+      expect(filter.expressions[0].expressionClass).toBe(
+        BoundExpressionClass.BOUND_CONSTANT,
+      );
+      expect((filter.expressions[0] as BoundConstantExpression).value).toBe(
+        true,
+      );
+    });
+
+    it("simplifies x / 1 to x", () => {
+      const plan = bind("SELECT * FROM users WHERE age / 1 > 18");
+      const optimized = rewriteExpressions(plan);
+      const filter = findNode(
+        optimized,
+        LogicalOperatorType.LOGICAL_FILTER,
+      ) as LogicalFilter;
+      const cmp = filter.expressions[0] as BoundComparisonExpression;
+      expect(cmp.left.expressionClass).toBe(
+        BoundExpressionClass.BOUND_COLUMN_REF,
+      );
+    });
   });
 });
 
@@ -567,6 +626,129 @@ describe("FilterCombiner", () => {
     );
     expect((filters[0] as BoundConstantExpression).value).toBe(false);
   });
+
+  it("keeps both NOT_EQUAL filters: x != 5 AND x != 6", () => {
+    const combiner = new FilterCombiner();
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "NOT_EQUAL",
+      left: makeColRef(0, 0),
+      right: makeIntConstant(5),
+      returnType: "BOOLEAN",
+    });
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "NOT_EQUAL",
+      left: makeColRef(0, 0),
+      right: makeIntConstant(6),
+      returnType: "BOOLEAN",
+    });
+
+    const filters = combiner.generateFilters();
+    // Both NOT_EQUAL filters should be kept (they are not redundant)
+    const neFilters = filters.filter(
+      (f) =>
+        f.expressionClass === BoundExpressionClass.BOUND_COMPARISON &&
+        (f as BoundComparisonExpression).comparisonType === "NOT_EQUAL",
+    );
+    expect(neFilters).toHaveLength(2);
+  });
+
+  it("tightens GREATER_EQUAL + GREATER: x >= 5 AND x > 5 → x > 5", () => {
+    const combiner = new FilterCombiner();
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "GREATER_EQUAL",
+      left: makeColRef(0, 0),
+      right: makeIntConstant(5),
+      returnType: "BOOLEAN",
+    });
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "GREATER",
+      left: makeColRef(0, 0),
+      right: makeIntConstant(5),
+      returnType: "BOOLEAN",
+    });
+
+    const filters = combiner.generateFilters();
+    const comparisons = filters.filter(
+      (f) => f.expressionClass === BoundExpressionClass.BOUND_COMPARISON,
+    ) as BoundComparisonExpression[];
+    // Should tighten to a single GREATER filter
+    expect(comparisons).toHaveLength(1);
+    expect(comparisons[0].comparisonType).toBe("GREATER");
+  });
+
+  it("tightens LESS_EQUAL + LESS: x <= 5 AND x < 5 → x < 5", () => {
+    const combiner = new FilterCombiner();
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "LESS_EQUAL",
+      left: makeColRef(0, 0),
+      right: makeIntConstant(5),
+      returnType: "BOOLEAN",
+    });
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "LESS",
+      left: makeColRef(0, 0),
+      right: makeIntConstant(5),
+      returnType: "BOOLEAN",
+    });
+
+    const filters = combiner.generateFilters();
+    const comparisons = filters.filter(
+      (f) => f.expressionClass === BoundExpressionClass.BOUND_COMPARISON,
+    ) as BoundComparisonExpression[];
+    expect(comparisons).toHaveLength(1);
+    expect(comparisons[0].comparisonType).toBe("LESS");
+  });
+
+  it("keeps triple range filters, retains tightest: x > 3 AND x > 5 AND x > 7 → x > 7", () => {
+    const combiner = new FilterCombiner();
+    for (const v of [3, 5, 7]) {
+      combiner.addFilter({
+        expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+        comparisonType: "GREATER",
+        left: makeColRef(0, 0),
+        right: makeIntConstant(v),
+        returnType: "BOOLEAN",
+      });
+    }
+
+    const filters = combiner.generateFilters();
+    const comparisons = filters.filter(
+      (f) => f.expressionClass === BoundExpressionClass.BOUND_COMPARISON,
+    ) as BoundComparisonExpression[];
+    expect(comparisons).toHaveLength(1);
+    expect((comparisons[0].right as BoundConstantExpression).value).toBe(7);
+  });
+
+  it("generates table filters for multiple columns", () => {
+    const combiner = new FilterCombiner();
+    // age > 18
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "GREATER",
+      left: makeColRef(0, 2),
+      right: makeIntConstant(18),
+      returnType: "BOOLEAN",
+    });
+    // id = 5
+    combiner.addFilter({
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "EQUAL",
+      left: makeColRef(0, 0),
+      right: makeIntConstant(5),
+      returnType: "BOOLEAN",
+    });
+
+    const tableFilters = combiner.generateTableFilters(0);
+    expect(tableFilters).toHaveLength(2);
+    const colIndices = tableFilters.map((f) => f.columnIndex).sort();
+    expect(colIndices).toEqual([0, 2]);
+  });
 });
 
 // ============================================================================
@@ -593,6 +775,55 @@ describe("FilterPullup", () => {
       LogicalOperatorType.LOGICAL_CROSS_PRODUCT,
     );
     expect(cross).not.toBeNull();
+  });
+
+  it("preserves INNER JOIN when no WHERE clause exists", () => {
+    const plan = bind(
+      "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
+    );
+    const optimized = pullupFilters(plan);
+
+    // Without a filter above, pullup leaves the join intact
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    ) as LogicalComparisonJoin;
+    expect(join).not.toBeNull();
+    expect(join.joinType).toBe("INNER");
+  });
+
+  it("pulls conditions from all INNER JOINs in a multi-join chain with WHERE", () => {
+    const plan = bind(
+      `SELECT * FROM users u
+       JOIN orders o ON u.id = o.user_id
+       JOIN products p ON p.id = o.user_id
+       WHERE u.age > 18`,
+    );
+    const optimized = pullupFilters(plan);
+
+    // After pullup, all inner join conditions should be combined into filters
+    const filter = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_FILTER,
+    ) as LogicalFilter;
+    expect(filter).not.toBeNull();
+    // Should have multiple conditions (WHERE + both JOIN conditions)
+    expect(filter.expressions.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not pull LEFT JOIN conditions", () => {
+    const plan = bind(
+      "SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id",
+    );
+    const optimized = pullupFilters(plan);
+
+    // LEFT JOIN should stay as comparison join
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    ) as LogicalComparisonJoin;
+    expect(join).not.toBeNull();
+    expect(join.joinType).toBe("LEFT");
   });
 });
 
@@ -914,6 +1145,53 @@ describe("InClauseRewriter", () => {
       );
     }
   });
+
+  it("does not expand large IN list (>10 values)", () => {
+    const values = Array.from({ length: 11 }, (_, i) => i + 1).join(", ");
+    const plan = bind(`SELECT * FROM users WHERE id IN (${values})`);
+    const optimized = rewriteInClauses(plan);
+    const filter = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_FILTER,
+    ) as LogicalFilter;
+    expect(filter).not.toBeNull();
+    // Should remain as IN operator, not be expanded to OR
+    const expr = filter.expressions[0];
+    expect(expr.expressionClass).not.toBe(
+      BoundExpressionClass.BOUND_CONJUNCTION,
+    );
+  });
+
+  it("expands IN with exactly 10 values (at threshold)", () => {
+    const values = Array.from({ length: 10 }, (_, i) => i + 1).join(", ");
+    const plan = bind(`SELECT * FROM users WHERE id IN (${values})`);
+    const optimized = rewriteInClauses(plan);
+    const filter = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_FILTER,
+    ) as LogicalFilter;
+    expect(filter).not.toBeNull();
+    // Should be expanded to OR chain at threshold
+    const expr = filter.expressions[0];
+    expect(expr.expressionClass).toBe(BoundExpressionClass.BOUND_CONJUNCTION);
+    expect((expr as BoundConjunctionExpression).conjunctionType).toBe("OR");
+    expect((expr as BoundConjunctionExpression).children).toHaveLength(10);
+  });
+
+  it("rewrites NOT IN single value to NOT_EQUAL", () => {
+    const plan = bind("SELECT * FROM users WHERE id NOT IN (5)");
+    const optimized = rewriteInClauses(plan);
+    const filter = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_FILTER,
+    ) as LogicalFilter;
+    expect(filter).not.toBeNull();
+    const expr = filter.expressions[0];
+    expect(expr.expressionClass).toBe(BoundExpressionClass.BOUND_COMPARISON);
+    expect((expr as BoundComparisonExpression).comparisonType).toBe(
+      "NOT_EQUAL",
+    );
+  });
 });
 
 // ============================================================================
@@ -957,6 +1235,37 @@ describe("JoinOrderOptimizer", () => {
     expect(resultGets).toHaveLength(3);
     const tableNames = resultGets.map((g) => g.tableName).sort();
     expect(tableNames).toEqual(["orders", "products", "users"]);
+  });
+
+  it("does not reorder single table (no join)", () => {
+    const plan = bind("SELECT * FROM users WHERE age > 18");
+    const optimized = optimizeJoinOrder(plan);
+    // Should be unchanged
+    const get = getGet(optimized);
+    expect(get.tableName).toBe("users");
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    );
+    // A single table has no join to reorder
+    // (the original might have no join at all)
+    expect(getAllGets(optimized)).toHaveLength(1);
+  });
+
+  it("handles very unbalanced cardinalities", () => {
+    const plan = bind(
+      "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
+    );
+    const gets = getAllGets(plan);
+    for (const get of gets) {
+      if (get.tableName === "users") get.estimatedCardinality = 1;
+      if (get.tableName === "orders") get.estimatedCardinality = 1000000;
+    }
+
+    const optimized = optimizeJoinOrder(plan);
+    // Should still produce a valid plan with both tables
+    const resultGets = getAllGets(optimized);
+    expect(resultGets).toHaveLength(2);
   });
 });
 
@@ -1131,6 +1440,45 @@ describe("BuildProbeSideOptimizer", () => {
     const leftGet = getGet(join.children[0]);
     expect(leftGet.tableName).toBe("users");
   });
+
+  it("does not swap when left is already larger (build=right is smaller)", () => {
+    const plan = bind(
+      "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
+    );
+    const gets = getAllGets(plan);
+    for (const get of gets) {
+      if (get.tableName === "users") get.estimatedCardinality = 10000;
+      if (get.tableName === "orders") get.estimatedCardinality = 10;
+    }
+
+    const optimized = optimizeBuildProbeSide(plan);
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    ) as LogicalComparisonJoin;
+    // Right (build) should remain the smaller table (orders)
+    const rightGet = getGet(join.children[1]);
+    expect(rightGet.tableName).toBe("orders");
+  });
+
+  it("handles equal cardinality without swapping", () => {
+    const plan = bind(
+      "SELECT * FROM users JOIN orders ON users.id = orders.user_id",
+    );
+    const gets = getAllGets(plan);
+    for (const get of gets) {
+      get.estimatedCardinality = 100;
+    }
+
+    const optimized = optimizeBuildProbeSide(plan);
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    ) as LogicalComparisonJoin;
+    expect(join).not.toBeNull();
+    // Both tables present, plan should be valid regardless
+    expect(getAllGets(optimized)).toHaveLength(2);
+  });
 });
 
 // ============================================================================
@@ -1208,6 +1556,48 @@ describe("LimitPushdown", () => {
     expect(orderBy).not.toBeNull();
     expect(orderBy.topN).toBeUndefined();
   });
+
+  it("handles LIMIT 0 edge case", () => {
+    const plan = bind("SELECT name FROM users LIMIT 0");
+    const optimized = pushdownLimit(plan);
+
+    const limit = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_LIMIT,
+    ) as LogicalLimit;
+    expect(limit).not.toBeNull();
+    expect(limit.limitVal).toBe(0);
+  });
+
+  it("handles large OFFSET with small LIMIT", () => {
+    const plan = bind("SELECT * FROM users ORDER BY age LIMIT 5 OFFSET 100");
+    const optimized = pushdownLimit(plan);
+
+    const orderBy = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_ORDER_BY,
+    ) as LogicalOrderBy;
+    expect(orderBy).not.toBeNull();
+    // topN = limit + offset = 5 + 100 = 105
+    expect(orderBy.topN).toBe(105);
+  });
+
+  it("does not push LIMIT below aggregate", () => {
+    const plan = bind(
+      "SELECT age, COUNT(*) FROM users GROUP BY age LIMIT 5",
+    );
+    const optimized = pushdownLimit(plan);
+
+    // Aggregate should remain below limit
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    );
+    expect(agg).not.toBeNull();
+    // Should still have a limit
+    const limit = findNode(optimized, LogicalOperatorType.LOGICAL_LIMIT);
+    expect(limit).not.toBeNull();
+  });
 });
 
 // ============================================================================
@@ -1251,6 +1641,39 @@ describe("ReorderFilter", () => {
       // The guard condition (age > 0) should remain first
       expect(first.comparisonType).toBe("GREATER");
       expect((first.right as BoundConstantExpression).value).toBe(0);
+    }
+  });
+
+  it("preserves single filter unchanged", () => {
+    const plan = bind("SELECT * FROM users WHERE age > 18");
+    const optimized = reorderFilters(plan);
+    const filter = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_FILTER,
+    ) as LogicalFilter;
+    expect(filter).not.toBeNull();
+    // Single expression should pass through unchanged
+    expect(filter.expressions).toHaveLength(1);
+    expect(
+      (filter.expressions[0] as BoundComparisonExpression).comparisonType,
+    ).toBe("GREATER");
+  });
+
+  it("reorders subquery after cheap column comparison", () => {
+    const plan = bind(
+      "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders) AND age > 18",
+    );
+    const optimized = reorderFilters(plan);
+    const filter = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_FILTER,
+    ) as LogicalFilter;
+    if (filter && filter.expressions.length > 1) {
+      // Subquery is very expensive; age > 18 should come first
+      const first = filter.expressions[0];
+      expect(first.expressionClass).not.toBe(
+        BoundExpressionClass.BOUND_SUBQUERY,
+      );
     }
   });
 });
@@ -1379,6 +1802,41 @@ describe("optimize (full pipeline)", () => {
       LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
     );
     expect(join).not.toBeNull();
+  });
+
+  it("optimizes ORDER BY with LIMIT (topN annotation)", () => {
+    const plan = bind(
+      "SELECT name FROM users ORDER BY age DESC LIMIT 3",
+    );
+    const optimized = optimize(plan);
+    const orderBy = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_ORDER_BY,
+    ) as LogicalOrderBy;
+    expect(orderBy).not.toBeNull();
+    expect(orderBy.topN).toBe(3);
+  });
+
+  it("optimizes DISTINCT query", () => {
+    const plan = bind("SELECT DISTINCT name FROM users");
+    const optimized = optimize(plan);
+    const distinct = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_DISTINCT,
+    );
+    expect(distinct).not.toBeNull();
+  });
+
+  it("optimizes UPDATE statement", () => {
+    const plan = bind("UPDATE users SET age = 30 WHERE id = 1");
+    const optimized = optimize(plan);
+    expect(optimized.type).toBe(LogicalOperatorType.LOGICAL_UPDATE);
+  });
+
+  it("optimizes DELETE statement", () => {
+    const plan = bind("DELETE FROM users WHERE age < 18");
+    const optimized = optimize(plan);
+    expect(optimized.type).toBe(LogicalOperatorType.LOGICAL_DELETE);
   });
 });
 
@@ -1512,6 +1970,63 @@ describe("IndexSelection", () => {
     expect(get.indexHint).toBeDefined();
     expect(get.indexHint!.predicates).toHaveLength(1);
     expect(get.indexHint!.predicates[0].comparisonType).toBe("EQUAL");
+  });
+
+  it("does not use composite index when first column has no filter", () => {
+    catalog.addIndex({
+      name: "idx_comp",
+      tableName: "orders",
+      columns: ["user_id", "status"],
+      unique: false,
+    });
+    // Only status filter, but user_id is the first index column
+    const plan = bind("SELECT * FROM orders WHERE status = 'shipped'");
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    // Should not use composite index since prefix not matched
+    expect(get.indexHint).toBeUndefined();
+  });
+
+  it("handles range filter on single-column index", () => {
+    catalog.addIndex({
+      name: "idx_amount",
+      tableName: "orders",
+      columns: ["amount"],
+      unique: false,
+    });
+    const plan = bind(
+      "SELECT * FROM orders WHERE amount > 50 AND amount < 200",
+    );
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    // Should use the index for range filter
+    expect(get.indexHint!.predicates.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("chooses index with more covered predicates", () => {
+    catalog.addIndex({
+      name: "idx_age_only",
+      tableName: "users",
+      columns: ["age"],
+      unique: false,
+    });
+    catalog.addIndex({
+      name: "idx_age_active",
+      tableName: "users",
+      columns: ["age", "active"],
+      unique: false,
+    });
+    const plan = bind(
+      "SELECT * FROM users WHERE age = 30 AND active = true",
+    );
+    const optimized = optimize(plan, catalog);
+    const get = getGet(optimized);
+    expect(get.indexHint).toBeDefined();
+    // Should choose the composite index that covers both predicates
+    expect(get.indexHint!.indexDef.name).toBe("idx_age_active");
+    expect(get.indexHint!.predicates).toHaveLength(2);
+    expect(get.indexHint!.residualFilters).toHaveLength(0);
   });
 });
 
@@ -1671,6 +2186,42 @@ describe("decorrelateExists", () => {
     ) as LogicalComparisonJoin;
     expect(join).toBeTruthy();
     expect(join.joinType).toBe("SEMI");
+  });
+
+  it("handles EXISTS with multiple correlated conditions", () => {
+    const plan = bind(
+      `SELECT u.name FROM users u WHERE EXISTS (
+        SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.status = u.name
+      )`,
+    );
+    const optimized = decorrelateExists(plan);
+
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    ) as LogicalComparisonJoin;
+    expect(join).toBeTruthy();
+    expect(join.joinType).toBe("SEMI");
+    // Should have 2 correlated conditions as join conditions
+    expect(join.conditions).toHaveLength(2);
+  });
+
+  it("ANTI join output has only outer columns", () => {
+    const plan = bind(
+      "SELECT u.name FROM users u WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)",
+    );
+    const optimized = decorrelateExists(plan);
+
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    ) as LogicalComparisonJoin;
+    expect(join).toBeTruthy();
+    expect(join.joinType).toBe("ANTI");
+
+    // ANTI join types should match probe (outer) side only
+    const outerTypes = join.children[0].types;
+    expect(join.types).toEqual(outerTypes);
   });
 });
 

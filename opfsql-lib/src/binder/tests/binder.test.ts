@@ -2285,3 +2285,90 @@ describe("Recursive CTE", () => {
   // by the parser, not on the recursive SelectNode. They cannot structurally
   // appear on the recursive term in practice.
 });
+
+// ============================================================================
+// Prepared statement parameters
+// ============================================================================
+
+describe("Parameters", () => {
+  it("$1 parameter binds to BoundParameterExpression", () => {
+    const plan = bind("SELECT * FROM users WHERE age = $1");
+    const filter = plan.children[0] as LogicalFilter;
+    expect(filter.type).toBe(LogicalOperatorType.LOGICAL_FILTER);
+    const cmp = filter.expressions[0] as BoundComparisonExpression;
+    expect(cmp.right.expressionClass).toBe(
+      BoundExpressionClass.BOUND_PARAMETER,
+    );
+  });
+
+  it("$2 parameter binds with correct 0-based index", () => {
+    const plan = bind("SELECT * FROM users WHERE name = $2");
+    const filter = plan.children[0] as LogicalFilter;
+    const cmp = filter.expressions[0] as BoundComparisonExpression;
+    expect(cmp.right.expressionClass).toBe(
+      BoundExpressionClass.BOUND_PARAMETER,
+    );
+    // $2 maps to 0-based index 1
+    expect((cmp.right as any).index).toBe(1);
+  });
+
+  it("parameter in INSERT VALUES", () => {
+    const plan = bind("INSERT INTO users (id, name) VALUES ($1, $2)");
+    expect(plan.type).toBe(LogicalOperatorType.LOGICAL_INSERT);
+  });
+});
+
+// ============================================================================
+// Expression edge cases
+// ============================================================================
+
+describe("Expression edge cases", () => {
+  it("nested CASE expressions bind correctly", () => {
+    const plan = bind(
+      "SELECT CASE WHEN age > 18 THEN CASE WHEN age > 30 THEN 'senior' ELSE 'adult' END ELSE 'minor' END FROM users",
+    );
+    const proj = plan as LogicalProjection;
+    expect(proj.expressions[0].expressionClass).toBe(
+      BoundExpressionClass.BOUND_CASE,
+    );
+    const outerCase = proj.expressions[0] as BoundCaseExpression;
+    expect(outerCase.caseChecks[0].then.expressionClass).toBe(
+      BoundExpressionClass.BOUND_CASE,
+    );
+  });
+
+  it("CAST inside CASE binds correctly", () => {
+    const plan = bind(
+      "SELECT CASE WHEN age > 18 THEN CAST(age AS TEXT) ELSE 'N/A' END FROM users",
+    );
+    const proj = plan as LogicalProjection;
+    expect(proj.expressions[0].expressionClass).toBe(
+      BoundExpressionClass.BOUND_CASE,
+    );
+  });
+
+  it("function inside ORDER BY binds correctly", () => {
+    const plan = bind("SELECT name FROM users ORDER BY UPPER(name)");
+    // Should not throw
+    expect(plan).toBeDefined();
+  });
+
+  it("aggregate with expression argument", () => {
+    const plan = bind(
+      "SELECT SUM(age + 1) FROM users",
+    );
+    expect(plan).toBeDefined();
+    // Should not throw — aggregate wrapping an expression
+  });
+
+  it("CONCAT of multiple columns", () => {
+    const plan = bind("SELECT CONCAT(name, ' ', name) FROM users");
+    const proj = plan as LogicalProjection;
+    expect(proj.expressions[0].expressionClass).toBe(
+      BoundExpressionClass.BOUND_FUNCTION,
+    );
+    expect(
+      (proj.expressions[0] as BoundFunctionExpression).functionName,
+    ).toBe("CONCAT");
+  });
+});

@@ -2967,4 +2967,141 @@ describe('Feature interactions', () => {
     const node = selectNode('SELECT a, b, COUNT(*) FROM t GROUP BY a, b');
     expect(node.groups.group_expressions).toHaveLength(2);
   });
+
+  // --- Parameter expressions ---
+
+  it('parses $1 parameter', () => {
+    const node = selectNode('SELECT * FROM t WHERE x = $1');
+    const cmp = node.where_clause as ComparisonExpression;
+    expect(cmp.right.expression_class).toBe(ExpressionClass.PARAMETER);
+    expect((cmp.right as any).index).toBe(0); // $1 → 0-based index 0
+  });
+
+  it('parses multiple parameters $1, $2', () => {
+    const node = selectNode('SELECT * FROM t WHERE x > $1 AND x < $2');
+    const conj = node.where_clause as ConjunctionExpression;
+    const left = conj.children[0] as ComparisonExpression;
+    const right = conj.children[1] as ComparisonExpression;
+    expect(left.right.expression_class).toBe(ExpressionClass.PARAMETER);
+    expect((left.right as any).index).toBe(0);
+    expect(right.right.expression_class).toBe(ExpressionClass.PARAMETER);
+    expect((right.right as any).index).toBe(1);
+  });
+
+  it('$0 parameter throws ParseError', () => {
+    expect(() => parse('SELECT * FROM t WHERE x = $0')).toThrow();
+  });
+
+  // --- Error reporting ---
+
+  it('empty query returns no statements', () => {
+    expect(parse('')).toHaveLength(0);
+  });
+
+  it('error on dangling AND', () => {
+    expect(() => parse('SELECT * FROM t WHERE x > 1 AND')).toThrow();
+  });
+
+  it('error on double comma in SELECT list', () => {
+    expect(() => parse('SELECT a,, b FROM t')).toThrow();
+  });
+
+  it('error on missing table after JOIN', () => {
+    expect(() => parse('SELECT * FROM t JOIN')).toThrow();
+  });
+
+  it('error on INSERT without VALUES or SELECT', () => {
+    expect(() => parse('INSERT INTO t (a, b)')).toThrow();
+  });
+
+  // --- HAVING without GROUP BY ---
+
+  it('parses HAVING without GROUP BY', () => {
+    const node = selectNode('SELECT COUNT(*) FROM t HAVING COUNT(*) > 5');
+    expect(node.having).not.toBeNull();
+    expect(node.groups.group_expressions).toHaveLength(0);
+  });
+
+  // --- Multiple statements ---
+
+  it('parses multiple statements separated by semicolon', () => {
+    const stmts = parse('SELECT 1; SELECT 2');
+    expect(stmts).toHaveLength(2);
+  });
+
+  // --- DELETE without WHERE ---
+
+  it('parses DELETE without WHERE', () => {
+    const stmt = parseOne('DELETE FROM t');
+    expect(stmt.type).toBe(StatementType.DELETE_STATEMENT);
+    expect((stmt as DeleteStatement).where_clause).toBeNull();
+  });
+
+  // --- UPDATE without WHERE ---
+
+  it('parses UPDATE without WHERE', () => {
+    const stmt = parseOne('UPDATE t SET x = 1');
+    expect(stmt.type).toBe(StatementType.UPDATE_STATEMENT);
+    expect((stmt as UpdateStatement).where_clause).toBeNull();
+  });
+
+  // --- INSERT without column list ---
+
+  it('parses INSERT without column list', () => {
+    const stmt = parseOne('INSERT INTO t VALUES (1, 2, 3)');
+    expect(stmt.type).toBe(StatementType.INSERT_STATEMENT);
+    expect((stmt as InsertStatement).columns).toHaveLength(0);
+  });
+
+  // --- CASE with operand form ---
+
+  it('parses CASE operand form (CASE expr WHEN val THEN ...)', () => {
+    const node = selectNode('SELECT CASE x WHEN 1 THEN \'one\' WHEN 2 THEN \'two\' ELSE \'other\' END FROM t');
+    const caseExpr = node.select_list[0] as CaseExpression;
+    expect(caseExpr.expression_class).toBe(ExpressionClass.CASE);
+    // Simple CASE has operand
+    expect(caseExpr.case_operand).not.toBeNull();
+    expect(caseExpr.case_checks.length).toBe(2);
+    expect(caseExpr.else_expr).not.toBeNull();
+  });
+
+  // --- CAST to BIGINT ---
+
+  it('parses CAST to BIGINT', () => {
+    const node = selectNode('SELECT CAST(x AS BIGINT) FROM t');
+    const castExpr = node.select_list[0] as CastExpression;
+    expect(castExpr.expression_class).toBe(ExpressionClass.CAST);
+    expect(castExpr.cast_type.id).toBe(LogicalTypeId.BIGINT);
+  });
+
+  // --- CAST to BLOB ---
+
+  it('parses CAST to BLOB', () => {
+    const node = selectNode('SELECT CAST(x AS BLOB) FROM t');
+    const castExpr = node.select_list[0] as CastExpression;
+    expect(castExpr.expression_class).toBe(ExpressionClass.CAST);
+    expect(castExpr.cast_type.id).toBe(LogicalTypeId.BLOB);
+  });
+
+  // --- NOT BETWEEN ---
+
+  it('parses NOT BETWEEN', () => {
+    const node = selectNode('SELECT * FROM t WHERE x NOT BETWEEN 1 AND 10');
+    expect(node.where_clause).not.toBeNull();
+    // NOT BETWEEN wraps BETWEEN in a NOT operator
+    const where = node.where_clause! as OperatorExpression;
+    expect(where.type).toBe(ExpressionType.OPERATOR_NOT);
+    const between = where.children[0] as BetweenExpression;
+    expect(between.expression_class).toBe(ExpressionClass.BETWEEN);
+  });
+
+  // --- Recursive CTE with column aliases ---
+
+  it('parses WITH RECURSIVE with column aliases', () => {
+    const stmt = parseOne('WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 10) SELECT n FROM r') as SelectStatement;
+    expect(stmt.type).toBe(StatementType.SELECT_STATEMENT);
+    expect(stmt.node.cte_map.recursive).toBe(true);
+    expect(stmt.node.cte_map.map['r']).toBeDefined();
+    expect(stmt.node.cte_map.map['r'].aliases).toEqual(['n']);
+  });
 });

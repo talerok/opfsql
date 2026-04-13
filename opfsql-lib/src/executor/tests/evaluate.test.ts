@@ -325,6 +325,38 @@ describe('evaluateExpression', () => {
       expect(eval_(fnCall('UPPER', [constant(null)]))).toBeNull();
       expect(eval_(fnCall('ABS', [constant(null)], 'INTEGER'))).toBeNull();
     });
+
+    it('NOT_LIKE — match returns false', () => {
+      expect(eval_(fnCall('NOT_LIKE', [constant('hello'), constant('hel%')], 'BOOLEAN'))).toBe(false);
+    });
+
+    it('NOT_LIKE — no match returns true', () => {
+      expect(eval_(fnCall('NOT_LIKE', [constant('hello'), constant('xyz%')], 'BOOLEAN'))).toBe(true);
+    });
+
+    it('NOT_LIKE — null input → null', () => {
+      expect(eval_(fnCall('NOT_LIKE', [constant(null), constant('%')], 'BOOLEAN'))).toBeNull();
+    });
+
+    it('LTRIM', () => {
+      expect(eval_(fnCall('LTRIM', [constant('  hi  ')]))).toBe('hi  ');
+    });
+
+    it('RTRIM', () => {
+      expect(eval_(fnCall('RTRIM', [constant('  hi  ')]))).toBe('  hi');
+    });
+
+    it('SUBSTR without length → to end', () => {
+      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(3)]))).toBe('llo');
+    });
+
+    it('ROUND with precision', () => {
+      expect(eval_(fnCall('ROUND', [constant(3.14159), constant(2)], 'REAL'))).toBeCloseTo(3.14, 2);
+    });
+
+    it('COALESCE — first non-null is returned', () => {
+      expect(eval_(fnCall('COALESCE', [constant(null), constant(10), constant(20)], 'INTEGER'))).toBe(10);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -381,6 +413,45 @@ describe('evaluateExpression', () => {
 
     it('NULL cast → null', () => {
       expect(eval_(cast(constant(null), 'INTEGER'))).toBeNull();
+    });
+
+    it('BOOLEAN → INTEGER', () => {
+      expect(eval_(cast(constant(true), 'INTEGER'))).toBe(1);
+      expect(eval_(cast(constant(false), 'INTEGER'))).toBe(0);
+    });
+
+    it('INTEGER → BOOLEAN', () => {
+      expect(eval_(cast(constant(1), 'BOOLEAN'))).toBe(true);
+      expect(eval_(cast(constant(0), 'BOOLEAN'))).toBe(false);
+    });
+
+    it('BOOLEAN → TEXT', () => {
+      expect(eval_(cast(constant(true), 'TEXT'))).toBe('true');
+      expect(eval_(cast(constant(false), 'TEXT'))).toBe('false');
+    });
+
+    it('INTEGER → REAL preserves value', () => {
+      expect(eval_(cast(constant(42), 'REAL'))).toBe(42);
+    });
+
+    it('TEXT → REAL', () => {
+      expect(eval_(cast(constant('3.14'), 'REAL'))).toBeCloseTo(3.14, 2);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GREATER_EQUAL comparison
+  // ---------------------------------------------------------------------------
+
+  describe('additional comparisons', () => {
+    it('GREATER_EQUAL', () => {
+      expect(eval_(comparison(constant(5), constant(5), 'GREATER_EQUAL'))).toBe(true);
+      expect(eval_(comparison(constant(6), constant(5), 'GREATER_EQUAL'))).toBe(true);
+      expect(eval_(comparison(constant(4), constant(5), 'GREATER_EQUAL'))).toBe(false);
+    });
+
+    it('comparison with both NULL → null', () => {
+      expect(eval_(comparison(constant(null), constant(null)))).toBeNull();
     });
   });
 });
@@ -466,5 +537,24 @@ describe('evalSubquery — EXISTS early termination', () => {
     const ctx: SyncEvalContext = { executeSubplan: () => [] };
     const result = evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
     expect(result).toBe(true);
+  });
+
+  it('SCALAR returns null when no rows', () => {
+    const ctx: SyncEvalContext = { executeSubplan: () => [] };
+    const result = evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
+    expect(result).toBeNull();
+  });
+
+  it('SCALAR returns single value', () => {
+    const ctx: SyncEvalContext = { executeSubplan: () => [[42]] };
+    const result = evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
+    expect(result).toBe(42);
+  });
+
+  it('SCALAR throws on multiple rows', () => {
+    const ctx: SyncEvalContext = { executeSubplan: () => [[1], [2]] };
+    expect(() =>
+      evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx),
+    ).toThrow();
   });
 });
