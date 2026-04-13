@@ -19,6 +19,7 @@ export interface ExecuteResult {
   rows: Row[];
   rowsAffected: number;
   catalogChanges: CatalogChange[];
+  catalogDirty?: boolean;
 }
 
 import type { IndexDef, TableSchema } from "../store/types.js";

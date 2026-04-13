@@ -103,6 +103,7 @@ function parseColumnDefinition(p: BaseParser): ColumnDefinition {
   let is_primary_key = false;
   let is_not_null = false;
   let is_unique = false;
+  let is_autoincrement = false;
   let default_value: ParsedExpression | null = null;
 
   while (true) {
@@ -110,6 +111,11 @@ function parseColumnDefinition(p: BaseParser): ColumnDefinition {
       p.advance();
       p.expect(TokenType.KEY, `Expected KEY after PRIMARY`);
       is_primary_key = true;
+      continue;
+    }
+    if (p.check(TokenType.AUTOINCREMENT)) {
+      p.advance();
+      is_autoincrement = true;
       continue;
     }
     if (p.check(TokenType.NOT)) {
@@ -137,6 +143,7 @@ function parseColumnDefinition(p: BaseParser): ColumnDefinition {
     is_primary_key,
     is_not_null,
     is_unique,
+    is_autoincrement,
     default_value,
   };
 }

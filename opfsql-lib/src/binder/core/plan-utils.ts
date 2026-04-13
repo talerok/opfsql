@@ -47,6 +47,7 @@ export function extractColumnsFromPlan(
         nullable: true,
         primaryKey: false,
         unique: false,
+        autoIncrement: false,
         defaultValue: null,
       };
     });
@@ -58,6 +59,7 @@ export function extractColumnsFromPlan(
     nullable: true,
     primaryKey: false,
     unique: false,
+    autoIncrement: false,
     defaultValue: null,
   }));
 }

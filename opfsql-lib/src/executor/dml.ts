@@ -15,6 +15,7 @@ import type { IndexKey } from "../store/index-btree/types.js";
 import type {
   SyncIIndexManager,
   SyncIRowManager,
+  TableSchema,
 } from "../store/types.js";
 import type { ICatalog, Row, RowId } from "../store/types.js";
 import { ExecutorError } from "./errors.js";
@@ -125,6 +126,34 @@ function maintainIndexesDelete(
 }
 
 // ---------------------------------------------------------------------------
+// AUTOINCREMENT
+// ---------------------------------------------------------------------------
+
+/** Fill autoincrement column if needed. Returns true if seq was mutated. */
+function fillAutoIncrement(
+  row: Row,
+  schema: TableSchema,
+): boolean {
+  const col = schema.columns.find((c) => c.autoIncrement);
+  if (!col) return false;
+
+  const seq = schema.autoIncrementSeq ?? 0;
+  const val = row[col.name];
+
+  if (val === null || val === undefined) {
+    const next = seq + 1;
+    row[col.name] = next;
+    schema.autoIncrementSeq = next;
+    return true;
+  }
+  if (typeof val === "number" && val > seq) {
+    schema.autoIncrementSeq = val;
+    return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // INSERT / UPSERT
 // ---------------------------------------------------------------------------
 
@@ -156,6 +185,7 @@ function executeInsertValues(
   for (const col of op.schema.columns) defaults[col.name] = col.defaultValue;
 
   let affected = 0;
+  let seqDirty = false;
   for (let r = 0; r < rowCount; r++) {
     const row: Row = { ...defaults };
     for (let c = 0; c < colsPerRow; c++) {
@@ -167,12 +197,18 @@ function executeInsertValues(
         ctx,
       );
     }
+    if (fillAutoIncrement(row, op.schema)) seqDirty = true;
     if (insertOrUpsertRow(op, row, rowManager, ctx, catalog, indexManager)) {
       affected++;
     }
   }
 
-  return { rows: [], rowsAffected: affected, catalogChanges: [] };
+  return {
+    rows: [],
+    rowsAffected: affected,
+    catalogChanges: [],
+    catalogDirty: seqDirty,
+  };
 }
 
 function executeInsertSelect(
@@ -190,17 +226,24 @@ function executeInsertSelect(
   for (const col of op.schema.columns) defaults[col.name] = col.defaultValue;
 
   let affected = 0;
+  let seqDirty = false;
   for (const tuple of tuples) {
     const row: Row = { ...defaults };
     for (let c = 0; c < op.columns.length; c++) {
       row[op.schema.columns[op.columns[c]].name] = tuple[c] ?? null;
     }
+    if (fillAutoIncrement(row, op.schema)) seqDirty = true;
     if (insertOrUpsertRow(op, row, rowManager, ctx, catalog, indexManager)) {
       affected++;
     }
   }
 
-  return { rows: [], rowsAffected: affected, catalogChanges: [] };
+  return {
+    rows: [],
+    rowsAffected: affected,
+    catalogChanges: [],
+    catalogDirty: seqDirty,
+  };
 }
 
 /**

@@ -16,12 +16,14 @@ export interface ColumnDef {
   nullable: boolean;
   primaryKey: boolean;
   unique: boolean;
+  autoIncrement: boolean;
   defaultValue: Value;
 }
 
 export interface TableSchema {
   name: string;
   columns: ColumnDef[];
+  autoIncrementSeq?: number;
 }
 
 export interface IndexDef {

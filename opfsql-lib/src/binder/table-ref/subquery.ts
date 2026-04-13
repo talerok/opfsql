@@ -23,6 +23,7 @@ export function bindSubqueryRef(
     nullable: true,
     primaryKey: false,
     unique: false,
+    autoIncrement: false,
     defaultValue: null,
   }));
   const virtualSchema: TableSchema = { name: alias, columns };

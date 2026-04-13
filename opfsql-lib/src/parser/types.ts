@@ -106,6 +106,7 @@ export enum TokenType {
   DO,
   NOTHING,
   EXCLUDED,
+  AUTOINCREMENT,
 
   // Type keywords
   INTEGER_KW,
@@ -481,6 +482,7 @@ export interface ColumnDefinition {
   is_primary_key: boolean;
   is_not_null: boolean;
   is_unique: boolean;
+  is_autoincrement: boolean;
   default_value: ParsedExpression | null;
 }
 

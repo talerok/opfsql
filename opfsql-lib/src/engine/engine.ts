@@ -1,22 +1,26 @@
-import { Binder } from '../binder/index.js';
-import { execute } from '../executor/executor.js';
-import type { CatalogChange } from '../executor/types.js';
-import { optimize } from '../optimizer/index.js';
-import { Parser } from '../parser/index.js';
+import { Binder } from "../binder/index.js";
+import { execute } from "../executor/executor.js";
+import type { CatalogChange } from "../executor/types.js";
+import { optimize } from "../optimizer/index.js";
+import { Parser } from "../parser/index.js";
 import {
   StatementType,
   TransactionType,
   type Statement,
   type TransactionStatement,
-} from '../parser/types.js';
-import { Catalog, initCatalog, serializeCatalogEntry } from '../store/catalog.js';
-import { Storage } from '../store/storage.js';
-import type { CatalogData, Row, SyncIStorage } from '../store/types.js';
+} from "../parser/types.js";
+import {
+  Catalog,
+  initCatalog,
+  serializeCatalogEntry,
+} from "../store/catalog.js";
+import { Storage } from "../store/storage.js";
+import type { CatalogData, Row, SyncIStorage } from "../store/types.js";
 
 // ---------------------------------------------------------------------------
 
 export interface Result {
-  type: 'rows' | 'ok';
+  type: "rows" | "ok";
   rows?: Row[];
   rowsAffected?: number;
 }
@@ -24,7 +28,7 @@ export interface Result {
 export class EngineError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'EngineError';
+    this.name = "EngineError";
   }
 }
 
@@ -32,7 +36,9 @@ export type ParamValue = string | number | boolean | null;
 
 export class PreparedStatement {
   constructor(private readonly executeFn: (params: ParamValue[]) => Result) {}
-  run(params: ParamValue[] = []): Result { return this.executeFn(params); }
+  run(params: ParamValue[] = []): Result {
+    return this.executeFn(params);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,12 +77,15 @@ export class Engine {
 
   prepare(sql: string): PreparedStatement {
     const stmts = this.parser.parse(sql);
-    if (stmts.length !== 1) throw new EngineError('prepare() requires exactly one statement');
+    if (stmts.length !== 1)
+      throw new EngineError("prepare() requires exactly one statement");
     const stmt = stmts[0];
     return new PreparedStatement((params) => this.executeOne(stmt, params));
   }
 
-  close(): void { this.storage.close(); }
+  close(): void {
+    this.storage.close();
+  }
 
   // -------------------------------------------------------------------------
   // Statement dispatch
@@ -89,7 +98,7 @@ export class Engine {
 
     if (this.transactionAborted) {
       throw new EngineError(
-        'current transaction is aborted, commands ignored until end of transaction block',
+        "current transaction is aborted, commands ignored until end of transaction block",
       );
     }
 
@@ -100,7 +109,10 @@ export class Engine {
       const result = this.runPipeline(stmt, params);
 
       if (autocommit) {
-        if (this.catalogDirty) { this.writeCatalog(); this.catalogDirty = false; }
+        if (this.catalogDirty) {
+          this.writeCatalog();
+          this.catalogDirty = false;
+        }
         this.storage.kv.commit();
         this.catalogSnapshot = null;
       }
@@ -131,11 +143,12 @@ export class Engine {
   // -------------------------------------------------------------------------
 
   private executeTCL(stmt: TransactionStatement): Result {
-    const ok: Result = { type: 'ok' };
+    const ok: Result = { type: "ok" };
 
     switch (stmt.transaction_type) {
       case TransactionType.BEGIN:
-        if (this.inTransaction) throw new EngineError('already in a transaction');
+        if (this.inTransaction)
+          throw new EngineError("already in a transaction");
         this.catalogSnapshot = this.catalog.serialize();
         this.inTransaction = true;
         return ok;
@@ -146,9 +159,14 @@ export class Engine {
           this.catalogSnapshot = null;
           this.inTransaction = false;
           this.transactionAborted = false;
-          throw new EngineError('current transaction is aborted, COMMIT treated as ROLLBACK');
+          throw new EngineError(
+            "current transaction is aborted, COMMIT treated as ROLLBACK",
+          );
         }
-        if (this.catalogDirty) { this.writeCatalog(); this.catalogDirty = false; }
+        if (this.catalogDirty) {
+          this.writeCatalog();
+          this.catalogDirty = false;
+        }
         this.storage.kv.commit();
         this.catalogSnapshot = null;
         this.inTransaction = false;
@@ -188,12 +206,15 @@ export class Engine {
 
     for (const change of result.catalogChanges) this.applyCatalogChange(change);
     if (result.catalogChanges.length > 0) {
-      this.catalogDirty = true;
       this.binder = new Binder(this.catalog);
     }
+    if (result.catalogChanges.length > 0 || result.catalogDirty) {
+      this.catalogDirty = true;
+    }
 
-    if (stmt.type === StatementType.SELECT_STATEMENT) return { type: 'rows', rows: result.rows };
-    return { type: 'ok', rowsAffected: result.rowsAffected };
+    if (stmt.type === StatementType.SELECT_STATEMENT)
+      return { type: "rows", rows: result.rows };
+    return { type: "ok", rowsAffected: result.rowsAffected };
   }
 
   // -------------------------------------------------------------------------
@@ -202,11 +223,21 @@ export class Engine {
 
   private applyCatalogChange(change: CatalogChange): void {
     switch (change.type) {
-      case 'CREATE_TABLE': this.catalog.addTable(change.schema); break;
-      case 'DROP_TABLE':   this.catalog.removeTable(change.name); break;
-      case 'ALTER_TABLE':  this.catalog.updateTable(change.after); break;
-      case 'CREATE_INDEX': this.catalog.addIndex(change.index); break;
-      case 'DROP_INDEX':   this.catalog.removeIndex(change.name); break;
+      case "CREATE_TABLE":
+        this.catalog.addTable(change.schema);
+        break;
+      case "DROP_TABLE":
+        this.catalog.removeTable(change.name);
+        break;
+      case "ALTER_TABLE":
+        this.catalog.updateTable(change.after);
+        break;
+      case "CREATE_INDEX":
+        this.catalog.addIndex(change.index);
+        break;
+      case "DROP_INDEX":
+        this.catalog.removeIndex(change.name);
+        break;
     }
   }
 

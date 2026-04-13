@@ -57,6 +57,7 @@ const usersSchema: TableSchema = {
       nullable: false,
       primaryKey: true,
       unique: true,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -65,6 +66,7 @@ const usersSchema: TableSchema = {
       nullable: false,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -73,6 +75,7 @@ const usersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -81,6 +84,7 @@ const usersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
   ],
@@ -95,6 +99,7 @@ const ordersSchema: TableSchema = {
       nullable: false,
       primaryKey: true,
       unique: true,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -103,6 +108,7 @@ const ordersSchema: TableSchema = {
       nullable: false,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -111,6 +117,7 @@ const ordersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -119,6 +126,7 @@ const ordersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
   ],
@@ -133,6 +141,7 @@ const productsSchema: TableSchema = {
       nullable: false,
       primaryKey: true,
       unique: true,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -141,6 +150,7 @@ const productsSchema: TableSchema = {
       nullable: false,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -149,6 +159,7 @@ const productsSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
   ],

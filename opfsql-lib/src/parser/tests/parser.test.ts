@@ -684,6 +684,24 @@ describe('DDL', () => {
     expect(stmt.columns[0].is_unique).toBe(true);
   });
 
+  it('parses CREATE TABLE with AUTOINCREMENT', () => {
+    const stmt = parseOne('CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)') as CreateTableStatement;
+    expect(stmt.columns[0].is_autoincrement).toBe(true);
+    expect(stmt.columns[0].is_primary_key).toBe(true);
+    expect(stmt.columns[1].is_autoincrement).toBe(false);
+  });
+
+  it('parses AUTOINCREMENT with NOT NULL', () => {
+    const stmt = parseOne('CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)') as CreateTableStatement;
+    expect(stmt.columns[0].is_autoincrement).toBe(true);
+    expect(stmt.columns[0].is_not_null).toBe(true);
+  });
+
+  it('column without AUTOINCREMENT defaults to false', () => {
+    const stmt = parseOne('CREATE TABLE t (id INTEGER PRIMARY KEY)') as CreateTableStatement;
+    expect(stmt.columns[0].is_autoincrement).toBe(false);
+  });
+
   it('parses CREATE INDEX', () => {
     const stmt = parseOne('CREATE INDEX idx_name ON users (name)') as CreateIndexStatement;
     expect(stmt.type).toBe(StatementType.CREATE_INDEX_STATEMENT);

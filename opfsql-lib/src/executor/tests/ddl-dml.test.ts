@@ -35,9 +35,9 @@ import { colRef, comparison, constant, noopCtx } from './helpers.js';
 const usersSchema: TableSchema = {
   name: 'users',
   columns: [
-    { name: 'id',   type: 'INTEGER', nullable: false, primaryKey: true,  unique: true,  defaultValue: null },
-    { name: 'name', type: 'TEXT',    nullable: false, primaryKey: false, unique: false, defaultValue: null },
-    { name: 'age',  type: 'INTEGER', nullable: true,  primaryKey: false, unique: false, defaultValue: 0    },
+    { name: 'id',   type: 'INTEGER', nullable: false, primaryKey: true,  unique: true,  autoIncrement: false, defaultValue: null },
+    { name: 'name', type: 'TEXT',    nullable: false, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    { name: 'age',  type: 'INTEGER', nullable: true,  primaryKey: false, unique: false, autoIncrement: false, defaultValue: 0    },
   ],
 };
 
@@ -154,6 +154,7 @@ describe('DDL executors', () => {
         nullable: true,
         primaryKey: false,
         unique: false,
+        autoIncrement: false,
         defaultValue: null,
       };
       const op = {
@@ -737,5 +738,168 @@ describe('DML executors', () => {
       expect(result.rowsAffected).toBe(1);
       expect(rm.prepareInsert).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AUTOINCREMENT Tests
+// ---------------------------------------------------------------------------
+
+function freshAutoSchema(seq?: number): TableSchema {
+  return {
+    name: 'items',
+    columns: [
+      { name: 'id',   type: 'INTEGER', nullable: false, primaryKey: true,  unique: true,  autoIncrement: true, defaultValue: null },
+      { name: 'name', type: 'TEXT',    nullable: false, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+    autoIncrementSeq: seq,
+  };
+}
+
+describe('AUTOINCREMENT', () => {
+  it('auto-generates id = 1 on empty table when column is null', () => {
+    const rm = mockRowManager();
+    const schema = freshAutoSchema();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_INSERT,
+      tableName: 'items',
+      schema,
+      columns: [1],
+      children: [],
+      expressions: [constant('Alice')],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalInsert;
+
+    const result = executeInsert(op, rm, noopCtx);
+    expect(result.rowsAffected).toBe(1);
+    expect(rm.prepareInsert).toHaveBeenCalledWith(
+      'items',
+      expect.objectContaining({ id: 1, name: 'Alice' }),
+    );
+    expect(schema.autoIncrementSeq).toBe(1);
+  });
+
+  it('auto-generates sequential ids across multiple inserts', () => {
+    const rm = mockRowManager();
+    const schema = freshAutoSchema();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_INSERT,
+      tableName: 'items',
+      schema,
+      columns: [1],
+      children: [],
+      expressions: [constant('Alice'), constant('Bob'), constant('Charlie')],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalInsert;
+
+    const result = executeInsert(op, rm, noopCtx);
+    expect(result.rowsAffected).toBe(3);
+    expect(rm.prepareInsert).toHaveBeenCalledWith(
+      'items',
+      expect.objectContaining({ id: 1 }),
+    );
+    expect(rm.prepareInsert).toHaveBeenCalledWith(
+      'items',
+      expect.objectContaining({ id: 2 }),
+    );
+    expect(rm.prepareInsert).toHaveBeenCalledWith(
+      'items',
+      expect.objectContaining({ id: 3 }),
+    );
+    expect(schema.autoIncrementSeq).toBe(3);
+  });
+
+  it('uses explicit value and updates seq', () => {
+    const rm = mockRowManager();
+    const schema = freshAutoSchema();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_INSERT,
+      tableName: 'items',
+      schema,
+      columns: [0, 1],
+      children: [],
+      expressions: [constant(42), constant('Alice')],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalInsert;
+
+    const result = executeInsert(op, rm, noopCtx);
+    expect(result.rowsAffected).toBe(1);
+    expect(rm.prepareInsert).toHaveBeenCalledWith(
+      'items',
+      expect.objectContaining({ id: 42, name: 'Alice' }),
+    );
+    expect(schema.autoIncrementSeq).toBe(42);
+  });
+
+  it('next auto value is seq + 1 after explicit insert', () => {
+    const rm = mockRowManager();
+    const schema = freshAutoSchema(10);
+    const op = {
+      type: LogicalOperatorType.LOGICAL_INSERT,
+      tableName: 'items',
+      schema,
+      columns: [1],
+      children: [],
+      expressions: [constant('Dave')],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalInsert;
+
+    const result = executeInsert(op, rm, noopCtx);
+    expect(result.rowsAffected).toBe(1);
+    expect(rm.prepareInsert).toHaveBeenCalledWith(
+      'items',
+      expect.objectContaining({ id: 11, name: 'Dave' }),
+    );
+    expect(schema.autoIncrementSeq).toBe(11);
+  });
+
+  it('NULL explicit value triggers auto-generation', () => {
+    const rm = mockRowManager();
+    const schema = freshAutoSchema();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_INSERT,
+      tableName: 'items',
+      schema,
+      columns: [0, 1],
+      children: [],
+      expressions: [constant(null), constant('Alice')],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalInsert;
+
+    const result = executeInsert(op, rm, noopCtx);
+    expect(result.rowsAffected).toBe(1);
+    expect(rm.prepareInsert).toHaveBeenCalledWith(
+      'items',
+      expect.objectContaining({ id: 1, name: 'Alice' }),
+    );
+  });
+
+  it('sets catalogDirty when autoincrement is used', () => {
+    const rm = mockRowManager();
+    const schema = freshAutoSchema();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_INSERT,
+      tableName: 'items',
+      schema,
+      columns: [1],
+      children: [],
+      expressions: [constant('Alice')],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalInsert;
+
+    const result = executeInsert(op, rm, noopCtx);
+    expect(result.catalogDirty).toBe(true);
   });
 });

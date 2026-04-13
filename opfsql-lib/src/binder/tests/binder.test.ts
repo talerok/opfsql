@@ -56,6 +56,7 @@ const usersSchema: TableSchema = {
       nullable: false,
       primaryKey: true,
       unique: true,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -64,6 +65,7 @@ const usersSchema: TableSchema = {
       nullable: false,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -72,6 +74,7 @@ const usersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -80,6 +83,7 @@ const usersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
   ],
@@ -94,6 +98,7 @@ const ordersSchema: TableSchema = {
       nullable: false,
       primaryKey: true,
       unique: true,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -102,6 +107,7 @@ const ordersSchema: TableSchema = {
       nullable: false,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -110,6 +116,7 @@ const ordersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
     {
@@ -118,6 +125,7 @@ const ordersSchema: TableSchema = {
       nullable: true,
       primaryKey: false,
       unique: false,
+      autoIncrement: false,
       defaultValue: null,
     },
   ],
@@ -1565,6 +1573,28 @@ describe("DDL — additional", () => {
     const plan = bind("CREATE TABLE t (id INTEGER, email TEXT UNIQUE)");
     const ct = plan as LogicalCreateTable;
     expect(ct.schema.columns[1].unique).toBe(true);
+  });
+
+  it("CREATE TABLE with AUTOINCREMENT maps to autoIncrement: true", () => {
+    const plan = bind(
+      "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
+    );
+    const ct = plan as LogicalCreateTable;
+    expect(ct.schema.columns[0].autoIncrement).toBe(true);
+    expect(ct.schema.columns[0].primaryKey).toBe(true);
+    expect(ct.schema.columns[1].autoIncrement).toBe(false);
+  });
+
+  it("AUTOINCREMENT on non-INTEGER column throws BindError", () => {
+    expect(() =>
+      bind("CREATE TABLE t (id TEXT PRIMARY KEY AUTOINCREMENT)"),
+    ).toThrow(BindError);
+  });
+
+  it("AUTOINCREMENT on non-PRIMARY KEY column throws BindError", () => {
+    expect(() =>
+      bind("CREATE TABLE t (id INTEGER AUTOINCREMENT, name TEXT PRIMARY KEY)"),
+    ).toThrow(BindError);
   });
 
   it("CREATE UNIQUE INDEX", () => {
