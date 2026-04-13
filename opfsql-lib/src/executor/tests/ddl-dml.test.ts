@@ -497,4 +497,245 @@ describe('DML executors', () => {
       expect(rm.prepareDelete).toHaveBeenCalledWith('users', 1);
     });
   });
+
+  describe('executeInsert with ON CONFLICT', () => {
+    it('DO NOTHING — skips conflicting row', () => {
+      const rm = mockRowManager([
+        { id: 1, name: 'Alice', age: 25 },
+      ]);
+      const op = {
+        type: LogicalOperatorType.LOGICAL_INSERT,
+        tableName: 'users',
+        schema: usersSchema,
+        columns: [0, 1, 2],
+        children: [],
+        expressions: [constant(1), constant('Updated'), constant(30)],
+        types: [],
+        estimatedCardinality: 0,
+        getColumnBindings: () => [],
+        onConflict: {
+          conflictColumns: [0], // id
+          action: 'NOTHING' as const,
+          updateColumns: [],
+          updateExpressions: [],
+          whereExpression: null,
+          targetTableIndex: -1,
+          excludedTableIndex: -1,
+        },
+      } as unknown as LogicalInsert;
+
+      const result = executeInsert(op, rm, noopCtx);
+      expect(result.rowsAffected).toBe(0);
+      expect(rm.prepareInsert).not.toHaveBeenCalled();
+    });
+
+    it('DO NOTHING — inserts when no conflict', () => {
+      const rm = mockRowManager([
+        { id: 1, name: 'Alice', age: 25 },
+      ]);
+      const op = {
+        type: LogicalOperatorType.LOGICAL_INSERT,
+        tableName: 'users',
+        schema: usersSchema,
+        columns: [0, 1, 2],
+        children: [],
+        expressions: [constant(2), constant('Bob'), constant(30)],
+        types: [],
+        estimatedCardinality: 0,
+        getColumnBindings: () => [],
+        onConflict: {
+          conflictColumns: [0],
+          action: 'NOTHING' as const,
+          updateColumns: [],
+          updateExpressions: [],
+          whereExpression: null,
+          targetTableIndex: -1,
+          excludedTableIndex: -1,
+        },
+      } as unknown as LogicalInsert;
+
+      const result = executeInsert(op, rm, noopCtx);
+      expect(result.rowsAffected).toBe(1);
+      expect(rm.prepareInsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('DO UPDATE SET — updates conflicting row', () => {
+      const rm = mockRowManager([
+        { id: 1, name: 'Alice', age: 25 },
+      ]);
+      // tableIndex=10 for target, tableIndex=11 for excluded
+      const TARGET_TI = 10;
+      const EXCLUDED_TI = 11;
+      const op = {
+        type: LogicalOperatorType.LOGICAL_INSERT,
+        tableName: 'users',
+        schema: usersSchema,
+        columns: [0, 1, 2],
+        children: [],
+        expressions: [constant(1), constant('AliceNew'), constant(30)],
+        types: [],
+        estimatedCardinality: 0,
+        getColumnBindings: () => [],
+        onConflict: {
+          conflictColumns: [0], // id
+          action: 'UPDATE' as const,
+          updateColumns: [1], // name
+          updateExpressions: [
+            // excluded.name — columnIndex=1 in excluded table
+            colRef(EXCLUDED_TI, 1, 'name', 'TEXT'),
+          ],
+          whereExpression: null,
+          targetTableIndex: TARGET_TI,
+          excludedTableIndex: EXCLUDED_TI,
+        },
+      } as unknown as LogicalInsert;
+
+      const result = executeInsert(op, rm, noopCtx);
+      expect(result.rowsAffected).toBe(1);
+      expect(rm.prepareInsert).not.toHaveBeenCalled();
+      expect(rm.prepareUpdate).toHaveBeenCalledWith(
+        'users',
+        0,
+        expect.objectContaining({ id: 1, name: 'AliceNew', age: 25 }),
+      );
+    });
+
+    it('DO UPDATE with WHERE — skips update when WHERE is false', () => {
+      const rm = mockRowManager([
+        { id: 1, name: 'Alice', age: 25 },
+      ]);
+      const TARGET_TI = 10;
+      const EXCLUDED_TI = 11;
+      const op = {
+        type: LogicalOperatorType.LOGICAL_INSERT,
+        tableName: 'users',
+        schema: usersSchema,
+        columns: [0, 1, 2],
+        children: [],
+        expressions: [constant(1), constant('AliceNew'), constant(20)],
+        types: [],
+        estimatedCardinality: 0,
+        getColumnBindings: () => [],
+        onConflict: {
+          conflictColumns: [0],
+          action: 'UPDATE' as const,
+          updateColumns: [2], // age
+          updateExpressions: [colRef(EXCLUDED_TI, 2, 'age', 'INTEGER')],
+          // WHERE excluded.age > age (i.e. new age > existing age)
+          whereExpression: comparison(
+            colRef(EXCLUDED_TI, 2, 'age', 'INTEGER'), // excluded.age = 20
+            colRef(TARGET_TI, 2, 'age', 'INTEGER'),   // age = 25
+            'GREATER',
+          ),
+          targetTableIndex: TARGET_TI,
+          excludedTableIndex: EXCLUDED_TI,
+        },
+      } as unknown as LogicalInsert;
+
+      const result = executeInsert(op, rm, noopCtx);
+      // excluded.age (20) > age (25) is false, so update should be skipped
+      expect(result.rowsAffected).toBe(0);
+      expect(rm.prepareUpdate).not.toHaveBeenCalled();
+    });
+
+    it('DO UPDATE with WHERE — applies update when WHERE is true', () => {
+      const rm = mockRowManager([
+        { id: 1, name: 'Alice', age: 25 },
+      ]);
+      const TARGET_TI = 10;
+      const EXCLUDED_TI = 11;
+      const op = {
+        type: LogicalOperatorType.LOGICAL_INSERT,
+        tableName: 'users',
+        schema: usersSchema,
+        columns: [0, 1, 2],
+        children: [],
+        expressions: [constant(1), constant('AliceNew'), constant(50)],
+        types: [],
+        estimatedCardinality: 0,
+        getColumnBindings: () => [],
+        onConflict: {
+          conflictColumns: [0],
+          action: 'UPDATE' as const,
+          updateColumns: [2], // age
+          updateExpressions: [colRef(EXCLUDED_TI, 2, 'age', 'INTEGER')],
+          // WHERE excluded.age > age
+          whereExpression: comparison(
+            colRef(EXCLUDED_TI, 2, 'age', 'INTEGER'), // excluded.age = 50
+            colRef(TARGET_TI, 2, 'age', 'INTEGER'),   // age = 25
+            'GREATER',
+          ),
+          targetTableIndex: TARGET_TI,
+          excludedTableIndex: EXCLUDED_TI,
+        },
+      } as unknown as LogicalInsert;
+
+      const result = executeInsert(op, rm, noopCtx);
+      expect(result.rowsAffected).toBe(1);
+      expect(rm.prepareUpdate).toHaveBeenCalledWith(
+        'users',
+        0,
+        expect.objectContaining({ id: 1, name: 'Alice', age: 50 }),
+      );
+    });
+
+    it('multi-row insert with mixed conflicts and non-conflicts', () => {
+      const rm = mockRowManager([
+        { id: 1, name: 'Alice', age: 25 },
+      ]);
+      const op = {
+        type: LogicalOperatorType.LOGICAL_INSERT,
+        tableName: 'users',
+        schema: usersSchema,
+        columns: [0, 1, 2],
+        children: [],
+        expressions: [
+          // Row 1: conflicts (id=1 exists)
+          constant(1), constant('AliceNew'), constant(30),
+          // Row 2: no conflict (id=2 doesn't exist)
+          constant(2), constant('Bob'), constant(35),
+        ],
+        types: [],
+        estimatedCardinality: 0,
+        getColumnBindings: () => [],
+        onConflict: {
+          conflictColumns: [0],
+          action: 'NOTHING' as const,
+          updateColumns: [],
+          updateExpressions: [],
+          whereExpression: null,
+          targetTableIndex: -1,
+          excludedTableIndex: -1,
+        },
+      } as unknown as LogicalInsert;
+
+      const result = executeInsert(op, rm, noopCtx);
+      // Row 1 skipped (conflict), Row 2 inserted
+      expect(result.rowsAffected).toBe(1);
+      expect(rm.prepareInsert).toHaveBeenCalledTimes(1);
+      expect(rm.prepareInsert).toHaveBeenCalledWith(
+        'users',
+        expect.objectContaining({ id: 2, name: 'Bob' }),
+      );
+    });
+
+    it('no onConflict — normal insert preserved', () => {
+      const rm = mockRowManager();
+      const op = {
+        type: LogicalOperatorType.LOGICAL_INSERT,
+        tableName: 'users',
+        schema: usersSchema,
+        columns: [0, 1, 2],
+        children: [],
+        expressions: [constant(1), constant('Alice'), constant(30)],
+        types: [],
+        estimatedCardinality: 0,
+        getColumnBindings: () => [],
+      } as unknown as LogicalInsert;
+
+      const result = executeInsert(op, rm, noopCtx);
+      expect(result.rowsAffected).toBe(1);
+      expect(rm.prepareInsert).toHaveBeenCalledTimes(1);
+    });
+  });
 });

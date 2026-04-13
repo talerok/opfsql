@@ -1,5 +1,6 @@
 import type {
   BoundExpression,
+  BoundOnConflict,
   ColumnBinding,
   LogicalDelete,
   LogicalFilter,
@@ -124,7 +125,7 @@ function maintainIndexesDelete(
 }
 
 // ---------------------------------------------------------------------------
-// INSERT
+// INSERT / UPSERT
 // ---------------------------------------------------------------------------
 
 export function executeInsert(
@@ -153,8 +154,8 @@ function executeInsertValues(
   const colNames = op.columns.map((i) => op.schema.columns[i].name);
   const defaults: Row = {};
   for (const col of op.schema.columns) defaults[col.name] = col.defaultValue;
-  const indexes = catalog ? catalog.getTableIndexes(op.tableName) : [];
 
+  let affected = 0;
   for (let r = 0; r < rowCount; r++) {
     const row: Row = { ...defaults };
     for (let c = 0; c < colsPerRow; c++) {
@@ -166,15 +167,12 @@ function executeInsertValues(
         ctx,
       );
     }
-    const rowId = rowManager.prepareInsert(op.tableName, row);
-    if (indexManager) {
-      for (const idx of indexes) {
-        indexManager.insert(idx.name, buildIndexKey(row, idx.columns), rowId);
-      }
+    if (insertOrUpsertRow(op, row, rowManager, ctx, catalog, indexManager)) {
+      affected++;
     }
   }
 
-  return { rows: [], rowsAffected: rowCount, catalogChanges: [] };
+  return { rows: [], rowsAffected: affected, catalogChanges: [] };
 }
 
 function executeInsertSelect(
@@ -191,16 +189,172 @@ function executeInsertSelect(
   const defaults: Row = {};
   for (const col of op.schema.columns) defaults[col.name] = col.defaultValue;
 
+  let affected = 0;
   for (const tuple of tuples) {
     const row: Row = { ...defaults };
     for (let c = 0; c < op.columns.length; c++) {
       row[op.schema.columns[op.columns[c]].name] = tuple[c] ?? null;
     }
-    const rowId = rowManager.prepareInsert(op.tableName, row);
-    maintainIndexesInsert(op.tableName, row, rowId, catalog, indexManager);
+    if (insertOrUpsertRow(op, row, rowManager, ctx, catalog, indexManager)) {
+      affected++;
+    }
   }
 
-  return { rows: [], rowsAffected: tuples.length, catalogChanges: [] };
+  return { rows: [], rowsAffected: affected, catalogChanges: [] };
+}
+
+/**
+ * Insert a single row, handling ON CONFLICT if present.
+ * Returns true if the row was inserted or updated (counts as affected).
+ */
+function insertOrUpsertRow(
+  op: LogicalInsert,
+  newRow: Row,
+  rowManager: SyncIRowManager,
+  ctx: SyncEvalContext,
+  catalog?: ICatalog,
+  indexManager?: SyncIIndexManager,
+): boolean {
+  if (!op.onConflict) {
+    // Normal insert
+    const rowId = rowManager.prepareInsert(op.tableName, newRow);
+    maintainIndexesInsert(op.tableName, newRow, rowId, catalog, indexManager);
+    return true;
+  }
+
+  const oc = op.onConflict;
+  const conflictColNames = oc.conflictColumns.map((i) => op.schema.columns[i].name);
+
+  // Find conflicting row
+  const conflict = findConflictingRow(
+    op.tableName, newRow, conflictColNames, rowManager, catalog, indexManager,
+  );
+
+  if (!conflict) {
+    // No conflict — normal insert
+    const rowId = rowManager.prepareInsert(op.tableName, newRow);
+    maintainIndexesInsert(op.tableName, newRow, rowId, catalog, indexManager);
+    return true;
+  }
+
+  if (oc.action === 'NOTHING') {
+    return false;
+  }
+
+  // DO UPDATE
+  return executeConflictUpdate(
+    op, oc, conflict.rowId, conflict.row, newRow, rowManager, ctx, catalog, indexManager,
+  );
+}
+
+function findConflictingRow(
+  tableName: string,
+  newRow: Row,
+  conflictColNames: string[],
+  rowManager: SyncIRowManager,
+  catalog?: ICatalog,
+  indexManager?: SyncIIndexManager,
+): { rowId: RowId; row: Row } | null {
+  // Try index lookup first
+  if (catalog && indexManager) {
+    for (const idx of catalog.getTableIndexes(tableName)) {
+      if (!idx.unique) continue;
+      const idxColsSorted = [...idx.columns].sort();
+      const targetSorted = [...conflictColNames].sort();
+      if (
+        idxColsSorted.length === targetSorted.length &&
+        idxColsSorted.every((c, i) => c.toLowerCase() === targetSorted[i].toLowerCase())
+      ) {
+        const key = buildIndexKey(newRow, idx.columns);
+        // Skip if any key component is null (NULL never conflicts)
+        if (key.some((v) => v === null)) return null;
+        const rowIds = indexManager.search(
+          idx.name,
+          idx.columns.map((col, pos) => ({
+            columnPosition: pos,
+            comparisonType: 'EQUAL' as const,
+            value: newRow[col] ?? null,
+          })),
+        );
+        if (rowIds.length > 0) {
+          const row = rowManager.readRow(tableName, rowIds[0]);
+          if (row) return { rowId: rowIds[0], row };
+        }
+        return null;
+      }
+    }
+  }
+
+  // Fallback: table scan
+  for (const { rowId, row } of rowManager.scanTable(tableName)) {
+    const matches = conflictColNames.every((col) => {
+      const existingVal = row[col] ?? null;
+      const newVal = newRow[col] ?? null;
+      // NULL never matches for conflict detection
+      if (existingVal === null || newVal === null) return false;
+      return existingVal === newVal;
+    });
+    if (matches) return { rowId, row };
+  }
+  return null;
+}
+
+function executeConflictUpdate(
+  op: LogicalInsert,
+  oc: BoundOnConflict,
+  existingRowId: RowId,
+  existingRow: Row,
+  excludedRow: Row,
+  rowManager: SyncIRowManager,
+  ctx: SyncEvalContext,
+  catalog?: ICatalog,
+  indexManager?: SyncIIndexManager,
+): boolean {
+  const schema = op.schema;
+  const colCount = schema.columns.length;
+
+  // Build combined tuple: [existing cols..., excluded cols...]
+  const combinedTuple: Tuple = new Array(colCount * 2);
+  for (let i = 0; i < colCount; i++) {
+    const colName = schema.columns[i].name;
+    combinedTuple[i] = existingRow[colName] ?? null;
+    combinedTuple[colCount + i] = excludedRow[colName] ?? null;
+  }
+
+  // Build resolver for both target table and excluded pseudo-table
+  const layout: ColumnBinding[] = [];
+  for (let i = 0; i < colCount; i++) {
+    layout.push({ tableIndex: oc.targetTableIndex, columnIndex: i });
+  }
+  for (let i = 0; i < colCount; i++) {
+    layout.push({ tableIndex: oc.excludedTableIndex, columnIndex: i });
+  }
+  const resolver = buildResolver(layout);
+
+  // Check WHERE condition if present
+  if (oc.whereExpression) {
+    const val = evaluateExpression(oc.whereExpression, combinedTuple, resolver, ctx);
+    if (!isTruthy(val)) return false;
+  }
+
+  // Apply SET expressions
+  const updatedRow: Row = { ...existingRow };
+  for (let i = 0; i < oc.updateColumns.length; i++) {
+    const colIdx = oc.updateColumns[i];
+    updatedRow[schema.columns[colIdx].name] = evaluateExpression(
+      oc.updateExpressions[i],
+      combinedTuple,
+      resolver,
+      ctx,
+    );
+  }
+
+  // Update row and maintain indexes
+  maintainIndexesDelete(op.tableName, existingRow, existingRowId, catalog, indexManager);
+  const newRowId = rowManager.prepareUpdate(op.tableName, existingRowId, updatedRow);
+  maintainIndexesInsert(op.tableName, updatedRow, newRowId, catalog, indexManager);
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------

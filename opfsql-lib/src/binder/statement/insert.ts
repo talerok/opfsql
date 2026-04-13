@@ -1,4 +1,4 @@
-import type { InsertStatement } from '../../parser/types.js';
+import type { InsertStatement, OnConflictClause } from '../../parser/types.js';
 import type * as BT from '../types.js';
 import { LogicalOperatorType } from '../types.js';
 import { BindError } from '../core/errors.js';
@@ -14,10 +14,18 @@ export function bindInsert(
   const schema = requireTable(ctx, stmt.table);
   const columnIndices = resolveColumns(stmt, schema);
 
+  let result: BT.LogicalInsert;
   if (stmt.select_statement) {
-    return bindInsertSelect(ctx, stmt, schema, columnIndices);
+    result = bindInsertSelect(ctx, stmt, schema, columnIndices);
+  } else {
+    result = bindInsertValues(ctx, stmt, schema, columnIndices);
   }
-  return bindInsertValues(ctx, stmt, schema, columnIndices);
+
+  if (stmt.onConflict) {
+    result.onConflict = bindOnConflict(ctx, stmt.onConflict, schema);
+  }
+
+  return result;
 }
 
 function resolveColumns(stmt: InsertStatement, schema: BT.TableSchema): number[] {
@@ -80,6 +88,125 @@ function bindInsertValues(
   }
 
   return makeInsert(schema, columnIndices, [], boundExprs);
+}
+
+function bindOnConflict(
+  ctx: BindContext,
+  clause: OnConflictClause,
+  schema: BT.TableSchema,
+): BT.BoundOnConflict {
+  // Resolve conflict target columns
+  let conflictColumns: number[];
+  if (clause.conflictTarget) {
+    conflictColumns = clause.conflictTarget.map((colName) => {
+      const lower = colName.toLowerCase();
+      const idx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
+      if (idx === -1) {
+        throw new BindError(`Column "${colName}" not found in table "${schema.name}"`);
+      }
+      return idx;
+    });
+  } else {
+    // No explicit target: use primary key columns
+    conflictColumns = schema.columns
+      .map((c, i) => (c.primaryKey ? i : -1))
+      .filter((i) => i !== -1);
+    if (conflictColumns.length === 0) {
+      // Fall back to first unique column
+      const uniqueIdx = schema.columns.findIndex((c) => c.unique);
+      if (uniqueIdx === -1) {
+        throw new BindError(
+          `ON CONFLICT requires a conflict target or a PRIMARY KEY / UNIQUE constraint on table "${schema.name}"`,
+        );
+      }
+      conflictColumns = [uniqueIdx];
+    }
+  }
+
+  // Validate conflict columns form a unique or pk constraint
+  validateConflictTarget(conflictColumns, schema, ctx);
+
+  if (clause.action === 'NOTHING') {
+    return {
+      conflictColumns,
+      action: 'NOTHING',
+      updateColumns: [],
+      updateExpressions: [],
+      whereExpression: null,
+      targetTableIndex: -1,
+      excludedTableIndex: -1,
+    };
+  }
+
+  // DO UPDATE — bind SET clauses and WHERE with both target table and excluded in scope
+  const scope = ctx.createScope();
+  const tableEntry = scope.addTable(schema.name, schema.name, schema);
+  const excludedEntry = scope.addTable(schema.name, 'excluded', schema);
+
+  const updateColumns: number[] = [];
+  const updateExpressions: BT.BoundExpression[] = [];
+  for (const sc of clause.action.setClauses) {
+    const lower = sc.column.toLowerCase();
+    const colIdx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
+    if (colIdx === -1) {
+      throw new BindError(`Column "${sc.column}" not found in table "${schema.name}"`);
+    }
+    updateColumns.push(colIdx);
+    updateExpressions.push(bindExpression(ctx, sc.value, scope));
+  }
+
+  let whereExpression: BT.BoundExpression | null = null;
+  if (clause.action.whereClause) {
+    whereExpression = bindExpression(ctx, clause.action.whereClause, scope);
+  }
+
+  return {
+    conflictColumns,
+    action: 'UPDATE',
+    updateColumns,
+    updateExpressions,
+    whereExpression,
+    targetTableIndex: tableEntry.tableIndex,
+    excludedTableIndex: excludedEntry.tableIndex,
+  };
+}
+
+function validateConflictTarget(
+  conflictColumns: number[],
+  schema: BT.TableSchema,
+  ctx: BindContext,
+): void {
+  // Check if conflict columns match a PK constraint
+  const pkCols = schema.columns
+    .map((c, i) => (c.primaryKey ? i : -1))
+    .filter((i) => i !== -1);
+  if (sameSet(conflictColumns, pkCols)) return;
+
+  // Check single-column unique
+  if (conflictColumns.length === 1 && schema.columns[conflictColumns[0]].unique) return;
+
+  // Check unique indexes
+  const indexes = ctx.catalog.getTableIndexes(schema.name);
+  for (const idx of indexes) {
+    if (!idx.unique) continue;
+    const idxCols = idx.columns.map((colName) => {
+      const lower = colName.toLowerCase();
+      return schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
+    });
+    if (sameSet(conflictColumns, idxCols)) return;
+  }
+
+  const colNames = conflictColumns.map((i) => schema.columns[i].name).join(', ');
+  throw new BindError(
+    `ON CONFLICT columns (${colNames}) do not match any unique constraint on table "${schema.name}"`,
+  );
+}
+
+function sameSet(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
 }
 
 function makeInsert(

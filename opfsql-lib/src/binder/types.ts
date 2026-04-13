@@ -340,6 +340,16 @@ export interface LogicalUnion {
   getColumnBindings(): ColumnBinding[];
 }
 
+export interface BoundOnConflict {
+  conflictColumns: number[];
+  action: 'NOTHING' | 'UPDATE';
+  updateColumns: number[];
+  updateExpressions: BoundExpression[];
+  whereExpression: BoundExpression | null;
+  targetTableIndex: number;
+  excludedTableIndex: number;
+}
+
 export interface LogicalInsert {
   type: LogicalOperatorType.LOGICAL_INSERT;
   tableName: string;
@@ -349,6 +359,7 @@ export interface LogicalInsert {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
+  onConflict?: BoundOnConflict;
   getColumnBindings(): ColumnBinding[];
 }
 

@@ -17,6 +17,7 @@ import {
   BaseTableRef, JoinRef, SubqueryRef,
   OrderModifier, LimitModifier, DistinctModifier,
   ParseError,
+  OnConflictClause, OnConflictUpdate,
 } from '../types.js';
 
 const parser = new Parser();
@@ -526,6 +527,82 @@ describe('DML', () => {
     const stmt = parseOne('INSERT INTO archive SELECT * FROM users WHERE active = 0') as InsertStatement;
     expect(stmt.select_statement).not.toBeNull();
     expect(stmt.values).toHaveLength(0);
+    expect(stmt.onConflict).toBeNull();
+  });
+
+  it('parses INSERT without ON CONFLICT has null onConflict', () => {
+    const stmt = parseOne("INSERT INTO users (id, name) VALUES (1, 'Alice')") as InsertStatement;
+    expect(stmt.onConflict).toBeNull();
+  });
+
+  it('parses INSERT ... ON CONFLICT (col) DO NOTHING', () => {
+    const stmt = parseOne(
+      "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO NOTHING"
+    ) as InsertStatement;
+    expect(stmt.onConflict).not.toBeNull();
+    expect(stmt.onConflict!.conflictTarget).toEqual(['id']);
+    expect(stmt.onConflict!.action).toBe('NOTHING');
+  });
+
+  it('parses INSERT ... ON CONFLICT DO NOTHING (no target)', () => {
+    const stmt = parseOne(
+      "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT DO NOTHING"
+    ) as InsertStatement;
+    expect(stmt.onConflict).not.toBeNull();
+    expect(stmt.onConflict!.conflictTarget).toBeNull();
+    expect(stmt.onConflict!.action).toBe('NOTHING');
+  });
+
+  it('parses INSERT ... ON CONFLICT with multi-column target', () => {
+    const stmt = parseOne(
+      "INSERT INTO t (a, b, c) VALUES (1, 2, 3) ON CONFLICT (a, b) DO NOTHING"
+    ) as InsertStatement;
+    expect(stmt.onConflict!.conflictTarget).toEqual(['a', 'b']);
+  });
+
+  it('parses INSERT ... ON CONFLICT DO UPDATE SET', () => {
+    const stmt = parseOne(
+      "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO UPDATE SET name = excluded.name"
+    ) as InsertStatement;
+    expect(stmt.onConflict).not.toBeNull();
+    expect(stmt.onConflict!.conflictTarget).toEqual(['id']);
+    const action = stmt.onConflict!.action as OnConflictUpdate;
+    expect(action.type).toBe('UPDATE');
+    expect(action.setClauses).toHaveLength(1);
+    expect(action.setClauses[0].column).toBe('name');
+    // excluded.name is a ColumnRef with two names
+    const ref = action.setClauses[0].value as ColumnRefExpression;
+    expect(ref.expression_class).toBe(ExpressionClass.COLUMN_REF);
+    expect(ref.column_names).toEqual(['excluded', 'name']);
+  });
+
+  it('parses INSERT ... ON CONFLICT DO UPDATE SET with WHERE', () => {
+    const stmt = parseOne(
+      "INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30) ON CONFLICT (id) DO UPDATE SET age = excluded.age WHERE age < excluded.age"
+    ) as InsertStatement;
+    const action = stmt.onConflict!.action as OnConflictUpdate;
+    expect(action.type).toBe('UPDATE');
+    expect(action.setClauses).toHaveLength(1);
+    expect(action.whereClause).not.toBeNull();
+  });
+
+  it('parses INSERT ... ON CONFLICT DO UPDATE with multiple SET clauses', () => {
+    const stmt = parseOne(
+      "INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30) ON CONFLICT (id) DO UPDATE SET name = excluded.name, age = age + 1"
+    ) as InsertStatement;
+    const action = stmt.onConflict!.action as OnConflictUpdate;
+    expect(action.setClauses).toHaveLength(2);
+    expect(action.setClauses[0].column).toBe('name');
+    expect(action.setClauses[1].column).toBe('age');
+  });
+
+  it('parses INSERT ... SELECT ... ON CONFLICT DO NOTHING', () => {
+    const stmt = parseOne(
+      'INSERT INTO archive SELECT * FROM users ON CONFLICT (id) DO NOTHING'
+    ) as InsertStatement;
+    expect(stmt.select_statement).not.toBeNull();
+    expect(stmt.onConflict).not.toBeNull();
+    expect(stmt.onConflict!.action).toBe('NOTHING');
   });
 
   it('parses UPDATE with SET and WHERE', () => {

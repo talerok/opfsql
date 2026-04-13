@@ -102,6 +102,10 @@ export enum TokenType {
   CAST,
   TRUE_KW,
   FALSE_KW,
+  CONFLICT,
+  DO,
+  NOTHING,
+  EXCLUDED,
 
   // Type keywords
   INTEGER_KW,
@@ -486,12 +490,24 @@ export interface ForeignKeyConstraint {
   ref_columns: string[];
 }
 
+export interface OnConflictUpdate {
+  type: 'UPDATE';
+  setClauses: UpdateSetClause[];
+  whereClause: ParsedExpression | null;
+}
+
+export interface OnConflictClause {
+  conflictTarget: string[] | null;
+  action: 'NOTHING' | OnConflictUpdate;
+}
+
 export interface InsertStatement {
   type: StatementType.INSERT_STATEMENT;
   table: string;
   columns: string[];
   values: ParsedExpression[][];
   select_statement: SelectStatement | null;
+  onConflict: OnConflictClause | null;
 }
 
 export interface UpdateSetClause {

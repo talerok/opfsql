@@ -590,6 +590,72 @@ describe("DML", () => {
       BindError,
     );
   });
+
+  it("INSERT ON CONFLICT DO NOTHING builds onConflict", () => {
+    const plan = bind(
+      "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO NOTHING",
+    );
+    const ins = plan as LogicalInsert;
+    expect(ins.onConflict).toBeDefined();
+    expect(ins.onConflict!.action).toBe("NOTHING");
+    expect(ins.onConflict!.conflictColumns).toEqual([0]); // id is column 0
+  });
+
+  it("INSERT ON CONFLICT DO UPDATE SET builds update info", () => {
+    const plan = bind(
+      "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO UPDATE SET name = excluded.name",
+    );
+    const ins = plan as LogicalInsert;
+    expect(ins.onConflict).toBeDefined();
+    expect(ins.onConflict!.action).toBe("UPDATE");
+    expect(ins.onConflict!.updateColumns).toEqual([1]); // name is column 1
+    expect(ins.onConflict!.updateExpressions).toHaveLength(1);
+    expect(ins.onConflict!.excludedTableIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it("INSERT ON CONFLICT DO UPDATE with WHERE", () => {
+    const plan = bind(
+      "INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30) ON CONFLICT (id) DO UPDATE SET age = excluded.age WHERE users.age < excluded.age",
+    );
+    const ins = plan as LogicalInsert;
+    expect(ins.onConflict!.action).toBe("UPDATE");
+    expect(ins.onConflict!.whereExpression).not.toBeNull();
+  });
+
+  it("INSERT ON CONFLICT with no target uses primary key", () => {
+    const plan = bind(
+      "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT DO NOTHING",
+    );
+    const ins = plan as LogicalInsert;
+    expect(ins.onConflict!.conflictColumns).toEqual([0]); // id is the PK
+  });
+
+  it("ON CONFLICT with non-existent column throws BindError", () => {
+    expect(() =>
+      bind(
+        "INSERT INTO users (id) VALUES (1) ON CONFLICT (missing) DO NOTHING",
+      ),
+    ).toThrow(BindError);
+  });
+
+  it("ON CONFLICT with non-unique column throws BindError", () => {
+    expect(() =>
+      bind(
+        "INSERT INTO users (id, name) VALUES (1, 'x') ON CONFLICT (name) DO NOTHING",
+      ),
+    ).toThrow(BindError);
+  });
+
+  it("excluded references resolve in DO UPDATE expressions", () => {
+    const plan = bind(
+      "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO UPDATE SET name = excluded.name",
+    );
+    const ins = plan as LogicalInsert;
+    const expr = ins.onConflict!.updateExpressions[0] as BoundColumnRefExpression;
+    expect(expr.expressionClass).toBe(BoundExpressionClass.BOUND_COLUMN_REF);
+    expect(expr.binding.tableIndex).toBe(ins.onConflict!.excludedTableIndex);
+    expect(expr.columnName).toBe("name");
+  });
 });
 
 // ============================================================================
