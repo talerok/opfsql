@@ -1,7 +1,7 @@
 import type { ColumnBinding } from "../binder/types.js";
-import type { Row, Value as StoreValue } from "../store/types.js";
+import type { IndexDef, Row, TableSchema, Value as BaseValue } from "../types.js";
 
-export type Value = StoreValue;
+export type Value = BaseValue;
 export type Tuple = Value[];
 
 export interface SyncPhysicalOperator {
@@ -21,8 +21,6 @@ export interface ExecuteResult {
   catalogChanges: CatalogChange[];
   catalogDirty?: boolean;
 }
-
-import type { IndexDef, TableSchema } from "../store/types.js";
 
 export type CatalogChange =
   | { type: "CREATE_TABLE"; schema: TableSchema }

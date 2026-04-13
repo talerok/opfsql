@@ -4,7 +4,7 @@ import type {
   LogicalType,
   TableSchema,
   JsonValue,
-} from "../store/types.js";
+} from "../types.js";
 import type { JsonPathSegment } from "../parser/types.js";
 
 export type { ColumnDef, IndexDef, LogicalType, TableSchema, JsonValue, JsonPathSegment };

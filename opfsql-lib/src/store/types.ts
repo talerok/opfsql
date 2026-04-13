@@ -1,54 +1,16 @@
-export type LogicalType =
-  | 'INTEGER'
-  | 'BIGINT'
-  | 'REAL'
-  | 'TEXT'
-  | 'BLOB'
-  | 'BOOLEAN'
-  | 'JSON'
-  | 'NULL'
-  | 'ANY';
+export type {
+  LogicalType,
+  JsonValue,
+  Value,
+  ColumnDef,
+  TableSchema,
+  IndexDef,
+  CatalogData,
+  RowId,
+  Row,
+} from '../types.js';
 
-export type JsonValue =
-  | { [key: string]: JsonValue }
-  | JsonValue[]
-  | string
-  | number
-  | boolean
-  | null;
-
-export type Value = string | number | boolean | null | JsonValue;
-
-export interface ColumnDef {
-  name: string;
-  type: LogicalType;
-  nullable: boolean;
-  primaryKey: boolean;
-  unique: boolean;
-  autoIncrement: boolean;
-  defaultValue: Value;
-}
-
-export interface TableSchema {
-  name: string;
-  columns: ColumnDef[];
-  autoIncrementSeq?: number;
-}
-
-export interface IndexDef {
-  name: string;
-  tableName: string;
-  columns: string[];
-  unique: boolean;
-}
-
-export interface CatalogData {
-  tables: TableSchema[];
-  indexes: IndexDef[];
-}
-
-export type RowId = number;
-export type Row = Record<string, Value>;
+import type { IndexDef, Row, RowId, TableSchema } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Catalog interface
@@ -66,7 +28,7 @@ export interface ICatalog {
   getTableIndexes(tableName: string): IndexDef[];
   addIndex(index: IndexDef): void;
   removeIndex(name: string): void;
-  serialize(): CatalogData;
+  serialize(): import('../types.js').CatalogData;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +78,7 @@ export interface SyncIIndexManager {
 }
 
 // ---------------------------------------------------------------------------
-// Index key types (kept here to avoid a separate index-btree/types.ts dep)
+// Index key types
 // ---------------------------------------------------------------------------
 
 export type IndexKeyValue = string | number | boolean | null;

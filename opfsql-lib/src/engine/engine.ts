@@ -15,7 +15,8 @@ import {
   serializeCatalogEntry,
 } from "../store/catalog.js";
 import { Storage } from "../store/storage.js";
-import type { CatalogData, Row, SyncIStorage } from "../store/types.js";
+import type { JsonValue, Row } from "../types.js";
+import type { CatalogData, SyncIStorage } from "../store/types.js";
 
 // ---------------------------------------------------------------------------
 
@@ -32,7 +33,7 @@ export class EngineError extends Error {
   }
 }
 
-export type ParamValue = string | number | boolean | null;
+export type ParamValue = string | number | boolean | null | JsonValue;
 
 export class PreparedStatement {
   constructor(private readonly executeFn: (params: ParamValue[]) => Result) {}
