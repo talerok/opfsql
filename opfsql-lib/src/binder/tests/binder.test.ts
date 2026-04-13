@@ -865,6 +865,14 @@ describe("Expressions", () => {
     expect(mul.returnType).toBe("INTEGER");
   });
 
+  it("|| operator returns TEXT", () => {
+    const plan = bind("SELECT name || ' suffix' FROM users");
+    const proj = plan as LogicalProjection;
+    const concat = proj.expressions[0] as BoundOperatorExpression;
+    expect(concat.operatorType).toBe("CONCAT");
+    expect(concat.returnType).toBe("TEXT");
+  });
+
   it("arithmetic with REAL promotes to REAL", () => {
     const plan = bind("SELECT amount + 1 FROM orders");
     const proj = plan as LogicalProjection;

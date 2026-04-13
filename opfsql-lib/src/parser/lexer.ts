@@ -226,6 +226,15 @@ export class Lexer {
             this.addToken(TokenType.GREATER_THAN, '>', startLine, startCol);
           }
           break;
+        case '|':
+          this.advance();
+          if (this.pos < this.source.length && this.source[this.pos] === '|') {
+            this.addToken(TokenType.PIPE_PIPE, '||', startLine, startCol);
+            this.advance();
+          } else {
+            this.error(`Unexpected character '|'`, startLine, startCol);
+          }
+          break;
         case '!':
           this.advance();
           if (this.pos < this.source.length && this.source[this.pos] === '=') {

@@ -47,7 +47,7 @@ SELECT * FROM kv
 # --- DO UPDATE with expression mixing target and excluded ---
 
 statement ok
-INSERT INTO kv (k, v) VALUES (2, 'TWO') ON CONFLICT (k) DO UPDATE SET v = concat(kv.v, '+', excluded.v)
+INSERT INTO kv (k, v) VALUES (2, 'TWO') ON CONFLICT (k) DO UPDATE SET v = kv.v || '+' || excluded.v
 
 query IT rowsort
 SELECT * FROM kv

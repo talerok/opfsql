@@ -79,6 +79,18 @@ describe('Lexer', () => {
     ]);
   });
 
+  it('tokenizes || as PIPE_PIPE', () => {
+    const types = tokenTypes("'a' || 'b'");
+    expect(types).toEqual([
+      TokenType.STRING_LITERAL, TokenType.PIPE_PIPE, TokenType.STRING_LITERAL,
+      TokenType.EOF,
+    ]);
+  });
+
+  it('single | throws error', () => {
+    expect(() => tokenTypes('a | b')).toThrow();
+  });
+
   it('tokenizes punctuation', () => {
     const types = tokenTypes('( ) , ; .');
     expect(types).toEqual([

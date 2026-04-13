@@ -41,6 +41,9 @@ export function bindOperator(
         children[1].returnType,
       );
       break;
+    case "CONCAT":
+      returnType = "TEXT";
+      break;
     default:
       returnType = "ANY";
   }

@@ -68,6 +68,8 @@ export function mapOperatorType(exprType: ExpressionType): OperatorType {
       return "DIVIDE";
     case ExpressionType.OPERATOR_MOD:
       return "MOD";
+    case ExpressionType.OPERATOR_CONCAT:
+      return "CONCAT";
     default:
       throw new BindError(`Unknown operator type: ${exprType}`);
   }

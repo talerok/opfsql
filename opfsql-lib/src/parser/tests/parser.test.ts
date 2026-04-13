@@ -471,6 +471,32 @@ describe('Expressions', () => {
     expect(mul.type).toBe(ExpressionType.OPERATOR_MULTIPLY);
   });
 
+  it('parses || string concatenation', () => {
+    const node = selectNode("SELECT 'a' || 'b'");
+    const op = node.select_list[0] as OperatorExpression;
+    expect(op.expression_class).toBe(ExpressionClass.OPERATOR);
+    expect(op.type).toBe(ExpressionType.OPERATOR_CONCAT);
+    expect(op.children).toHaveLength(2);
+  });
+
+  it('|| is left-associative', () => {
+    const node = selectNode("SELECT a || b || c FROM t");
+    // (a || b) || c — outer is CONCAT, left child is also CONCAT
+    const outer = node.select_list[0] as OperatorExpression;
+    expect(outer.type).toBe(ExpressionType.OPERATOR_CONCAT);
+    const inner = outer.children[0] as OperatorExpression;
+    expect(inner.type).toBe(ExpressionType.OPERATOR_CONCAT);
+  });
+
+  it('|| has lower precedence than arithmetic', () => {
+    const node = selectNode("SELECT a + 1 || b FROM t");
+    // (a + 1) || b — top is CONCAT
+    const concat = node.select_list[0] as OperatorExpression;
+    expect(concat.type).toBe(ExpressionType.OPERATOR_CONCAT);
+    const add = concat.children[0] as OperatorExpression;
+    expect(add.type).toBe(ExpressionType.OPERATOR_ADD);
+  });
+
   it('parses unary minus', () => {
     const node = selectNode('SELECT -1');
     const neg = node.select_list[0] as OperatorExpression;

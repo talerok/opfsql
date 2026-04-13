@@ -1,0 +1,95 @@
+# string-concat.slt — || string concatenation operator
+
+# --- Basic concatenation ---
+
+query T nosort
+SELECT 'hello' || ' ' || 'world'
+----
+hello world
+
+query T nosort
+SELECT 'abc' || 'def'
+----
+abcdef
+
+# --- NULL propagation ---
+
+query T nosort
+SELECT NULL || 'x'
+----
+NULL
+
+query T nosort
+SELECT 'x' || NULL
+----
+NULL
+
+query T nosort
+SELECT NULL || NULL
+----
+NULL
+
+# --- Numeric coercion ---
+
+query T nosort
+SELECT 123 || 'abc'
+----
+123abc
+
+query T nosort
+SELECT 'price: ' || 42
+----
+price: 42
+
+# --- Boolean coercion ---
+
+query T nosort
+SELECT 'flag: ' || true
+----
+flag: true
+
+# --- With columns ---
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, fname TEXT, lname TEXT)
+
+statement ok
+INSERT INTO t (id, fname, lname) VALUES (1, 'John', 'Doe'), (2, 'Jane', 'Smith')
+
+query IT rowsort
+SELECT id, fname || ' ' || lname FROM t
+----
+1|John Doe
+2|Jane Smith
+
+# --- Precedence: arithmetic binds tighter than || ---
+
+query T nosort
+SELECT 'result: ' || 2 + 3
+----
+result: 5
+
+query T nosort
+SELECT 1 + 2 || ' items'
+----
+3 items
+
+# --- With WHERE clause ---
+
+query T nosort
+SELECT fname || ' ' || lname FROM t WHERE fname || lname = 'JohnDoe'
+----
+John Doe
+
+# --- In ORDER BY ---
+
+query T nosort
+SELECT fname || ' ' || lname AS fullname FROM t ORDER BY fullname
+----
+Jane Smith
+John Doe
+
+# --- Cleanup ---
+
+statement ok
+DROP TABLE t

@@ -212,6 +212,19 @@ describe('evaluateExpression', () => {
       expect(eval_(operator('ADD', [constant(null), constant(3)]))).toBeNull();
       expect(eval_(operator('ADD', [constant(3), constant(null)]))).toBeNull();
     });
+
+    it('CONCAT strings', () => {
+      expect(eval_(operator('CONCAT', [constant('hello'), constant(' world')], 'TEXT'))).toBe('hello world');
+    });
+
+    it('CONCAT coerces numbers to strings', () => {
+      expect(eval_(operator('CONCAT', [constant(123), constant('abc')], 'TEXT'))).toBe('123abc');
+    });
+
+    it('CONCAT with null → null', () => {
+      expect(eval_(operator('CONCAT', [constant(null), constant('x')], 'TEXT'))).toBeNull();
+      expect(eval_(operator('CONCAT', [constant('x'), constant(null)], 'TEXT'))).toBeNull();
+    });
   });
 
   // ---------------------------------------------------------------------------

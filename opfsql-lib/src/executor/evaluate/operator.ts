@@ -32,6 +32,12 @@ export function evalOperator(
       return evalIn(op.children, tuple, resolver, ctx, false);
     case 'NOT_IN':
       return evalIn(op.children, tuple, resolver, ctx, true);
+    case 'CONCAT': {
+      const left = evaluateExpression(op.children[0], tuple, resolver, ctx);
+      const right = evaluateExpression(op.children[1], tuple, resolver, ctx);
+      if (left === null || right === null) return null;
+      return String(left) + String(right);
+    }
     case 'ADD':
     case 'SUBTRACT':
     case 'MULTIPLY':

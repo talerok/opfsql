@@ -25,6 +25,7 @@ export enum TokenType {
   STAR,
   SLASH,
   PERCENT,
+  PIPE_PIPE,
 
   // Punctuation
   LEFT_PAREN,
@@ -212,6 +213,9 @@ export enum ExpressionType {
   OPERATOR_DIVIDE = 'OPERATOR_DIVIDE',
   OPERATOR_MOD = 'OPERATOR_MOD',
   OPERATOR_NEGATE = 'OPERATOR_NEGATE',
+
+  // String
+  OPERATOR_CONCAT = 'OPERATOR_CONCAT',
 }
 
 // ============================================================================

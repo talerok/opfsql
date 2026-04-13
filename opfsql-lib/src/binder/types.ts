@@ -117,7 +117,8 @@ export type OperatorType =
   | "SUBTRACT"
   | "MULTIPLY"
   | "DIVIDE"
-  | "MOD";
+  | "MOD"
+  | "CONCAT";
 
 export interface BoundOperatorExpression {
   expressionClass: BoundExpressionClass.BOUND_OPERATOR;

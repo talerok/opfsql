@@ -97,7 +97,7 @@ function parseExistsExpression(p: BaseParser, negated: boolean): SubqueryExpress
 }
 
 function parseComparison(p: BaseParser): ParsedExpression {
-  let left = parseAddSub(p);
+  let left = parseConcat(p);
 
   // IS [NOT] NULL
   if (p.check(TokenType.IS)) {
@@ -251,6 +251,23 @@ function parseInExpression(p: BaseParser, left: ParsedExpression, negated: boole
     type: negated ? ExpressionType.OPERATOR_NOT_IN : ExpressionType.OPERATOR_IN,
     children: values,
   };
+}
+
+function parseConcat(p: BaseParser): ParsedExpression {
+  let left = parseAddSub(p);
+
+  while (p.check(TokenType.PIPE_PIPE)) {
+    p.advance();
+    const right = parseAddSub(p);
+    left = {
+      expression_class: ExpressionClass.OPERATOR,
+      alias: null,
+      type: ExpressionType.OPERATOR_CONCAT,
+      children: [left, right],
+    };
+  }
+
+  return left;
 }
 
 function parseAddSub(p: BaseParser): ParsedExpression {
