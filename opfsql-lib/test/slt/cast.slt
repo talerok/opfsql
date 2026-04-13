@@ -1,0 +1,162 @@
+# cast.slt — CAST expression tests
+
+# ============================================================================
+# CAST to INTEGER
+# ============================================================================
+
+query I nosort
+SELECT CAST(3.7 AS INTEGER)
+----
+3
+
+query I nosort
+SELECT CAST('42' AS INTEGER)
+----
+42
+
+# CAST NULL to INTEGER returns NULL
+query I nosort
+SELECT CAST(NULL AS INTEGER)
+----
+NULL
+
+# ============================================================================
+# CAST to BIGINT
+# ============================================================================
+
+query I nosort
+SELECT CAST(9.9 AS BIGINT)
+----
+9
+
+query I nosort
+SELECT CAST('123' AS BIGINT)
+----
+123
+
+# ============================================================================
+# CAST to REAL
+# ============================================================================
+
+query R nosort
+SELECT CAST(42 AS REAL)
+----
+42
+
+query R nosort
+SELECT CAST('3.14' AS REAL)
+----
+3.14
+
+# CAST NULL to REAL returns NULL
+query R nosort
+SELECT CAST(NULL AS REAL)
+----
+NULL
+
+# ============================================================================
+# CAST to TEXT
+# ============================================================================
+
+query T nosort
+SELECT CAST(42 AS TEXT)
+----
+42
+
+query T nosort
+SELECT CAST(3.14 AS TEXT)
+----
+3.14
+
+query T nosort
+SELECT CAST(true AS TEXT)
+----
+true
+
+query T nosort
+SELECT CAST(false AS TEXT)
+----
+false
+
+# CAST NULL to TEXT returns NULL
+query T nosort
+SELECT CAST(NULL AS TEXT)
+----
+NULL
+
+# ============================================================================
+# CAST to BOOLEAN
+# ============================================================================
+
+query B nosort
+SELECT CAST(1 AS BOOLEAN)
+----
+true
+
+query B nosort
+SELECT CAST(0 AS BOOLEAN)
+----
+false
+
+query B nosort
+SELECT CAST('true' AS BOOLEAN)
+----
+true
+
+query B nosort
+SELECT CAST('false' AS BOOLEAN)
+----
+false
+
+# CAST NULL to BOOLEAN returns NULL
+query B nosort
+SELECT CAST(NULL AS BOOLEAN)
+----
+NULL
+
+# ============================================================================
+# CAST invalid value errors
+# ============================================================================
+
+statement error
+SELECT CAST('not_a_number' AS INTEGER)
+
+statement error
+SELECT CAST('not_a_number' AS REAL)
+
+statement error
+SELECT CAST('maybe' AS BOOLEAN)
+
+# ============================================================================
+# CAST in expressions
+# ============================================================================
+
+statement ok
+CREATE TABLE prices (id INTEGER PRIMARY KEY, amount REAL)
+
+statement ok
+INSERT INTO prices VALUES (1, 10.75)
+
+statement ok
+INSERT INTO prices VALUES (2, 20.5)
+
+# CAST in SELECT
+query I nosort
+SELECT CAST(amount AS INTEGER) FROM prices WHERE id = 1
+----
+10
+
+# CAST in WHERE
+query I nosort
+SELECT id FROM prices WHERE CAST(amount AS INTEGER) = 20
+----
+2
+
+# CAST in arithmetic
+query R nosort
+SELECT CAST(amount AS INTEGER) + 0.5 FROM prices WHERE id = 1
+----
+10.5
+
+statement ok
+DROP TABLE prices

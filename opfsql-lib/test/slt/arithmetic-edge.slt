@@ -1,0 +1,156 @@
+# arithmetic-edge.slt — arithmetic edge cases: division/modulo by zero, modulo, negation
+
+# ============================================================================
+# Division by zero returns NULL
+# ============================================================================
+
+query I nosort
+SELECT 10 / 0
+----
+NULL
+
+query I nosort
+SELECT 0 / 0
+----
+NULL
+
+# ============================================================================
+# Modulo operator
+# ============================================================================
+
+query I nosort
+SELECT 10 % 3
+----
+1
+
+query I nosort
+SELECT 17 % 5
+----
+2
+
+query I nosort
+SELECT 20 % 4
+----
+0
+
+# Modulo by zero returns NULL
+query I nosort
+SELECT 10 % 0
+----
+NULL
+
+# ============================================================================
+# Unary negation
+# ============================================================================
+
+query I nosort
+SELECT -42
+----
+-42
+
+query I nosort
+SELECT -(-10)
+----
+10
+
+# Negation of NULL returns NULL
+query I nosort
+SELECT -(NULL)
+----
+NULL
+
+# ============================================================================
+# Arithmetic with NULL operands
+# ============================================================================
+
+query I nosort
+SELECT NULL + 5
+----
+NULL
+
+query I nosort
+SELECT 5 - NULL
+----
+NULL
+
+query I nosort
+SELECT NULL * 3
+----
+NULL
+
+query I nosort
+SELECT 10 / NULL
+----
+NULL
+
+query I nosort
+SELECT NULL % 2
+----
+NULL
+
+# ============================================================================
+# Mixed arithmetic
+# ============================================================================
+
+query I nosort
+SELECT 2 + 3 * 4
+----
+14
+
+query I nosort
+SELECT (2 + 3) * 4
+----
+20
+
+query R nosort
+SELECT 10.0 / 3
+----
+3.3333333333333335
+
+query I nosort
+SELECT 7 % 3 + 1
+----
+2
+
+# ============================================================================
+# Table-based arithmetic edge cases
+# ============================================================================
+
+statement ok
+CREATE TABLE calc (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER)
+
+statement ok
+INSERT INTO calc VALUES (1, 100, 7)
+
+statement ok
+INSERT INTO calc VALUES (2, -15, 4)
+
+statement ok
+INSERT INTO calc VALUES (3, 0, 5)
+
+statement ok
+INSERT INTO calc VALUES (4, 10, 0)
+
+query RI nosort
+SELECT a / b, a % b FROM calc WHERE id = 1
+----
+14.285714285714286|2
+
+query RI nosort
+SELECT a / b, a % b FROM calc WHERE id = 2
+----
+-3.75|-3
+
+query II nosort
+SELECT a / b, a % b FROM calc WHERE id = 3
+----
+0|0
+
+# Division/modulo by zero in table context
+query II nosort
+SELECT a / b, a % b FROM calc WHERE id = 4
+----
+NULL|NULL
+
+statement ok
+DROP TABLE calc

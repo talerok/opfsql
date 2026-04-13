@@ -1,0 +1,146 @@
+# limit-offset.slt — LIMIT and OFFSET edge cases
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)
+
+statement ok
+INSERT INTO t VALUES (1, 10)
+
+statement ok
+INSERT INTO t VALUES (2, 20)
+
+statement ok
+INSERT INTO t VALUES (3, 30)
+
+statement ok
+INSERT INTO t VALUES (4, 40)
+
+statement ok
+INSERT INTO t VALUES (5, 50)
+
+# ============================================================================
+# LIMIT 0 — returns no rows
+# ============================================================================
+
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 0
+----
+
+# ============================================================================
+# LIMIT larger than row count
+# ============================================================================
+
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 100
+----
+1|10
+2|20
+3|30
+4|40
+5|50
+
+# ============================================================================
+# OFFSET without remaining rows
+# ============================================================================
+
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 2 OFFSET 4
+----
+5|50
+
+# OFFSET beyond all rows
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 10 OFFSET 100
+----
+
+# ============================================================================
+# OFFSET 0 (same as no offset)
+# ============================================================================
+
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 3 OFFSET 0
+----
+1|10
+2|20
+3|30
+
+# ============================================================================
+# LIMIT with GROUP BY
+# ============================================================================
+
+statement ok
+CREATE TABLE grouped (id INTEGER PRIMARY KEY, category TEXT, val INTEGER)
+
+statement ok
+INSERT INTO grouped VALUES (1, 'A', 10)
+
+statement ok
+INSERT INTO grouped VALUES (2, 'B', 20)
+
+statement ok
+INSERT INTO grouped VALUES (3, 'A', 30)
+
+statement ok
+INSERT INTO grouped VALUES (4, 'C', 40)
+
+statement ok
+INSERT INTO grouped VALUES (5, 'B', 50)
+
+query TI nosort
+SELECT category, SUM(val) AS total FROM grouped GROUP BY category ORDER BY SUM(val) DESC LIMIT 2
+----
+B|70
+A|40
+
+# ============================================================================
+# LIMIT with aggregate results
+# ============================================================================
+
+query TI nosort
+SELECT category, COUNT(*) AS cnt FROM grouped GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1
+----
+A|2
+
+# ============================================================================
+# LIMIT 1 — get single row
+# ============================================================================
+
+query II nosort
+SELECT * FROM t ORDER BY val DESC LIMIT 1
+----
+5|50
+
+# ============================================================================
+# OFFSET with LIMIT stepping through rows
+# ============================================================================
+
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 2 OFFSET 0
+----
+1|10
+2|20
+
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 2 OFFSET 2
+----
+3|30
+4|40
+
+query II nosort
+SELECT * FROM t ORDER BY id LIMIT 2 OFFSET 4
+----
+5|50
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE t
+
+statement ok
+DROP TABLE grouped

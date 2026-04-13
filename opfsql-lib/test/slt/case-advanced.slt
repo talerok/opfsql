@@ -1,0 +1,124 @@
+# case-advanced.slt — advanced CASE expression tests
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE scores (id INTEGER PRIMARY KEY, name TEXT, score INTEGER, grade TEXT)
+
+statement ok
+INSERT INTO scores VALUES (1, 'Alice', 95, 'A')
+
+statement ok
+INSERT INTO scores VALUES (2, 'Bob', 82, 'B')
+
+statement ok
+INSERT INTO scores VALUES (3, 'Charlie', 67, 'D')
+
+statement ok
+INSERT INTO scores VALUES (4, 'Diana', NULL, NULL)
+
+statement ok
+INSERT INTO scores VALUES (5, 'Eve', 73, 'C')
+
+# ============================================================================
+# CASE with operand form: CASE expr WHEN val THEN ...
+# ============================================================================
+
+query TT nosort
+SELECT name, CASE grade WHEN 'A' THEN 'Excellent' WHEN 'B' THEN 'Good' WHEN 'C' THEN 'Average' ELSE 'Below Average' END AS rating FROM scores WHERE score IS NOT NULL ORDER BY id
+----
+Alice|Excellent
+Bob|Good
+Charlie|Below Average
+Eve|Average
+
+# ============================================================================
+# CASE without ELSE (returns NULL when no match)
+# ============================================================================
+
+query TT nosort
+SELECT name, CASE WHEN score > 90 THEN 'Top' WHEN score > 80 THEN 'High' END AS tier FROM scores ORDER BY id
+----
+Alice|Top
+Bob|High
+Charlie|NULL
+Diana|NULL
+Eve|NULL
+
+# ============================================================================
+# CASE with NULL in WHEN condition
+# ============================================================================
+
+query TT nosort
+SELECT name, CASE WHEN score IS NULL THEN 'No Score' WHEN score >= 70 THEN 'Pass' ELSE 'Fail' END AS result FROM scores ORDER BY id
+----
+Alice|Pass
+Bob|Pass
+Charlie|Fail
+Diana|No Score
+Eve|Pass
+
+# ============================================================================
+# Nested CASE expressions
+# ============================================================================
+
+query TT nosort
+SELECT name, CASE WHEN score IS NULL THEN 'N/A' ELSE CASE WHEN score >= 90 THEN 'A' WHEN score >= 80 THEN 'B' WHEN score >= 70 THEN 'C' ELSE 'F' END END AS computed_grade FROM scores ORDER BY id
+----
+Alice|A
+Bob|B
+Charlie|F
+Diana|N/A
+Eve|C
+
+# ============================================================================
+# CASE in WHERE clause
+# ============================================================================
+
+query T rowsort
+SELECT name FROM scores WHERE CASE WHEN score >= 80 THEN true ELSE false END = true
+----
+Alice
+Bob
+
+# ============================================================================
+# CASE in ORDER BY
+# ============================================================================
+
+query TI nosort
+SELECT name, score FROM scores WHERE score IS NOT NULL ORDER BY CASE WHEN score >= 90 THEN 1 WHEN score >= 80 THEN 2 ELSE 3 END, name ASC
+----
+Alice|95
+Bob|82
+Charlie|67
+Eve|73
+
+# ============================================================================
+# CASE with arithmetic in THEN
+# ============================================================================
+
+query TI nosort
+SELECT name, CASE WHEN score >= 90 THEN score * 2 WHEN score >= 80 THEN score + 10 ELSE score END AS adjusted FROM scores WHERE score IS NOT NULL ORDER BY id
+----
+Alice|190
+Bob|92
+Charlie|67
+Eve|73
+
+# ============================================================================
+# CASE operand form with NULL operand
+# ============================================================================
+
+query T nosort
+SELECT CASE grade WHEN 'A' THEN 'top' WHEN 'B' THEN 'good' END FROM scores WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE scores

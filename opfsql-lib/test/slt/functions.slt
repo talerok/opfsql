@@ -1,0 +1,363 @@
+# functions.slt — scalar function tests (string, numeric, conditional)
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE strings (id INTEGER PRIMARY KEY, val TEXT)
+
+statement ok
+INSERT INTO strings VALUES (1, 'Hello World')
+
+statement ok
+INSERT INTO strings VALUES (2, '  spaces  ')
+
+statement ok
+INSERT INTO strings VALUES (3, 'abcdef')
+
+statement ok
+INSERT INTO strings VALUES (4, NULL)
+
+# ============================================================================
+# UPPER / LOWER
+# ============================================================================
+
+query T nosort
+SELECT UPPER(val) FROM strings WHERE id = 1
+----
+HELLO WORLD
+
+query T nosort
+SELECT LOWER(val) FROM strings WHERE id = 1
+----
+hello world
+
+# UPPER/LOWER on NULL returns NULL
+query T nosort
+SELECT UPPER(val) FROM strings WHERE id = 4
+----
+NULL
+
+query T nosort
+SELECT LOWER(val) FROM strings WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# LENGTH
+# ============================================================================
+
+query I nosort
+SELECT LENGTH(val) FROM strings WHERE id = 1
+----
+11
+
+query I nosort
+SELECT LENGTH(val) FROM strings WHERE id = 3
+----
+6
+
+# LENGTH on NULL returns NULL
+query I nosort
+SELECT LENGTH(val) FROM strings WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# TRIM / LTRIM / RTRIM
+# ============================================================================
+
+query T nosort
+SELECT TRIM(val) FROM strings WHERE id = 2
+----
+spaces
+
+# LTRIM removes leading spaces: '  spaces  ' → 'spaces  ' (length 8)
+query I nosort
+SELECT LENGTH(LTRIM(val)) FROM strings WHERE id = 2
+----
+8
+
+# RTRIM removes trailing spaces: '  spaces  ' → '  spaces' (length 8)
+query I nosort
+SELECT LENGTH(RTRIM(val)) FROM strings WHERE id = 2
+----
+8
+
+# TRIM on NULL
+query T nosort
+SELECT TRIM(val) FROM strings WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# SUBSTR / SUBSTRING
+# ============================================================================
+
+# 2-argument form: SUBSTR(string, start)
+query T nosort
+SELECT SUBSTR(val, 7) FROM strings WHERE id = 1
+----
+World
+
+# 3-argument form: SUBSTR(string, start, length)
+query T nosort
+SELECT SUBSTR(val, 1, 5) FROM strings WHERE id = 1
+----
+Hello
+
+query T nosort
+SELECT SUBSTRING(val, 3, 2) FROM strings WHERE id = 3
+----
+cd
+
+# SUBSTR on NULL
+query T nosort
+SELECT SUBSTR(val, 1) FROM strings WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# REPLACE
+# ============================================================================
+
+query T nosort
+SELECT REPLACE(val, 'World', 'SQL') FROM strings WHERE id = 1
+----
+Hello SQL
+
+query T nosort
+SELECT REPLACE(val, 'x', 'y') FROM strings WHERE id = 1
+----
+Hello World
+
+# REPLACE on NULL
+query T nosort
+SELECT REPLACE(val, 'a', 'b') FROM strings WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# CONCAT
+# ============================================================================
+
+query T nosort
+SELECT CONCAT('Hello', ' ', 'World') FROM strings WHERE id = 1
+----
+Hello World
+
+query T nosort
+SELECT CONCAT(val, '!') FROM strings WHERE id = 1
+----
+Hello World!
+
+# CONCAT with NULL returns NULL
+query T nosort
+SELECT CONCAT(val, '!') FROM strings WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# Numeric functions setup
+# ============================================================================
+
+statement ok
+CREATE TABLE nums (id INTEGER PRIMARY KEY, val REAL)
+
+statement ok
+INSERT INTO nums VALUES (1, -3.7)
+
+statement ok
+INSERT INTO nums VALUES (2, 4.5)
+
+statement ok
+INSERT INTO nums VALUES (3, 2.345)
+
+statement ok
+INSERT INTO nums VALUES (4, NULL)
+
+# ============================================================================
+# ABS
+# ============================================================================
+
+query R nosort
+SELECT ABS(val) FROM nums WHERE id = 1
+----
+3.7
+
+query R nosort
+SELECT ABS(val) FROM nums WHERE id = 2
+----
+4.5
+
+# ABS on NULL
+query R nosort
+SELECT ABS(val) FROM nums WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# ROUND
+# ============================================================================
+
+# ROUND with default precision (0 decimal places)
+query R nosort
+SELECT ROUND(val) FROM nums WHERE id = 1
+----
+-4
+
+query R nosort
+SELECT ROUND(val) FROM nums WHERE id = 2
+----
+5
+
+# ROUND with precision
+query R nosort
+SELECT ROUND(val, 1) FROM nums WHERE id = 3
+----
+2.3
+
+query R nosort
+SELECT ROUND(val, 2) FROM nums WHERE id = 3
+----
+2.35
+
+# ROUND on NULL
+query R nosort
+SELECT ROUND(val) FROM nums WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# FLOOR / CEIL
+# ============================================================================
+
+query R nosort
+SELECT FLOOR(val) FROM nums WHERE id = 1
+----
+-4
+
+query R nosort
+SELECT FLOOR(val) FROM nums WHERE id = 2
+----
+4
+
+query R nosort
+SELECT CEIL(val) FROM nums WHERE id = 1
+----
+-3
+
+query R nosort
+SELECT CEIL(val) FROM nums WHERE id = 2
+----
+5
+
+query R nosort
+SELECT CEILING(val) FROM nums WHERE id = 2
+----
+5
+
+# FLOOR/CEIL on NULL
+query R nosort
+SELECT FLOOR(val) FROM nums WHERE id = 4
+----
+NULL
+
+query R nosort
+SELECT CEIL(val) FROM nums WHERE id = 4
+----
+NULL
+
+# ============================================================================
+# COALESCE
+# ============================================================================
+
+query R nosort
+SELECT COALESCE(val, 0) FROM nums WHERE id = 4
+----
+0
+
+query R nosort
+SELECT COALESCE(val, 0) FROM nums WHERE id = 1
+----
+-3.7
+
+query R nosort
+SELECT COALESCE(NULL, NULL, 42)
+----
+42
+
+query R nosort
+SELECT COALESCE(NULL, 10, 20)
+----
+10
+
+# ============================================================================
+# NULLIF
+# ============================================================================
+
+query I nosort
+SELECT NULLIF(1, 1)
+----
+NULL
+
+query I nosort
+SELECT NULLIF(1, 2)
+----
+1
+
+query T nosort
+SELECT NULLIF('a', 'b')
+----
+a
+
+query T nosort
+SELECT NULLIF('a', 'a')
+----
+NULL
+
+# NULLIF with NULL arguments
+query I nosort
+SELECT NULLIF(NULL, 1)
+----
+NULL
+
+query I nosort
+SELECT NULLIF(1, NULL)
+----
+1
+
+# ============================================================================
+# TYPEOF
+# ============================================================================
+
+query T nosort
+SELECT TYPEOF(42)
+----
+number
+
+query T nosort
+SELECT TYPEOF('hello')
+----
+string
+
+query T nosort
+SELECT TYPEOF(true)
+----
+boolean
+
+query T nosort
+SELECT TYPEOF(NULL)
+----
+null
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE strings
+
+statement ok
+DROP TABLE nums

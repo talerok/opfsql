@@ -1,0 +1,197 @@
+# advanced-join.slt — CROSS JOIN, multi-table joins, RIGHT JOIN
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE colors (id INTEGER PRIMARY KEY, name TEXT)
+
+statement ok
+INSERT INTO colors VALUES (1, 'Red')
+
+statement ok
+INSERT INTO colors VALUES (2, 'Blue')
+
+statement ok
+CREATE TABLE sizes (id INTEGER PRIMARY KEY, label TEXT)
+
+statement ok
+INSERT INTO sizes VALUES (1, 'S')
+
+statement ok
+INSERT INTO sizes VALUES (2, 'M')
+
+statement ok
+INSERT INTO sizes VALUES (3, 'L')
+
+# ============================================================================
+# CROSS JOIN
+# ============================================================================
+
+query TT rowsort
+SELECT c.name, s.label FROM colors c CROSS JOIN sizes s
+----
+Blue|L
+Blue|M
+Blue|S
+Red|L
+Red|M
+Red|S
+
+# CROSS JOIN result count
+query I nosort
+SELECT COUNT(*) FROM colors CROSS JOIN sizes
+----
+6
+
+# ============================================================================
+# Multi-table JOIN (3 tables)
+# ============================================================================
+
+statement ok
+CREATE TABLE departments (id INTEGER PRIMARY KEY, dname TEXT)
+
+statement ok
+INSERT INTO departments VALUES (1, 'Engineering')
+
+statement ok
+INSERT INTO departments VALUES (2, 'Marketing')
+
+statement ok
+INSERT INTO departments VALUES (3, 'Sales')
+
+statement ok
+CREATE TABLE employees (id INTEGER PRIMARY KEY, name TEXT, dept_id INTEGER)
+
+statement ok
+INSERT INTO employees VALUES (1, 'Alice', 1)
+
+statement ok
+INSERT INTO employees VALUES (2, 'Bob', 2)
+
+statement ok
+INSERT INTO employees VALUES (3, 'Charlie', 1)
+
+statement ok
+INSERT INTO employees VALUES (4, 'Diana', 3)
+
+statement ok
+CREATE TABLE projects (id INTEGER PRIMARY KEY, pname TEXT, lead_id INTEGER, dept_id INTEGER)
+
+statement ok
+INSERT INTO projects VALUES (1, 'Alpha', 1, 1)
+
+statement ok
+INSERT INTO projects VALUES (2, 'Beta', 2, 2)
+
+statement ok
+INSERT INTO projects VALUES (3, 'Gamma', 3, 1)
+
+# 3-table join
+query TTT rowsort
+SELECT d.dname, e.name, p.pname FROM departments d JOIN employees e ON e.dept_id = d.id JOIN projects p ON p.lead_id = e.id
+----
+Engineering|Alice|Alpha
+Engineering|Charlie|Gamma
+Marketing|Bob|Beta
+
+# ============================================================================
+# LEFT JOIN (equivalent to RIGHT JOIN with swapped tables)
+# ============================================================================
+
+statement ok
+CREATE TABLE orders (id INTEGER PRIMARY KEY, product TEXT, emp_id INTEGER)
+
+statement ok
+INSERT INTO orders VALUES (1, 'Widget', 1)
+
+statement ok
+INSERT INTO orders VALUES (2, 'Gadget', 1)
+
+statement ok
+INSERT INTO orders VALUES (3, 'Doohickey', 4)
+
+# LEFT JOIN — all employees, even those without orders
+query TT rowsort
+SELECT e.name, o.product FROM employees e LEFT JOIN orders o ON o.emp_id = e.id
+----
+Alice|Gadget
+Alice|Widget
+Bob|NULL
+Charlie|NULL
+Diana|Doohickey
+
+# ============================================================================
+# LEFT JOIN with aggregate
+# ============================================================================
+
+query TI rowsort
+SELECT e.name, COUNT(o.id) AS order_count FROM employees e LEFT JOIN orders o ON o.emp_id = e.id GROUP BY e.name
+----
+Alice|2
+Bob|0
+Charlie|0
+Diana|1
+
+# ============================================================================
+# Self-join
+# ============================================================================
+
+statement ok
+CREATE TABLE tree (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT)
+
+statement ok
+INSERT INTO tree VALUES (1, NULL, 'root')
+
+statement ok
+INSERT INTO tree VALUES (2, 1, 'child1')
+
+statement ok
+INSERT INTO tree VALUES (3, 1, 'child2')
+
+statement ok
+INSERT INTO tree VALUES (4, 2, 'grandchild1')
+
+# Self-join to get parent-child pairs
+query TT rowsort
+SELECT p.name AS parent, c.name AS child FROM tree p JOIN tree c ON c.parent_id = p.id
+----
+child1|grandchild1
+root|child1
+root|child2
+
+# ============================================================================
+# JOIN with WHERE filter
+# ============================================================================
+
+query TT rowsort
+SELECT e.name, d.dname FROM employees e JOIN departments d ON e.dept_id = d.id WHERE d.id > 1
+----
+Bob|Marketing
+Diana|Sales
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE orders
+
+statement ok
+DROP TABLE projects
+
+statement ok
+DROP TABLE employees
+
+statement ok
+DROP TABLE departments
+
+statement ok
+DROP TABLE colors
+
+statement ok
+DROP TABLE sizes
+
+statement ok
+DROP TABLE tree

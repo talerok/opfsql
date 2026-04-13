@@ -1,0 +1,120 @@
+# cte-advanced.slt — advanced CTE tests (multiple CTEs, CTE referencing CTE)
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, category TEXT)
+
+statement ok
+INSERT INTO products VALUES (1, 'Widget', 10.0, 'A')
+
+statement ok
+INSERT INTO products VALUES (2, 'Gadget', 20.0, 'A')
+
+statement ok
+INSERT INTO products VALUES (3, 'Doohickey', 30.0, 'B')
+
+statement ok
+INSERT INTO products VALUES (4, 'Thingamajig', 40.0, 'B')
+
+statement ok
+INSERT INTO products VALUES (5, 'Gizmo', 50.0, 'C')
+
+# ============================================================================
+# Multiple CTEs in single WITH clause
+# ============================================================================
+
+query T rowsort
+WITH cheap AS (SELECT * FROM products WHERE price <= 20), expensive AS (SELECT * FROM products WHERE price > 30) SELECT name FROM cheap UNION ALL SELECT name FROM expensive
+----
+Gadget
+Gizmo
+Thingamajig
+Widget
+
+# ============================================================================
+# CTE referencing another CTE
+# ============================================================================
+
+query TI rowsort
+WITH base AS (SELECT id, name, price, category FROM products WHERE price > 15), filtered AS (SELECT name, CAST(price AS INTEGER) AS p FROM base WHERE category = 'B') SELECT name, p FROM filtered
+----
+Doohickey|30
+Thingamajig|40
+
+# ============================================================================
+# CTE with GROUP BY
+# ============================================================================
+
+query TR rowsort
+WITH cat_stats AS (SELECT category, AVG(price) AS avg_price FROM products GROUP BY category) SELECT category, avg_price FROM cat_stats
+----
+A|15
+B|35
+C|50
+
+# ============================================================================
+# CTE with JOIN
+# ============================================================================
+
+statement ok
+CREATE TABLE categories (code TEXT, label TEXT)
+
+statement ok
+INSERT INTO categories VALUES ('A', 'Alpha')
+
+statement ok
+INSERT INTO categories VALUES ('B', 'Beta')
+
+statement ok
+INSERT INTO categories VALUES ('C', 'Gamma')
+
+query TTR rowsort
+WITH cat_totals AS (SELECT category, SUM(price) AS total FROM products GROUP BY category) SELECT c.label, ct.category, ct.total FROM cat_totals ct JOIN categories c ON ct.category = c.code
+----
+Alpha|A|30
+Beta|B|70
+Gamma|C|50
+
+# ============================================================================
+# CTE used in query
+# ============================================================================
+
+query I nosort
+WITH nums AS (SELECT id FROM products WHERE id <= 3) SELECT COUNT(*) AS cnt FROM nums
+----
+3
+
+# ============================================================================
+# CTE with LIMIT
+# ============================================================================
+
+query TR nosort
+WITH ranked AS (SELECT name, price FROM products ORDER BY price DESC) SELECT name, price FROM ranked LIMIT 3
+----
+Gizmo|50
+Thingamajig|40
+Doohickey|30
+
+# ============================================================================
+# Nested CTE chain: c1 → c2 → c3
+# ============================================================================
+
+query TI rowsort
+WITH c1 AS (SELECT id, name, category FROM products WHERE price >= 20), c2 AS (SELECT id, name FROM c1 WHERE category IN ('A', 'B')), c3 AS (SELECT name, id AS pid FROM c2) SELECT name, pid FROM c3
+----
+Doohickey|3
+Gadget|2
+Thingamajig|4
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE products
+
+statement ok
+DROP TABLE categories

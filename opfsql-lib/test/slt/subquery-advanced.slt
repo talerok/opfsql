@@ -1,0 +1,182 @@
+# subquery-advanced.slt — advanced subquery tests
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, category TEXT)
+
+statement ok
+INSERT INTO products VALUES (1, 'Widget', 10.0, 'A')
+
+statement ok
+INSERT INTO products VALUES (2, 'Gadget', 20.0, 'A')
+
+statement ok
+INSERT INTO products VALUES (3, 'Doohickey', 30.0, 'B')
+
+statement ok
+INSERT INTO products VALUES (4, 'Thingamajig', 40.0, 'B')
+
+statement ok
+INSERT INTO products VALUES (5, 'Gizmo', 50.0, 'C')
+
+statement ok
+CREATE TABLE orders (id INTEGER PRIMARY KEY, product_id INTEGER, quantity INTEGER)
+
+statement ok
+INSERT INTO orders VALUES (1, 1, 10)
+
+statement ok
+INSERT INTO orders VALUES (2, 1, 5)
+
+statement ok
+INSERT INTO orders VALUES (3, 2, 8)
+
+statement ok
+INSERT INTO orders VALUES (4, 3, 3)
+
+# ============================================================================
+# Scalar subquery returning single value
+# ============================================================================
+
+query I nosort
+SELECT (SELECT MAX(price) FROM products)
+----
+50
+
+query I nosort
+SELECT (SELECT COUNT(*) FROM orders)
+----
+4
+
+# ============================================================================
+# Scalar subquery returning 0 rows → NULL
+# ============================================================================
+
+query T nosort
+SELECT (SELECT name FROM products WHERE id = 999)
+----
+NULL
+
+# ============================================================================
+# Correlated scalar subquery
+# ============================================================================
+
+query TI nosort
+SELECT p.name, (SELECT SUM(o.quantity) FROM orders o WHERE o.product_id = p.id) AS total_qty FROM products p WHERE p.id <= 3 ORDER BY p.id
+----
+Widget|15
+Gadget|8
+Doohickey|3
+
+# Products without orders get NULL for scalar subquery
+query TI nosort
+SELECT p.name, (SELECT SUM(o.quantity) FROM orders o WHERE o.product_id = p.id) AS total_qty FROM products p WHERE p.id = 5
+----
+Gizmo|NULL
+
+# ============================================================================
+# IN with subquery
+# ============================================================================
+
+# Products that have at least one order
+query T rowsort
+SELECT name FROM products WHERE id IN (SELECT product_id FROM orders)
+----
+Doohickey
+Gadget
+Widget
+
+# ============================================================================
+# NOT IN with subquery
+# ============================================================================
+
+# Products without any orders
+query T rowsort
+SELECT name FROM products WHERE id NOT IN (SELECT product_id FROM orders)
+----
+Gizmo
+Thingamajig
+
+# ============================================================================
+# EXISTS with complex condition
+# ============================================================================
+
+# Products where total ordered quantity > 5
+query T rowsort
+SELECT p.name FROM products p WHERE EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id AND o.quantity > 5)
+----
+Gadget
+Widget
+
+# ============================================================================
+# NOT EXISTS
+# ============================================================================
+
+query T rowsort
+SELECT p.name FROM products p WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id)
+----
+Gizmo
+Thingamajig
+
+# ============================================================================
+# Subquery in FROM clause
+# ============================================================================
+
+query TR nosort
+SELECT sub.name, sub.price FROM (SELECT name, price FROM products WHERE price > 20) AS sub ORDER BY sub.price
+----
+Doohickey|30
+Thingamajig|40
+Gizmo|50
+
+# Subquery in FROM with aggregate
+query I nosort
+SELECT sub.avg_price FROM (SELECT AVG(price) AS avg_price FROM products) AS sub
+----
+30
+
+# ============================================================================
+# Subquery in FROM with JOIN
+# ============================================================================
+
+query TI nosort
+SELECT p.name, oq.total FROM products p JOIN (SELECT product_id, SUM(quantity) AS total FROM orders GROUP BY product_id) oq ON p.id = oq.product_id ORDER BY oq.total DESC
+----
+Widget|15
+Gadget|8
+Doohickey|3
+
+# ============================================================================
+# Nested subqueries
+# ============================================================================
+
+# Subquery within subquery
+query T rowsort
+SELECT name FROM products WHERE category IN (SELECT DISTINCT category FROM products WHERE price > (SELECT AVG(price) FROM products))
+----
+Doohickey
+Gizmo
+Thingamajig
+
+# ============================================================================
+# EXISTS combined with other WHERE conditions
+# ============================================================================
+
+query TR nosort
+SELECT p.name, p.price FROM products p WHERE p.price > 15 AND EXISTS (SELECT 1 FROM orders o WHERE o.product_id = p.id) ORDER BY p.price
+----
+Gadget|20
+Doohickey|30
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE orders
+
+statement ok
+DROP TABLE products

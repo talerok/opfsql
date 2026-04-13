@@ -1,0 +1,126 @@
+# aggregate-distinct.slt — aggregate functions with DISTINCT
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE sales (id INTEGER PRIMARY KEY, product TEXT, amount INTEGER, region TEXT)
+
+statement ok
+INSERT INTO sales VALUES (1, 'Widget', 100, 'East')
+
+statement ok
+INSERT INTO sales VALUES (2, 'Widget', 100, 'West')
+
+statement ok
+INSERT INTO sales VALUES (3, 'Gadget', 200, 'East')
+
+statement ok
+INSERT INTO sales VALUES (4, 'Widget', 100, 'East')
+
+statement ok
+INSERT INTO sales VALUES (5, 'Gadget', 200, 'West')
+
+statement ok
+INSERT INTO sales VALUES (6, 'Doohickey', 300, 'East')
+
+# ============================================================================
+# COUNT(DISTINCT ...)
+# ============================================================================
+
+# COUNT(DISTINCT product) — 3 unique products
+query I nosort
+SELECT COUNT(DISTINCT product) FROM sales
+----
+3
+
+# COUNT(DISTINCT region) — 2 unique regions
+query I nosort
+SELECT COUNT(DISTINCT region) FROM sales
+----
+2
+
+# COUNT(DISTINCT amount) — 3 unique amounts
+query I nosort
+SELECT COUNT(DISTINCT amount) FROM sales
+----
+3
+
+# Regular COUNT for comparison
+query I nosort
+SELECT COUNT(product) FROM sales
+----
+6
+
+# ============================================================================
+# SUM(DISTINCT ...)
+# ============================================================================
+
+# SUM(DISTINCT amount) — 100 + 200 + 300 = 600
+query I nosort
+SELECT SUM(DISTINCT amount) FROM sales
+----
+600
+
+# Regular SUM for comparison — 100*3 + 200*2 + 300 = 1000
+query I nosort
+SELECT SUM(amount) FROM sales
+----
+1000
+
+# ============================================================================
+# AVG(DISTINCT ...)
+# ============================================================================
+
+# AVG(DISTINCT amount) — (100 + 200 + 300) / 3 = 200
+query I nosort
+SELECT AVG(DISTINCT amount) FROM sales
+----
+200
+
+# ============================================================================
+# COUNT(DISTINCT ...) with GROUP BY
+# ============================================================================
+
+query TI rowsort
+SELECT region, COUNT(DISTINCT product) FROM sales GROUP BY region
+----
+East|3
+West|2
+
+# ============================================================================
+# SUM(DISTINCT ...) with GROUP BY
+# ============================================================================
+
+query TI rowsort
+SELECT region, SUM(DISTINCT amount) FROM sales GROUP BY region
+----
+East|600
+West|300
+
+# ============================================================================
+# COUNT(DISTINCT ...) with NULL
+# ============================================================================
+
+statement ok
+INSERT INTO sales VALUES (7, NULL, 100, 'East')
+
+# NULL should not be counted
+query I nosort
+SELECT COUNT(DISTINCT product) FROM sales
+----
+3
+
+# Regular COUNT(column) also excludes NULL
+query I nosort
+SELECT COUNT(product) FROM sales
+----
+6
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE sales

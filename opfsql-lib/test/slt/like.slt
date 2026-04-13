@@ -1,0 +1,146 @@
+# like.slt — LIKE and NOT LIKE operator tests
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE words (id INTEGER PRIMARY KEY, word TEXT)
+
+statement ok
+INSERT INTO words VALUES (1, 'apple')
+
+statement ok
+INSERT INTO words VALUES (2, 'banana')
+
+statement ok
+INSERT INTO words VALUES (3, 'cherry')
+
+statement ok
+INSERT INTO words VALUES (4, 'apricot')
+
+statement ok
+INSERT INTO words VALUES (5, 'blueberry')
+
+statement ok
+INSERT INTO words VALUES (6, NULL)
+
+# ============================================================================
+# LIKE with % wildcard
+# ============================================================================
+
+# Starts with
+query T rowsort
+SELECT word FROM words WHERE word LIKE 'ap%'
+----
+apple
+apricot
+
+# Ends with
+query T rowsort
+SELECT word FROM words WHERE word LIKE '%ry'
+----
+cherry
+blueberry
+
+# Contains
+query T rowsort
+SELECT word FROM words WHERE word LIKE '%an%'
+----
+banana
+
+# Match all
+query T rowsort
+SELECT word FROM words WHERE word LIKE '%'
+----
+apple
+apricot
+banana
+blueberry
+cherry
+
+# ============================================================================
+# LIKE with _ wildcard
+# ============================================================================
+
+# Exact length match with underscores
+query T rowsort
+SELECT word FROM words WHERE word LIKE '_____'
+----
+apple
+
+# Combine _ and %
+query T rowsort
+SELECT word FROM words WHERE word LIKE '_p%'
+----
+apple
+apricot
+
+# ============================================================================
+# LIKE exact match
+# ============================================================================
+
+query T nosort
+SELECT word FROM words WHERE word LIKE 'banana'
+----
+banana
+
+# No match
+query T nosort
+SELECT word FROM words WHERE word LIKE 'grape'
+----
+
+# ============================================================================
+# LIKE with NULL
+# ============================================================================
+
+# LIKE on NULL value returns NULL (no match)
+query T nosort
+SELECT word FROM words WHERE word LIKE '%'  AND id = 6
+----
+
+# ============================================================================
+# NOT LIKE
+# ============================================================================
+
+query T rowsort
+SELECT word FROM words WHERE word NOT LIKE 'ap%'
+----
+banana
+blueberry
+cherry
+
+query T rowsort
+SELECT word FROM words WHERE word NOT LIKE '%berry'
+----
+apple
+apricot
+banana
+cherry
+
+# NOT LIKE with exact string
+query T rowsort
+SELECT word FROM words WHERE word NOT LIKE 'banana'
+----
+apple
+apricot
+blueberry
+cherry
+
+# ============================================================================
+# LIKE in combination with other conditions
+# ============================================================================
+
+query T rowsort
+SELECT word FROM words WHERE word LIKE '%a%' AND id < 5
+----
+apple
+apricot
+banana
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE words

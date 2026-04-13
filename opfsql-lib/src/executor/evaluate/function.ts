@@ -60,6 +60,8 @@ export function evalFunction(
       return compareValues(args[0], args[1]) === 0 ? null : args[0];
     case "LIKE":
       return evalLike(args);
+    case "NOT_LIKE":
+      return evalNotLike(args);
     case "TYPEOF":
       return args[0] === null ? "null" : typeof args[0];
     default:
@@ -92,4 +94,9 @@ function evalRound(args: Value[]): Value {
 function evalLike(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
   return likeToRegex(String(args[1])).test(String(args[0]));
+}
+
+function evalNotLike(args: Value[]): Value {
+  if (args[0] === null || args[1] === null) return null;
+  return !likeToRegex(String(args[1])).test(String(args[0]));
 }

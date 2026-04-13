@@ -1,0 +1,176 @@
+# insert-select.slt — INSERT INTO ... SELECT tests
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE source (id INTEGER PRIMARY KEY, name TEXT, val INTEGER)
+
+statement ok
+INSERT INTO source VALUES (1, 'Alice', 100)
+
+statement ok
+INSERT INTO source VALUES (2, 'Bob', 200)
+
+statement ok
+INSERT INTO source VALUES (3, 'Charlie', 300)
+
+# ============================================================================
+# Basic INSERT ... SELECT
+# ============================================================================
+
+statement ok
+CREATE TABLE target (id INTEGER PRIMARY KEY, name TEXT, val INTEGER)
+
+statement ok
+INSERT INTO target SELECT * FROM source
+
+query ITI rowsort
+SELECT * FROM target
+----
+1|Alice|100
+2|Bob|200
+3|Charlie|300
+
+# ============================================================================
+# INSERT ... SELECT with WHERE
+# ============================================================================
+
+statement ok
+CREATE TABLE filtered (id INTEGER PRIMARY KEY, name TEXT, val INTEGER)
+
+statement ok
+INSERT INTO filtered SELECT * FROM source WHERE val >= 200
+
+query ITI rowsort
+SELECT * FROM filtered
+----
+2|Bob|200
+3|Charlie|300
+
+# ============================================================================
+# INSERT ... SELECT with column subset
+# ============================================================================
+
+statement ok
+CREATE TABLE names_only (id INTEGER PRIMARY KEY, name TEXT)
+
+statement ok
+INSERT INTO names_only (id, name) SELECT id, name FROM source
+
+query IT rowsort
+SELECT * FROM names_only
+----
+1|Alice
+2|Bob
+3|Charlie
+
+# ============================================================================
+# INSERT ... SELECT with expressions
+# ============================================================================
+
+statement ok
+CREATE TABLE doubled (id INTEGER PRIMARY KEY, name TEXT, double_val INTEGER)
+
+statement ok
+INSERT INTO doubled (id, name, double_val) SELECT id, name, val * 2 FROM source
+
+query ITI rowsort
+SELECT * FROM doubled
+----
+1|Alice|200
+2|Bob|400
+3|Charlie|600
+
+# ============================================================================
+# INSERT ... SELECT from JOIN
+# ============================================================================
+
+statement ok
+CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT, category TEXT)
+
+statement ok
+CREATE TABLE cat_map (name TEXT, cat TEXT)
+
+statement ok
+INSERT INTO cat_map VALUES ('Alice', 'A')
+
+statement ok
+INSERT INTO cat_map VALUES ('Bob', 'B')
+
+statement ok
+INSERT INTO cat_map VALUES ('Charlie', 'A')
+
+statement ok
+INSERT INTO categories (id, name, category) SELECT s.id, s.name, c.cat FROM source s JOIN cat_map c ON s.name = c.name
+
+query ITT rowsort
+SELECT * FROM categories
+----
+1|Alice|A
+2|Bob|B
+3|Charlie|A
+
+# ============================================================================
+# INSERT ... SELECT with aggregate
+# ============================================================================
+
+statement ok
+CREATE TABLE summary (id INTEGER PRIMARY KEY, total INTEGER, cnt INTEGER)
+
+statement ok
+INSERT INTO summary (id, total, cnt) SELECT 1, SUM(val), COUNT(*) FROM source
+
+query III nosort
+SELECT * FROM summary
+----
+1|600|3
+
+# ============================================================================
+# Multi-row INSERT
+# ============================================================================
+
+statement ok
+CREATE TABLE multi (id INTEGER PRIMARY KEY, val TEXT)
+
+statement ok
+INSERT INTO multi VALUES (1, 'a'), (2, 'b'), (3, 'c')
+
+query IT rowsort
+SELECT * FROM multi
+----
+1|a
+2|b
+3|c
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE source
+
+statement ok
+DROP TABLE target
+
+statement ok
+DROP TABLE filtered
+
+statement ok
+DROP TABLE names_only
+
+statement ok
+DROP TABLE doubled
+
+statement ok
+DROP TABLE categories
+
+statement ok
+DROP TABLE cat_map
+
+statement ok
+DROP TABLE summary
+
+statement ok
+DROP TABLE multi

@@ -1,0 +1,90 @@
+# alter-table.slt — ALTER TABLE ADD COLUMN / DROP COLUMN
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)
+
+statement ok
+INSERT INTO users VALUES (1, 'Alice')
+
+statement ok
+INSERT INTO users VALUES (2, 'Bob')
+
+# ============================================================================
+# ALTER TABLE ADD COLUMN
+# ============================================================================
+
+statement ok
+ALTER TABLE users ADD COLUMN age INTEGER
+
+# Existing rows should have NULL for new column
+query ITI rowsort
+SELECT * FROM users
+----
+1|Alice|NULL
+2|Bob|NULL
+
+# New inserts can use the new column
+statement ok
+INSERT INTO users VALUES (3, 'Charlie', 30)
+
+query ITI rowsort
+SELECT * FROM users
+----
+1|Alice|NULL
+2|Bob|NULL
+3|Charlie|30
+
+# ============================================================================
+# ALTER TABLE ADD another column
+# ============================================================================
+
+statement ok
+ALTER TABLE users ADD COLUMN email TEXT
+
+query ITIT rowsort
+SELECT * FROM users
+----
+1|Alice|NULL|NULL
+2|Bob|NULL|NULL
+3|Charlie|30|NULL
+
+statement ok
+UPDATE users SET email = 'alice@test.com' WHERE id = 1
+
+query TT nosort
+SELECT name, email FROM users WHERE id = 1
+----
+Alice|alice@test.com
+
+# ============================================================================
+# ALTER TABLE DROP COLUMN
+# ============================================================================
+
+statement ok
+ALTER TABLE users DROP COLUMN email
+
+# email column should no longer exist
+query ITI rowsort
+SELECT * FROM users
+----
+1|Alice|NULL
+2|Bob|NULL
+3|Charlie|30
+
+# ============================================================================
+# ALTER TABLE on non-existent table
+# ============================================================================
+
+statement error
+ALTER TABLE nonexistent ADD COLUMN foo INTEGER
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE users

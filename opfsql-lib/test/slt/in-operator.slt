@@ -1,0 +1,148 @@
+# in-operator.slt — IN and NOT IN operator tests
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, category TEXT)
+
+statement ok
+INSERT INTO items VALUES (1, 'Widget', 'A')
+
+statement ok
+INSERT INTO items VALUES (2, 'Gadget', 'B')
+
+statement ok
+INSERT INTO items VALUES (3, 'Doohickey', 'C')
+
+statement ok
+INSERT INTO items VALUES (4, 'Thingamajig', 'A')
+
+statement ok
+INSERT INTO items VALUES (5, 'Gizmo', 'B')
+
+# ============================================================================
+# IN with literal list
+# ============================================================================
+
+query IT rowsort
+SELECT id, name FROM items WHERE category IN ('A', 'C')
+----
+1|Widget
+3|Doohickey
+4|Thingamajig
+
+query IT rowsort
+SELECT id, name FROM items WHERE id IN (1, 3, 5)
+----
+1|Widget
+3|Doohickey
+5|Gizmo
+
+# IN with single value
+query IT nosort
+SELECT id, name FROM items WHERE category IN ('B') ORDER BY id
+----
+2|Gadget
+5|Gizmo
+
+# IN with no match
+query IT nosort
+SELECT id, name FROM items WHERE category IN ('X', 'Y')
+----
+
+# ============================================================================
+# NOT IN with literal list
+# ============================================================================
+
+query IT rowsort
+SELECT id, name FROM items WHERE category NOT IN ('A', 'C')
+----
+2|Gadget
+5|Gizmo
+
+query IT rowsort
+SELECT id, name FROM items WHERE id NOT IN (1, 2, 3)
+----
+4|Thingamajig
+5|Gizmo
+
+# ============================================================================
+# IN with subquery
+# ============================================================================
+
+statement ok
+CREATE TABLE popular (category TEXT)
+
+statement ok
+INSERT INTO popular VALUES ('A')
+
+statement ok
+INSERT INTO popular VALUES ('B')
+
+query IT rowsort
+SELECT id, name FROM items WHERE category IN (SELECT category FROM popular)
+----
+1|Widget
+2|Gadget
+4|Thingamajig
+5|Gizmo
+
+# NOT IN with subquery
+query IT rowsort
+SELECT id, name FROM items WHERE category NOT IN (SELECT category FROM popular)
+----
+3|Doohickey
+
+# ============================================================================
+# IN with NULL values in list
+# ============================================================================
+
+statement ok
+CREATE TABLE nullable_items (id INTEGER PRIMARY KEY, val INTEGER)
+
+statement ok
+INSERT INTO nullable_items VALUES (1, 10)
+
+statement ok
+INSERT INTO nullable_items VALUES (2, 20)
+
+statement ok
+INSERT INTO nullable_items VALUES (3, NULL)
+
+# IN where the input matches a value
+query I nosort
+SELECT id FROM nullable_items WHERE val IN (10, NULL) ORDER BY id
+----
+1
+
+# IN where input is NULL (result is NULL, so no match)
+query I nosort
+SELECT id FROM nullable_items WHERE val IN (10, 20)
+----
+1
+2
+
+# ============================================================================
+# IN combined with other conditions
+# ============================================================================
+
+query IT rowsort
+SELECT id, name FROM items WHERE category IN ('A', 'B') AND id > 2
+----
+4|Thingamajig
+5|Gizmo
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE items
+
+statement ok
+DROP TABLE popular
+
+statement ok
+DROP TABLE nullable_items
