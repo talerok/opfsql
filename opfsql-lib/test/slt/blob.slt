@@ -1,0 +1,236 @@
+# blob.slt — BLOB (Uint8Array) type support
+
+# ============================================================================
+# CREATE TABLE with BLOB column
+# ============================================================================
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)
+
+# ============================================================================
+# INSERT with hex literal x'...'
+# ============================================================================
+
+statement ok
+INSERT INTO t (id, data) VALUES (1, x'DEADBEEF')
+
+statement ok
+INSERT INTO t (id, data) VALUES (2, x'00FF')
+
+statement ok
+INSERT INTO t (id, data) VALUES (3, x'')
+
+statement ok
+INSERT INTO t (id, data) VALUES (4, NULL)
+
+# ============================================================================
+# SELECT blob values (displayed as uppercase hex)
+# ============================================================================
+
+query IT nosort
+SELECT id, data FROM t WHERE id = 1
+----
+1|DEADBEEF
+
+query IT nosort
+SELECT id, data FROM t WHERE id = 2
+----
+2|00FF
+
+query IT nosort
+SELECT id, data FROM t WHERE id = 3
+----
+3|
+
+query IT nosort
+SELECT id, data FROM t WHERE id = 4
+----
+4|NULL
+
+# ============================================================================
+# CAST blob to text → hex string
+# ============================================================================
+
+query T nosort
+SELECT CAST(data AS TEXT) FROM t WHERE id = 1
+----
+DEADBEEF
+
+# ============================================================================
+# CAST text hex to blob
+# ============================================================================
+
+query T nosort
+SELECT CAST(CAST('AABB' AS BLOB) AS TEXT)
+----
+AABB
+
+# ============================================================================
+# BLOB comparison (equality)
+# ============================================================================
+
+query I nosort
+SELECT id FROM t WHERE data = x'DEADBEEF'
+----
+1
+
+query I nosort
+SELECT id FROM t WHERE data = x'00FF'
+----
+2
+
+# ============================================================================
+# ORDER BY blob (byte-by-byte lexicographic)
+# x'0001' < x'00FF' < x'01' < x'DEADBEEF' (byte-by-byte, then length)
+# ============================================================================
+
+statement ok
+INSERT INTO t (id, data) VALUES (5, x'0001')
+
+statement ok
+INSERT INTO t (id, data) VALUES (6, x'01')
+
+query IT nosort
+SELECT id, data FROM t WHERE data IS NOT NULL ORDER BY data
+----
+3|
+5|0001
+2|00FF
+6|01
+1|DEADBEEF
+
+statement ok
+DELETE FROM t WHERE id IN (5, 6)
+
+# ============================================================================
+# DISTINCT on blob
+# ============================================================================
+
+statement ok
+CREATE TABLE t2 (id INTEGER PRIMARY KEY, data BLOB)
+
+statement ok
+INSERT INTO t2 VALUES (1, x'AA')
+
+statement ok
+INSERT INTO t2 VALUES (2, x'AA')
+
+statement ok
+INSERT INTO t2 VALUES (3, x'BB')
+
+query I nosort
+SELECT COUNT(*) FROM (SELECT DISTINCT data FROM t2)
+----
+2
+
+statement ok
+DROP TABLE t2
+
+# ============================================================================
+# UPDATE blob column
+# ============================================================================
+
+statement ok
+UPDATE t SET data = x'CAFE' WHERE id = 1
+
+query IT nosort
+SELECT id, data FROM t WHERE id = 1
+----
+1|CAFE
+
+# ============================================================================
+# Error: CREATE INDEX on BLOB column
+# ============================================================================
+
+statement error
+CREATE INDEX idx ON t(data)
+
+# ============================================================================
+# Error: BLOB PRIMARY KEY
+# ============================================================================
+
+statement error
+CREATE TABLE bad1 (data BLOB PRIMARY KEY)
+
+# ============================================================================
+# Error: BLOB UNIQUE
+# ============================================================================
+
+statement error
+CREATE TABLE bad2 (id INTEGER, data BLOB UNIQUE)
+
+# ============================================================================
+# LENGTH returns byte count
+# ============================================================================
+
+query I nosort
+SELECT LENGTH(data) FROM t WHERE id = 1
+----
+2
+
+query I nosort
+SELECT LENGTH(data) FROM t WHERE id = 3
+----
+0
+
+# ============================================================================
+# TYPEOF returns 'blob'
+# ============================================================================
+
+query T nosort
+SELECT TYPEOF(data) FROM t WHERE id = 1
+----
+blob
+
+query T nosort
+SELECT TYPEOF(data) FROM t WHERE id = 4
+----
+null
+
+# ============================================================================
+# Error: UPPER on BLOB
+# ============================================================================
+
+statement error
+SELECT UPPER(data) FROM t WHERE id = 1
+
+# ============================================================================
+# Error: arithmetic on BLOB
+# ============================================================================
+
+statement error
+SELECT data + 1 FROM t
+
+# ============================================================================
+# Error: CONCAT on BLOB
+# ============================================================================
+
+statement error
+SELECT CONCAT(data, 'x') FROM t WHERE id = 1
+
+statement error
+SELECT data || 'x' FROM t WHERE id = 1
+
+# ============================================================================
+# Error: LIKE on BLOB
+# ============================================================================
+
+statement error
+SELECT data LIKE '%' FROM t WHERE id = 1
+
+# ============================================================================
+# Error: SUM/AVG on BLOB
+# ============================================================================
+
+statement error
+SELECT SUM(data) FROM t
+
+statement error
+SELECT AVG(data) FROM t
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE t

@@ -3,6 +3,7 @@ import { ExpressionType } from '../../parser/types.js';
 import type { BoundExpression, BoundFunctionExpression, BoundComparisonExpression } from '../types.js';
 import { BoundExpressionClass } from '../types.js';
 import type { BindContext, AggregateContext } from '../core/context.js';
+import { BindError } from '../core/errors.js';
 import type { BindScope } from '../core/scope.js';
 import { checkTypeCompatibility } from '../core/type-check.js';
 import { mapComparisonType } from '../core/type-map.js';
@@ -21,6 +22,9 @@ export function bindComparison(
     expr.type === ExpressionType.COMPARE_LIKE ||
     expr.type === ExpressionType.COMPARE_NOT_LIKE
   ) {
+    if (left.returnType === 'BLOB' || right.returnType === 'BLOB') {
+      throw new BindError('Cannot apply LIKE to BLOB type');
+    }
     return {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: expr.type === ExpressionType.COMPARE_LIKE ? 'LIKE' : 'NOT_LIKE',

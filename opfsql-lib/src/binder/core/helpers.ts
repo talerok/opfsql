@@ -3,7 +3,7 @@ import type {
   ParsedExpression,
 } from "../../parser/types.js";
 import { ExpressionClass } from "../../parser/types.js";
-import type { TableSchema } from "../../store/types.js";
+import type { TableSchema, Value } from "../../store/types.js";
 import type { BindContext } from "./context.js";
 import { BindError } from "./errors.js";
 
@@ -30,10 +30,10 @@ export function evalConstantInt(expr: ParsedExpression): number {
 
 export function evalConstantValue(
   expr: ParsedExpression,
-): string | number | boolean | null {
+): Value {
   if (expr.expression_class === ExpressionClass.CONSTANT) {
     const c = expr as ConstantExpression;
-    return c.value.value as string | number | boolean | null;
+    return c.value.value as Value;
   }
   return null;
 }

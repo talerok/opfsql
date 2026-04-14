@@ -410,6 +410,25 @@ export class Lexer {
 
     const lower = value.toLowerCase();
 
+    // Blob literal: x'DEADBEEF' or X'DEADBEEF'
+    if (lower === 'x' && this.pos < this.source.length && this.source[this.pos] === "'") {
+      this.advance(); // skip opening '
+      let hex = '';
+      while (this.pos < this.source.length && this.source[this.pos] !== "'") {
+        hex += this.source[this.pos];
+        this.advance();
+      }
+      if (this.pos >= this.source.length) {
+        this.error('Unterminated blob literal', startLine, startCol);
+      }
+      this.advance(); // skip closing '
+      if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(hex)) {
+        this.error('Invalid blob literal: hex string must have even length and contain only hex digits', startLine, startCol);
+      }
+      this.addToken(TokenType.BLOB_LITERAL, hex, startLine, startCol);
+      return;
+    }
+
     // Check unsupported keywords
     if (UNSUPPORTED_KEYWORDS.has(lower)) {
       this.error(

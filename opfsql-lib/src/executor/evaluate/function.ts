@@ -2,7 +2,9 @@ import type {
   BoundExpression,
   BoundFunctionExpression,
 } from "../../binder/types.js";
+import { ExecutorError } from "../errors.js";
 import { compareValues } from "./utils/compare.js";
+import { castText } from "./utils/cast.js";
 import { likeToRegex } from "./utils/like.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
@@ -24,24 +26,26 @@ export function evalFunction(
 
   switch (name) {
     case "UPPER":
-      return args[0] === null ? null : String(args[0]).toUpperCase();
+      return args[0] === null ? null : requireText(args[0], "UPPER").toUpperCase();
     case "LOWER":
-      return args[0] === null ? null : String(args[0]).toLowerCase();
+      return args[0] === null ? null : requireText(args[0], "LOWER").toLowerCase();
     case "LENGTH":
-      return args[0] === null ? null : String(args[0]).length;
+      if (args[0] === null) return null;
+      if (args[0] instanceof Uint8Array) return args[0].length;
+      return String(args[0]).length;
     case "TRIM":
-      return args[0] === null ? null : String(args[0]).trim();
+      return args[0] === null ? null : requireText(args[0], "TRIM").trim();
     case "LTRIM":
-      return args[0] === null ? null : String(args[0]).trimStart();
+      return args[0] === null ? null : requireText(args[0], "LTRIM").trimStart();
     case "RTRIM":
-      return args[0] === null ? null : String(args[0]).trimEnd();
+      return args[0] === null ? null : requireText(args[0], "RTRIM").trimEnd();
     case "SUBSTR":
     case "SUBSTRING":
       return evalSubstr(args);
     case "REPLACE":
       return evalReplace(args);
     case "CONCAT":
-      return args.some((a) => a === null) ? null : args.map(String).join("");
+      return args.some((a) => a === null) ? null : args.map((a) => castText(a!)).join("");
     case "ABS":
       return args[0] === null ? null : Math.abs(args[0] as number);
     case "ROUND":
@@ -61,15 +65,25 @@ export function evalFunction(
     case "NOT_LIKE":
       return evalNotLike(args);
     case "TYPEOF":
-      return args[0] === null ? "null" : typeof args[0];
+      if (args[0] === null) return "null";
+      if (args[0] instanceof Uint8Array) return "blob";
+      if (typeof args[0] === "object") return "json";
+      return typeof args[0];
     default:
       return null;
   }
 }
 
+function requireText(v: Value, fnName: string): string {
+  if (v instanceof Uint8Array) {
+    throw new ExecutorError(`Cannot apply ${fnName} to BLOB value`);
+  }
+  return String(v);
+}
+
 function evalSubstr(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
-  const str = String(args[0]);
+  const str = requireText(args[0], "SUBSTR");
   const start = (args[1] as number) - 1;
   if (args.length >= 3 && args[2] !== null)
     return str.substring(start, start + (args[2] as number));
@@ -78,7 +92,7 @@ function evalSubstr(args: Value[]): Value {
 
 function evalReplace(args: Value[]): Value {
   if (args[0] === null || args[1] === null || args[2] === null) return null;
-  return String(args[0]).replaceAll(String(args[1]), String(args[2]));
+  return requireText(args[0], "REPLACE").replaceAll(String(args[1]), String(args[2]));
 }
 
 function evalRound(args: Value[]): Value {
@@ -91,10 +105,16 @@ function evalRound(args: Value[]): Value {
 
 function evalLike(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
+  if (args[0] instanceof Uint8Array) {
+    throw new ExecutorError("Cannot apply LIKE to BLOB value");
+  }
   return likeToRegex(String(args[1])).test(String(args[0]));
 }
 
 function evalNotLike(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
+  if (args[0] instanceof Uint8Array) {
+    throw new ExecutorError("Cannot apply LIKE to BLOB value");
+  }
   return !likeToRegex(String(args[1])).test(String(args[0]));
 }

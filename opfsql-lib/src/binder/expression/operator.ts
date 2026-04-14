@@ -1,8 +1,9 @@
 import type { OperatorExpression } from "../../parser/types.js";
 import type { LogicalType } from "../../store/types.js";
 import type { AggregateContext, BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
 import type { BindScope } from "../core/scope.js";
-import { resolveArithmeticType } from "../core/type-check.js";
+import { checkTypeCompatibility, resolveArithmeticType } from "../core/type-check.js";
 import { mapOperatorType } from "../core/type-map.js";
 import type { BoundOperatorExpression } from "../types.js";
 import { BoundExpressionClass } from "../types.js";
@@ -26,6 +27,9 @@ export function bindOperator(
     case "IS_NOT_NULL":
     case "IN":
     case "NOT_IN":
+      for (let i = 1; i < children.length; i++) {
+        checkTypeCompatibility(children[0].returnType, children[i].returnType);
+      }
       returnType = "BOOLEAN";
       break;
     case "NEGATE":
@@ -42,6 +46,9 @@ export function bindOperator(
       );
       break;
     case "CONCAT":
+      if (children.some((c) => c.returnType === "BLOB")) {
+        throw new BindError(`Cannot apply CONCAT to BLOB type`);
+      }
       returnType = "TEXT";
       break;
     default:

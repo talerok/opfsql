@@ -82,7 +82,7 @@ export interface BoundJsonAccessExpression {
 
 export interface BoundConstantExpression {
   expressionClass: BoundExpressionClass.BOUND_CONSTANT;
-  value: string | number | boolean | JsonValue | null;
+  value: string | number | boolean | JsonValue | Uint8Array | null;
   returnType: LogicalType;
 }
 

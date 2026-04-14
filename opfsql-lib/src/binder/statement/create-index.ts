@@ -23,9 +23,9 @@ export function bindCreateIndex(
         `Column "${col}" not found in table "${stmt.table_name}"`,
       );
     }
-    if (def.type === 'JSON') {
+    if (def.type === 'JSON' || def.type === 'BLOB') {
       throw new BindError(
-        `Cannot create index on JSON column "${col}"`,
+        `Cannot create index on ${def.type} column "${col}"`,
       );
     }
     resolvedColumns.push(def.name);

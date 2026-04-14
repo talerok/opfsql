@@ -17,7 +17,7 @@ export type JsonValue =
   | boolean
   | null;
 
-export type Value = string | number | boolean | null | JsonValue;
+export type Value = string | number | boolean | null | JsonValue | Uint8Array;
 
 export interface ColumnDef {
   name: string;

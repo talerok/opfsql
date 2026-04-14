@@ -1,4 +1,5 @@
 import type { Engine } from '../../src/index.js';
+import { blobToHex } from '../../src/executor/evaluate/utils/cast.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,6 +126,7 @@ export function parseSlt(source: string): SltBlock[] {
 
 function formatValue(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
+  if (v instanceof Uint8Array) return blobToHex(v);
   return String(v);
 }
 

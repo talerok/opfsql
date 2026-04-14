@@ -370,6 +370,24 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
     };
   }
 
+  if (p.check(TokenType.BLOB_LITERAL)) {
+    p.advance();
+    const hex = token.value;
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+    }
+    return {
+      expression_class: ExpressionClass.CONSTANT,
+      alias: null,
+      value: {
+        type: { id: LogicalTypeId.BLOB },
+        is_null: false,
+        value: bytes,
+      },
+    };
+  }
+
   if (p.check(TokenType.TRUE_KW)) {
     p.advance();
     return {

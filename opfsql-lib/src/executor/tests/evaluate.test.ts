@@ -828,3 +828,146 @@ describe('serializeValue with JSON', () => {
     expect(serializeValue({ a: 1 })).toBe(serializeValue({ a: 1 }));
   });
 });
+
+// ---------------------------------------------------------------------------
+// BLOB (Uint8Array) support
+// ---------------------------------------------------------------------------
+
+describe('BLOB castValue', () => {
+  it('CAST hex string to BLOB', () => {
+    const result = castValue('DEADBEEF', 'BLOB');
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(result).toEqual(new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]));
+  });
+
+  it('CAST Uint8Array to BLOB is passthrough', () => {
+    const buf = new Uint8Array([1, 2, 3]);
+    expect(castValue(buf, 'BLOB')).toBe(buf);
+  });
+
+  it('CAST Uint8Array to TEXT produces hex', () => {
+    expect(castValue(new Uint8Array([0xCA, 0xFE]), 'TEXT')).toBe('CAFE');
+  });
+
+  it('CAST empty Uint8Array to TEXT produces empty string', () => {
+    expect(castValue(new Uint8Array([]), 'TEXT')).toBe('');
+  });
+
+  it('CAST BLOB to INTEGER throws', () => {
+    expect(() => castValue(new Uint8Array([1]), 'INTEGER')).toThrow('Cannot cast BLOB');
+  });
+
+  it('CAST BLOB to BOOLEAN throws', () => {
+    expect(() => castValue(new Uint8Array([1]), 'BOOLEAN')).toThrow('Cannot cast BLOB');
+  });
+
+  it('CAST BLOB to JSON throws', () => {
+    expect(() => castValue(new Uint8Array([1]), 'JSON')).toThrow('Cannot cast BLOB');
+  });
+
+  it('CAST invalid hex string to BLOB throws', () => {
+    expect(() => castValue('ZZZZ', 'BLOB')).toThrow('invalid hex');
+  });
+
+  it('CAST null to BLOB returns null', () => {
+    expect(castValue(null, 'BLOB')).toBeNull();
+  });
+});
+
+describe('compareValues with BLOB', () => {
+  it('equal blobs return 0', () => {
+    expect(compareValues(new Uint8Array([1, 2]), new Uint8Array([1, 2]))).toBe(0);
+  });
+
+  it('shorter blob is less', () => {
+    expect(compareValues(new Uint8Array([1]), new Uint8Array([1, 2]))).toBeLessThan(0);
+  });
+
+  it('byte-by-byte comparison', () => {
+    expect(compareValues(new Uint8Array([1, 0]), new Uint8Array([1, 1]))).toBeLessThan(0);
+    expect(compareValues(new Uint8Array([2, 0]), new Uint8Array([1, 0]))).toBeGreaterThan(0);
+  });
+
+  it('empty blobs are equal', () => {
+    expect(compareValues(new Uint8Array([]), new Uint8Array([]))).toBe(0);
+  });
+});
+
+describe('serializeValue with BLOB', () => {
+  it('serializes Uint8Array with x: prefix', () => {
+    expect(serializeValue(new Uint8Array([0xDE, 0xAD]))).toBe('x:DEAD');
+  });
+
+  it('equal blobs produce same serialization', () => {
+    expect(serializeValue(new Uint8Array([1, 2]))).toBe(serializeValue(new Uint8Array([1, 2])));
+  });
+
+  it('different blobs produce different serializations', () => {
+    expect(serializeValue(new Uint8Array([1]))).not.toBe(serializeValue(new Uint8Array([2])));
+  });
+});
+
+describe('BLOB evaluate via expression', () => {
+  it('CAST string to BLOB and back to TEXT', () => {
+    const expr = cast(cast(constant('AABB'), 'BLOB'), 'TEXT');
+    expect(eval_(expr)).toBe('AABB');
+  });
+});
+
+describe('BLOB function handling', () => {
+  it('LENGTH returns byte count for BLOB', () => {
+    const blobLayout = layout([0, 0]);
+    const blobResolver = buildResolver(blobLayout);
+    const expr = fnCall('LENGTH', [colRef(0, 0, 'data', 'BLOB')]);
+    expect(eval_(expr, [new Uint8Array([1, 2, 3])], blobResolver)).toBe(3);
+  });
+
+  it('LENGTH returns 0 for empty BLOB', () => {
+    const blobLayout = layout([0, 0]);
+    const blobResolver = buildResolver(blobLayout);
+    const expr = fnCall('LENGTH', [colRef(0, 0, 'data', 'BLOB')]);
+    expect(eval_(expr, [new Uint8Array([])], blobResolver)).toBe(0);
+  });
+
+  it('TYPEOF returns "blob" for Uint8Array', () => {
+    const blobLayout = layout([0, 0]);
+    const blobResolver = buildResolver(blobLayout);
+    const expr = fnCall('TYPEOF', [colRef(0, 0, 'data', 'BLOB')]);
+    expect(eval_(expr, [new Uint8Array([1])], blobResolver)).toBe('blob');
+  });
+
+  it('TYPEOF returns "json" for JSON object', () => {
+    const jsonLayout = layout([0, 0]);
+    const jsonResolver = buildResolver(jsonLayout);
+    const expr = fnCall('TYPEOF', [colRef(0, 0, 'data', 'JSON')]);
+    expect(eval_(expr, [{ a: 1 }], jsonResolver)).toBe('json');
+  });
+
+  it('UPPER throws for BLOB', () => {
+    const blobLayout = layout([0, 0]);
+    const blobResolver = buildResolver(blobLayout);
+    const expr = fnCall('UPPER', [colRef(0, 0, 'data', 'BLOB')]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply UPPER to BLOB');
+  });
+
+  it('LOWER throws for BLOB', () => {
+    const blobLayout = layout([0, 0]);
+    const blobResolver = buildResolver(blobLayout);
+    const expr = fnCall('LOWER', [colRef(0, 0, 'data', 'BLOB')]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply LOWER to BLOB');
+  });
+
+  it('TRIM throws for BLOB', () => {
+    const blobLayout = layout([0, 0]);
+    const blobResolver = buildResolver(blobLayout);
+    const expr = fnCall('TRIM', [colRef(0, 0, 'data', 'BLOB')]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply TRIM to BLOB');
+  });
+
+  it('LIKE throws for BLOB', () => {
+    const blobLayout = layout([0, 0]);
+    const blobResolver = buildResolver(blobLayout);
+    const expr = fnCall('LIKE', [colRef(0, 0, 'data', 'BLOB'), constant('%')]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply LIKE to BLOB');
+  });
+});

@@ -528,6 +528,32 @@ describe('Expressions', () => {
     const sub = node.select_list[0] as SubqueryExpression;
     expect(sub.subquery_type).toBe('SCALAR');
   });
+
+  // -------------------------------------------------------------------------
+  // BLOB literals
+  // -------------------------------------------------------------------------
+
+  it("parses blob literal x'DEADBEEF'", () => {
+    const node = selectNode("SELECT x'DEADBEEF'");
+    const c = node.select_list[0] as ConstantExpression;
+    expect(c.value.type.id).toBe(LogicalTypeId.BLOB);
+    expect(c.value.is_null).toBe(false);
+    expect(c.value.value).toBeInstanceOf(Uint8Array);
+    expect(c.value.value).toEqual(new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]));
+  });
+
+  it("parses empty blob literal x''", () => {
+    const node = selectNode("SELECT x''");
+    const c = node.select_list[0] as ConstantExpression;
+    expect(c.value.type.id).toBe(LogicalTypeId.BLOB);
+    expect(c.value.value).toEqual(new Uint8Array([]));
+  });
+
+  it("parses blob literal with lowercase hex x'aabb'", () => {
+    const node = selectNode("SELECT x'aabb'");
+    const c = node.select_list[0] as ConstantExpression;
+    expect(c.value.value).toEqual(new Uint8Array([0xAA, 0xBB]));
+  });
 });
 
 // ============================================================================

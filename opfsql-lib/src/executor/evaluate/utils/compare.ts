@@ -8,6 +8,17 @@ export function isTruthy(v: Value): boolean {
 
 /** Compare two non-null values. Numbers compare numerically, else as strings. */
 export function compareValues(a: Value, b: Value): number {
+  // BLOB comparison — byte-by-byte lexicographic
+  if (a instanceof Uint8Array && b instanceof Uint8Array) {
+    const len = Math.min(a.length, b.length);
+    for (let i = 0; i < len; i++) {
+      if (a[i] !== b[i]) return a[i] - b[i];
+    }
+    return a.length - b.length;
+  }
+  // BLOB vs non-BLOB: BLOB sorts after all other types (SQLite affinity)
+  if (a instanceof Uint8Array) return 1;
+  if (b instanceof Uint8Array) return -1;
   // JSON object comparison via stringify (lexicographic for ordering)
   if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
     const sa = JSON.stringify(a);

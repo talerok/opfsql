@@ -3,6 +3,7 @@ import type { SyncPhysicalOperator, Tuple, Value } from '../types.js';
 import type { SyncEvalContext } from '../evaluate/context.js';
 import { buildResolver } from '../resolve.js';
 import { evaluateExpression } from '../evaluate/index.js';
+import { compareValues } from '../evaluate/utils/compare.js';
 import { drainOperator, SCAN_BATCH } from './utils.js';
 
 type KeyedTuple = { tuple: Tuple; keys: Value[] };
@@ -84,14 +85,7 @@ export class PhysicalSort implements SyncPhysicalOperator {
       if (va === null) return order.nullOrder === 'NULLS_FIRST' ? -1 : 1;
       if (vb === null) return order.nullOrder === 'NULLS_FIRST' ? 1 : -1;
 
-      let cmp: number;
-      if (typeof va === 'number' && typeof vb === 'number') {
-        cmp = va - vb;
-      } else {
-        const sa = String(va);
-        const sb = String(vb);
-        cmp = sa < sb ? -1 : sa > sb ? 1 : 0;
-      }
+      const cmp = compareValues(va, vb);
 
       if (cmp !== 0) return order.orderType === 'DESCENDING' ? -cmp : cmp;
     }

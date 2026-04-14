@@ -171,9 +171,14 @@ export function bindAggregate(
       returnType = "INTEGER";
       break;
     case "SUM":
-    case "AVG":
+    case "AVG": {
+      const childType = children.length > 0 ? children[0].returnType : "ANY";
+      if (childType === "BLOB" || childType === "JSON") {
+        throw new BindError(`Cannot apply ${name} to ${childType} type`);
+      }
       returnType = "REAL";
       break;
+    }
     case "MIN":
     case "MAX":
       returnType = children.length > 0 ? children[0].returnType : "ANY";

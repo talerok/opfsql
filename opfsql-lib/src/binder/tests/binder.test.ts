@@ -2549,6 +2549,31 @@ describe("JSON", () => {
 });
 
 // ============================================================================
+// BLOB column restrictions
+// ============================================================================
+
+describe("BLOB column restrictions", () => {
+  it("BLOB PRIMARY KEY throws BindError", () => {
+    expect(() => bind("CREATE TABLE bad (data BLOB PRIMARY KEY)")).toThrow(BindError);
+  });
+
+  it("BLOB UNIQUE throws BindError", () => {
+    expect(() => bind("CREATE TABLE bad (id INTEGER, data BLOB UNIQUE)")).toThrow(BindError);
+  });
+
+  it("CREATE INDEX on BLOB column throws BindError", () => {
+    catalog.addTable({
+      name: "blobs",
+      columns: [
+        { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
+        { name: "data", type: "BLOB", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      ],
+    });
+    expect(() => bind("CREATE INDEX idx ON blobs(data)")).toThrow(BindError);
+  });
+});
+
+// ============================================================================
 // sameExpression — BOUND_JSON_ACCESS
 // ============================================================================
 

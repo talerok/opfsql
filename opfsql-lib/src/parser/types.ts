@@ -7,6 +7,7 @@ export enum TokenType {
   INTEGER_LITERAL,
   FLOAT_LITERAL,
   STRING_LITERAL,
+  BLOB_LITERAL,
   PARAMETER,
 
   // Identifiers
@@ -164,7 +165,7 @@ export interface LogicalType {
 export interface Value {
   type: LogicalType;
   is_null: boolean;
-  value: string | number | boolean | Record<string, unknown> | unknown[] | null;
+  value: string | number | boolean | Uint8Array | Record<string, unknown> | unknown[] | null;
 }
 
 export type JsonPathSegment =

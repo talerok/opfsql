@@ -27,6 +27,12 @@ export function checkTypeCompatibility(
     return "JSON";
   }
 
+  // BLOB can only be compared with BLOB
+  if (left === "BLOB" || right === "BLOB") {
+    if (left === "BLOB" && right === "BLOB") return "BLOB";
+    throw new BindError(`Type mismatch: cannot compare ${left} and ${right}`);
+  }
+
   throw new BindError(`Type mismatch: cannot compare ${left} and ${right}`);
 }
 
@@ -39,6 +45,10 @@ export function resolveArithmeticType(
 
   if (left === "JSON" || right === "JSON") {
     throw new BindError(`Cannot perform arithmetic on JSON type`);
+  }
+
+  if (left === "BLOB" || right === "BLOB") {
+    throw new BindError(`Cannot perform arithmetic on BLOB type`);
   }
 
   if (NUMERIC_TYPES.has(left) && NUMERIC_TYPES.has(right)) {
@@ -65,7 +75,14 @@ export function resolveScalarFunctionReturnType(
     case "SUBSTR":
     case "SUBSTRING":
     case "REPLACE":
+      if (children.length > 0 && children[0].returnType === "BLOB") {
+        throw new BindError(`Cannot apply ${name} to BLOB type`);
+      }
+      return "TEXT";
     case "CONCAT":
+      if (children.some((c) => c.returnType === "BLOB")) {
+        throw new BindError(`Cannot apply CONCAT to BLOB type`);
+      }
       return "TEXT";
     case "LENGTH":
       return "INTEGER";

@@ -726,3 +726,85 @@ describe("JSON type", () => {
     expect(r2.rows![0].v).toBe(true);
   });
 });
+
+// ============================================================================
+// BLOB type
+// ============================================================================
+
+describe("BLOB type", () => {
+  it("INSERT and SELECT blob literal", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
+    engine.execute("INSERT INTO t (id, data) VALUES (1, x'DEADBEEF')");
+
+    const [result] = engine.execute("SELECT id, data FROM t");
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows![0].data).toBeInstanceOf(Uint8Array);
+    expect(result.rows![0].data).toEqual(new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]));
+  });
+
+  it("CAST blob to TEXT returns hex", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
+    engine.execute("INSERT INTO t VALUES (1, x'CAFE')");
+
+    const [result] = engine.execute("SELECT CAST(data AS TEXT) AS hex FROM t");
+    expect(result.rows![0].hex).toBe("CAFE");
+  });
+
+  it("CAST text to BLOB", async () => {
+    await createEngine();
+    const [result] = engine.execute("SELECT CAST('FF00' AS BLOB) AS v");
+    expect(result.rows![0].v).toBeInstanceOf(Uint8Array);
+    expect(result.rows![0].v).toEqual(new Uint8Array([0xFF, 0x00]));
+  });
+
+  it("blob parameter support", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
+    engine.execute("INSERT INTO t VALUES (1, $1)", [new Uint8Array([0xAA, 0xBB])]);
+
+    const [result] = engine.execute("SELECT data FROM t");
+    expect(result.rows![0].data).toEqual(new Uint8Array([0xAA, 0xBB]));
+  });
+
+  it("blob comparison in WHERE", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
+    engine.execute("INSERT INTO t VALUES (1, x'AA')");
+    engine.execute("INSERT INTO t VALUES (2, x'BB')");
+
+    const [result] = engine.execute("SELECT id FROM t WHERE data = x'BB'");
+    expect(result.rows!.map(r => r.id)).toEqual([2]);
+  });
+
+  it("ORDER BY blob column", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
+    engine.execute("INSERT INTO t VALUES (1, x'FF')");
+    engine.execute("INSERT INTO t VALUES (2, x'00')");
+    engine.execute("INSERT INTO t VALUES (3, x'AA')");
+
+    const [result] = engine.execute("SELECT id FROM t ORDER BY data");
+    expect(result.rows!.map(r => r.id)).toEqual([2, 3, 1]);
+  });
+
+  it("UPDATE blob column", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
+    engine.execute("INSERT INTO t VALUES (1, x'AA')");
+    engine.execute("UPDATE t SET data = x'BB' WHERE id = 1");
+
+    const [result] = engine.execute("SELECT data FROM t");
+    expect(result.rows![0].data).toEqual(new Uint8Array([0xBB]));
+  });
+
+  it("NULL blob", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
+    engine.execute("INSERT INTO t VALUES (1, NULL)");
+
+    const [result] = engine.execute("SELECT data FROM t WHERE id = 1");
+    expect(result.rows![0].data).toBeNull();
+  });
+});

@@ -166,4 +166,40 @@ describe('Lexer', () => {
       TokenType.GREATER_THAN, TokenType.INTEGER_LITERAL, TokenType.EOF,
     ]);
   });
+
+  // -------------------------------------------------------------------------
+  // BLOB literals
+  // -------------------------------------------------------------------------
+
+  it("tokenizes blob literal x'DEADBEEF'", () => {
+    const tokens = new Lexer("x'DEADBEEF'").tokenize();
+    expect(tokens[0]).toMatchObject({ type: TokenType.BLOB_LITERAL, value: 'DEADBEEF' });
+  });
+
+  it("tokenizes blob literal X'00ff' (uppercase X, lowercase hex)", () => {
+    const tokens = new Lexer("X'00ff'").tokenize();
+    expect(tokens[0]).toMatchObject({ type: TokenType.BLOB_LITERAL, value: '00ff' });
+  });
+
+  it("tokenizes empty blob literal x''", () => {
+    const tokens = new Lexer("x''").tokenize();
+    expect(tokens[0]).toMatchObject({ type: TokenType.BLOB_LITERAL, value: '' });
+  });
+
+  it("blob literal with odd hex length throws", () => {
+    expect(() => new Lexer("x'ABC'").tokenize()).toThrow('Invalid blob literal');
+  });
+
+  it("blob literal with invalid hex chars throws", () => {
+    expect(() => new Lexer("x'GHIJ'").tokenize()).toThrow('Invalid blob literal');
+  });
+
+  it("unterminated blob literal throws", () => {
+    expect(() => new Lexer("x'DEAD").tokenize()).toThrow('Unterminated blob literal');
+  });
+
+  it("blob literal in INSERT statement", () => {
+    const types = tokenTypes("INSERT INTO t VALUES (x'FF')");
+    expect(types).toContain(TokenType.BLOB_LITERAL);
+  });
 });

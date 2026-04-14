@@ -13,7 +13,7 @@ export function bindConstant(expr: ConstantExpression): BoundConstantExpression 
   }
   return {
     expressionClass: BoundExpressionClass.BOUND_CONSTANT,
-    value: expr.value.value as string | number | boolean | JsonValue | null,
+    value: expr.value.value as string | number | boolean | JsonValue | Uint8Array | null,
     returnType: mapParserType(expr.value.type),
   };
 }
