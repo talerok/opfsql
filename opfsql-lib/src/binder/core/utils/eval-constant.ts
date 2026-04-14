@@ -1,19 +1,10 @@
 import type {
   ConstantExpression,
   ParsedExpression,
-} from "../../parser/types.js";
-import { ExpressionClass } from "../../parser/types.js";
-import type { TableSchema, Value } from "../../store/types.js";
-import type { BindContext } from "./context.js";
-import { BindError } from "./errors.js";
-
-export function requireTable(ctx: BindContext, name: string): TableSchema {
-  const schema = ctx.catalog.getTable(name);
-  if (!schema) {
-    throw new BindError(`Table "${name}" not found`);
-  }
-  return schema;
-}
+} from "../../../parser/types.js";
+import { ExpressionClass } from "../../../parser/types.js";
+import type { Value } from "../../../store/types.js";
+import { BindError } from "../errors.js";
 
 export function evalConstantInt(expr: ParsedExpression): number {
   if (expr.expression_class === ExpressionClass.CONSTANT) {

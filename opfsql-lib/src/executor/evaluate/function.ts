@@ -26,62 +26,70 @@ export function evalFunction(
 
   switch (name) {
     case "UPPER":
-      return args[0] === null ? null : requireText(args[0], "UPPER").toUpperCase();
+      return evalTextFn(args, "UPPER", (s) => s.toUpperCase());
     case "LOWER":
-      return args[0] === null ? null : requireText(args[0], "LOWER").toLowerCase();
+      return evalTextFn(args, "LOWER", (s) => s.toLowerCase());
     case "LENGTH":
-      if (args[0] === null) return null;
-      if (args[0] instanceof Uint8Array) return args[0].length;
-      return String(args[0]).length;
+      return evalLength(args);
     case "TRIM":
-      return args[0] === null ? null : requireText(args[0], "TRIM").trim();
+      return evalTextFn(args, "TRIM", (s) => s.trim());
     case "LTRIM":
-      return args[0] === null ? null : requireText(args[0], "LTRIM").trimStart();
+      return evalTextFn(args, "LTRIM", (s) => s.trimStart());
     case "RTRIM":
-      return args[0] === null ? null : requireText(args[0], "RTRIM").trimEnd();
+      return evalTextFn(args, "RTRIM", (s) => s.trimEnd());
     case "SUBSTR":
     case "SUBSTRING":
       return evalSubstr(args);
     case "REPLACE":
       return evalReplace(args);
     case "CONCAT":
-      return args.some((a) => a === null) ? null : args.map((a) => castText(a!)).join("");
+      return evalConcat(args);
     case "ABS":
-      return args[0] === null ? null : Math.abs(args[0] as number);
+      return evalMathFn(args, Math.abs);
     case "ROUND":
       return evalRound(args);
     case "FLOOR":
-      return args[0] === null ? null : Math.floor(args[0] as number);
+      return evalMathFn(args, Math.floor);
     case "CEIL":
     case "CEILING":
-      return args[0] === null ? null : Math.ceil(args[0] as number);
+      return evalMathFn(args, Math.ceil);
     case "COALESCE":
-      return args.find((a) => a !== null) ?? null;
+      return evalCoalesce(args);
     case "NULLIF":
-      if (args[0] === null || args[1] === null) return args[0];
-      return compareValues(args[0], args[1]) === 0 ? null : args[0];
+      return evalNullif(args);
     case "LIKE":
       return evalLike(args);
     case "NOT_LIKE":
       return evalNotLike(args);
     case "TYPEOF":
-      if (args[0] === null) return "null";
-      if (args[0] instanceof Uint8Array) return "blob";
-      if (typeof args[0] === "object") return "json";
-      return typeof args[0];
+      return evalTypeof(args);
     default:
       return null;
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function requireText(v: Value, fnName: string): string {
-  if (v instanceof Uint8Array) {
-    throw new ExecutorError(`Cannot apply ${fnName} to BLOB value`);
-  }
-  if (typeof v === "object" && v !== null) {
-    throw new ExecutorError(`Cannot apply ${fnName} to JSON value`);
-  }
+  if (v instanceof Uint8Array) throw new ExecutorError(`Cannot apply ${fnName} to BLOB value`);
+  if (typeof v === "object" && v !== null) throw new ExecutorError(`Cannot apply ${fnName} to JSON value`);
   return String(v);
+}
+
+function evalTextFn(args: Value[], name: string, fn: (s: string) => string): Value {
+  return args[0] === null ? null : fn(requireText(args[0], name));
+}
+
+function evalMathFn(args: Value[], fn: (n: number) => number): Value {
+  return args[0] === null ? null : fn(args[0] as number);
+}
+
+function evalLength(args: Value[]): Value {
+  if (args[0] === null) return null;
+  if (args[0] instanceof Uint8Array) return args[0].length;
+  return String(args[0]).length;
 }
 
 function evalSubstr(args: Value[]): Value {
@@ -98,12 +106,24 @@ function evalReplace(args: Value[]): Value {
   return requireText(args[0], "REPLACE").replaceAll(String(args[1]), String(args[2]));
 }
 
+function evalConcat(args: Value[]): Value {
+  return args.some((a) => a === null) ? null : args.map((a) => castText(a!)).join("");
+}
+
 function evalRound(args: Value[]): Value {
   if (args[0] === null) return null;
-  const precision =
-    args.length >= 2 && args[1] !== null ? (args[1] as number) : 0;
+  const precision = args.length >= 2 && args[1] !== null ? (args[1] as number) : 0;
   const factor = Math.pow(10, precision);
   return Math.round((args[0] as number) * factor) / factor;
+}
+
+function evalCoalesce(args: Value[]): Value {
+  return args.find((a) => a !== null) ?? null;
+}
+
+function evalNullif(args: Value[]): Value {
+  if (args[0] === null || args[1] === null) return args[0];
+  return compareValues(args[0], args[1]) === 0 ? null : args[0];
 }
 
 function evalLike(args: Value[]): Value {
@@ -116,4 +136,11 @@ function evalNotLike(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
   requireText(args[0], "LIKE");
   return !likeToRegex(String(args[1])).test(String(args[0]));
+}
+
+function evalTypeof(args: Value[]): Value {
+  if (args[0] === null) return "null";
+  if (args[0] instanceof Uint8Array) return "blob";
+  if (typeof args[0] === "object") return "json";
+  return typeof args[0];
 }

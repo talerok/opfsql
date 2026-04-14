@@ -1,7 +1,7 @@
 import type { SubqueryRef } from "../../parser/types.js";
 import type { ColumnDef, TableSchema } from "../../store/types.js";
 import type { BindContext } from "../core/context.js";
-import { extractColumnsFromPlan } from "../core/plan-utils.js";
+import { extractColumnsFromPlan } from "../core/utils/extract-columns.js";
 import type { BindScope } from "../core/scope.js";
 import { bindQueryNode } from "../statement/query-node.js";
 import type * as BT from "../types.js";

@@ -8,7 +8,7 @@ import type {
 import { ExpressionClass, ResultModifierType } from "../../parser/types.js";
 import type { LogicalType } from "../../store/types.js";
 import type { AggregateContext, BindContext } from "../core/context.js";
-import { evalConstantInt } from "../core/helpers.js";
+import { evalConstantInt } from "../core/utils/eval-constant.js";
 import {
   makeAggregate,
   makeDistinct,

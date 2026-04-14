@@ -1,9 +1,9 @@
 import type { UpdateStatement } from '../../parser/types.js';
 import type * as BT from '../types.js';
 import { LogicalOperatorType } from '../types.js';
-import { BindError } from '../core/errors.js';
 import type { BindContext } from '../core/context.js';
-import { requireTable } from '../core/helpers.js';
+import { requireTable } from '../core/utils/require-table.js';
+import { findColumnIndexOrThrow } from '../core/utils/find-column.js';
 import { makeGet, makeFilter } from '../core/operators.js';
 import { bindExpression } from '../expression/index.js';
 
@@ -25,15 +25,7 @@ export function bindUpdate(
   const updateColumns: number[] = [];
   const expressions: BT.BoundExpression[] = [];
   for (const clause of stmt.set_clauses) {
-    const idx = schema.columns.findIndex(
-      (c) => c.name.toLowerCase() === clause.column.toLowerCase(),
-    );
-    if (idx === -1) {
-      throw new BindError(
-        `Column "${clause.column}" not found in table "${stmt.table}"`,
-      );
-    }
-    updateColumns.push(idx);
+    updateColumns.push(findColumnIndexOrThrow(schema, clause.column));
     expressions.push(bindExpression(ctx, clause.value, scope));
   }
 

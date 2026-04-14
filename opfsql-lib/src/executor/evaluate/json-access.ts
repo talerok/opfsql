@@ -1,8 +1,11 @@
-import type { BoundExpression, BoundJsonAccessExpression } from '../../binder/types.js';
-import type { Value, Tuple } from '../types.js';
-import type { Resolver } from '../resolve.js';
-import type { SyncEvalContext } from './context.js';
-import { evalColumnRef } from './column-ref.js';
+import type {
+  BoundExpression,
+  BoundJsonAccessExpression,
+} from "../../binder/types.js";
+import type { Resolver } from "../resolve.js";
+import type { Tuple, Value } from "../types.js";
+import { evalColumnRef } from "./column-ref.js";
+import type { SyncEvalContext } from "./context.js";
 
 export function evalJsonAccess(
   expr: BoundExpression,
@@ -12,13 +15,17 @@ export function evalJsonAccess(
 ): Value {
   const access = expr as BoundJsonAccessExpression;
   const obj = evalColumnRef(access.child, tuple, resolver, ctx);
-  if (obj === null || typeof obj !== 'object') return null;
+  if (obj === null || typeof obj !== "object") {
+    return null;
+  }
 
   let current: unknown = obj;
   for (const seg of access.path) {
-    if (current == null) return null;
-    if (seg.type === 'field') {
-      if (typeof current !== 'object' || Array.isArray(current)) return null;
+    if (current == null) {
+      return null;
+    }
+    if (seg.type === "field") {
+      if (typeof current !== "object" || Array.isArray(current)) return null;
       current = (current as Record<string, unknown>)[seg.name];
     } else {
       if (!Array.isArray(current)) return null;

@@ -2,7 +2,7 @@ import type { CreateTableStatement } from "../../parser/types.js";
 import type { ColumnDef, TableSchema } from "../../store/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
-import { evalConstantValue } from "../core/helpers.js";
+import { evalConstantValue } from "../core/utils/eval-constant.js";
 import { mapParserType } from "../core/type-map.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";

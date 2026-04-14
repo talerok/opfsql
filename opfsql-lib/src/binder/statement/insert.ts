@@ -3,7 +3,8 @@ import type * as BT from '../types.js';
 import { LogicalOperatorType } from '../types.js';
 import { BindError } from '../core/errors.js';
 import type { BindContext } from '../core/context.js';
-import { requireTable } from '../core/helpers.js';
+import { requireTable } from '../core/utils/require-table.js';
+import { findColumnIndexOrThrow, getPrimaryKeyColumns } from '../core/utils/find-column.js';
 import { bindExpression } from '../expression/index.js';
 import { bindQueryNode } from './query-node.js';
 
@@ -40,12 +41,7 @@ function resolveColumns(stmt: InsertStatement, schema: BT.TableSchema): number[]
       throw new BindError(`Duplicate column "${colName}" in INSERT`);
     }
     seen.add(lower);
-
-    const idx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
-    if (idx === -1) {
-      throw new BindError(`Column "${colName}" not found in table "${schema.name}"`);
-    }
-    return idx;
+    return findColumnIndexOrThrow(schema, colName);
   });
 }
 
@@ -110,20 +106,11 @@ function resolveConflictColumns(
   schema: BT.TableSchema,
 ): number[] {
   if (clause.conflictTarget) {
-    return clause.conflictTarget.map((colName) => {
-      const lower = colName.toLowerCase();
-      const idx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
-      if (idx === -1) {
-        throw new BindError(`Column "${colName}" not found in table "${schema.name}"`);
-      }
-      return idx;
-    });
+    return clause.conflictTarget.map((colName) => findColumnIndexOrThrow(schema, colName));
   }
 
   // No explicit target — infer from PK
-  const pkCols = schema.columns
-    .map((c, i) => (c.primaryKey ? i : -1))
-    .filter((i) => i !== -1);
+  const pkCols = getPrimaryKeyColumns(schema);
   if (pkCols.length > 0) return pkCols;
 
   // Fall back to first inline unique column
@@ -133,10 +120,7 @@ function resolveConflictColumns(
   // Fall back to first unique index
   const uIdx = ctx.catalog.getTableIndexes(schema.name).find((idx) => idx.unique);
   if (uIdx) {
-    return uIdx.columns.map((colName) => {
-      const lower = colName.toLowerCase();
-      return schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
-    });
+    return uIdx.columns.map((colName) => findColumnIndexOrThrow(schema, colName));
   }
 
   throw new BindError(
@@ -169,12 +153,7 @@ function bindDoUpdate(
   const updateColumns: number[] = [];
   const updateExpressions: BT.BoundExpression[] = [];
   for (const sc of action.setClauses) {
-    const lower = sc.column.toLowerCase();
-    const colIdx = schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
-    if (colIdx === -1) {
-      throw new BindError(`Column "${sc.column}" not found in table "${schema.name}"`);
-    }
-    updateColumns.push(colIdx);
+    updateColumns.push(findColumnIndexOrThrow(schema, sc.column));
     updateExpressions.push(bindExpression(ctx, sc.value, scope));
   }
 
@@ -199,10 +178,7 @@ function validateConflictTarget(
   ctx: BindContext,
 ): void {
   // Check if conflict columns match a PK constraint
-  const pkCols = schema.columns
-    .map((c, i) => (c.primaryKey ? i : -1))
-    .filter((i) => i !== -1);
-  if (sameSet(conflictColumns, pkCols)) return;
+  if (sameSet(conflictColumns, getPrimaryKeyColumns(schema))) return;
 
   // Check single-column unique
   if (conflictColumns.length === 1 && schema.columns[conflictColumns[0]].unique) return;
@@ -211,10 +187,7 @@ function validateConflictTarget(
   const indexes = ctx.catalog.getTableIndexes(schema.name);
   for (const idx of indexes) {
     if (!idx.unique) continue;
-    const idxCols = idx.columns.map((colName) => {
-      const lower = colName.toLowerCase();
-      return schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
-    });
+    const idxCols = idx.columns.map((colName) => findColumnIndexOrThrow(schema, colName));
     if (sameSet(conflictColumns, idxCols)) return;
   }
 

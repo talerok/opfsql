@@ -1,11 +1,11 @@
-import type { ColumnDef, LogicalType } from "../../store/types.js";
+import type { ColumnDef, LogicalType } from "../../../store/types.js";
 import type {
   BoundAggregateExpression,
   BoundColumnRefExpression,
   LogicalOperator,
   LogicalProjection,
-} from "../types.js";
-import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
+} from "../../types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../../types.js";
 
 export function findProjection(
   plan: LogicalOperator,

@@ -7,7 +7,7 @@ import type { BindContext } from '../core/context.js';
 import type { BindScope } from '../core/scope.js';
 import { checkTypeCompatibility } from '../core/type-check.js';
 import { makeOrderBy, makeLimit } from '../core/operators.js';
-import { evalConstantInt } from '../core/helpers.js';
+import { evalConstantInt } from '../core/utils/eval-constant.js';
 import { bindExpression } from '../expression/index.js';
 import { bindSelect } from './select.js';
 import { bindQueryNode } from './query-node.js';

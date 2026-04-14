@@ -2,7 +2,7 @@ import type { DeleteStatement } from '../../parser/types.js';
 import type * as BT from '../types.js';
 import { LogicalOperatorType } from '../types.js';
 import type { BindContext } from '../core/context.js';
-import { requireTable } from '../core/helpers.js';
+import { requireTable } from '../core/utils/require-table.js';
 import { makeGet, makeFilter } from '../core/operators.js';
 import { bindExpression } from '../expression/index.js';
 
