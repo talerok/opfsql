@@ -15,8 +15,8 @@ import {
   serializeCatalogEntry,
 } from "../store/catalog.js";
 import { Storage } from "../store/storage.js";
-import type { JsonValue, Row } from "../types.js";
 import type { CatalogData, SyncIStorage } from "../store/types.js";
+import type { Row, Value } from "../types.js";
 
 // ---------------------------------------------------------------------------
 
@@ -33,11 +33,9 @@ export class EngineError extends Error {
   }
 }
 
-export type ParamValue = string | number | boolean | null | JsonValue;
-
 export class PreparedStatement {
-  constructor(private readonly executeFn: (params: ParamValue[]) => Result) {}
-  run(params: ParamValue[] = []): Result {
+  constructor(private readonly executeFn: (params: Value[]) => Result) {}
+  run(params: Value[] = []): Result {
     return this.executeFn(params);
   }
 }
@@ -71,7 +69,7 @@ export class Engine {
   // Public API — sync after open()
   // -------------------------------------------------------------------------
 
-  execute(sql: string, params?: ParamValue[]): Result[] {
+  execute(sql: string, params?: Value[]): Result[] {
     const statements = this.parser.parse(sql);
     return statements.map((stmt) => this.executeOne(stmt, params));
   }
@@ -92,7 +90,7 @@ export class Engine {
   // Statement dispatch
   // -------------------------------------------------------------------------
 
-  private executeOne(stmt: Statement, params?: ParamValue[]): Result {
+  private executeOne(stmt: Statement, params?: Value[]): Result {
     if (stmt.type === StatementType.TRANSACTION_STATEMENT) {
       return this.executeTCL(stmt as TransactionStatement);
     }
@@ -194,7 +192,7 @@ export class Engine {
   // Pipeline
   // -------------------------------------------------------------------------
 
-  private runPipeline(stmt: Statement, params?: readonly ParamValue[]): Result {
+  private runPipeline(stmt: Statement, params?: readonly Value[]): Result {
     const bound = this.binder.bindStatement(stmt);
     const optimized = optimize(bound, this.catalog);
     const result = execute(

@@ -1,19 +1,20 @@
-import { Engine, PreparedStatement, type Result, type ParamValue } from '../engine/index.js';
-import { OPFSSyncStorage } from '../store/opfs-storage.js';
+import { Engine, PreparedStatement, type Result } from "../engine/index.js";
+import { OPFSSyncStorage } from "../store/opfs-storage.js";
+import { Value } from "../types.js";
 
-console.log('[opfsql worker] loaded');
+console.log("[opfsql worker] loaded");
 
 // ---------------------------------------------------------------------------
 // Message protocol (worker side)
 // ---------------------------------------------------------------------------
 
 type InMsg =
-  | { id: number; type: 'open';    dbName: string }
-  | { id: number; type: 'close' }
-  | { id: number; type: 'exec';    sql: string; params?: ParamValue[] }
-  | { id: number; type: 'prepare'; sql: string }
-  | { id: number; type: 'run';     stmtId: number; params?: ParamValue[] }
-  | { id: number; type: 'free';    stmtId: number };
+  | { id: number; type: "open"; dbName: string }
+  | { id: number; type: "close" }
+  | { id: number; type: "exec"; sql: string; params?: Value[] }
+  | { id: number; type: "prepare"; sql: string }
+  | { id: number; type: "run"; stmtId: number; params?: Value[] }
+  | { id: number; type: "free"; stmtId: number };
 
 type OutMsg =
   | { id: number; ok: true }
@@ -31,36 +32,38 @@ function reply(msg: OutMsg): void {
   (self as unknown as Worker).postMessage(msg);
 }
 
-(self as unknown as Worker).onmessage = async ({ data }: MessageEvent<InMsg>) => {
+(self as unknown as Worker).onmessage = async ({
+  data,
+}: MessageEvent<InMsg>) => {
   const { id } = data;
 
   try {
     switch (data.type) {
-      case 'open': {
+      case "open": {
         if (engine) engine.close();
-        console.log('[opfsql worker] opening', data.dbName);
+        console.log("[opfsql worker] opening", data.dbName);
         engine = await Engine.create(new OPFSSyncStorage(data.dbName));
-        console.log('[opfsql worker] opened', data.dbName);
+        console.log("[opfsql worker] opened", data.dbName);
         reply({ id, ok: true });
         break;
       }
 
-      case 'close': {
+      case "close": {
         engine?.close();
         engine = null;
         reply({ id, ok: true });
         break;
       }
 
-      case 'exec': {
-        if (!engine) throw new Error('Engine not opened');
+      case "exec": {
+        if (!engine) throw new Error("Engine not opened");
         const results = engine.execute(data.sql, data.params);
         reply({ id, results });
         break;
       }
 
-      case 'prepare': {
-        if (!engine) throw new Error('Engine not opened');
+      case "prepare": {
+        if (!engine) throw new Error("Engine not opened");
         const stmt = engine.prepare(data.sql);
         const stmtId = stmtSeq++;
         prepared.set(stmtId, stmt);
@@ -68,15 +71,16 @@ function reply(msg: OutMsg): void {
         break;
       }
 
-      case 'run': {
+      case "run": {
         const stmt = prepared.get(data.stmtId);
-        if (!stmt) throw new Error(`Prepared statement ${data.stmtId} not found`);
+        if (!stmt)
+          throw new Error(`Prepared statement ${data.stmtId} not found`);
         const result = stmt.run(data.params);
         reply({ id, results: [result] });
         break;
       }
 
-      case 'free': {
+      case "free": {
         prepared.delete(data.stmtId);
         reply({ id, ok: true });
         break;

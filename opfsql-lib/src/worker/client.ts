@@ -1,4 +1,5 @@
-import type { ParamValue, Result } from "../engine/index.js";
+import { Result } from "../engine/index.js";
+import { Value } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Message protocol (client side — mirrors worker.ts)
@@ -7,9 +8,9 @@ import type { ParamValue, Result } from "../engine/index.js";
 type OutPayload =
   | { type: "open"; dbName: string }
   | { type: "close" }
-  | { type: "exec"; sql: string; params?: ParamValue[] }
+  | { type: "exec"; sql: string; params?: Value[] }
   | { type: "prepare"; sql: string }
-  | { type: "run"; stmtId: number; params?: ParamValue[] }
+  | { type: "run"; stmtId: number; params?: Value[] }
   | { type: "free"; stmtId: number };
 
 type InMsg =
@@ -25,7 +26,7 @@ type InMsg =
 export class RemotePreparedStatement {
   constructor(private readonly engine: WorkerEngine, readonly stmtId: number) {}
 
-  run(params: ParamValue[] = []): Promise<Result> {
+  run(params: Value[] = []): Promise<Result> {
     return this.engine.run(this.stmtId, params);
   }
 
@@ -81,24 +82,31 @@ export class WorkerEngine {
     return this.rpc({ type: "close" }).then(() => void 0);
   }
 
-  exec(sql: string, params?: ParamValue[]): Promise<Result[]> {
+  exec(sql: string, params?: Value[]): Promise<Result[]> {
     return this.rpc<{ results: Result[] }>({ type: "exec", sql, params }).then(
       (r) => r.results,
     );
   }
 
   async prepare(sql: string): Promise<RemotePreparedStatement> {
-    const { stmtId } = await this.rpc<{ stmtId: number }>({ type: 'prepare', sql });
+    const { stmtId } = await this.rpc<{ stmtId: number }>({
+      type: "prepare",
+      sql,
+    });
     return new RemotePreparedStatement(this, stmtId);
   }
 
-  async run(stmtId: number, params: ParamValue[]): Promise<Result> {
-    const r = await this.rpc<{ results: Result[] }>({ type: 'run', stmtId, params });
+  async run(stmtId: number, params: Value[]): Promise<Result> {
+    const r = await this.rpc<{ results: Result[] }>({
+      type: "run",
+      stmtId,
+      params,
+    });
     return r.results[0];
   }
 
   async freeStmt(stmtId: number): Promise<void> {
-    await this.rpc({ type: 'free', stmtId });
+    await this.rpc({ type: "free", stmtId });
   }
 
   // -------------------------------------------------------------------------
