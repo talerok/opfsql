@@ -8,6 +8,11 @@ const NUMERIC_TYPES: ReadonlySet<LogicalType> = new Set<LogicalType>([
   "REAL",
 ]);
 
+const NON_SCALAR_TYPES: ReadonlySet<LogicalType> = new Set<LogicalType>([
+  "BLOB",
+  "JSON",
+]);
+
 export function checkTypeCompatibility(
   left: LogicalType,
   right: LogicalType,
@@ -75,33 +80,59 @@ export function resolveScalarFunctionReturnType(
     case "SUBSTR":
     case "SUBSTRING":
     case "REPLACE":
-      if (children.length > 0 && (children[0].returnType === "BLOB" || children[0].returnType === "JSON")) {
-        throw new BindError(`Cannot apply ${name} to ${children[0].returnType} type`);
-      }
-      return "TEXT";
+      return requireTextArg(name, children);
     case "CONCAT":
-      if (children.some((c) => c.returnType === "BLOB")) {
-        throw new BindError(`Cannot apply CONCAT to BLOB type`);
-      }
-      return "TEXT";
+      return requireTextArgs(name, children);
     case "LENGTH":
       return "INTEGER";
     case "ABS":
+      return resolveAbsType(children);
     case "ROUND":
     case "FLOOR":
     case "CEIL":
-    case "CEILING": {
-      const t = children.length > 0 ? children[0].returnType : "ANY";
-      if (t === "BLOB" || t === "JSON") {
-        throw new BindError(`Cannot apply ${name} to ${t} type`);
-      }
-      return name === "ABS" ? (t !== "NULL" && t !== "ANY" ? t : "INTEGER") : "REAL";
-    }
+    case "CEILING":
+      return requireNumericArg(name, children);
     case "COALESCE":
-      return children.find((c) => c.returnType !== "NULL")?.returnType ?? "ANY";
+      return resolveCoalesceType(children);
     case "TYPEOF":
       return "TEXT";
     default:
-      return children.length > 0 ? children[0].returnType : "ANY";
+      return inferFromFirst(children);
   }
+}
+
+function requireTextArg(name: string, children: BoundExpression[]): "TEXT" {
+  if (children.length > 0 && NON_SCALAR_TYPES.has(children[0].returnType)) {
+    throw new BindError(`Cannot apply ${name} to ${children[0].returnType} type`);
+  }
+  return "TEXT";
+}
+
+function requireTextArgs(name: string, children: BoundExpression[]): "TEXT" {
+  const bad = children.find((c) => NON_SCALAR_TYPES.has(c.returnType));
+  if (bad) throw new BindError(`Cannot apply ${name} to ${bad.returnType} type`);
+  return "TEXT";
+}
+
+function requireNumericArg(name: string, children: BoundExpression[]): "REAL" {
+  if (children.length > 0 && NON_SCALAR_TYPES.has(children[0].returnType)) {
+    throw new BindError(`Cannot apply ${name} to ${children[0].returnType} type`);
+  }
+  return "REAL";
+}
+
+function resolveAbsType(children: BoundExpression[]): LogicalType {
+  const t = children.length > 0 ? children[0].returnType : "ANY";
+  if (NON_SCALAR_TYPES.has(t)) {
+    throw new BindError(`Cannot apply ABS to ${t} type`);
+  }
+  return t !== "NULL" && t !== "ANY" ? t : "INTEGER";
+}
+
+function resolveCoalesceType(children: BoundExpression[]): LogicalType {
+  return children.find((c) => c.returnType !== "NULL")?.returnType ?? "ANY";
+}
+
+function inferFromFirst(children: BoundExpression[]): LogicalType {
+  return children.length > 0 ? children[0].returnType : "ANY";
 }
