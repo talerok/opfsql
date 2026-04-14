@@ -75,8 +75,8 @@ export function resolveScalarFunctionReturnType(
     case "SUBSTR":
     case "SUBSTRING":
     case "REPLACE":
-      if (children.length > 0 && children[0].returnType === "BLOB") {
-        throw new BindError(`Cannot apply ${name} to BLOB type`);
+      if (children.length > 0 && (children[0].returnType === "BLOB" || children[0].returnType === "JSON")) {
+        throw new BindError(`Cannot apply ${name} to ${children[0].returnType} type`);
       }
       return "TEXT";
     case "CONCAT":
@@ -87,7 +87,16 @@ export function resolveScalarFunctionReturnType(
     case "LENGTH":
       return "INTEGER";
     case "ABS":
-      return children.length > 0 ? children[0].returnType : "INTEGER";
+    case "ROUND":
+    case "FLOOR":
+    case "CEIL":
+    case "CEILING": {
+      const t = children.length > 0 ? children[0].returnType : "ANY";
+      if (t === "BLOB" || t === "JSON") {
+        throw new BindError(`Cannot apply ${name} to ${t} type`);
+      }
+      return name === "ABS" ? (t !== "NULL" && t !== "ANY" ? t : "INTEGER") : "REAL";
+    }
     case "COALESCE":
       return children.find((c) => c.returnType !== "NULL")?.returnType ?? "ANY";
     case "TYPEOF":

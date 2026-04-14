@@ -78,6 +78,9 @@ function requireText(v: Value, fnName: string): string {
   if (v instanceof Uint8Array) {
     throw new ExecutorError(`Cannot apply ${fnName} to BLOB value`);
   }
+  if (typeof v === "object" && v !== null) {
+    throw new ExecutorError(`Cannot apply ${fnName} to JSON value`);
+  }
   return String(v);
 }
 
@@ -105,16 +108,12 @@ function evalRound(args: Value[]): Value {
 
 function evalLike(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
-  if (args[0] instanceof Uint8Array) {
-    throw new ExecutorError("Cannot apply LIKE to BLOB value");
-  }
+  requireText(args[0], "LIKE");
   return likeToRegex(String(args[1])).test(String(args[0]));
 }
 
 function evalNotLike(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
-  if (args[0] instanceof Uint8Array) {
-    throw new ExecutorError("Cannot apply LIKE to BLOB value");
-  }
+  requireText(args[0], "LIKE");
   return !likeToRegex(String(args[1])).test(String(args[0]));
 }

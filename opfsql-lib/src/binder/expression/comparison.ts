@@ -25,6 +25,9 @@ export function bindComparison(
     if (left.returnType === 'BLOB' || right.returnType === 'BLOB') {
       throw new BindError('Cannot apply LIKE to BLOB type');
     }
+    if (left.returnType === 'JSON' || right.returnType === 'JSON') {
+      throw new BindError('Cannot apply LIKE to JSON type');
+    }
     return {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: expr.type === ExpressionType.COMPARE_LIKE ? 'LIKE' : 'NOT_LIKE',
