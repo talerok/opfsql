@@ -58,8 +58,10 @@ export class SyncTableBTree {
     if (meta.size === 0) return null;
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
-    if (pos < leaf.keys.length && leaf.keys[pos] === rowId)
+    if (pos < leaf.keys.length && leaf.keys[pos] === rowId) {
       return leaf.values[pos];
+    }
+
     return null;
   }
 
@@ -67,8 +69,10 @@ export class SyncTableBTree {
     const meta = this.readMeta();
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
-    if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId)
+    if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId) {
       throw new Error(`Row ${rowId} not found`);
+    }
+
     this.writeNode({
       ...leaf,
       values: leaf.values.map((v, i) => (i === pos ? row : v)),
@@ -79,7 +83,10 @@ export class SyncTableBTree {
     const meta = { ...this.readMeta() };
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
-    if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId) return;
+    if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId) {
+      return;
+    }
+
     this.writeNode({
       ...leaf,
       keys: [...leaf.keys.slice(0, pos), ...leaf.keys.slice(pos + 1)],
@@ -94,12 +101,15 @@ export class SyncTableBTree {
     if (meta.size === 0) return;
     let leaf: TableLeafNode | null = this.findLeftmostLeaf(meta);
     while (leaf) {
-      for (let i = 0; i < leaf.keys.length; i++)
+      for (let i = 0; i < leaf.keys.length; i++) {
         yield { rowId: leaf.keys[i], row: leaf.values[i] };
-      leaf =
-        leaf.nextLeafId !== null
-          ? (this.readNode(leaf.nextLeafId) as TableLeafNode)
-          : null;
+      }
+
+      if (leaf.nextLeafId !== null) {
+        leaf = this.readNode(leaf.nextLeafId) as TableLeafNode;
+      } else {
+        leaf = null;
+      }
     }
   }
 
@@ -169,6 +179,7 @@ export class SyncTableBTree {
     }
     const parent = path[parentIdx] as TableInternalNode;
     const pos = this.bisectRight(parent.keys, key);
+
     const newParent: TableInternalNode = {
       ...parent,
       keys: [...parent.keys.slice(0, pos), key, ...parent.keys.slice(pos)],

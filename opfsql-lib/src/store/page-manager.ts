@@ -33,9 +33,13 @@ export class SyncPageStore implements SyncIPageStore {
       return val === null ? null : (val as T);
     }
     const cached = this.cache.get(pageNo);
-    if (cached !== undefined) return cached as T;
+    if (cached !== undefined) {
+      return cached as T;
+    }
     const val = this.storage.readPage<T>(pageNo);
-    if (val !== null && val !== undefined) this.cache.set(pageNo, val);
+    if (val !== null && val !== undefined) {
+      this.cache.set(pageNo, val);
+    }
     return val;
   }
 
