@@ -31,12 +31,12 @@ describe('SyncBTree', () => {
     tree = createTree(ps, false);
   });
 
-  describe('insert and search', () => {
+  describe('insert and lookup', () => {
     it('insert single key and find it', () => {
       tree.insert([1], rid(0, 0));
       ps.commit();
 
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      expect(tree.lookup([1])).toEqual([rid(0, 0)]);
     });
 
     it('insert multiple keys and find each', () => {
@@ -46,18 +46,18 @@ describe('SyncBTree', () => {
       ps.commit();
 
       for (let i = 1; i <= 3; i++) {
-        expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: i }])).toEqual([rid(0, i - 1)]);
+        expect(tree.lookup([i])).toEqual([rid(0, i - 1)]);
       }
     });
 
-    it('search for non-existent key returns empty', () => {
+    it('lookup non-existent key returns empty', () => {
       tree.insert([1], rid(0, 0));
       ps.commit();
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 999 }])).toEqual([]);
+      expect(tree.lookup([999])).toEqual([]);
     });
 
-    it('search on empty tree returns empty', () => {
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([]);
+    it('lookup on empty tree returns empty', () => {
+      expect(tree.lookup([1])).toEqual([]);
     });
 
     it('duplicate keys in non-unique index accumulate rowIds', () => {
@@ -66,7 +66,7 @@ describe('SyncBTree', () => {
       tree.insert([5], rid(1, 0));
       ps.commit();
 
-      const results = tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 5 }]);
+      const results = tree.lookup([5]);
       expect(results).toHaveLength(3);
       expect(results).toContainEqual(rid(0, 0));
       expect(results).toContainEqual(rid(0, 1));
@@ -79,7 +79,7 @@ describe('SyncBTree', () => {
       tree.insert([20], rid(0, 1));
       ps.commit();
 
-      const results = tree.search([{ columnPosition: 0, comparisonType: 'GREATER_EQUAL', value: 1 }]);
+      const results = tree.range({ lower: [1] });
       expect(results).toEqual([rid(0, 0), rid(0, 1), rid(0, 2)]);
     });
   });
@@ -93,8 +93,8 @@ describe('SyncBTree', () => {
       tree.delete([1], rid(0, 0));
       ps.commit();
 
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([]);
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 2 }])).toEqual([rid(0, 1)]);
+      expect(tree.lookup([1])).toEqual([]);
+      expect(tree.lookup([2])).toEqual([rid(0, 1)]);
     });
 
     it('delete non-existent key is a no-op', () => {
@@ -104,7 +104,7 @@ describe('SyncBTree', () => {
       tree.delete([999], rid(0, 0));
       ps.commit();
 
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      expect(tree.lookup([1])).toEqual([rid(0, 0)]);
     });
 
     it('delete one rowId from duplicate key preserves others', () => {
@@ -115,7 +115,7 @@ describe('SyncBTree', () => {
       tree.delete([5], rid(0, 0));
       ps.commit();
 
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 5 }])).toEqual([rid(0, 1)]);
+      expect(tree.lookup([5])).toEqual([rid(0, 1)]);
     });
 
     it('delete on empty tree is a no-op', () => {
@@ -129,7 +129,7 @@ describe('SyncBTree', () => {
       tree.delete([1], rid(9, 9));
       ps.commit();
 
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      expect(tree.lookup([1])).toEqual([rid(0, 0)]);
     });
   });
 
@@ -140,40 +140,34 @@ describe('SyncBTree', () => {
     });
 
     it('GREATER', () => {
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'GREATER', value: 80 }])).toEqual([rid(0, 8), rid(0, 9)]);
+      expect(tree.range({ lower: [80], lowerInclusive: false })).toEqual([rid(0, 8), rid(0, 9)]);
     });
 
     it('GREATER_EQUAL', () => {
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'GREATER_EQUAL', value: 90 }])).toEqual([rid(0, 8), rid(0, 9)]);
+      expect(tree.range({ lower: [90] })).toEqual([rid(0, 8), rid(0, 9)]);
     });
 
     it('LESS', () => {
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'LESS', value: 30 }])).toEqual([rid(0, 0), rid(0, 1)]);
+      expect(tree.range({ upper: [30], upperInclusive: false })).toEqual([rid(0, 0), rid(0, 1)]);
     });
 
     it('LESS_EQUAL', () => {
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'LESS_EQUAL', value: 20 }])).toEqual([rid(0, 0), rid(0, 1)]);
+      expect(tree.range({ upper: [20] })).toEqual([rid(0, 0), rid(0, 1)]);
     });
 
     it('bounded range (GREATER_EQUAL + LESS)', () => {
-      expect(tree.search([
-        { columnPosition: 0, comparisonType: 'GREATER_EQUAL', value: 30 },
-        { columnPosition: 0, comparisonType: 'LESS', value: 60 },
-      ])).toEqual([rid(0, 2), rid(0, 3), rid(0, 4)]);
+      expect(tree.range({ lower: [30], upper: [60], upperInclusive: false })).toEqual([rid(0, 2), rid(0, 3), rid(0, 4)]);
     });
   });
 
   describe('composite keys', () => {
-    it('search composite equality', () => {
+    it('lookup composite equality', () => {
       tree.insert(['a', 1], rid(0, 0));
       tree.insert(['a', 2], rid(0, 1));
       tree.insert(['b', 1], rid(0, 2));
       ps.commit();
 
-      expect(tree.search([
-        { columnPosition: 0, comparisonType: 'EQUAL', value: 'a' },
-        { columnPosition: 1, comparisonType: 'EQUAL', value: 2 },
-      ], 2)).toEqual([rid(0, 1)]);
+      expect(tree.lookup(['a', 2])).toEqual([rid(0, 1)]);
     });
 
     it('prefix scan on composite index', () => {
@@ -182,7 +176,7 @@ describe('SyncBTree', () => {
       tree.insert(['b', 1], rid(0, 2));
       ps.commit();
 
-      const results = tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 'a' }], 2);
+      const results = tree.range({ lower: ['a'], upper: ['a'], prefixScan: true });
       expect(results).toHaveLength(2);
       expect(results).toContainEqual(rid(0, 0));
       expect(results).toContainEqual(rid(0, 1));
@@ -206,7 +200,7 @@ describe('SyncBTree', () => {
       uniqueTree.insert([null], rid(0, 1));
       ps.commit();
 
-      expect(uniqueTree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: null }])).toHaveLength(2);
+      expect(uniqueTree.lookup([null])).toHaveLength(2);
     });
 
     it('allows NULL in composite key even if other column matches', () => {
@@ -220,7 +214,7 @@ describe('SyncBTree', () => {
       uniqueTree.insert([2], rid(0, 1));
       ps.commit();
 
-      expect(uniqueTree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      expect(uniqueTree.lookup([1])).toEqual([rid(0, 0)]);
     });
   });
 
@@ -231,16 +225,16 @@ describe('SyncBTree', () => {
       tree.insert([100], rid(0, 1));
       ps.commit();
 
-      const results = tree.search([{ columnPosition: 0, comparisonType: 'GREATER_EQUAL', value: 1 }]);
+      const results = tree.range({ lower: [1] });
       expect(results).toEqual([rid(0, 0), rid(0, 1), rid(0, 2)]);
     });
 
-    it('exact search for NULL finds it', () => {
+    it('exact lookup for NULL finds it', () => {
       tree.insert([null], rid(0, 0));
       tree.insert([1], rid(0, 1));
       ps.commit();
 
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: null }])).toEqual([rid(0, 0)]);
+      expect(tree.lookup([null])).toEqual([rid(0, 0)]);
     });
   });
 
@@ -250,7 +244,7 @@ describe('SyncBTree', () => {
       ps.commit();
 
       for (let i = 0; i < 150; i++) {
-        expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: i }])).toHaveLength(1);
+        expect(tree.lookup([i])).toHaveLength(1);
       }
     });
 
@@ -258,10 +252,7 @@ describe('SyncBTree', () => {
       for (let i = 0; i < 150; i++) tree.insert([i], rid(0, i));
       ps.commit();
 
-      expect(tree.search([
-        { columnPosition: 0, comparisonType: 'GREATER_EQUAL', value: 140 },
-        { columnPosition: 0, comparisonType: 'LESS_EQUAL', value: 149 },
-      ])).toHaveLength(10);
+      expect(tree.range({ lower: [140], upper: [149] })).toHaveLength(10);
     });
 
     it('handles reverse-order inserts (worst case for splits)', () => {
@@ -269,7 +260,7 @@ describe('SyncBTree', () => {
       ps.commit();
 
       for (const k of [0, 50, 100, 150, 200]) {
-        expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: k }])).toEqual([rid(0, k)]);
+        expect(tree.lookup([k])).toEqual([rid(0, k)]);
       }
     });
   });
@@ -283,7 +274,7 @@ describe('SyncBTree', () => {
       ps.commit();
 
       for (let i = 0; i < 50; i++) {
-        expect(bt.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: i }])).toEqual([rid(0, i)]);
+        expect(bt.lookup([i])).toEqual([rid(0, i)]);
       }
     });
 
@@ -292,7 +283,7 @@ describe('SyncBTree', () => {
       const bt = new SyncBTree(metaPage, ps, false);
       bt.bulkLoad([]);
       ps.commit();
-      expect(bt.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([]);
+      expect(bt.lookup([1])).toEqual([]);
     });
 
     it('bulk load merges duplicate keys in non-unique index', () => {
@@ -306,7 +297,7 @@ describe('SyncBTree', () => {
       bt.bulkLoad(entries);
       ps.commit();
 
-      expect(bt.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toHaveLength(2);
+      expect(bt.lookup([1])).toHaveLength(2);
     });
 
     it('bulk load unique rejects duplicates', () => {
@@ -330,17 +321,17 @@ describe('SyncBTree', () => {
       ps.commit();
 
       for (const k of [0, 99, 250, 499]) {
-        expect(bt.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: k }])).toHaveLength(1);
+        expect(bt.lookup([k])).toHaveLength(1);
       }
 
-      expect(bt.search([{ columnPosition: 0, comparisonType: 'GREATER_EQUAL', value: 490 }])).toHaveLength(10);
+      expect(bt.range({ lower: [490] })).toHaveLength(10);
     });
   });
 
   describe('readMeta — explicit error', () => {
     it('throws descriptive error for invalid metaPageNo', () => {
       const badTree = new SyncBTree(999, ps, false);
-      expect(() => badTree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toThrow(/page 999/);
+      expect(() => badTree.lookup([1])).toThrow(/page 999/);
     });
   });
 
@@ -362,10 +353,7 @@ describe('SyncBTree', () => {
       tree.insert(['cherry'], rid(0, 2));
       ps.commit();
 
-      const results = tree.search([
-        { columnPosition: 0, comparisonType: 'GREATER_EQUAL', value: 'a' },
-        { columnPosition: 0, comparisonType: 'LESS_EQUAL', value: 'b' },
-      ]);
+      const results = tree.range({ lower: ['a'], upper: ['b'] });
       expect(results).toEqual([rid(0, 1)]);
     });
   });
@@ -378,8 +366,8 @@ describe('SyncBTree', () => {
       tree.insert([2], rid(0, 1));
       ps.commit();
 
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
-      expect(tree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 2 }])).toEqual([rid(0, 1)]);
+      expect(tree.lookup([1])).toEqual([rid(0, 0)]);
+      expect(tree.lookup([2])).toEqual([rid(0, 1)]);
     });
   });
 });

@@ -1,4 +1,5 @@
 import { SyncBTree } from "./index-btree/index-btree.js";
+import { computeBounds } from "./index-btree/search-bounds.js";
 import type {
   ICatalog,
   IndexKey,
@@ -23,15 +24,26 @@ export class SyncIndexManager implements SyncIIndexManager {
   insert(indexName: string, key: IndexKey, rowId: RowId): void {
     this.tree(indexName).insert(key, rowId);
   }
+
   delete(indexName: string, key: IndexKey, rowId: RowId): void {
     this.tree(indexName).delete(key, rowId);
   }
+
   search(
     indexName: string,
     predicates: SearchPredicate[],
     totalColumns?: number,
   ): RowId[] {
-    return this.tree(indexName).search(predicates, totalColumns);
+    const tree = this.tree(indexName);
+    const bounds = computeBounds(predicates, totalColumns);
+    if (bounds.exactKey) return tree.lookup(bounds.exactKey);
+    return tree.range({
+      lower: bounds.lowerKey ?? undefined,
+      upper: bounds.upperKey ?? undefined,
+      lowerInclusive: bounds.lowerInclusive,
+      upperInclusive: bounds.upperInclusive,
+      prefixScan: bounds.prefixScan,
+    });
   }
 
   bulkLoad(

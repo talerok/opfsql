@@ -5,9 +5,13 @@ function compareValues(
   a: string | number | boolean,
   b: string | number | boolean,
 ): number {
-  if (typeof a === "number" && typeof b === "number") return a - b;
-  if (typeof a === "boolean" && typeof b === "boolean")
+  if (typeof a === "number" && typeof b === "number") {
+    return a - b;
+  }
+  if (typeof a === "boolean" && typeof b === "boolean") {
     return (a ? 1 : 0) - (b ? 1 : 0);
+  }
+
   if (typeof a === "number" && typeof b === "string") {
     const nb = Number(b);
     if (!Number.isNaN(nb)) return a - nb;

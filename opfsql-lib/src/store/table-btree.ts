@@ -190,8 +190,9 @@ export class SyncTableBTree {
       ],
     };
     this.writeNode(newParent);
-    if (newParent.keys.length >= ORDER)
+    if (newParent.keys.length >= ORDER) {
       this.splitInternal(meta, newParent, path, parentIdx);
+    }
   }
 
   private splitInternal(

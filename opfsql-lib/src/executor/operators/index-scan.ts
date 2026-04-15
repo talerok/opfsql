@@ -4,8 +4,8 @@ import type {
   LogicalGet,
   TableFilter,
 } from "../../binder/types.js";
-import type { SearchPredicate } from "../../store/index-btree/index-btree.js";
 import type {
+  SearchPredicate,
   SyncIIndexManager,
   SyncIRowManager,
 } from "../../store/types.js";

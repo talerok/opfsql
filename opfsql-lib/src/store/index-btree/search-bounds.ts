@@ -2,7 +2,12 @@ import type { IndexKey, IndexKeyValue } from "./types.js";
 
 export interface SearchPredicate {
   columnPosition: number;
-  comparisonType: "EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
+  comparisonType:
+    | "EQUAL"
+    | "LESS"
+    | "GREATER"
+    | "LESS_EQUAL"
+    | "GREATER_EQUAL";
   value: string | number | boolean | null;
 }
 
@@ -13,6 +18,31 @@ export interface ScanBounds {
   upperInclusive: boolean;
   exactKey: IndexKey | null;
   prefixScan?: boolean;
+}
+
+function applyRangePred(
+  bounds: ScanBounds,
+  key: IndexKey,
+  type: SearchPredicate["comparisonType"],
+): void {
+  switch (type) {
+    case "GREATER":
+      bounds.lowerKey = key;
+      bounds.lowerInclusive = false;
+      break;
+    case "GREATER_EQUAL":
+      bounds.lowerKey = key;
+      bounds.lowerInclusive = true;
+      break;
+    case "LESS":
+      bounds.upperKey = key;
+      bounds.upperInclusive = false;
+      break;
+    case "LESS_EQUAL":
+      bounds.upperKey = key;
+      bounds.upperInclusive = true;
+      break;
+  }
 }
 
 export function computeBounds(
@@ -30,11 +60,11 @@ export function computeBounds(
   const eqValues: Array<{ pos: number; value: IndexKeyValue }> = [];
   const rangePreds: SearchPredicate[] = [];
 
-  for (const p of predicates) {
-    if (p.comparisonType === "EQUAL") {
-      eqValues.push({ pos: p.columnPosition, value: p.value });
+  for (const pred of predicates) {
+    if (pred.comparisonType === "EQUAL") {
+      eqValues.push({ pos: pred.columnPosition, value: pred.value });
     } else {
-      rangePreds.push(p);
+      rangePreds.push(pred);
     }
   }
 
@@ -44,7 +74,7 @@ export function computeBounds(
     const isPrefixOnly =
       totalColumns !== undefined && eqValues.length < totalColumns;
     if (isPrefixOnly) {
-      const prefix = eqValues.map((e) => e.value);
+      const prefix = eqValues.map((eq) => eq.value);
       bounds.lowerKey = prefix;
       bounds.lowerInclusive = true;
       bounds.upperKey = prefix;
@@ -52,33 +82,19 @@ export function computeBounds(
       bounds.prefixScan = true;
       return bounds;
     }
-    bounds.exactKey = eqValues.map((e) => e.value);
+    bounds.exactKey = eqValues.map((eq) => eq.value);
     return bounds;
   }
 
-  if (eqValues.length > 0) {
-    const prefix = eqValues.map((e) => e.value);
-    for (const rp of rangePreds) {
-      const fullKey = [...prefix, rp.value];
-      switch (rp.comparisonType) {
-        case "GREATER":
-          bounds.lowerKey = fullKey;
-          bounds.lowerInclusive = false;
-          break;
-        case "GREATER_EQUAL":
-          bounds.lowerKey = fullKey;
-          bounds.lowerInclusive = true;
-          break;
-        case "LESS":
-          bounds.upperKey = fullKey;
-          bounds.upperInclusive = false;
-          break;
-        case "LESS_EQUAL":
-          bounds.upperKey = fullKey;
-          bounds.upperInclusive = true;
-          break;
-      }
-    }
+  const prefix = eqValues.map((eq) => eq.value);
+
+  for (const pred of rangePreds) {
+    const fullKey =
+      prefix.length > 0 ? [...prefix, pred.value] : [pred.value];
+    applyRangePred(bounds, fullKey, pred.comparisonType);
+  }
+
+  if (prefix.length > 0) {
     if (!bounds.lowerKey) {
       bounds.lowerKey = prefix;
       bounds.lowerInclusive = true;
@@ -87,28 +103,6 @@ export function computeBounds(
       bounds.upperKey = prefix;
       bounds.upperInclusive = true;
       bounds.prefixScan = true;
-    }
-  } else {
-    for (const rp of rangePreds) {
-      const fullKey: IndexKey = [rp.value];
-      switch (rp.comparisonType) {
-        case "GREATER":
-          bounds.lowerKey = fullKey;
-          bounds.lowerInclusive = false;
-          break;
-        case "GREATER_EQUAL":
-          bounds.lowerKey = fullKey;
-          bounds.lowerInclusive = true;
-          break;
-        case "LESS":
-          bounds.upperKey = fullKey;
-          bounds.upperInclusive = false;
-          break;
-        case "LESS_EQUAL":
-          bounds.upperKey = fullKey;
-          bounds.upperInclusive = true;
-          break;
-      }
     }
   }
 
