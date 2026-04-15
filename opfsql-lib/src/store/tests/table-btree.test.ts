@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableBTree } from '../table-btree.js';
 import type { TableBTreeMeta, TableLeafNode } from '../table-btree.js';
 import { SyncPageStore } from '../page-manager.js';
-import { MemoryPageStorage } from '../memory-storage.js';
+import { MemoryPageStorage } from '../backend/memory-storage.js';
 
 function createStore(storage?: MemoryPageStorage): SyncPageStore {
   const s = storage ?? new MemoryPageStorage();

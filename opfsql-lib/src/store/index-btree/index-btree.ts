@@ -416,7 +416,8 @@ export class SyncBTree {
 
   private readMeta(): BTreeMeta {
     const meta = this.ps.readPage<BTreeMeta>(this.metaPageNo);
-    if (!meta) throw new Error(`Index B-tree meta at page ${this.metaPageNo} not found`);
+    if (!meta)
+      throw new Error(`Index B-tree meta at page ${this.metaPageNo} not found`);
     return meta;
   }
 

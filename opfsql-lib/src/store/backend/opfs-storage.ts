@@ -1,5 +1,5 @@
-import { Encoder, decode } from 'cbor-x';
-import type { SyncIPageStorage } from './types.js';
+import { Encoder, decode } from "cbor-x";
+import type { SyncIPageStorage } from "../types.js";
 
 interface FileSystemSyncAccessHandle {
   getSize(): number;
@@ -51,15 +51,22 @@ export class OPFSSyncStorage implements SyncIPageStorage {
 
   async open(): Promise<void> {
     const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle(`${this.dbName}.opfsql`, { create: true });
-    console.log('[OPFSSyncStorage] acquiring sync handle…');
+    const fh = await root.getFileHandle(`${this.dbName}.opfsql`, {
+      create: true,
+    });
+    console.log("[OPFSSyncStorage] acquiring sync handle…");
     this.handle = await fh.createSyncAccessHandle();
-    console.log('[OPFSSyncStorage] handle acquired, size=', this.handle.getSize());
+    console.log(
+      "[OPFSSyncStorage] handle acquired, size=",
+      this.handle.getSize(),
+    );
     if (this.handle.getSize() === 0) this.initNewFile();
     else this.readHeader();
   }
 
-  close(): void { this.handle.close(); }
+  close(): void {
+    this.handle.close();
+  }
 
   readPage<T>(pageNo: number): T | null {
     const offset = pageNo * this.pageSize;
@@ -78,17 +85,18 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     if (data.length + 4 > this.pageSize) {
       throw new Error(
         `OPFSSyncStorage: value for page ${pageNo} is ${data.length} bytes, ` +
-        `exceeds page capacity ${this.pageSize - 4}. Increase PAGE_SIZE.`,
+          `exceeds page capacity ${this.pageSize - 4}. Increase PAGE_SIZE.`,
       );
     }
-    const lenBuf = new Uint8Array(4);
-    new DataView(lenBuf.buffer).setUint32(0, data.length, false);
-    const offset = pageNo * this.pageSize;
-    this.handle.write(lenBuf, { at: offset });
-    this.handle.write(data, { at: offset + 4 });
+    const buf = new Uint8Array(4 + data.length);
+    new DataView(buf.buffer).setUint32(0, data.length, false);
+    buf.set(data, 4);
+    this.handle.write(buf, { at: pageNo * this.pageSize });
   }
 
-  getNextPageId(): number { return this.nextPageId; }
+  getNextPageId(): number {
+    return this.nextPageId;
+  }
 
   writeHeader(nextPageId: number): void {
     this.nextPageId = nextPageId;
@@ -98,10 +106,16 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     v.setUint32(8, this.pageSize, false);
     v.setUint32(12, this.nextPageId, false);
     this.handle.write(buf, { at: 0 });
+  }
+
+  /** Shrink file to match nextPageId. Safe only after flush(). */
+  truncateToSize(): void {
     this.handle.truncate(this.nextPageId * this.pageSize);
   }
 
-  flush(): void { this.handle.flush(); }
+  flush(): void {
+    this.handle.flush();
+  }
 
   // ---------------------------------------------------------------------------
 
@@ -121,11 +135,16 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     const buf = new Uint8Array(HEADER_SIZE);
     this.handle.read(buf, { at: 0 });
     for (let i = 0; i < MAGIC.length; i++) {
-      if (buf[i] !== MAGIC[i]) throw new Error('Invalid OPFSQL file: bad magic');
+      if (buf[i] !== MAGIC[i])
+        throw new Error("Invalid OPFSQL file: bad magic");
     }
     const v = new DataView(buf.buffer);
     const pageSize = v.getUint32(8, false);
-    if (pageSize < 4096 || pageSize > 1048576 || (pageSize & (pageSize - 1)) !== 0) {
+    if (
+      pageSize < 4096 ||
+      pageSize > 1048576 ||
+      (pageSize & (pageSize - 1)) !== 0
+    ) {
       throw new Error(`Invalid OPFSQL file: bad pageSize ${pageSize}`);
     }
     this.pageSize = pageSize;

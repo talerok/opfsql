@@ -1,4 +1,4 @@
-import type { SyncIPageStorage } from "./types.js";
+import type { SyncIPageStorage } from "../types.js";
 
 /**
  * Test-only in-memory SyncIPageStorage. Uses structuredClone to mimic real storage
@@ -21,7 +21,9 @@ export class MemoryPageStorage implements SyncIPageStorage {
     this.pages.set(pageNo, structuredClone(value));
   }
 
-  getNextPageId(): number { return this.nextPageId; }
+  getNextPageId(): number {
+    return this.nextPageId;
+  }
 
   writeHeader(nextPageId: number): void {
     this.nextPageId = nextPageId;

@@ -3,7 +3,7 @@ import type { IndexKey } from '../index-btree/types.js';
 import { SyncIndexManager } from '../index-manager.js';
 import { SyncPageStore } from '../page-manager.js';
 import type { ICatalog, IndexDef, RowId } from '../types.js';
-import { MemoryPageStorage } from '../memory-storage.js';
+import { MemoryPageStorage } from '../backend/memory-storage.js';
 import { Catalog } from '../catalog.js';
 
 function rid(a: number, b: number): RowId {

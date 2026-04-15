@@ -3,7 +3,7 @@ import { SyncBTree } from '../index-btree/index-btree.js';
 import type { IndexKey } from '../index-btree/types.js';
 import { SyncPageStore } from '../page-manager.js';
 import type { RowId } from '../types.js';
-import { MemoryPageStorage } from '../memory-storage.js';
+import { MemoryPageStorage } from '../backend/memory-storage.js';
 
 function rid(a: number, b: number): RowId {
   return a * 1000 + b;

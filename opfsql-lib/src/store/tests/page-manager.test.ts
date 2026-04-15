@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncPageStore } from '../page-manager.js';
-import { MemoryPageStorage } from '../memory-storage.js';
+import { MemoryPageStorage } from '../backend/memory-storage.js';
 
 function createStore(storage?: MemoryPageStorage, cacheSize?: number): SyncPageStore {
   const s = storage ?? new MemoryPageStorage();

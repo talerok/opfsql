@@ -1,11 +1,11 @@
 import { SyncBTree } from "./index-btree/index-btree.js";
 import type {
+  ICatalog,
   IndexKey,
   RowId,
   SearchPredicate,
   SyncIIndexManager,
   SyncIPageStore,
-  ICatalog,
 } from "./types.js";
 
 export class SyncIndexManager implements SyncIIndexManager {

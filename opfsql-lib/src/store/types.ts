@@ -1,16 +1,16 @@
 export type {
-  LogicalType,
-  JsonValue,
-  Value,
-  ColumnDef,
-  TableSchema,
-  IndexDef,
   CatalogData,
-  RowId,
+  ColumnDef,
+  IndexDef,
+  JsonValue,
+  LogicalType,
   Row,
-} from '../types.js';
+  RowId,
+  TableSchema,
+  Value,
+} from "../types.js";
 
-import type { IndexDef, Row, RowId, TableSchema } from '../types.js';
+import type { IndexDef, Row, RowId, TableSchema } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Catalog interface
@@ -28,7 +28,7 @@ export interface ICatalog {
   getTableIndexes(tableName: string): IndexDef[];
   addIndex(index: IndexDef): void;
   removeIndex(name: string): void;
-  serialize(): import('../types.js').CatalogData;
+  serialize(): import("../types.js").CatalogData;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,8 @@ export interface SyncIPageStorage {
   getNextPageId(): number;
   writeHeader(nextPageId: number): void;
   flush(): void;
+  /** Shrink backing file to match nextPageId. Safe only after flush(). */
+  truncateToSize?(): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,8 +77,16 @@ export interface SyncIRowManager {
 export interface SyncIIndexManager {
   insert(indexName: string, key: IndexKey, rowId: RowId): void;
   delete(indexName: string, key: IndexKey, rowId: RowId): void;
-  search(indexName: string, predicates: SearchPredicate[], totalColumns?: number): RowId[];
-  bulkLoad(indexName: string, entries: Array<{ key: IndexKey; rowId: RowId }>, unique: boolean): number;
+  search(
+    indexName: string,
+    predicates: SearchPredicate[],
+    totalColumns?: number,
+  ): RowId[];
+  bulkLoad(
+    indexName: string,
+    entries: Array<{ key: IndexKey; rowId: RowId }>,
+    unique: boolean,
+  ): number;
   dropIndex(indexName: string): void;
 }
 
@@ -89,6 +99,6 @@ export type IndexKey = IndexKeyValue[];
 
 export interface SearchPredicate {
   columnPosition: number;
-  comparisonType: 'EQUAL' | 'LESS' | 'GREATER' | 'LESS_EQUAL' | 'GREATER_EQUAL';
+  comparisonType: "EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
   value: string | number | boolean | null;
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { MemoryPageStorage } from "../../store/memory-storage.js";
+import { MemoryPageStorage } from "../../store/backend/memory-storage.js";
 import { Engine, EngineError, PreparedStatement } from "../index.js";
 
 let engine: Engine;

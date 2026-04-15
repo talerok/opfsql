@@ -1,10 +1,10 @@
-import type { RowId } from '../types.js';
+import type { RowId } from "../types.js";
 
 export type IndexKeyValue = string | number | boolean | null;
 export type IndexKey = IndexKeyValue[];
 
 export interface BTreeLeafNode {
-  kind: 'leaf';
+  kind: "leaf";
   nodeId: number;
   keys: IndexKey[];
   rowIds: RowId[][];
@@ -12,7 +12,7 @@ export interface BTreeLeafNode {
 }
 
 export interface BTreeInternalNode {
-  kind: 'internal';
+  kind: "internal";
   nodeId: number;
   keys: IndexKey[];
   children: number[];

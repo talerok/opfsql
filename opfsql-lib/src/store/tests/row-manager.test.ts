@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableManager } from '../table-manager.js';
 import { SyncPageStore } from '../page-manager.js';
-import { MemoryPageStorage } from '../memory-storage.js';
+import { MemoryPageStorage } from '../backend/memory-storage.js';
 import { Catalog } from '../catalog.js';
 import type { ICatalog, TableSchema } from '../types.js';
 

@@ -1,5 +1,6 @@
 import { Engine, PreparedStatement, type Result } from "../engine/index.js";
-import { OPFSSyncStorage } from "../store/opfs-storage.js";
+import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
+import { WalStorage } from "../store/wal/wal-storage.js";
 import { Value } from "../types.js";
 
 console.log("[opfsql worker] loaded");
@@ -43,7 +44,14 @@ function reply(msg: OutMsg): void {
         if (engine) engine.close();
         prepared.clear();
         console.log("[opfsql worker] opening", data.dbName);
-        engine = await Engine.create(new OPFSSyncStorage(data.dbName));
+        const mainStorage = new OPFSSyncStorage(data.dbName);
+        const root = await navigator.storage.getDirectory();
+        const walFh = await root.getFileHandle(
+          `${data.dbName}.opfsql-wal`,
+          { create: true },
+        );
+        const walHandle = await (walFh as any).createSyncAccessHandle();
+        engine = await Engine.create(new WalStorage(mainStorage, walHandle));
         console.log("[opfsql worker] opened", data.dbName);
         reply({ id, ok: true });
         break;

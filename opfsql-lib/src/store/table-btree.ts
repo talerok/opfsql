@@ -1,9 +1,9 @@
-import type { SyncIPageStore, Row, RowId } from './types.js';
+import type { Row, RowId, SyncIPageStore } from "./types.js";
 
 const ORDER = 128;
 
 export interface TableLeafNode {
-  kind: 'leaf';
+  kind: "leaf";
   nodeId: number;
   keys: number[];
   values: Row[];
@@ -11,7 +11,7 @@ export interface TableLeafNode {
 }
 
 export interface TableInternalNode {
-  kind: 'internal';
+  kind: "internal";
   nodeId: number;
   keys: number[];
   children: number[];
@@ -58,7 +58,8 @@ export class SyncTableBTree {
     if (meta.size === 0) return null;
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
-    if (pos < leaf.keys.length && leaf.keys[pos] === rowId) return leaf.values[pos];
+    if (pos < leaf.keys.length && leaf.keys[pos] === rowId)
+      return leaf.values[pos];
     return null;
   }
 
@@ -68,7 +69,10 @@ export class SyncTableBTree {
     const pos = this.bisectLeft(leaf.keys, rowId);
     if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId)
       throw new Error(`Row ${rowId} not found`);
-    this.writeNode({ ...leaf, values: leaf.values.map((v, i) => (i === pos ? row : v)) });
+    this.writeNode({
+      ...leaf,
+      values: leaf.values.map((v, i) => (i === pos ? row : v)),
+    });
   }
 
   delete(rowId: RowId): void {
@@ -90,8 +94,12 @@ export class SyncTableBTree {
     if (meta.size === 0) return;
     let leaf: TableLeafNode | null = this.findLeftmostLeaf(meta);
     while (leaf) {
-      for (let i = 0; i < leaf.keys.length; i++) yield { rowId: leaf.keys[i], row: leaf.values[i] };
-      leaf = leaf.nextLeafId !== null ? (this.readNode(leaf.nextLeafId) as TableLeafNode) : null;
+      for (let i = 0; i < leaf.keys.length; i++)
+        yield { rowId: leaf.keys[i], row: leaf.values[i] };
+      leaf =
+        leaf.nextLeafId !== null
+          ? (this.readNode(leaf.nextLeafId) as TableLeafNode)
+          : null;
     }
   }
 
@@ -117,60 +125,101 @@ export class SyncTableBTree {
 
   // --- Split ---------------------------------------------------------------
 
-  private splitLeaf(meta: TableBTreeMeta, leaf: TableLeafNode, path: TableNode[]): void {
+  private splitLeaf(
+    meta: TableBTreeMeta,
+    leaf: TableLeafNode,
+    path: TableNode[],
+  ): void {
     const mid = leaf.keys.length >>> 1;
     const newPageNo = this.ps.allocPage();
     const newLeaf: TableLeafNode = {
-      kind: 'leaf', nodeId: newPageNo,
-      keys: leaf.keys.slice(mid), values: leaf.values.slice(mid),
+      kind: "leaf",
+      nodeId: newPageNo,
+      keys: leaf.keys.slice(mid),
+      values: leaf.values.slice(mid),
       nextLeafId: leaf.nextLeafId,
     };
     const updatedLeaf: TableLeafNode = {
-      ...leaf, keys: leaf.keys.slice(0, mid), values: leaf.values.slice(0, mid),
+      ...leaf,
+      keys: leaf.keys.slice(0, mid),
+      values: leaf.values.slice(0, mid),
       nextLeafId: newLeaf.nodeId,
     };
     this.writeNode(updatedLeaf);
     this.writeNode(newLeaf);
-    this.propagateSplit(meta, path, path.length - 2, newLeaf.keys[0], newLeaf.nodeId);
+    this.propagateSplit(
+      meta,
+      path,
+      path.length - 2,
+      newLeaf.keys[0],
+      newLeaf.nodeId,
+    );
   }
 
   private propagateSplit(
-    meta: TableBTreeMeta, path: TableNode[], parentIdx: number,
-    key: number, rightChildId: number,
+    meta: TableBTreeMeta,
+    path: TableNode[],
+    parentIdx: number,
+    key: number,
+    rightChildId: number,
   ): void {
-    if (parentIdx < 0) { this.createNewRoot(meta, key, rightChildId); return; }
+    if (parentIdx < 0) {
+      this.createNewRoot(meta, key, rightChildId);
+      return;
+    }
     const parent = path[parentIdx] as TableInternalNode;
     const pos = this.bisectRight(parent.keys, key);
     const newParent: TableInternalNode = {
       ...parent,
       keys: [...parent.keys.slice(0, pos), key, ...parent.keys.slice(pos)],
-      children: [...parent.children.slice(0, pos + 1), rightChildId, ...parent.children.slice(pos + 1)],
+      children: [
+        ...parent.children.slice(0, pos + 1),
+        rightChildId,
+        ...parent.children.slice(pos + 1),
+      ],
     };
     this.writeNode(newParent);
-    if (newParent.keys.length >= ORDER) this.splitInternal(meta, newParent, path, parentIdx);
+    if (newParent.keys.length >= ORDER)
+      this.splitInternal(meta, newParent, path, parentIdx);
   }
 
   private splitInternal(
-    meta: TableBTreeMeta, node: TableInternalNode, path: TableNode[], nodeIdx: number,
+    meta: TableBTreeMeta,
+    node: TableInternalNode,
+    path: TableNode[],
+    nodeIdx: number,
   ): void {
     const mid = node.keys.length >>> 1;
     const promotedKey = node.keys[mid];
     const newPageNo = this.ps.allocPage();
     const newNode: TableInternalNode = {
-      kind: 'internal', nodeId: newPageNo,
-      keys: node.keys.slice(mid + 1), children: node.children.slice(mid + 1),
+      kind: "internal",
+      nodeId: newPageNo,
+      keys: node.keys.slice(mid + 1),
+      children: node.children.slice(mid + 1),
     };
     const updatedNode: TableInternalNode = {
-      ...node, keys: node.keys.slice(0, mid), children: node.children.slice(0, mid + 1),
+      ...node,
+      keys: node.keys.slice(0, mid),
+      children: node.children.slice(0, mid + 1),
     };
     this.writeNode(updatedNode);
     this.writeNode(newNode);
     this.propagateSplit(meta, path, nodeIdx - 1, promotedKey, newNode.nodeId);
   }
 
-  private createNewRoot(meta: TableBTreeMeta, key: number, rightChildId: number): void {
+  private createNewRoot(
+    meta: TableBTreeMeta,
+    key: number,
+    rightChildId: number,
+  ): void {
     const nodeId = this.ps.allocPage();
-    this.writeNode({ kind: 'internal', nodeId, keys: [key], children: [meta.rootNodeId, rightChildId] });
+    this.writeNode({
+      kind: "internal",
+      nodeId,
+      keys: [key],
+      children: [meta.rootNodeId, rightChildId],
+    });
     meta.rootNodeId = nodeId;
     meta.height++;
   }
@@ -181,7 +230,7 @@ export class SyncTableBTree {
     const path: TableNode[] = [];
     let node = this.readNode(meta.rootNodeId);
     path.push(node);
-    while (node.kind === 'internal') {
+    while (node.kind === "internal") {
       node = this.readNode(node.children[this.bisectRight(node.keys, key)]);
       path.push(node);
     }
@@ -190,19 +239,29 @@ export class SyncTableBTree {
 
   private findLeftmostLeaf(meta: TableBTreeMeta): TableLeafNode {
     let node = this.readNode(meta.rootNodeId);
-    while (node.kind === 'internal') node = this.readNode(node.children[0]);
+    while (node.kind === "internal") node = this.readNode(node.children[0]);
     return node;
   }
 
   private bisectLeft(keys: number[], key: number): number {
-    let lo = 0, hi = keys.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (keys[mid] < key) lo = mid + 1; else hi = mid; }
+    let lo = 0,
+      hi = keys.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (keys[mid] < key) lo = mid + 1;
+      else hi = mid;
+    }
     return lo;
   }
 
   private bisectRight(keys: number[], key: number): number {
-    let lo = 0, hi = keys.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (key < keys[mid]) hi = mid; else lo = mid + 1; }
+    let lo = 0,
+      hi = keys.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (key < keys[mid]) hi = mid;
+      else lo = mid + 1;
+    }
     return lo;
   }
 
@@ -210,7 +269,8 @@ export class SyncTableBTree {
 
   private readMeta(): TableBTreeMeta {
     const meta = this.ps.readPage<TableBTreeMeta>(this.metaPageNo);
-    if (!meta) throw new Error(`Table B-tree meta at page ${this.metaPageNo} not found`);
+    if (!meta)
+      throw new Error(`Table B-tree meta at page ${this.metaPageNo} not found`);
     return meta;
   }
 

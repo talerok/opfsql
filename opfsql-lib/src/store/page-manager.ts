@@ -1,6 +1,6 @@
-import type { SyncIPageStore, SyncIPageStorage } from './types.js';
-import type { ICache } from './cache.js';
-import { LRUCache } from './cache.js';
+import type { ICache } from "./cache.js";
+import { LRUCache } from "./cache.js";
+import type { SyncIPageStorage, SyncIPageStore } from "./types.js";
 
 const DEFAULT_CACHE_SIZE = 256;
 const FREELIST_PAGE_NO = 2;
