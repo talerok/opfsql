@@ -1,4 +1,4 @@
-import type { RowId, SyncIKVStore } from "../types.js";
+import type { RowId, SyncIPageStore } from "../types.js";
 import { compareIndexKeys, keyHasNull } from "./compare.js";
 import {
   computeBounds,
@@ -15,18 +15,15 @@ import type {
 import { ORDER } from "./types.js";
 export type { SearchPredicate } from "./search-bounds.js";
 
-const NODE_ID_WIDTH = 8;
-
 export class SyncBTree {
   constructor(
-    private readonly indexName: string,
-    private readonly pm: SyncIKVStore,
+    private readonly metaPageNo: number,
+    private readonly ps: SyncIPageStore,
     private readonly unique: boolean = false,
   ) {}
 
   insert(key: IndexKey, rowId: RowId): void {
-    const baseMeta = this.readMeta();
-    const meta: BTreeMeta = baseMeta ? { ...baseMeta } : this.initEmptyTree();
+    const meta: BTreeMeta = { ...this.readMeta() };
     const path = this.findLeafPath(meta, key);
     const leaf = path.at(-1) as BTreeLeafNode;
     const newLeaf = this.insertIntoLeaf(leaf, key, rowId);
@@ -39,7 +36,6 @@ export class SyncBTree {
 
   delete(key: IndexKey, rowId: RowId): void {
     const baseMeta = this.readMeta();
-    if (!baseMeta) return;
     const meta = { ...baseMeta };
     const leaf = this.findLeafPath(meta, key).at(-1) as BTreeLeafNode;
     const newLeaf = this.removeFromLeaf(leaf, key, rowId);
@@ -51,7 +47,7 @@ export class SyncBTree {
 
   search(predicates: SearchPredicate[], totalColumns?: number): RowId[] {
     const meta = this.readMeta();
-    if (!meta || meta.size === 0) return [];
+    if (meta.size === 0) return [];
     return this.rangeScan(meta, computeBounds(predicates, totalColumns));
   }
 
@@ -59,18 +55,17 @@ export class SyncBTree {
     const meta: BTreeMeta = {
       rootNodeId: 0,
       height: 1,
-      nextNodeId: 0,
       size: 0,
       unique: this.unique,
     };
     if (entries.length === 0) {
-      meta.rootNodeId = this.createLeaf(meta, [], [], null);
+      meta.rootNodeId = this.createLeaf([], [], null);
       this.writeMeta(meta);
       return;
     }
     const merged = this.mergeEntries(entries);
     meta.size = entries.length;
-    const leaves = this.buildLeaves(meta, merged);
+    const leaves = this.buildLeaves(merged);
     this.linkAndWriteLeaves(leaves);
     meta.rootNodeId =
       leaves.length === 1
@@ -80,8 +75,23 @@ export class SyncBTree {
   }
 
   drop(): void {
-    for (const key of this.pm.getAllKeys(`btree:${this.indexName}:`))
-      this.pm.deleteKey(key);
+    const meta = this.readMeta();
+    this.freeSubtree(meta.rootNodeId, meta.height);
+    this.ps.freePage(this.metaPageNo);
+  }
+
+  // --- Drop (recursive free) ------------------------------------------------
+
+  private freeSubtree(pageNo: number, height: number): void {
+    if (height === 1) {
+      this.ps.freePage(pageNo);
+      return;
+    }
+    const node = this.readNode(pageNo) as BTreeInternalNode;
+    for (const childId of node.children) {
+      this.freeSubtree(childId, height - 1);
+    }
+    this.ps.freePage(pageNo);
   }
 
   // --- Leaf operations ------------------------------------------------------
@@ -96,7 +106,7 @@ export class SyncBTree {
       pos < leaf.keys.length && compareIndexKeys(leaf.keys[pos], key) === 0;
     if (isExisting) {
       if (this.unique && !keyHasNull(key))
-        throw new Error(`UNIQUE constraint failed: index "${this.indexName}"`);
+        throw new Error(`UNIQUE constraint failed: index`);
       return {
         ...leaf,
         rowIds: leaf.rowIds.map((b, i) => (i === pos ? [...b, rowId] : b)),
@@ -209,9 +219,7 @@ export class SyncBTree {
       const last = merged.at(-1);
       if (last && compareIndexKeys(last.key, key) === 0) {
         if (this.unique && !keyHasNull(key))
-          throw new Error(
-            `UNIQUE constraint failed: index "${this.indexName}"`,
-          );
+          throw new Error(`UNIQUE constraint failed: index`);
         last.rowIds.push(rowId);
       } else {
         merged.push({ key, rowIds: [rowId] });
@@ -221,13 +229,12 @@ export class SyncBTree {
   }
 
   private buildLeaves(
-    meta: BTreeMeta,
     merged: Array<{ key: IndexKey; rowIds: RowId[] }>,
   ): BTreeLeafNode[] {
     const leaves: BTreeLeafNode[] = [];
     for (let i = 0; i < merged.length; i += ORDER - 1) {
       const chunk = merged.slice(i, i + ORDER - 1);
-      const nodeId = this.allocNodeId(meta);
+      const nodeId = this.ps.allocPage();
       leaves.push({
         kind: "leaf",
         nodeId,
@@ -255,7 +262,7 @@ export class SyncBTree {
       const next: Array<{ nodeId: number; firstKey: IndexKey }> = [];
       for (let i = 0; i < level.length; i += ORDER) {
         const chunk = level.slice(i, i + ORDER);
-        const nodeId = this.allocNodeId(meta);
+        const nodeId = this.ps.allocPage();
         this.writeNode({
           kind: "internal",
           nodeId,
@@ -277,9 +284,10 @@ export class SyncBTree {
     path: BTreeNode[],
   ): void {
     const mid = leaf.keys.length >>> 1;
+    const newPageNo = this.ps.allocPage();
     const newLeaf: BTreeLeafNode = {
       kind: "leaf",
-      nodeId: this.allocNodeId(meta),
+      nodeId: newPageNo,
       keys: leaf.keys.slice(mid),
       rowIds: leaf.rowIds.slice(mid),
       nextLeafId: leaf.nextLeafId,
@@ -336,9 +344,10 @@ export class SyncBTree {
   ): void {
     const mid = node.keys.length >>> 1;
     const promotedKey = node.keys[mid];
+    const newPageNo = this.ps.allocPage();
     const newNode: BTreeInternalNode = {
       kind: "internal",
-      nodeId: this.allocNodeId(meta),
+      nodeId: newPageNo,
       keys: node.keys.slice(mid + 1),
       children: node.children.slice(mid + 1),
     };
@@ -357,7 +366,7 @@ export class SyncBTree {
     key: IndexKey,
     rightChildId: number,
   ): void {
-    const nodeId = this.allocNodeId(meta);
+    const nodeId = this.ps.allocPage();
     this.writeNode({
       kind: "internal",
       nodeId,
@@ -405,53 +414,33 @@ export class SyncBTree {
 
   // --- Storage --------------------------------------------------------------
 
-  private metaKey = () => `btree:${this.indexName}:meta`;
-  private nodeKey = (id: number) =>
-    `btree:${this.indexName}:node:${String(id).padStart(NODE_ID_WIDTH, "0")}`;
-
-  private readMeta(): BTreeMeta | null {
-    return this.pm.readKey<BTreeMeta>(this.metaKey());
+  private readMeta(): BTreeMeta {
+    const meta = this.ps.readPage<BTreeMeta>(this.metaPageNo);
+    if (!meta) throw new Error(`Index B-tree meta at page ${this.metaPageNo} not found`);
+    return meta;
   }
+
   private writeMeta(meta: BTreeMeta): void {
-    this.pm.writeKey(this.metaKey(), meta);
+    this.ps.writePage(this.metaPageNo, meta);
   }
 
-  private readNode(nodeId: number): BTreeNode {
-    const node = this.pm.readKey<BTreeNode>(this.nodeKey(nodeId));
-    if (!node)
-      throw new Error(
-        `B-tree node ${nodeId} not found in index "${this.indexName}"`,
-      );
+  private readNode(pageNo: number): BTreeNode {
+    const node = this.ps.readPage<BTreeNode>(pageNo);
+    if (!node) throw new Error(`B-tree node at page ${pageNo} not found`);
     return node;
   }
 
   private writeNode(node: BTreeNode): void {
-    this.pm.writeKey(this.nodeKey(node.nodeId), node);
-  }
-  private allocNodeId(meta: BTreeMeta): number {
-    return meta.nextNodeId++;
+    this.ps.writePage(node.nodeId, node);
   }
 
   private createLeaf(
-    meta: BTreeMeta,
     keys: IndexKey[],
     rowIds: RowId[][],
     nextLeafId: number | null,
   ): number {
-    const nodeId = this.allocNodeId(meta);
+    const nodeId = this.ps.allocPage();
     this.writeNode({ kind: "leaf", nodeId, keys, rowIds, nextLeafId });
     return nodeId;
-  }
-
-  private initEmptyTree(): BTreeMeta {
-    const meta: BTreeMeta = {
-      rootNodeId: 0,
-      height: 1,
-      nextNodeId: 0,
-      size: 0,
-      unique: this.unique,
-    };
-    meta.rootNodeId = this.createLeaf(meta, [], [], null);
-    return meta;
   }
 }

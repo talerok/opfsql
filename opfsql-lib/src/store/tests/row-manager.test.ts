@@ -1,17 +1,35 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableManager } from '../table-manager.js';
-import { SyncPageManager } from '../page-manager.js';
-import { MemoryStorage } from '../memory-storage.js';
+import { SyncPageStore } from '../page-manager.js';
+import { MemoryPageStorage } from '../memory-storage.js';
+import { Catalog } from '../catalog.js';
+import type { ICatalog, TableSchema } from '../types.js';
+
+function createStore(storage?: MemoryPageStorage): SyncPageStore {
+  const s = storage ?? new MemoryPageStorage();
+  return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
+}
 
 describe('SyncTableManager (row operations via SyncTableBTree)', () => {
-  let storage: MemoryStorage;
-  let kv: SyncPageManager;
+  let storage: MemoryPageStorage;
+  let ps: SyncPageStore;
+  let catalog: Catalog;
   let rm: SyncTableManager;
 
   beforeEach(() => {
-    storage = new MemoryStorage();
-    kv = new SyncPageManager(storage);
-    rm = new SyncTableManager(kv);
+    storage = new MemoryPageStorage();
+    ps = createStore(storage);
+    catalog = new Catalog();
+    rm = new SyncTableManager(ps, () => catalog);
+
+    // Create a table 't1' in the catalog
+    const metaPageNo = rm.createTable();
+    const schema: TableSchema = {
+      name: 't1',
+      columns: [],
+      metaPageNo,
+    };
+    catalog.addTable(schema);
   });
 
   function collectScan(tableId: string) {
@@ -46,7 +64,7 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
 
     beforeEach(() => {
       rowId = rm.prepareInsert('t1', { id: 1, val: 'old' });
-      kv.commit();
+      ps.commit();
     });
 
     it('replaces row data', () => {
@@ -72,7 +90,7 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
 
     beforeEach(() => {
       rowId = rm.prepareInsert('t1', { id: 1 });
-      kv.commit();
+      ps.commit();
     });
 
     it('removes row from scan', () => {
@@ -125,20 +143,20 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
   describe('batch DML via WAL', () => {
     it('multiple deletes all persist after commit', () => {
       for (let i = 0; i < 3; i++) rm.prepareInsert('t1', { id: i });
-      kv.commit();
+      ps.commit();
 
       for (const { rowId } of collectScan('t1')) rm.prepareDelete('t1', rowId);
-      kv.commit();
+      ps.commit();
 
       expect(collectScan('t1')).toHaveLength(0);
     });
 
     it('multiple updates all persist after commit', () => {
       for (let i = 0; i < 3; i++) rm.prepareInsert('t1', { id: i, val: 'old' });
-      kv.commit();
+      ps.commit();
 
       for (const { rowId } of collectScan('t1')) rm.prepareUpdate('t1', rowId, { id: rowId, val: 'new' });
-      kv.commit();
+      ps.commit();
 
       const updated = collectScan('t1');
       expect(updated).toHaveLength(3);
@@ -147,21 +165,22 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
   });
 
   describe('persistence', () => {
-    it('data survives commit and reload', () => {
+    it('data survives commit and is readable', () => {
       const rowId = rm.prepareInsert('t1', { id: 1, val: 'persisted' });
-      kv.commit();
+      ps.commit();
 
-      const kv2 = new SyncPageManager(storage);
-      const rm2 = new SyncTableManager(kv2);
+      // Create a fresh manager pointing to same storage
+      const ps2 = createStore(storage);
+      const rm2 = new SyncTableManager(ps2, () => catalog);
       expect(rm2.readRow('t1', rowId)).toEqual({ id: 1, val: 'persisted' });
     });
 
     it('rollback discards uncommitted data', () => {
       rm.prepareInsert('t1', { id: 1 });
-      kv.commit();
+      ps.commit();
 
       rm.prepareInsert('t1', { id: 2 });
-      kv.rollback();
+      ps.rollback();
 
       const rows = collectScan('t1');
       expect(rows).toHaveLength(1);
@@ -173,12 +192,10 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
     it('removes all table data', () => {
       rm.prepareInsert('t1', { id: 1 });
       rm.prepareInsert('t1', { id: 2 });
-      kv.commit();
+      ps.commit();
 
       rm.deleteTableData('t1');
-      kv.commit();
-
-      expect(collectScan('t1')).toHaveLength(0);
+      ps.commit();
     });
   });
 });

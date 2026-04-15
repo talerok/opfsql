@@ -1,6 +1,5 @@
-import type { SyncIKVStore, Row, RowId } from './types.js';
+import type { SyncIPageStore, Row, RowId } from './types.js';
 
-const NODE_ID_WIDTH = 8;
 const ORDER = 128;
 
 export interface TableLeafNode {
@@ -23,20 +22,18 @@ export type TableNode = TableLeafNode | TableInternalNode;
 export interface TableBTreeMeta {
   rootNodeId: number;
   height: number;
-  nextNodeId: number;
   nextRowId: number;
   size: number;
 }
 
 export class SyncTableBTree {
   constructor(
-    private readonly tableName: string,
-    private readonly kv: SyncIKVStore,
+    private readonly metaPageNo: number,
+    private readonly ps: SyncIPageStore,
   ) {}
 
   insert(row: Row): RowId {
-    const baseMeta = this.readMeta();
-    const meta: TableBTreeMeta = baseMeta ? { ...baseMeta } : this.initEmpty();
+    const meta = { ...this.readMeta() };
     const rowId = meta.nextRowId++;
     const path = this.findLeafPath(meta, rowId);
     const leaf = path.at(-1) as TableLeafNode;
@@ -58,7 +55,7 @@ export class SyncTableBTree {
 
   get(rowId: RowId): Row | null {
     const meta = this.readMeta();
-    if (!meta || meta.size === 0) return null;
+    if (meta.size === 0) return null;
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
     if (pos < leaf.keys.length && leaf.keys[pos] === rowId) return leaf.values[pos];
@@ -67,18 +64,15 @@ export class SyncTableBTree {
 
   update(rowId: RowId, row: Row): void {
     const meta = this.readMeta();
-    if (!meta) throw new Error(`Row ${rowId} not found in table "${this.tableName}"`);
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
     if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId)
-      throw new Error(`Row ${rowId} not found in table "${this.tableName}"`);
+      throw new Error(`Row ${rowId} not found`);
     this.writeNode({ ...leaf, values: leaf.values.map((v, i) => (i === pos ? row : v)) });
   }
 
   delete(rowId: RowId): void {
-    const baseMeta = this.readMeta();
-    if (!baseMeta) return;
-    const meta = { ...baseMeta };
+    const meta = { ...this.readMeta() };
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
     if (pos >= leaf.keys.length || leaf.keys[pos] !== rowId) return;
@@ -93,7 +87,7 @@ export class SyncTableBTree {
 
   *scan(): Generator<{ rowId: RowId; row: Row }> {
     const meta = this.readMeta();
-    if (!meta || meta.size === 0) return;
+    if (meta.size === 0) return;
     let leaf: TableLeafNode | null = this.findLeftmostLeaf(meta);
     while (leaf) {
       for (let i = 0; i < leaf.keys.length; i++) yield { rowId: leaf.keys[i], row: leaf.values[i] };
@@ -102,15 +96,32 @@ export class SyncTableBTree {
   }
 
   drop(): void {
-    for (const key of this.kv.getAllKeys(`table:${this.tableName}:`)) this.kv.deleteKey(key);
+    const meta = this.readMeta();
+    this.freeSubtree(meta.rootNodeId, meta.height);
+    this.ps.freePage(this.metaPageNo);
+  }
+
+  // --- Drop (recursive free) ------------------------------------------------
+
+  private freeSubtree(pageNo: number, height: number): void {
+    if (height === 1) {
+      this.ps.freePage(pageNo);
+      return;
+    }
+    const node = this.readNode(pageNo) as TableInternalNode;
+    for (const childId of node.children) {
+      this.freeSubtree(childId, height - 1);
+    }
+    this.ps.freePage(pageNo);
   }
 
   // --- Split ---------------------------------------------------------------
 
   private splitLeaf(meta: TableBTreeMeta, leaf: TableLeafNode, path: TableNode[]): void {
     const mid = leaf.keys.length >>> 1;
+    const newPageNo = this.ps.allocPage();
     const newLeaf: TableLeafNode = {
-      kind: 'leaf', nodeId: this.allocNodeId(meta),
+      kind: 'leaf', nodeId: newPageNo,
       keys: leaf.keys.slice(mid), values: leaf.values.slice(mid),
       nextLeafId: leaf.nextLeafId,
     };
@@ -144,8 +155,9 @@ export class SyncTableBTree {
   ): void {
     const mid = node.keys.length >>> 1;
     const promotedKey = node.keys[mid];
+    const newPageNo = this.ps.allocPage();
     const newNode: TableInternalNode = {
-      kind: 'internal', nodeId: this.allocNodeId(meta),
+      kind: 'internal', nodeId: newPageNo,
       keys: node.keys.slice(mid + 1), children: node.children.slice(mid + 1),
     };
     const updatedNode: TableInternalNode = {
@@ -157,7 +169,7 @@ export class SyncTableBTree {
   }
 
   private createNewRoot(meta: TableBTreeMeta, key: number, rightChildId: number): void {
-    const nodeId = this.allocNodeId(meta);
+    const nodeId = this.ps.allocPage();
     this.writeNode({ kind: 'internal', nodeId, keys: [key], children: [meta.rootNodeId, rightChildId] });
     meta.rootNodeId = nodeId;
     meta.height++;
@@ -196,26 +208,23 @@ export class SyncTableBTree {
 
   // --- Storage -------------------------------------------------------------
 
-  private metaKey = () => `table:${this.tableName}:meta`;
-  private nodeKey = (id: number) => `table:${this.tableName}:node:${String(id).padStart(NODE_ID_WIDTH, '0')}`;
+  private readMeta(): TableBTreeMeta {
+    const meta = this.ps.readPage<TableBTreeMeta>(this.metaPageNo);
+    if (!meta) throw new Error(`Table B-tree meta at page ${this.metaPageNo} not found`);
+    return meta;
+  }
 
-  private readMeta(): TableBTreeMeta | null { return this.kv.readKey<TableBTreeMeta>(this.metaKey()); }
-  private writeMeta(meta: TableBTreeMeta): void { this.kv.writeKey(this.metaKey(), meta); }
+  private writeMeta(meta: TableBTreeMeta): void {
+    this.ps.writePage(this.metaPageNo, meta);
+  }
 
-  private readNode(nodeId: number): TableNode {
-    const node = this.kv.readKey<TableNode>(this.nodeKey(nodeId));
-    if (!node) throw new Error(`Table B-tree node ${nodeId} not found in "${this.tableName}"`);
+  private readNode(pageNo: number): TableNode {
+    const node = this.ps.readPage<TableNode>(pageNo);
+    if (!node) throw new Error(`Table B-tree node at page ${pageNo} not found`);
     return node;
   }
 
-  private writeNode(node: TableNode): void { this.kv.writeKey(this.nodeKey(node.nodeId), node); }
-  private allocNodeId(meta: TableBTreeMeta): number { return meta.nextNodeId++; }
-
-  private initEmpty(): TableBTreeMeta {
-    const meta: TableBTreeMeta = { rootNodeId: 0, height: 1, nextNodeId: 0, nextRowId: 0, size: 0 };
-    const nodeId = this.allocNodeId(meta);
-    this.writeNode({ kind: 'leaf', nodeId, keys: [], values: [], nextLeafId: null });
-    meta.rootNodeId = nodeId;
-    return meta;
+  private writeNode(node: TableNode): void {
+    this.ps.writePage(node.nodeId, node);
   }
 }

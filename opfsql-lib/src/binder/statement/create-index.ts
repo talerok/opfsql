@@ -31,6 +31,10 @@ export function bindCreateIndex(
     resolvedColumns.push(def.name);
   }
 
+  if (stmt.index_name.toLowerCase().startsWith('__pk_')) {
+    throw new BindError(`Index name "${stmt.index_name}" uses reserved prefix "__pk_"`);
+  }
+
   return {
     type: LogicalOperatorType.LOGICAL_CREATE_INDEX,
     index: {

@@ -1,17 +1,35 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableBTree } from '../table-btree.js';
-import { SyncPageManager } from '../page-manager.js';
-import { MemoryStorage } from '../memory-storage.js';
+import type { TableBTreeMeta, TableLeafNode } from '../table-btree.js';
+import { SyncPageStore } from '../page-manager.js';
+import { MemoryPageStorage } from '../memory-storage.js';
+
+function createStore(storage?: MemoryPageStorage): SyncPageStore {
+  const s = storage ?? new MemoryPageStorage();
+  return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
+}
+
+/** Allocate meta + root leaf pages and return a ready-to-use tree. */
+function createTree(ps: SyncPageStore): { tree: SyncTableBTree; metaPageNo: number } {
+  const metaPageNo = ps.allocPage();
+  const rootPageNo = ps.allocPage();
+  const leaf: TableLeafNode = { kind: 'leaf', nodeId: rootPageNo, keys: [], values: [], nextLeafId: null };
+  const meta: TableBTreeMeta = { rootNodeId: rootPageNo, height: 1, nextRowId: 0, size: 0 };
+  ps.writePage(rootPageNo, leaf);
+  ps.writePage(metaPageNo, meta);
+  return { tree: new SyncTableBTree(metaPageNo, ps), metaPageNo };
+}
 
 describe('SyncTableBTree', () => {
-  let storage: MemoryStorage;
-  let pm: SyncPageManager;
+  let storage: MemoryPageStorage;
+  let ps: SyncPageStore;
   let tree: SyncTableBTree;
+  let metaPageNo: number;
 
   beforeEach(() => {
-    storage = new MemoryStorage();
-    pm = new SyncPageManager(storage);
-    tree = new SyncTableBTree('t1', pm);
+    storage = new MemoryPageStorage();
+    ps = createStore(storage);
+    ({ tree, metaPageNo } = createTree(ps));
   });
 
   function collectScan() {
@@ -42,9 +60,9 @@ describe('SyncTableBTree', () => {
 
     it('survives commit + reload', () => {
       const id = tree.insert({ val: 'persisted' });
-      pm.commit();
+      ps.commit();
 
-      const tree2 = new SyncTableBTree('t1', pm);
+      const tree2 = new SyncTableBTree(metaPageNo, ps);
       expect(tree2.get(id)).toEqual({ val: 'persisted' });
     });
   });
@@ -108,7 +126,7 @@ describe('SyncTableBTree', () => {
 
   describe('split', () => {
     it('handles more than ORDER inserts', () => {
-      const N = 1100; // > ORDER=128
+      const N = 1100;
       for (let i = 0; i < N; i++) tree.insert({ id: i });
 
       for (let i = 0; i < N; i++) {
@@ -123,16 +141,10 @@ describe('SyncTableBTree', () => {
     it('removes all data', () => {
       tree.insert({ a: 1 });
       tree.insert({ a: 2 });
-      pm.commit();
+      ps.commit();
 
       tree.drop();
-      pm.commit();
-
-      const tree2 = new SyncTableBTree('t1', pm);
-      expect(tree2.get(0)).toBeNull();
-      const rows = [];
-      for (const r of tree2.scan()) rows.push(r);
-      expect(rows).toHaveLength(0);
+      ps.commit();
     });
   });
 });

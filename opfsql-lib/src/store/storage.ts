@@ -1,20 +1,20 @@
-import type { SyncIStorage } from './types.js';
-import { SyncPageManager } from './page-manager.js';
+import type { SyncIPageStorage } from './types.js';
+import { SyncPageStore } from './page-manager.js';
 import { SyncTableManager } from './table-manager.js';
 import { SyncIndexManager } from './index-manager.js';
 
 export class Storage {
-  kv!: SyncPageManager;
+  pageStore!: SyncPageStore;
   rowManager!: SyncTableManager;
   indexManager!: SyncIndexManager;
 
-  constructor(private readonly backend: SyncIStorage) {}
+  constructor(private readonly backend: SyncIPageStorage) {}
 
   async open(): Promise<void> {
     await this.backend.open();
-    this.kv = new SyncPageManager(this.backend);
-    this.rowManager = new SyncTableManager(this.kv);
-    this.indexManager = new SyncIndexManager(this.kv);
+    const nextPageId = this.backend.getNextPageId();
+    const freeList = this.backend.readPage<number[]>(2) ?? [];
+    this.pageStore = new SyncPageStore(this.backend, nextPageId, freeList);
   }
 
   close(): void {

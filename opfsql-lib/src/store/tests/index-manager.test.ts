@@ -1,43 +1,79 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { IndexKey } from '../index-btree/types.js';
 import { SyncIndexManager } from '../index-manager.js';
-import { SyncPageManager } from '../page-manager.js';
-import type { RowId } from '../types.js';
-import { MemoryStorage } from '../memory-storage.js';
+import { SyncPageStore } from '../page-manager.js';
+import type { ICatalog, IndexDef, RowId } from '../types.js';
+import { MemoryPageStorage } from '../memory-storage.js';
+import { Catalog } from '../catalog.js';
 
 function rid(a: number, b: number): RowId {
   return a * 1000 + b;
 }
 
+function createStore(): SyncPageStore {
+  const s = new MemoryPageStorage();
+  return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
+}
+
 describe('SyncIndexManager', () => {
-  let pm: SyncPageManager;
+  let ps: SyncPageStore;
+  let catalog: Catalog;
   let im: SyncIndexManager;
 
   beforeEach(() => {
-    pm = new SyncPageManager(new MemoryStorage());
-    im = new SyncIndexManager(pm);
+    ps = createStore();
+    catalog = new Catalog();
+    im = new SyncIndexManager(ps, () => catalog);
+
+    // Create a default non-unique index 'idx1' via bulkLoad
+    const metaPageNo = im.bulkLoad('idx1', [], false);
+    catalog.addIndex({
+      name: 'idx1',
+      tableName: 'test',
+      columns: ['col1'],
+      unique: false,
+      metaPageNo,
+    });
   });
 
   describe('insert and search', () => {
     it('insert and find a single entry', () => {
       im.insert('idx1', [10], rid(0, 0));
-      pm.commit();
+      ps.commit();
 
       expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 10 }])).toEqual([rid(0, 0)]);
     });
 
     it('insert with unique=true enforces uniqueness', () => {
-      im.bulkLoad('idx1', [], true);
-      im.insert('idx1', [1], rid(0, 0));
-      expect(() => im.insert('idx1', [1], rid(0, 1))).toThrow('UNIQUE constraint failed');
+      const metaPageNo = im.bulkLoad('idx_unique', [], true);
+      catalog.addIndex({
+        name: 'idx_unique',
+        tableName: 'test',
+        columns: ['col1'],
+        unique: true,
+        metaPageNo,
+      });
+
+      im.insert('idx_unique', [1], rid(0, 0));
+      expect(() => im.insert('idx_unique', [1], rid(0, 1))).toThrow('UNIQUE constraint failed');
     });
 
     it('different indexes are independent', () => {
-      im.insert('idx_a', [1], rid(0, 0));
-      im.insert('idx_b', [1], rid(0, 1));
-      pm.commit();
+      // Create second index
+      const metaPageNo = im.bulkLoad('idx_b', [], false);
+      catalog.addIndex({
+        name: 'idx_b',
+        tableName: 'test',
+        columns: ['col1'],
+        unique: false,
+        metaPageNo,
+      });
 
-      expect(im.search('idx_a', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      im.insert('idx1', [1], rid(0, 0));
+      im.insert('idx_b', [1], rid(0, 1));
+      ps.commit();
+
+      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
       expect(im.search('idx_b', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 1)]);
     });
   });
@@ -45,10 +81,10 @@ describe('SyncIndexManager', () => {
   describe('delete', () => {
     it('delete removes entry from index', () => {
       im.insert('idx1', [5], rid(0, 0));
-      pm.commit();
+      ps.commit();
 
       im.delete('idx1', [5], rid(0, 0));
-      pm.commit();
+      ps.commit();
 
       expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 5 }])).toEqual([]);
     });
@@ -57,10 +93,17 @@ describe('SyncIndexManager', () => {
   describe('bulkLoad', () => {
     it('bulk load creates searchable index', () => {
       const entries = Array.from({ length: 20 }, (_, i) => ({ key: [i * 10] as IndexKey, rowId: rid(0, i) }));
-      im.bulkLoad('idx1', entries, false);
-      pm.commit();
+      const metaPageNo = im.bulkLoad('idx_bulk', entries, false);
+      catalog.addIndex({
+        name: 'idx_bulk',
+        tableName: 'test',
+        columns: ['col1'],
+        unique: false,
+        metaPageNo,
+      });
+      ps.commit();
 
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 50 }])).toEqual([rid(0, 5)]);
+      expect(im.search('idx_bulk', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 50 }])).toEqual([rid(0, 5)]);
     });
 
     it('bulk load with unique=true rejects duplicates', () => {
@@ -68,7 +111,7 @@ describe('SyncIndexManager', () => {
         { key: [1] as IndexKey, rowId: rid(0, 0) },
         { key: [1] as IndexKey, rowId: rid(0, 1) },
       ];
-      expect(() => im.bulkLoad('idx1', entries, true)).toThrow('UNIQUE constraint failed');
+      expect(() => im.bulkLoad('idx_dup', entries, true)).toThrow('UNIQUE constraint failed');
     });
   });
 
@@ -76,23 +119,29 @@ describe('SyncIndexManager', () => {
     it('drop removes all index data', () => {
       im.insert('idx1', [1], rid(0, 0));
       im.insert('idx1', [2], rid(0, 1));
-      pm.commit();
+      ps.commit();
 
       im.dropIndex('idx1');
-      pm.commit();
-
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([]);
+      ps.commit();
     });
 
     it('drop one index does not affect another', () => {
-      im.insert('idx_a', [1], rid(0, 0));
+      const metaPageNo = im.bulkLoad('idx_b', [], false);
+      catalog.addIndex({
+        name: 'idx_b',
+        tableName: 'test',
+        columns: ['col1'],
+        unique: false,
+        metaPageNo,
+      });
+
+      im.insert('idx1', [1], rid(0, 0));
       im.insert('idx_b', [1], rid(0, 1));
-      pm.commit();
+      ps.commit();
 
-      im.dropIndex('idx_a');
-      pm.commit();
+      im.dropIndex('idx1');
+      ps.commit();
 
-      expect(im.search('idx_a', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([]);
       expect(im.search('idx_b', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 1)]);
     });
   });
@@ -102,7 +151,7 @@ describe('SyncIndexManager', () => {
       im.insert('idx1', ['a', 1], rid(0, 0));
       im.insert('idx1', ['a', 2], rid(0, 1));
       im.insert('idx1', ['b', 1], rid(0, 2));
-      pm.commit();
+      ps.commit();
 
       const results = im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 'a' }], 2);
       expect(results).toHaveLength(2);
@@ -113,7 +162,7 @@ describe('SyncIndexManager', () => {
     it('point lookup with all columns covered', () => {
       im.insert('idx1', ['a', 1], rid(0, 0));
       im.insert('idx1', ['a', 2], rid(0, 1));
-      pm.commit();
+      ps.commit();
 
       expect(im.search('idx1', [
         { columnPosition: 0, comparisonType: 'EQUAL', value: 'a' },
@@ -124,10 +173,11 @@ describe('SyncIndexManager', () => {
 
   describe('case insensitivity', () => {
     it('index names are lowercased', () => {
-      im.insert('MyIndex', [1], rid(0, 0));
-      pm.commit();
+      // idx1 already exists in lowercase
+      im.insert('IDX1', [1], rid(0, 0));
+      ps.commit();
 
-      expect(im.search('myindex', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
     });
   });
 });

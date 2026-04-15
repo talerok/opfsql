@@ -44,9 +44,17 @@ export function bindAlterTable(
       },
     };
   } else {
+    const colName = stmt.column_name!;
+    for (const idx of ctx.catalog.getTableIndexes(stmt.table)) {
+      if (idx.columns.some((c) => c.toLowerCase() === colName.toLowerCase())) {
+        throw new BindError(
+          `Cannot drop column "${colName}": referenced by index "${idx.name}"`,
+        );
+      }
+    }
     action = {
       type: 'DROP_COLUMN',
-      columnName: stmt.column_name!,
+      columnName: colName,
     };
   }
 

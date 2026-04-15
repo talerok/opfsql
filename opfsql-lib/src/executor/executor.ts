@@ -45,7 +45,7 @@ export function execute(
 
   switch (plan.type) {
     case LogicalOperatorType.LOGICAL_CREATE_TABLE:
-      return executeCreateTable(plan, catalog, indexManager);
+      return executeCreateTable(plan, catalog, rowManager, indexManager);
     case LogicalOperatorType.LOGICAL_CREATE_INDEX:
       return executeCreateIndex(plan, catalog, rowManager, indexManager!);
     case LogicalOperatorType.LOGICAL_ALTER_TABLE:

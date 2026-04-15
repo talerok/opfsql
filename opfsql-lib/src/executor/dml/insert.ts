@@ -46,7 +46,8 @@ export function executeInsert(
   indexManager?: SyncIIndexManager,
 ): ExecuteResult {
   const ic: InsertCtx = { op, rowManager, ctx, catalog, indexManager };
-  const rows = op.children.length > 0 ? buildRowsFromSelect(ic) : buildRowsFromValues(ic);
+  const rows =
+    op.children.length > 0 ? buildRowsFromSelect(ic) : buildRowsFromValues(ic);
   return insertRows(ic, rows);
 }
 
@@ -87,7 +88,11 @@ function buildRowsFromSelect(ic: InsertCtx): Row[] {
     const row: Row = { ...defaults };
     for (let c = 0; c < op.columns.length; c++) {
       const val = (tuple[c] ?? null) as Value;
-      row[op.schema.columns[op.columns[c]].name] = coerceJsonIfNeeded(val, op.schema, op.columns[c]);
+      row[op.schema.columns[op.columns[c]].name] = coerceJsonIfNeeded(
+        val,
+        op.schema,
+        op.columns[c],
+      );
     }
     return row;
   });
@@ -101,17 +106,32 @@ function insertRows(ic: InsertCtx, rows: Row[]): ExecuteResult {
   let affected = 0;
   let seqDirty = false;
   for (const row of rows) {
-    if (fillAutoIncrement(row, ic.op.schema)) seqDirty = true;
-    if (insertOrUpsertRow(ic, row)) affected++;
+    if (ic.catalog && fillAutoIncrement(row, ic.op.tableName, ic.catalog)) {
+      seqDirty = true;
+    }
+    if (insertOrUpsertRow(ic, row)) {
+      affected++;
+    }
   }
-  return { rows: [], rowsAffected: affected, catalogChanges: [], catalogDirty: seqDirty };
+  return {
+    rows: [],
+    rowsAffected: affected,
+    catalogChanges: [],
+    catalogDirty: seqDirty,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // AUTOINCREMENT
 // ---------------------------------------------------------------------------
 
-function fillAutoIncrement(row: Row, schema: TableSchema): boolean {
+function fillAutoIncrement(
+  row: Row,
+  tableName: string,
+  catalog: ICatalog,
+): boolean {
+  const schema = catalog.getTable(tableName);
+  if (!schema) return false;
   const col = schema.columns.find((c) => c.autoIncrement);
   if (!col) return false;
 
@@ -121,11 +141,11 @@ function fillAutoIncrement(row: Row, schema: TableSchema): boolean {
   if (val === null || val === undefined) {
     const next = seq + 1;
     row[col.name] = next;
-    schema.autoIncrementSeq = next;
+    catalog.updateTable({ ...schema, autoIncrementSeq: next });
     return true;
   }
   if (typeof val === "number" && val > seq) {
-    schema.autoIncrementSeq = val;
+    catalog.updateTable({ ...schema, autoIncrementSeq: val });
     return true;
   }
   return false;
@@ -137,7 +157,13 @@ function fillAutoIncrement(row: Row, schema: TableSchema): boolean {
 
 function doInsert(ic: InsertCtx, row: Row): void {
   const rowId = ic.rowManager.prepareInsert(ic.op.tableName, row);
-  maintainIndexesInsert(ic.op.tableName, row, rowId, ic.catalog, ic.indexManager);
+  maintainIndexesInsert(
+    ic.op.tableName,
+    row,
+    rowId,
+    ic.catalog,
+    ic.indexManager,
+  );
 }
 
 function insertOrUpsertRow(ic: InsertCtx, newRow: Row): boolean {
@@ -147,7 +173,9 @@ function insertOrUpsertRow(ic: InsertCtx, newRow: Row): boolean {
   }
 
   const oc = ic.op.onConflict;
-  const conflictColNames = oc.conflictColumns.map((i) => ic.op.schema.columns[i].name);
+  const conflictColNames = oc.conflictColumns.map(
+    (i) => ic.op.schema.columns[i].name,
+  );
   const conflict = findConflictingRow(ic, newRow, conflictColNames);
 
   if (!conflict) {
@@ -171,12 +199,21 @@ function findConflictingRow(
 ): { rowId: RowId; row: Row } | null {
   if (ic.catalog && ic.indexManager) {
     const result = findConflictViaIndex(
-      ic.op.tableName, newRow, conflictColNames,
-      ic.catalog, ic.indexManager, ic.rowManager,
+      ic.op.tableName,
+      newRow,
+      conflictColNames,
+      ic.catalog,
+      ic.indexManager,
+      ic.rowManager,
     );
     if (result !== undefined) return result;
   }
-  return findConflictViaScan(ic.op.tableName, newRow, conflictColNames, ic.rowManager);
+  return findConflictViaScan(
+    ic.op.tableName,
+    newRow,
+    conflictColNames,
+    ic.rowManager,
+  );
 }
 
 function findConflictViaIndex(
@@ -193,8 +230,11 @@ function findConflictViaIndex(
     const targetSorted = [...conflictColNames].sort();
     if (
       idxColsSorted.length !== targetSorted.length ||
-      !idxColsSorted.every((c, i) => c.toLowerCase() === targetSorted[i].toLowerCase())
-    ) continue;
+      !idxColsSorted.every(
+        (c, i) => c.toLowerCase() === targetSorted[i].toLowerCase(),
+      )
+    )
+      continue;
 
     const key = buildIndexKey(newRow, idx.columns);
     if (key.some((v) => v === null)) return null;
@@ -266,20 +306,50 @@ function executeConflictUpdate(
   const resolver = buildResolver(layout);
 
   if (oc.whereExpression) {
-    const val = evaluateExpression(oc.whereExpression, combinedTuple, resolver, ic.ctx);
+    const val = evaluateExpression(
+      oc.whereExpression,
+      combinedTuple,
+      resolver,
+      ic.ctx,
+    );
     if (!isTruthy(val)) return false;
   }
 
   const updatedRow: Row = { ...existingRow };
   for (let i = 0; i < oc.updateColumns.length; i++) {
     const colIdx = oc.updateColumns[i];
-    const val = evaluateExpression(oc.updateExpressions[i], combinedTuple, resolver, ic.ctx);
-    updatedRow[schema.columns[colIdx].name] = coerceJsonIfNeeded(val, schema, colIdx);
+    const val = evaluateExpression(
+      oc.updateExpressions[i],
+      combinedTuple,
+      resolver,
+      ic.ctx,
+    );
+    updatedRow[schema.columns[colIdx].name] = coerceJsonIfNeeded(
+      val,
+      schema,
+      colIdx,
+    );
   }
 
-  maintainIndexesDelete(ic.op.tableName, existingRow, existingRowId, ic.catalog, ic.indexManager);
-  const newRowId = ic.rowManager.prepareUpdate(ic.op.tableName, existingRowId, updatedRow);
-  maintainIndexesInsert(ic.op.tableName, updatedRow, newRowId, ic.catalog, ic.indexManager);
+  maintainIndexesDelete(
+    ic.op.tableName,
+    existingRow,
+    existingRowId,
+    ic.catalog,
+    ic.indexManager,
+  );
+  const newRowId = ic.rowManager.prepareUpdate(
+    ic.op.tableName,
+    existingRowId,
+    updatedRow,
+  );
+  maintainIndexesInsert(
+    ic.op.tableName,
+    updatedRow,
+    newRowId,
+    ic.catalog,
+    ic.indexManager,
+  );
 
   return true;
 }

@@ -2,7 +2,7 @@ import { describe, it } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { Engine } from '../../src/index.js';
-import { MemoryStorage } from '../../src/store/memory-storage.js';
+import { MemoryPageStorage } from '../../src/store/memory-storage.js';
 import { parseSlt, runSlt } from './runner.js';
 
 const sltDir = new URL('.', import.meta.url).pathname;
@@ -13,7 +13,7 @@ describe('SLT', () => {
     it(file, async () => {
       const source = readFileSync(join(sltDir, file), 'utf-8');
       const blocks = parseSlt(source);
-      const engine = await Engine.create(new MemoryStorage());
+      const engine = await Engine.create(new MemoryPageStorage());
       try {
         const result = await runSlt(engine, blocks);
         if (result.failed > 0) {

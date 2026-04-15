@@ -29,7 +29,11 @@ export function rowToTuple(
   columnIds: number[],
   schema: TableSchema,
 ): Tuple {
-  return columnIds.map((colId) => row[schema.columns[colId].name] ?? null);
+  return columnIds.map((colId) => {
+    const col = schema.columns[colId];
+    const val = row[col.name];
+    return val !== undefined ? val : (col.defaultValue ?? null);
+  });
 }
 
 export function passesFilters(

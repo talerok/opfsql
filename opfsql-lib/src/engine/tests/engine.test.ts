@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { MemoryStorage } from "../../store/memory-storage.js";
+import { MemoryPageStorage } from "../../store/memory-storage.js";
 import { Engine, EngineError, PreparedStatement } from "../index.js";
 
 let engine: Engine;
 let dbName: string;
-const storageMap = new Map<string, MemoryStorage>();
+const storageMap = new Map<string, MemoryPageStorage>();
 
 function newDbName(): string {
   return `test-${Math.random()}`;
 }
 
-function getStorage(name: string): MemoryStorage {
+function getStorage(name: string): MemoryPageStorage {
   let s = storageMap.get(name);
   if (!s) {
-    s = new MemoryStorage();
+    s = new MemoryPageStorage();
     storageMap.set(name, s);
   }
   return s;
@@ -704,7 +704,6 @@ describe("JSON type", () => {
 
     const [result] = engine.execute("SELECT id, data.age FROM t ORDER BY id");
     expect(result.rows![0]).toMatchObject({ id: 1 });
-    // id=2 had age=25 (matches 20<25<30), should be updated
     expect(result.rows![1]).toMatchObject({ id: 2 });
   });
 

@@ -4,23 +4,20 @@ import type {
   RowId,
   SearchPredicate,
   SyncIIndexManager,
-  SyncIKVStore,
+  SyncIPageStore,
+  ICatalog,
 } from "./types.js";
 
 export class SyncIndexManager implements SyncIIndexManager {
-  private readonly trees = new Map<string, SyncBTree>();
-
-  constructor(private readonly pm: SyncIKVStore) {}
+  constructor(
+    private readonly ps: SyncIPageStore,
+    private readonly getCatalog: () => ICatalog,
+  ) {}
 
   private tree(indexName: string): SyncBTree {
-    const key = indexName.toLowerCase();
-    const cached = this.trees.get(key);
-    if (cached) return cached;
-    const metaRaw = this.pm.readKey<{ unique?: boolean }>(`btree:${key}:meta`);
-    const unique = metaRaw?.unique ?? false;
-    const tree = new SyncBTree(key, this.pm, unique);
-    this.trees.set(key, tree);
-    return tree;
+    const indexDef = this.getCatalog().getIndex(indexName.toLowerCase());
+    if (!indexDef) throw new Error(`Index "${indexName}" not found in catalog`);
+    return new SyncBTree(indexDef.metaPageNo!, this.ps, indexDef.unique);
   }
 
   insert(indexName: string, key: IndexKey, rowId: RowId): void {
@@ -41,16 +38,14 @@ export class SyncIndexManager implements SyncIIndexManager {
     indexName: string,
     entries: Array<{ key: IndexKey; rowId: RowId }>,
     unique: boolean,
-  ): void {
-    const key = indexName.toLowerCase();
-    const tree = new SyncBTree(key, this.pm, unique);
-    this.trees.set(key, tree);
+  ): number {
+    const metaPageNo = this.ps.allocPage();
+    const tree = new SyncBTree(metaPageNo, this.ps, unique);
     tree.bulkLoad(entries);
+    return metaPageNo;
   }
 
   dropIndex(indexName: string): void {
-    const key = indexName.toLowerCase();
     this.tree(indexName).drop();
-    this.trees.delete(key);
   }
 }

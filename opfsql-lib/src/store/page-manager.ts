@@ -1,62 +1,105 @@
-import type { SyncIKVStore, SyncIStorage } from './types.js';
+import type { SyncIPageStore, SyncIPageStorage } from './types.js';
 import type { ICache } from './cache.js';
 import { LRUCache } from './cache.js';
 
 const DEFAULT_CACHE_SIZE = 256;
+const FREELIST_PAGE_NO = 2;
 
-export class SyncPageManager implements SyncIKVStore {
-  private wal = new Map<string, unknown>();
-  private cache: ICache<string, unknown>;
+export class SyncPageStore implements SyncIPageStore {
+  private wal = new Map<number, unknown>();
+  private cache: ICache<number, unknown>;
+  private nextPageId: number;
+  private freeList: number[];
+  private allocatorDirty = false;
+
+  // Lazy snapshots for rollback (created on first mutation)
+  private snapNextPageId: number | null = null;
+  private snapFreeList: number[] | null = null;
 
   constructor(
-    private readonly storage: SyncIStorage,
+    private readonly storage: SyncIPageStorage,
+    nextPageId: number,
+    freeList: number[],
     cacheSize = DEFAULT_CACHE_SIZE,
   ) {
+    this.nextPageId = nextPageId;
+    this.freeList = freeList;
     this.cache = new LRUCache(cacheSize);
   }
 
-  readKey<T>(key: string): T | null {
-    if (this.wal.has(key)) {
-      const val = this.wal.get(key);
+  readPage<T>(pageNo: number): T | null {
+    if (this.wal.has(pageNo)) {
+      const val = this.wal.get(pageNo);
       return val === null ? null : (val as T);
     }
-    const cached = this.cache.get(key);
+    const cached = this.cache.get(pageNo);
     if (cached !== undefined) return cached as T;
-    const val = this.storage.get<T>(key);
-    if (val !== null && val !== undefined) this.cache.set(key, val);
+    const val = this.storage.readPage<T>(pageNo);
+    if (val !== null && val !== undefined) this.cache.set(pageNo, val);
     return val;
   }
 
-  getAllKeys(prefix: string): string[] {
-    const storageKeys = new Set(this.storage.getAllKeys(prefix));
-    for (const [k, v] of this.wal) {
-      if (!k.startsWith(prefix)) continue;
-      if (v === null) storageKeys.delete(k);
-      else storageKeys.add(k);
+  writePage(pageNo: number, value: unknown): void {
+    this.ensureSnapshot();
+    this.wal.set(pageNo, value);
+  }
+
+  allocPage(): number {
+    this.ensureSnapshot();
+    this.allocatorDirty = true;
+    if (this.freeList.length > 0) {
+      const pageNo = this.freeList.pop()!;
+      this.cache.delete(pageNo);
+      return pageNo;
     }
-    return [...storageKeys].sort();
+    return this.nextPageId++;
   }
 
-  writeKey(key: string, value: unknown): void {
-    this.wal.set(key, value);
-  }
-
-  deleteKey(key: string): void {
-    this.wal.set(key, null);
+  freePage(pageNo: number): void {
+    this.ensureSnapshot();
+    this.allocatorDirty = true;
+    this.freeList.push(pageNo);
   }
 
   commit(): void {
-    if (this.wal.size === 0) return;
-    const entries: Array<[string, unknown]> = [...this.wal.entries()];
-    this.storage.putMany(entries);
-    for (const [key, value] of entries) {
-      if (value === null) this.cache.delete(key);
-      else this.cache.set(key, value);
+    if (this.wal.size === 0 && !this.allocatorDirty) return;
+
+    // Write all dirty pages to storage
+    for (const [pageNo, value] of this.wal) {
+      if (value !== null) {
+        this.storage.writePage(pageNo, value);
+        this.cache.set(pageNo, value);
+      }
     }
+
+    if (this.allocatorDirty) {
+      this.storage.writePage(FREELIST_PAGE_NO, this.freeList);
+      this.storage.writeHeader(this.nextPageId);
+    }
+
+    this.storage.flush();
+
     this.wal.clear();
+    this.snapNextPageId = null;
+    this.snapFreeList = null;
+    this.allocatorDirty = false;
   }
 
   rollback(): void {
     this.wal.clear();
+    if (this.snapNextPageId !== null) {
+      this.nextPageId = this.snapNextPageId;
+      this.freeList = this.snapFreeList!;
+    }
+    this.snapNextPageId = null;
+    this.snapFreeList = null;
+    this.allocatorDirty = false;
+  }
+
+  private ensureSnapshot(): void {
+    if (this.snapNextPageId === null) {
+      this.snapNextPageId = this.nextPageId;
+      this.snapFreeList = [...this.freeList];
+    }
   }
 }

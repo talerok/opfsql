@@ -1,36 +1,31 @@
-import type { SyncIStorage } from "./types.js";
+import type { SyncIPageStorage } from "./types.js";
 
 /**
- * Test-only in-memory SyncIStorage. Uses structuredClone to mimic real storage
+ * Test-only in-memory SyncIPageStorage. Uses structuredClone to mimic real storage
  * (no shared references between stored and returned values).
  */
-export class MemoryStorage implements SyncIStorage {
-  private data = new Map<string, unknown>();
+export class MemoryPageStorage implements SyncIPageStorage {
+  private pages = new Map<number, unknown>();
+  private nextPageId = 3; // 0=header, 1=catalog, 2=freelist
 
   async open(): Promise<void> {}
   close(): void {}
 
-  get<T>(key: string): T | null {
-    const val = this.data.get(key);
+  readPage<T>(pageNo: number): T | null {
+    const val = this.pages.get(pageNo);
     if (val === undefined) return null;
     return structuredClone(val) as T;
   }
 
-  putMany(entries: Array<[string, unknown]>): void {
-    for (const [key, value] of entries) {
-      if (value === null) {
-        this.data.delete(key);
-      } else {
-        this.data.set(key, structuredClone(value));
-      }
-    }
+  writePage(pageNo: number, value: unknown): void {
+    this.pages.set(pageNo, structuredClone(value));
   }
 
-  getAllKeys(prefix: string): string[] {
-    const keys: string[] = [];
-    for (const key of this.data.keys()) {
-      if (key.startsWith(prefix)) keys.push(key);
-    }
-    return keys.sort();
+  getNextPageId(): number { return this.nextPageId; }
+
+  writeHeader(nextPageId: number): void {
+    this.nextPageId = nextPageId;
   }
+
+  flush(): void {}
 }

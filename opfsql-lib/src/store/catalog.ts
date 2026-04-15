@@ -1,6 +1,6 @@
-import type { CatalogData, ICatalog, IndexDef, TableSchema, SyncIKVStore } from './types.js';
+import type { CatalogData, ICatalog, IndexDef, TableSchema, SyncIPageStore } from './types.js';
 
-const CATALOG_KEY = 'meta:tables';
+const CATALOG_PAGE_NO = 1;
 
 export class Catalog implements ICatalog {
   private tables = new Map<string, TableSchema>();
@@ -42,12 +42,12 @@ export class Catalog implements ICatalog {
   }
 }
 
-export function initCatalog(kv: SyncIKVStore): Catalog {
-  const data = kv.readKey<CatalogData>(CATALOG_KEY);
+export function initCatalog(ps: SyncIPageStore): Catalog {
+  const data = ps.readPage<CatalogData>(CATALOG_PAGE_NO);
   if (!data) return new Catalog();
   return Catalog.deserialize(data);
 }
 
-export function serializeCatalogEntry(catalog: ICatalog): [string, CatalogData] {
-  return [CATALOG_KEY, catalog.serialize()];
+export function writeCatalog(catalog: ICatalog, ps: SyncIPageStore): void {
+  ps.writePage(CATALOG_PAGE_NO, catalog.serialize());
 }

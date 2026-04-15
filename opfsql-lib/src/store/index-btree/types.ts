@@ -23,7 +23,6 @@ export type BTreeNode = BTreeLeafNode | BTreeInternalNode;
 export interface BTreeMeta {
   rootNodeId: number;
   height: number;
-  nextNodeId: number;
   size: number;
   unique: boolean;
 }

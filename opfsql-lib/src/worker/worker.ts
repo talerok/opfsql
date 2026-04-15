@@ -41,6 +41,7 @@ function reply(msg: OutMsg): void {
     switch (data.type) {
       case "open": {
         if (engine) engine.close();
+        prepared.clear();
         console.log("[opfsql worker] opening", data.dbName);
         engine = await Engine.create(new OPFSSyncStorage(data.dbName));
         console.log("[opfsql worker] opened", data.dbName);
@@ -49,6 +50,7 @@ function reply(msg: OutMsg): void {
       }
 
       case "close": {
+        prepared.clear();
         engine?.close();
         engine = null;
         reply({ id, ok: true });

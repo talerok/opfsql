@@ -95,10 +95,19 @@ function evalLength(args: Value[]): Value {
 function evalSubstr(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
   const str = requireText(args[0], "SUBSTR");
-  const start = (args[1] as number) - 1;
-  if (args.length >= 3 && args[2] !== null)
-    return str.substring(start, start + (args[2] as number));
-  return str.substring(start);
+  let pos = args[1] as number;
+  const len = args.length >= 3 && args[2] !== null ? (args[2] as number) : undefined;
+
+  if (pos > 0) {
+    pos -= 1; // SQL 1-based → JS 0-based
+  } else if (pos < 0) {
+    pos = str.length + pos; // -1 → last char
+  }
+  // pos === 0 → treat as 0 (same as SQL position 1 adjusted)
+
+  pos = Math.max(0, pos);
+  if (len !== undefined) return str.substring(pos, pos + len);
+  return str.substring(pos);
 }
 
 function evalReplace(args: Value[]): Value {

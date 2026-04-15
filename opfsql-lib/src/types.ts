@@ -33,6 +33,7 @@ export interface TableSchema {
   name: string;
   columns: ColumnDef[];
   autoIncrementSeq?: number;
+  metaPageNo?: number;
 }
 
 export interface IndexDef {
@@ -40,6 +41,7 @@ export interface IndexDef {
   tableName: string;
   columns: string[];
   unique: boolean;
+  metaPageNo?: number;
 }
 
 export interface CatalogData {

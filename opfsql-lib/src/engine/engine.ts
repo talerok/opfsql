@@ -12,10 +12,12 @@ import {
 import {
   Catalog,
   initCatalog,
-  serializeCatalogEntry,
+  writeCatalog,
 } from "../store/catalog.js";
+import { SyncTableManager } from "../store/table-manager.js";
+import { SyncIndexManager } from "../store/index-manager.js";
 import { Storage } from "../store/storage.js";
-import type { CatalogData, SyncIStorage } from "../store/types.js";
+import type { CatalogData, SyncIPageStorage } from "../store/types.js";
 import type { Row, Value } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -56,11 +58,13 @@ export class Engine {
 
   private constructor(private readonly storage: Storage) {}
 
-  static async create(backend: SyncIStorage): Promise<Engine> {
+  static async create(backend: SyncIPageStorage): Promise<Engine> {
     const storage = new Storage(backend);
     await storage.open();
     const engine = new Engine(storage);
-    engine.catalog = initCatalog(storage.kv);
+    engine.catalog = initCatalog(storage.pageStore);
+    storage.rowManager = new SyncTableManager(storage.pageStore, () => engine.catalog);
+    storage.indexManager = new SyncIndexManager(storage.pageStore, () => engine.catalog);
     engine.binder = new Binder(engine.catalog);
     return engine;
   }
@@ -112,14 +116,14 @@ export class Engine {
           this.writeCatalog();
           this.catalogDirty = false;
         }
-        this.storage.kv.commit();
+        this.storage.pageStore.commit();
         this.catalogSnapshot = null;
       }
 
       return result;
     } catch (err) {
       if (autocommit) {
-        this.storage.kv.rollback();
+        this.storage.pageStore.rollback();
         this.catalogDirty = false;
         this.catalog = Catalog.deserialize(this.catalogSnapshot!);
         this.binder = new Binder(this.catalog);
@@ -127,7 +131,7 @@ export class Engine {
       } else {
         this.transactionAborted = true;
         this.catalogDirty = false;
-        this.storage.kv.rollback();
+        this.storage.pageStore.rollback();
         if (this.catalogSnapshot) {
           this.catalog = Catalog.deserialize(this.catalogSnapshot);
           this.binder = new Binder(this.catalog);
@@ -166,7 +170,7 @@ export class Engine {
           this.writeCatalog();
           this.catalogDirty = false;
         }
-        this.storage.kv.commit();
+        this.storage.pageStore.commit();
         this.catalogSnapshot = null;
         this.inTransaction = false;
         return ok;
@@ -174,7 +178,7 @@ export class Engine {
       case TransactionType.ROLLBACK:
         if (!this.inTransaction) return ok;
         if (!this.transactionAborted) {
-          this.storage.kv.rollback();
+          this.storage.pageStore.rollback();
           if (this.catalogSnapshot) {
             this.catalog = Catalog.deserialize(this.catalogSnapshot);
             this.binder = new Binder(this.catalog);
@@ -241,7 +245,6 @@ export class Engine {
   }
 
   private writeCatalog(): void {
-    const [key, data] = serializeCatalogEntry(this.catalog);
-    this.storage.kv.writeKey(key, data);
+    writeCatalog(this.catalog, this.storage.pageStore);
   }
 }

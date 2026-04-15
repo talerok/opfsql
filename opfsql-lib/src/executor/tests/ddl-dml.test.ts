@@ -49,7 +49,7 @@ function mockCatalog(tables: TableSchema[] = [usersSchema]): ICatalog {
     getTable:       (n) => tableMap.get(n),
     addTable:       vi.fn(),
     removeTable:    vi.fn(),
-    updateTable:    vi.fn(),
+    updateTable:    vi.fn((s: TableSchema) => { tableMap.set(s.name, s); }),
     getAllTables:   () => [...tableMap.values()],
     hasIndex:       (n) => indexMap.has(n),
     getIndex:       (n) => indexMap.get(n),
@@ -68,6 +68,7 @@ describe('DDL executors', () => {
   describe('executeCreateTable', () => {
     it('returns CREATE_TABLE catalog change', () => {
       const catalog = mockCatalog([]);
+      const rm = mockRowManager();
       const op = {
         type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
         schema: usersSchema,
@@ -79,13 +80,14 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalCreateTable;
 
-      const result = executeCreateTable(op, catalog);
+      const result = executeCreateTable(op, catalog, rm);
       expect(result.catalogChanges).toHaveLength(1);
       expect(result.catalogChanges[0].type).toBe('CREATE_TABLE');
     });
 
     it('throws when table already exists', () => {
       const catalog = mockCatalog([usersSchema]);
+      const rm = mockRowManager();
       const op = {
         type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
         schema: usersSchema,
@@ -97,11 +99,12 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalCreateTable;
 
-      expect(() => executeCreateTable(op, catalog)).toThrow('already exists');
+      expect(() => executeCreateTable(op, catalog, rm)).toThrow('already exists');
     });
 
     it('IF NOT EXISTS — no-op when exists', () => {
       const catalog = mockCatalog([usersSchema]);
+      const rm = mockRowManager();
       const op = {
         type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
         schema: usersSchema,
@@ -113,7 +116,7 @@ describe('DDL executors', () => {
         getColumnBindings: () => [],
       } as unknown as LogicalCreateTable;
 
-      const result = executeCreateTable(op, catalog);
+      const result = executeCreateTable(op, catalog, rm);
       expect(result.catalogChanges).toHaveLength(0);
     });
   });
@@ -141,7 +144,10 @@ describe('DDL executors', () => {
       } as unknown as LogicalCreateIndex;
 
       const result = executeCreateIndex(op, catalog, rm, im);
-      expect(result.catalogChanges[0]).toEqual({ type: 'CREATE_INDEX', index: idx });
+      expect(result.catalogChanges[0].type).toBe('CREATE_INDEX');
+      // metaPageNo should be set from bulkLoad return
+      const indexChange = result.catalogChanges[0] as any;
+      expect(indexChange.index.metaPageNo).toBe(100);
     });
   });
 
@@ -292,6 +298,7 @@ function mockRowManager(
     prepareDelete:    vi.fn(() => {}),
     readRow:          vi.fn(() => null),
     deleteTableData:  vi.fn(() => {}),
+    createTable:      vi.fn((): number => 42),
   };
 }
 
@@ -300,7 +307,7 @@ function mockIndexManager(): SyncIIndexManager {
     insert:    vi.fn(() => {}),
     delete:    vi.fn(() => {}),
     search:    vi.fn(() => []),
-    bulkLoad:  vi.fn(() => {}),
+    bulkLoad:  vi.fn((): number => 100),
     dropIndex: vi.fn(() => {}),
   };
 }
@@ -515,7 +522,7 @@ describe('DML executors', () => {
         estimatedCardinality: 0,
         getColumnBindings: () => [],
         onConflict: {
-          conflictColumns: [0], // id
+          conflictColumns: [0],
           action: 'NOTHING' as const,
           updateColumns: [],
           updateExpressions: [],
@@ -564,7 +571,6 @@ describe('DML executors', () => {
       const rm = mockRowManager([
         { id: 1, name: 'Alice', age: 25 },
       ]);
-      // tableIndex=10 for target, tableIndex=11 for excluded
       const TARGET_TI = 10;
       const EXCLUDED_TI = 11;
       const op = {
@@ -578,11 +584,10 @@ describe('DML executors', () => {
         estimatedCardinality: 0,
         getColumnBindings: () => [],
         onConflict: {
-          conflictColumns: [0], // id
+          conflictColumns: [0],
           action: 'UPDATE' as const,
-          updateColumns: [1], // name
+          updateColumns: [1],
           updateExpressions: [
-            // excluded.name — columnIndex=1 in excluded table
             colRef(EXCLUDED_TI, 1, 'name', 'TEXT'),
           ],
           whereExpression: null,
@@ -620,12 +625,11 @@ describe('DML executors', () => {
         onConflict: {
           conflictColumns: [0],
           action: 'UPDATE' as const,
-          updateColumns: [2], // age
+          updateColumns: [2],
           updateExpressions: [colRef(EXCLUDED_TI, 2, 'age', 'INTEGER')],
-          // WHERE excluded.age > age (i.e. new age > existing age)
           whereExpression: comparison(
-            colRef(EXCLUDED_TI, 2, 'age', 'INTEGER'), // excluded.age = 20
-            colRef(TARGET_TI, 2, 'age', 'INTEGER'),   // age = 25
+            colRef(EXCLUDED_TI, 2, 'age', 'INTEGER'),
+            colRef(TARGET_TI, 2, 'age', 'INTEGER'),
             'GREATER',
           ),
           targetTableIndex: TARGET_TI,
@@ -634,7 +638,6 @@ describe('DML executors', () => {
       } as unknown as LogicalInsert;
 
       const result = executeInsert(op, rm, noopCtx);
-      // excluded.age (20) > age (25) is false, so update should be skipped
       expect(result.rowsAffected).toBe(0);
       expect(rm.prepareUpdate).not.toHaveBeenCalled();
     });
@@ -658,12 +661,11 @@ describe('DML executors', () => {
         onConflict: {
           conflictColumns: [0],
           action: 'UPDATE' as const,
-          updateColumns: [2], // age
+          updateColumns: [2],
           updateExpressions: [colRef(EXCLUDED_TI, 2, 'age', 'INTEGER')],
-          // WHERE excluded.age > age
           whereExpression: comparison(
-            colRef(EXCLUDED_TI, 2, 'age', 'INTEGER'), // excluded.age = 50
-            colRef(TARGET_TI, 2, 'age', 'INTEGER'),   // age = 25
+            colRef(EXCLUDED_TI, 2, 'age', 'INTEGER'),
+            colRef(TARGET_TI, 2, 'age', 'INTEGER'),
             'GREATER',
           ),
           targetTableIndex: TARGET_TI,
@@ -691,9 +693,7 @@ describe('DML executors', () => {
         columns: [0, 1, 2],
         children: [],
         expressions: [
-          // Row 1: conflicts (id=1 exists)
           constant(1), constant('AliceNew'), constant(30),
-          // Row 2: no conflict (id=2 doesn't exist)
           constant(2), constant('Bob'), constant(35),
         ],
         types: [],
@@ -711,7 +711,6 @@ describe('DML executors', () => {
       } as unknown as LogicalInsert;
 
       const result = executeInsert(op, rm, noopCtx);
-      // Row 1 skipped (conflict), Row 2 inserted
       expect(result.rowsAffected).toBe(1);
       expect(rm.prepareInsert).toHaveBeenCalledTimes(1);
       expect(rm.prepareInsert).toHaveBeenCalledWith(
@@ -760,6 +759,7 @@ describe('AUTOINCREMENT', () => {
   it('auto-generates id = 1 on empty table when column is null', () => {
     const rm = mockRowManager();
     const schema = freshAutoSchema();
+    const catalog = mockCatalog([schema]);
     const op = {
       type: LogicalOperatorType.LOGICAL_INSERT,
       tableName: 'items',
@@ -772,18 +772,19 @@ describe('AUTOINCREMENT', () => {
       getColumnBindings: () => [],
     } as unknown as LogicalInsert;
 
-    const result = executeInsert(op, rm, noopCtx);
+    const result = executeInsert(op, rm, noopCtx, catalog);
     expect(result.rowsAffected).toBe(1);
     expect(rm.prepareInsert).toHaveBeenCalledWith(
       'items',
       expect.objectContaining({ id: 1, name: 'Alice' }),
     );
-    expect(schema.autoIncrementSeq).toBe(1);
+    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(1);
   });
 
   it('auto-generates sequential ids across multiple inserts', () => {
     const rm = mockRowManager();
     const schema = freshAutoSchema();
+    const catalog = mockCatalog([schema]);
     const op = {
       type: LogicalOperatorType.LOGICAL_INSERT,
       tableName: 'items',
@@ -796,7 +797,7 @@ describe('AUTOINCREMENT', () => {
       getColumnBindings: () => [],
     } as unknown as LogicalInsert;
 
-    const result = executeInsert(op, rm, noopCtx);
+    const result = executeInsert(op, rm, noopCtx, catalog);
     expect(result.rowsAffected).toBe(3);
     expect(rm.prepareInsert).toHaveBeenCalledWith(
       'items',
@@ -810,12 +811,13 @@ describe('AUTOINCREMENT', () => {
       'items',
       expect.objectContaining({ id: 3 }),
     );
-    expect(schema.autoIncrementSeq).toBe(3);
+    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(3);
   });
 
   it('uses explicit value and updates seq', () => {
     const rm = mockRowManager();
     const schema = freshAutoSchema();
+    const catalog = mockCatalog([schema]);
     const op = {
       type: LogicalOperatorType.LOGICAL_INSERT,
       tableName: 'items',
@@ -828,18 +830,19 @@ describe('AUTOINCREMENT', () => {
       getColumnBindings: () => [],
     } as unknown as LogicalInsert;
 
-    const result = executeInsert(op, rm, noopCtx);
+    const result = executeInsert(op, rm, noopCtx, catalog);
     expect(result.rowsAffected).toBe(1);
     expect(rm.prepareInsert).toHaveBeenCalledWith(
       'items',
       expect.objectContaining({ id: 42, name: 'Alice' }),
     );
-    expect(schema.autoIncrementSeq).toBe(42);
+    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(42);
   });
 
   it('next auto value is seq + 1 after explicit insert', () => {
     const rm = mockRowManager();
     const schema = freshAutoSchema(10);
+    const catalog = mockCatalog([schema]);
     const op = {
       type: LogicalOperatorType.LOGICAL_INSERT,
       tableName: 'items',
@@ -852,18 +855,19 @@ describe('AUTOINCREMENT', () => {
       getColumnBindings: () => [],
     } as unknown as LogicalInsert;
 
-    const result = executeInsert(op, rm, noopCtx);
+    const result = executeInsert(op, rm, noopCtx, catalog);
     expect(result.rowsAffected).toBe(1);
     expect(rm.prepareInsert).toHaveBeenCalledWith(
       'items',
       expect.objectContaining({ id: 11, name: 'Dave' }),
     );
-    expect(schema.autoIncrementSeq).toBe(11);
+    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(11);
   });
 
   it('NULL explicit value triggers auto-generation', () => {
     const rm = mockRowManager();
     const schema = freshAutoSchema();
+    const catalog = mockCatalog([schema]);
     const op = {
       type: LogicalOperatorType.LOGICAL_INSERT,
       tableName: 'items',
@@ -876,7 +880,7 @@ describe('AUTOINCREMENT', () => {
       getColumnBindings: () => [],
     } as unknown as LogicalInsert;
 
-    const result = executeInsert(op, rm, noopCtx);
+    const result = executeInsert(op, rm, noopCtx, catalog);
     expect(result.rowsAffected).toBe(1);
     expect(rm.prepareInsert).toHaveBeenCalledWith(
       'items',
@@ -887,6 +891,7 @@ describe('AUTOINCREMENT', () => {
   it('sets catalogDirty when autoincrement is used', () => {
     const rm = mockRowManager();
     const schema = freshAutoSchema();
+    const catalog = mockCatalog([schema]);
     const op = {
       type: LogicalOperatorType.LOGICAL_INSERT,
       tableName: 'items',
@@ -899,7 +904,7 @@ describe('AUTOINCREMENT', () => {
       getColumnBindings: () => [],
     } as unknown as LogicalInsert;
 
-    const result = executeInsert(op, rm, noopCtx);
+    const result = executeInsert(op, rm, noopCtx, catalog);
     expect(result.catalogDirty).toBe(true);
   });
 });
@@ -916,13 +921,12 @@ describe('DML with multi-expression filter', () => {
       { id: 3, name: 'Charlie', age: 35 },
     ]);
     const get = makeGet();
-    // Filter with two expressions (as optimizer FilterCombiner produces)
     const filter: LogicalFilter = {
       type: LogicalOperatorType.LOGICAL_FILTER,
       children: [get],
       expressions: [
-        comparison(colRef(0, 2), constant(20), 'GREATER'),   // age > 20
-        comparison(colRef(0, 2), constant(30), 'LESS'),       // age < 30
+        comparison(colRef(0, 2), constant(20), 'GREATER'),
+        comparison(colRef(0, 2), constant(30), 'LESS'),
       ],
       types: ['INTEGER', 'TEXT', 'INTEGER'],
       estimatedCardinality: 0,
@@ -940,7 +944,6 @@ describe('DML with multi-expression filter', () => {
     } as unknown as LogicalDelete;
 
     const result = executeDelete(op, rm, noopCtx);
-    // Only Alice (age=25) matches age > 20 AND age < 30
     expect(result.rowsAffected).toBe(1);
     expect(rm.prepareDelete).toHaveBeenCalledTimes(1);
     expect(rm.prepareDelete).toHaveBeenCalledWith('users', 0);

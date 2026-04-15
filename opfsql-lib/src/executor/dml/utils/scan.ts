@@ -65,7 +65,10 @@ function extractConditions(child: LogicalOperator): {
 }
 
 export function rowToTuple(row: Row, get: LogicalGet): Tuple {
-  return get.schema.columns.map((col) => row[col.name] ?? null);
+  return get.schema.columns.map((col) => {
+    const val = row[col.name];
+    return val !== undefined ? val : (col.defaultValue ?? null);
+  });
 }
 
 export function passesFilter(

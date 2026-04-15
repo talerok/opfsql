@@ -32,26 +32,28 @@ export interface ICatalog {
 }
 
 // ---------------------------------------------------------------------------
-// Sync storage backend (load-on-open, random-access reads, flush-on-commit)
+// Sync page storage backend (page-based I/O, no string-keyed index)
 // ---------------------------------------------------------------------------
 
-export interface SyncIStorage {
+export interface SyncIPageStorage {
   open(): Promise<void>;
   close(): void;
-  get<T>(key: string): T | null;
-  putMany(entries: Array<[string, unknown]>): void;
-  getAllKeys(prefix: string): string[];
+  readPage<T>(pageNo: number): T | null;
+  writePage(pageNo: number, value: unknown): void;
+  getNextPageId(): number;
+  writeHeader(nextPageId: number): void;
+  flush(): void;
 }
 
 // ---------------------------------------------------------------------------
-// Sync KV store — WAL + LRU cache over SyncIStorage
+// Sync page store — WAL + LRU cache + page allocator over SyncIPageStorage
 // ---------------------------------------------------------------------------
 
-export interface SyncIKVStore {
-  readKey<T>(key: string): T | null;
-  getAllKeys(prefix: string): string[];
-  writeKey(key: string, value: unknown): void;
-  deleteKey(key: string): void;
+export interface SyncIPageStore {
+  readPage<T>(pageNo: number): T | null;
+  writePage(pageNo: number, value: unknown): void;
+  allocPage(): number;
+  freePage(pageNo: number): void;
   commit(): void;
   rollback(): void;
 }
@@ -61,6 +63,7 @@ export interface SyncIKVStore {
 // ---------------------------------------------------------------------------
 
 export interface SyncIRowManager {
+  createTable(): number;
   prepareInsert(tableId: string, row: Row): RowId;
   prepareUpdate(tableId: string, rowId: RowId, row: Row): RowId;
   prepareDelete(tableId: string, rowId: RowId): void;
@@ -73,7 +76,7 @@ export interface SyncIIndexManager {
   insert(indexName: string, key: IndexKey, rowId: RowId): void;
   delete(indexName: string, key: IndexKey, rowId: RowId): void;
   search(indexName: string, predicates: SearchPredicate[], totalColumns?: number): RowId[];
-  bulkLoad(indexName: string, entries: Array<{ key: IndexKey; rowId: RowId }>, unique: boolean): void;
+  bulkLoad(indexName: string, entries: Array<{ key: IndexKey; rowId: RowId }>, unique: boolean): number;
   dropIndex(indexName: string): void;
 }
 
