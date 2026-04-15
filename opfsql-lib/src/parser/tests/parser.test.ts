@@ -10,6 +10,7 @@ import {
   AlterTableStatement, AlterType,
   DropStatement, DropType,
   TransactionStatement, TransactionType,
+  ExplainStatement,
   SelectNode, ColumnRefExpression, ConstantExpression,
   ComparisonExpression, ConjunctionExpression, OperatorExpression,
   BetweenExpression, FunctionExpression, SubqueryExpression,
@@ -3289,5 +3290,41 @@ describe('Feature interactions', () => {
   it('parses JSON type in CREATE TABLE', () => {
     const stmt = parseOne('CREATE TABLE t (id INTEGER, data JSON)') as CreateTableStatement;
     expect(stmt.columns[1].type!.id).toBe(LogicalTypeId.JSON);
+  });
+});
+
+// ============================================================================
+// EXPLAIN
+// ============================================================================
+
+describe('EXPLAIN', () => {
+  it('wraps a SELECT statement', () => {
+    const stmt = parseOne('EXPLAIN SELECT * FROM t') as ExplainStatement;
+    expect(stmt.type).toBe(StatementType.EXPLAIN_STATEMENT);
+    expect(stmt.statement.type).toBe(StatementType.SELECT_STATEMENT);
+  });
+
+  it('wraps an INSERT statement', () => {
+    const stmt = parseOne('EXPLAIN INSERT INTO t VALUES (1)') as ExplainStatement;
+    expect(stmt.type).toBe(StatementType.EXPLAIN_STATEMENT);
+    expect(stmt.statement.type).toBe(StatementType.INSERT_STATEMENT);
+  });
+
+  it('wraps an UPDATE statement', () => {
+    const stmt = parseOne('EXPLAIN UPDATE t SET x = 1') as ExplainStatement;
+    expect(stmt.type).toBe(StatementType.EXPLAIN_STATEMENT);
+    expect(stmt.statement.type).toBe(StatementType.UPDATE_STATEMENT);
+  });
+
+  it('wraps a DELETE statement', () => {
+    const stmt = parseOne('EXPLAIN DELETE FROM t WHERE id = 1') as ExplainStatement;
+    expect(stmt.type).toBe(StatementType.EXPLAIN_STATEMENT);
+    expect(stmt.statement.type).toBe(StatementType.DELETE_STATEMENT);
+  });
+
+  it('wraps a CREATE TABLE statement', () => {
+    const stmt = parseOne('EXPLAIN CREATE TABLE t (id INTEGER)') as ExplainStatement;
+    expect(stmt.type).toBe(StatementType.EXPLAIN_STATEMENT);
+    expect(stmt.statement.type).toBe(StatementType.CREATE_TABLE_STATEMENT);
   });
 });

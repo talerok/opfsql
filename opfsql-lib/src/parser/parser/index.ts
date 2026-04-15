@@ -1,7 +1,8 @@
 import { Lexer } from '../lexer.js';
 import {
   TokenType, Statement, SelectStatement, SetOperationStatement,
-  TransactionType,
+  StatementType, TransactionType,
+  type ExplainStatement,
 } from '../types.js';
 import { BaseParser } from './base.js';
 import { parseSelectStatement } from './select.js';
@@ -56,6 +57,11 @@ export class Parser extends BaseParser {
         return parseTransaction(this, TransactionType.COMMIT);
       case TokenType.ROLLBACK:
         return parseTransaction(this, TransactionType.ROLLBACK);
+      case TokenType.EXPLAIN: {
+        this.advance(); // consume EXPLAIN
+        const inner = this.parseStatement();
+        return { type: StatementType.EXPLAIN_STATEMENT, statement: inner } as ExplainStatement;
+      }
       default:
         this.error(`Unexpected token '${token.value || 'EOF'}' at start of statement`);
     }

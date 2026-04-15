@@ -8,19 +8,16 @@ import {
   TransactionType,
   type Statement,
   type TransactionStatement,
+  type ExplainStatement,
 } from "../parser/types.js";
-import {
-  Catalog,
-  initCatalog,
-  writeCatalog,
-} from "../store/catalog.js";
-import { SyncTableManager } from "../store/table-manager.js";
+import { formatPlan } from "./explain.js";
+import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
+import { Catalog, initCatalog, writeCatalog } from "../store/catalog.js";
 import { SyncIndexManager } from "../store/index-manager.js";
 import { Storage } from "../store/storage.js";
-import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
-import { NodeSyncStorage, NodeFileHandle } from "../store/backend/node-storage.js";
-import { WalStorage } from "../store/wal/wal-storage.js";
+import { SyncTableManager } from "../store/table-manager.js";
 import type { CatalogData, SyncIPageStorage } from "../store/types.js";
+import { WalStorage } from "../store/wal/wal-storage.js";
 import type { Row, Value } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -72,21 +69,23 @@ export class Engine {
     return Engine.create(new WalStorage(mainStorage, walHandle));
   }
 
-  /** Open a file-based database with WAL. Use in Node.js. */
-  static async openNode(filePath: string): Promise<Engine> {
-    const mainStorage = new NodeSyncStorage(filePath);
-    const walHandle = new NodeFileHandle(filePath + "-wal");
-    return Engine.create(new WalStorage(mainStorage, walHandle));
-  }
-
   /** Create engine with a custom storage backend. */
   static async create(backend: SyncIPageStorage): Promise<Engine> {
     const storage = new Storage(backend);
     await storage.open();
     const engine = new Engine(storage);
     engine.catalog = initCatalog(storage.pageStore);
-    storage.rowManager = new SyncTableManager(storage.pageStore, () => engine.catalog);
-    storage.indexManager = new SyncIndexManager(storage.pageStore, () => engine.catalog);
+
+    storage.rowManager = new SyncTableManager(
+      storage.pageStore,
+      () => engine.catalog,
+    );
+
+    storage.indexManager = new SyncIndexManager(
+      storage.pageStore,
+      () => engine.catalog,
+    );
+
     engine.binder = new Binder(engine.catalog);
     return engine;
   }
@@ -121,6 +120,13 @@ export class Engine {
       return this.executeTCL(stmt as TransactionStatement);
     }
 
+    if (stmt.type === StatementType.EXPLAIN_STATEMENT) {
+      const inner = (stmt as ExplainStatement).statement;
+      const bound = this.binder.bindStatement(inner);
+      const optimized = optimize(bound, this.catalog);
+      return { type: "rows", rows: [{ plan: formatPlan(optimized) }] };
+    }
+
     if (this.transactionAborted) {
       throw new EngineError(
         "current transaction is aborted, commands ignored until end of transaction block",
@@ -144,20 +150,16 @@ export class Engine {
 
       return result;
     } catch (err) {
-      if (autocommit) {
-        this.storage.pageStore.rollback();
-        this.catalogDirty = false;
-        this.catalog = Catalog.deserialize(this.catalogSnapshot!);
+      this.storage.pageStore.rollback();
+      this.catalogDirty = false;
+      if (this.catalogSnapshot) {
+        this.catalog = Catalog.deserialize(this.catalogSnapshot);
         this.binder = new Binder(this.catalog);
+      }
+      if (autocommit) {
         this.catalogSnapshot = null;
       } else {
         this.transactionAborted = true;
-        this.catalogDirty = false;
-        this.storage.pageStore.rollback();
-        if (this.catalogSnapshot) {
-          this.catalog = Catalog.deserialize(this.catalogSnapshot);
-          this.binder = new Binder(this.catalog);
-        }
       }
       throw err;
     }
@@ -172,14 +174,17 @@ export class Engine {
 
     switch (stmt.transaction_type) {
       case TransactionType.BEGIN:
-        if (this.inTransaction)
+        if (this.inTransaction) {
           throw new EngineError("already in a transaction");
+        }
         this.catalogSnapshot = this.catalog.serialize();
         this.inTransaction = true;
         return ok;
 
       case TransactionType.COMMIT:
-        if (!this.inTransaction) return ok;
+        if (!this.inTransaction) {
+          return ok;
+        }
         if (this.transactionAborted) {
           this.catalogSnapshot = null;
           this.inTransaction = false;
@@ -198,7 +203,9 @@ export class Engine {
         return ok;
 
       case TransactionType.ROLLBACK:
-        if (!this.inTransaction) return ok;
+        if (!this.inTransaction) {
+          return ok;
+        }
         if (!this.transactionAborted) {
           this.storage.pageStore.rollback();
           if (this.catalogSnapshot) {
@@ -229,7 +236,9 @@ export class Engine {
       params,
     );
 
-    for (const change of result.catalogChanges) this.applyCatalogChange(change);
+    for (const change of result.catalogChanges) {
+      this.applyCatalogChange(change);
+    }
     if (result.catalogChanges.length > 0) {
       this.binder = new Binder(this.catalog);
     }
@@ -237,8 +246,10 @@ export class Engine {
       this.catalogDirty = true;
     }
 
-    if (stmt.type === StatementType.SELECT_STATEMENT)
+    if (stmt.type === StatementType.SELECT_STATEMENT) {
       return { type: "rows", rows: result.rows };
+    }
+
     return { type: "ok", rowsAffected: result.rowsAffected };
   }
 

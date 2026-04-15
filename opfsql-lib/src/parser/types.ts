@@ -111,6 +111,7 @@ export enum TokenType {
   NOTHING,
   EXCLUDED,
   AUTOINCREMENT,
+  EXPLAIN,
 
   // Type keywords
   INTEGER_KW,
@@ -462,6 +463,7 @@ export enum StatementType {
   ALTER_TABLE_STATEMENT = 'ALTER_TABLE_STATEMENT',
   DROP_STATEMENT = 'DROP_STATEMENT',
   TRANSACTION_STATEMENT = 'TRANSACTION_STATEMENT',
+  EXPLAIN_STATEMENT = 'EXPLAIN_STATEMENT',
 }
 
 export interface SelectStatement {
@@ -598,6 +600,11 @@ export interface TransactionStatement {
   transaction_type: TransactionType;
 }
 
+export interface ExplainStatement {
+  type: StatementType.EXPLAIN_STATEMENT;
+  statement: Statement;
+}
+
 export type Statement =
   | SelectStatement
   | SetOperationStatement
@@ -608,7 +615,8 @@ export type Statement =
   | CreateIndexStatement
   | AlterTableStatement
   | DropStatement
-  | TransactionStatement;
+  | TransactionStatement
+  | ExplainStatement;
 
 // ============================================================================
 // Parse error

@@ -74,6 +74,7 @@ const KEYWORDS: Record<string, TokenType> = {
   nothing: TokenType.NOTHING,
   excluded: TokenType.EXCLUDED,
   autoincrement: TokenType.AUTOINCREMENT,
+  explain: TokenType.EXPLAIN,
   // Type keywords
   integer: TokenType.INTEGER_KW,
   int: TokenType.INT_KW,
