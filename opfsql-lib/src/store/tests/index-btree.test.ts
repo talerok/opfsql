@@ -337,6 +337,13 @@ describe('SyncBTree', () => {
     });
   });
 
+  describe('readMeta — explicit error', () => {
+    it('throws descriptive error for invalid metaPageNo', () => {
+      const badTree = new SyncBTree(999, ps, false);
+      expect(() => badTree.search([{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toThrow(/page 999/);
+    });
+  });
+
   describe('drop', () => {
     it('drop removes all btree data', () => {
       tree.insert([1], rid(0, 0));

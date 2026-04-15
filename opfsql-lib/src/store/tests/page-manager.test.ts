@@ -130,6 +130,62 @@ describe('SyncPageStore (page-based)', () => {
     });
   });
 
+  describe('allocPage — cache invalidation', () => {
+    it('allocPage from freelist invalidates stale cache entry', () => {
+      ps.writePage(10, { old: 'data' });
+      ps.commit();
+      expect(ps.readPage(10)).toEqual({ old: 'data' });
+
+      ps.freePage(10);
+      const reused = ps.allocPage();
+      expect(reused).toBe(10);
+
+      ps.writePage(10, { new: 'data' });
+      ps.commit();
+      expect(ps.readPage(10)).toEqual({ new: 'data' });
+    });
+
+    it('allocPage from freelist clears cache so reads go to storage', () => {
+      storage.writePage(10, 'stale');
+      expect(ps.readPage(10)).toBe('stale');
+
+      ps.freePage(10);
+      const reused = ps.allocPage();
+      expect(reused).toBe(10);
+
+      storage.writePage(10, 'fresh');
+      expect(ps.readPage(10)).toBe('fresh');
+    });
+  });
+
+  describe('allocatorDirty — commit optimization', () => {
+    it('commit skips header write when only pages written', () => {
+      const headerBefore = storage.getNextPageId();
+      ps.writePage(100, 'data');
+      ps.commit();
+      expect(storage.getNextPageId()).toBe(headerBefore);
+    });
+
+    it('commit writes header when allocPage was called', () => {
+      const headerBefore = storage.getNextPageId();
+      ps.allocPage();
+      ps.commit();
+      expect(storage.getNextPageId()).toBe(headerBefore + 1);
+    });
+
+    it('commit writes freelist when freePage was called', () => {
+      const p = ps.allocPage();
+      ps.commit();
+
+      ps.freePage(p);
+      ps.commit();
+
+      const ps2 = createStore(storage);
+      const reused = ps2.allocPage();
+      expect(reused).toBe(p);
+    });
+  });
+
   describe('LRU cache', () => {
     it('caches reads from storage', () => {
       storage.writePage(10, { data: 1 });

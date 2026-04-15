@@ -171,6 +171,39 @@ describe('SyncIndexManager', () => {
     });
   });
 
+  describe('rollback — no stale cache', () => {
+    it('index works correctly after rollback (no stale tree cache)', () => {
+      im.insert('idx1', [1], rid(0, 0));
+      im.insert('idx1', [2], rid(0, 1));
+      ps.commit();
+
+      // Start a new "transaction": insert, then rollback
+      im.insert('idx1', [3], rid(0, 2));
+      ps.rollback();
+
+      // After rollback, key 3 should not exist
+      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 3 }])).toEqual([]);
+
+      // Existing keys should still work
+      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 2 }])).toEqual([rid(0, 1)]);
+    });
+
+    it('new inserts work after rollback', () => {
+      im.insert('idx1', [1], rid(0, 0));
+      ps.commit();
+
+      im.insert('idx1', [2], rid(0, 1));
+      ps.rollback();
+
+      // Should be able to insert key 2 again after rollback
+      im.insert('idx1', [2], rid(0, 2));
+      ps.commit();
+
+      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 2 }])).toEqual([rid(0, 2)]);
+    });
+  });
+
   describe('case insensitivity', () => {
     it('index names are lowercased', () => {
       // idx1 already exists in lowercase

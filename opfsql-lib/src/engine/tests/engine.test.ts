@@ -499,6 +499,147 @@ describe("auto PK index", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ALTER TABLE ADD COLUMN — default values for existing rows
+// ---------------------------------------------------------------------------
+
+describe("ALTER TABLE ADD COLUMN defaults", () => {
+  it("existing rows get DEFAULT value after ADD COLUMN", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    engine.execute("INSERT INTO t VALUES (1)");
+    engine.execute("INSERT INTO t VALUES (2)");
+
+    engine.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
+
+    const [result] = engine.execute("SELECT id, val FROM t ORDER BY id");
+    expect(result.rows).toEqual([
+      { id: 1, val: 99 },
+      { id: 2, val: 99 },
+    ]);
+  });
+
+  it("existing rows get NULL for ADD COLUMN without DEFAULT", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    engine.execute("INSERT INTO t VALUES (1)");
+
+    engine.execute("ALTER TABLE t ADD COLUMN val TEXT");
+
+    const [result] = engine.execute("SELECT id, val FROM t");
+    expect(result.rows).toEqual([{ id: 1, val: null }]);
+  });
+
+  it("new rows after ADD COLUMN get explicit value", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    engine.execute("INSERT INTO t VALUES (1)");
+
+    engine.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
+    engine.execute("INSERT INTO t (id, val) VALUES (2, 42)");
+
+    const [result] = engine.execute("SELECT id, val FROM t ORDER BY id");
+    expect(result.rows).toEqual([
+      { id: 1, val: 99 },
+      { id: 2, val: 42 },
+    ]);
+  });
+
+  it("UPDATE works on rows with default-filled column", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    engine.execute("INSERT INTO t VALUES (1)");
+
+    engine.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
+    engine.execute("UPDATE t SET val = 50 WHERE id = 1");
+
+    const [result] = engine.execute("SELECT val FROM t");
+    expect(result.rows![0].val).toBe(50);
+  });
+
+  it("DELETE works on rows with default-filled column", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    engine.execute("INSERT INTO t VALUES (1)");
+    engine.execute("INSERT INTO t VALUES (2)");
+
+    engine.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
+    engine.execute("DELETE FROM t WHERE val = 99");
+
+    const [result] = engine.execute("SELECT * FROM t");
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it("ADD COLUMN defaults persist across reopen", async () => {
+    const name = newDbName();
+    const e = await createEngine(name);
+    e.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    e.execute("INSERT INTO t VALUES (1)");
+    e.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
+    e.close();
+
+    engine = await Engine.create(getStorage(name));
+    const [result] = engine.execute("SELECT id, val FROM t");
+    expect(result.rows).toEqual([{ id: 1, val: 99 }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CREATE INDEX — __pk_ prefix rejection
+// ---------------------------------------------------------------------------
+
+describe("CREATE INDEX — __pk_ prefix", () => {
+  it("rejects index name with __pk_ prefix", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER, name TEXT)");
+
+    expect(() => engine.execute("CREATE INDEX __pk_t ON t (name)")).toThrow(/__pk_/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ALTER TABLE DROP COLUMN — index reference
+// ---------------------------------------------------------------------------
+
+describe("ALTER TABLE DROP COLUMN — index reference", () => {
+  it("rejects DROP COLUMN when column is indexed", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)");
+    engine.execute("CREATE INDEX idx_name ON t (name)");
+
+    expect(() => engine.execute("ALTER TABLE t DROP COLUMN name")).toThrow(/referenced by index/);
+  });
+
+  it("allows DROP COLUMN after dropping the index", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)");
+    engine.execute("CREATE INDEX idx_name ON t (name)");
+    engine.execute("DROP INDEX idx_name");
+    engine.execute("ALTER TABLE t DROP COLUMN name");
+
+    const [result] = engine.execute("SELECT * FROM t");
+    expect(result.rows).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SUBSTR — negative start
+// ---------------------------------------------------------------------------
+
+describe("SUBSTR — negative start", () => {
+  it("SUBSTR with negative start returns from end", async () => {
+    await createEngine();
+    engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT)");
+    engine.execute("INSERT INTO t VALUES (1, 'hello')");
+
+    const [r1] = engine.execute("SELECT SUBSTR(s, -1) AS v FROM t");
+    expect(r1.rows![0].v).toBe("o");
+
+    const [r2] = engine.execute("SELECT SUBSTR(s, -2, 2) AS v FROM t");
+    expect(r2.rows![0].v).toBe("lo");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GROUP BY + aggregates
 // ---------------------------------------------------------------------------
 

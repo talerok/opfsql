@@ -137,6 +137,13 @@ describe('SyncTableBTree', () => {
     });
   });
 
+  describe('readMeta — explicit error', () => {
+    it('throws descriptive error for invalid metaPageNo', () => {
+      const badTree = new SyncTableBTree(999, ps);
+      expect(() => badTree.scan().next()).toThrow(/page 999/);
+    });
+  });
+
   describe('drop', () => {
     it('removes all data', () => {
       tree.insert({ a: 1 });

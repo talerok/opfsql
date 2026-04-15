@@ -2574,6 +2574,69 @@ describe("BLOB column restrictions", () => {
 });
 
 // ============================================================================
+// CREATE INDEX — reserved prefix
+// ============================================================================
+
+describe("CREATE INDEX — reserved prefix", () => {
+  it("index name starting with __pk_ throws BindError", () => {
+    expect(() => bind("CREATE INDEX __pk_users ON users (name)")).toThrow(BindError);
+    expect(() => bind("CREATE INDEX __pk_users ON users (name)")).toThrow(/__pk_/);
+  });
+
+  it("index name starting with __PK_ (case-insensitive) throws BindError", () => {
+    expect(() => bind("CREATE INDEX __PK_test ON users (name)")).toThrow(BindError);
+  });
+
+  it("index name not starting with __pk_ succeeds", () => {
+    const plan = bind("CREATE INDEX idx_users_name ON users (name)");
+    expect(plan.type).toBe(LogicalOperatorType.LOGICAL_CREATE_INDEX);
+  });
+});
+
+// ============================================================================
+// ALTER TABLE DROP COLUMN — index reference check
+// ============================================================================
+
+describe("ALTER TABLE DROP COLUMN — index reference check", () => {
+  it("DROP COLUMN referenced by index throws BindError", () => {
+    catalog.addIndex({
+      name: "idx_name",
+      tableName: "users",
+      columns: ["name"],
+      unique: false,
+    });
+    expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(BindError);
+    expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(/referenced by index/);
+  });
+
+  it("DROP COLUMN referenced by composite index throws BindError", () => {
+    catalog.addIndex({
+      name: "idx_name_age",
+      tableName: "users",
+      columns: ["name", "age"],
+      unique: false,
+    });
+    expect(() => bind("ALTER TABLE users DROP COLUMN age")).toThrow(BindError);
+  });
+
+  it("DROP COLUMN not referenced by any index succeeds", () => {
+    const plan = bind("ALTER TABLE users DROP COLUMN age");
+    const alter = plan as LogicalAlterTable;
+    expect(alter.action.type).toBe("DROP_COLUMN");
+  });
+
+  it("DROP COLUMN case-insensitive match with index column", () => {
+    catalog.addIndex({
+      name: "idx_name",
+      tableName: "users",
+      columns: ["Name"],
+      unique: false,
+    });
+    expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(BindError);
+  });
+});
+
+// ============================================================================
 // sameExpression — BOUND_JSON_ACCESS
 // ============================================================================
 

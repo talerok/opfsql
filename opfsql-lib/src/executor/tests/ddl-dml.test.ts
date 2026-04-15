@@ -741,6 +741,94 @@ describe('DML executors', () => {
 });
 
 // ---------------------------------------------------------------------------
+// PK index — CREATE TABLE produces __pk_ index, INSERT calls indexManager
+// ---------------------------------------------------------------------------
+
+describe('PK index via executeCreateTable', () => {
+  it('CREATE TABLE with PK columns emits __pk_ index with unique=true', () => {
+    const catalog = mockCatalog([]);
+    const rm = mockRowManager();
+    const im = mockIndexManager();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
+      schema: usersSchema,
+      ifNotExists: false,
+      children: [],
+      expressions: [],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalCreateTable;
+
+    const result = executeCreateTable(op, catalog, rm, im);
+    expect(result.catalogChanges).toHaveLength(2);
+    const idxChange = result.catalogChanges[1] as any;
+    expect(idxChange.type).toBe('CREATE_INDEX');
+    expect(idxChange.index.name).toBe('__pk_users');
+    expect(idxChange.index.unique).toBe(true);
+    expect(idxChange.index.columns).toEqual(['id']);
+    expect(idxChange.index.metaPageNo).toBe(100);
+  });
+
+  it('CREATE TABLE without PK does not emit __pk_ index', () => {
+    const noPkSchema: TableSchema = {
+      name: 'logs',
+      columns: [
+        { name: 'msg', type: 'TEXT', nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      ],
+    };
+    const catalog = mockCatalog([]);
+    const rm = mockRowManager();
+    const im = mockIndexManager();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
+      schema: noPkSchema,
+      ifNotExists: false,
+      children: [],
+      expressions: [],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalCreateTable;
+
+    const result = executeCreateTable(op, catalog, rm, im);
+    expect(result.catalogChanges).toHaveLength(1);
+    expect(result.catalogChanges[0].type).toBe('CREATE_TABLE');
+  });
+
+  it('INSERT with indexManager calls indexManager.insert for each index', () => {
+    const rm = mockRowManager();
+    const im = mockIndexManager();
+    const pkIdx = {
+      name: '__pk_users',
+      tableName: 'users',
+      columns: ['id'],
+      unique: true,
+      metaPageNo: 100,
+    };
+    const catalog = mockCatalog([usersSchema]);
+    // Override getTableIndexes to return the PK index
+    (catalog as any).getTableIndexes = () => [pkIdx];
+
+    const op = {
+      type: LogicalOperatorType.LOGICAL_INSERT,
+      tableName: 'users',
+      schema: usersSchema,
+      columns: [0, 1, 2],
+      children: [],
+      expressions: [constant(1), constant('Alice'), constant(30)],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalInsert;
+
+    executeInsert(op, rm, noopCtx, catalog, im);
+    expect(im.insert).toHaveBeenCalledTimes(1);
+    expect(im.insert).toHaveBeenCalledWith('__pk_users', [1], expect.anything());
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AUTOINCREMENT Tests
 // ---------------------------------------------------------------------------
 

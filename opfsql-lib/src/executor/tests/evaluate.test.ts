@@ -271,8 +271,29 @@ describe('evaluateExpression', () => {
       expect(eval_(fnCall('TRIM', [constant('  hi  ')]))).toBe('hi');
     });
 
-    it('SUBSTR', () => {
+    it('SUBSTR — positive start', () => {
       expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(2), constant(3)]))).toBe('ell');
+    });
+
+    it('SUBSTR — negative start -1 returns last char', () => {
+      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(-1)]))).toBe('o');
+    });
+
+    it('SUBSTR — negative start -2 with length', () => {
+      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(-2), constant(2)]))).toBe('lo');
+    });
+
+    it('SUBSTR — start 0 treated as beginning', () => {
+      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(0), constant(3)]))).toBe('hel');
+    });
+
+    it('SUBSTR — negative start beyond string length', () => {
+      expect(eval_(fnCall('SUBSTR', [constant('hi'), constant(-10)]))).toBe('hi');
+    });
+
+    it('SUBSTR — null propagation', () => {
+      expect(eval_(fnCall('SUBSTR', [constant(null), constant(1)]))).toBeNull();
+      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(null)]))).toBeNull();
     });
 
     it('REPLACE', () => {
