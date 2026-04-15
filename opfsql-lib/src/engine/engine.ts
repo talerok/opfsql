@@ -17,6 +17,9 @@ import {
 import { SyncTableManager } from "../store/table-manager.js";
 import { SyncIndexManager } from "../store/index-manager.js";
 import { Storage } from "../store/storage.js";
+import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
+import { NodeSyncStorage, NodeFileHandle } from "../store/backend/node-storage.js";
+import { WalStorage } from "../store/wal/wal-storage.js";
 import type { CatalogData, SyncIPageStorage } from "../store/types.js";
 import type { Row, Value } from "../types.js";
 
@@ -58,6 +61,25 @@ export class Engine {
 
   private constructor(private readonly storage: Storage) {}
 
+  /** Open a named OPFS database with WAL. Use inside a worker. */
+  static async open(dbName: string): Promise<Engine> {
+    const mainStorage = new OPFSSyncStorage(dbName);
+    const root = await navigator.storage.getDirectory();
+    const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
+      create: true,
+    });
+    const walHandle = await (walFh as any).createSyncAccessHandle();
+    return Engine.create(new WalStorage(mainStorage, walHandle));
+  }
+
+  /** Open a file-based database with WAL. Use in Node.js. */
+  static async openNode(filePath: string): Promise<Engine> {
+    const mainStorage = new NodeSyncStorage(filePath);
+    const walHandle = new NodeFileHandle(filePath + "-wal");
+    return Engine.create(new WalStorage(mainStorage, walHandle));
+  }
+
+  /** Create engine with a custom storage backend. */
   static async create(backend: SyncIPageStorage): Promise<Engine> {
     const storage = new Storage(backend);
     await storage.open();
