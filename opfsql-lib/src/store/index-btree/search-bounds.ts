@@ -1,4 +1,4 @@
-import type { IndexKey, IndexKeyValue } from "./types.js";
+import type { IndexKey, IndexKeyValue, RangeOptions } from "./types.js";
 
 export interface SearchPredicate {
   columnPosition: number;
@@ -8,53 +8,38 @@ export interface SearchPredicate {
     | "GREATER"
     | "LESS_EQUAL"
     | "GREATER_EQUAL";
-  value: string | number | boolean | null;
-}
-
-export interface ScanBounds {
-  lowerKey: IndexKey | null;
-  lowerInclusive: boolean;
-  upperKey: IndexKey | null;
-  upperInclusive: boolean;
-  exactKey: IndexKey | null;
-  prefixScan?: boolean;
+  value: IndexKeyValue;
 }
 
 function applyRangePred(
-  bounds: ScanBounds,
+  bounds: RangeOptions,
   key: IndexKey,
   type: SearchPredicate["comparisonType"],
 ): void {
   switch (type) {
     case "GREATER":
-      bounds.lowerKey = key;
+      bounds.lower = key;
       bounds.lowerInclusive = false;
       break;
     case "GREATER_EQUAL":
-      bounds.lowerKey = key;
+      bounds.lower = key;
       bounds.lowerInclusive = true;
       break;
     case "LESS":
-      bounds.upperKey = key;
+      bounds.upper = key;
       bounds.upperInclusive = false;
       break;
     case "LESS_EQUAL":
-      bounds.upperKey = key;
+      bounds.upper = key;
       bounds.upperInclusive = true;
       break;
   }
 }
 
-export function computeBounds(
-  predicates: SearchPredicate[],
-  totalColumns?: number,
-): ScanBounds {
-  const bounds: ScanBounds = {
-    lowerKey: null,
+export function computeBounds(predicates: SearchPredicate[]): RangeOptions {
+  const bounds: RangeOptions = {
     lowerInclusive: true,
-    upperKey: null,
     upperInclusive: true,
-    exactKey: null,
   };
 
   const eqValues: Array<{ pos: number; value: IndexKeyValue }> = [];
@@ -69,23 +54,6 @@ export function computeBounds(
   }
 
   eqValues.sort((a, b) => a.pos - b.pos);
-
-  if (rangePreds.length === 0 && eqValues.length > 0) {
-    const isPrefixOnly =
-      totalColumns !== undefined && eqValues.length < totalColumns;
-    if (isPrefixOnly) {
-      const prefix = eqValues.map((eq) => eq.value);
-      bounds.lowerKey = prefix;
-      bounds.lowerInclusive = true;
-      bounds.upperKey = prefix;
-      bounds.upperInclusive = true;
-      bounds.prefixScan = true;
-      return bounds;
-    }
-    bounds.exactKey = eqValues.map((eq) => eq.value);
-    return bounds;
-  }
-
   const prefix = eqValues.map((eq) => eq.value);
 
   for (const pred of rangePreds) {
@@ -94,15 +62,18 @@ export function computeBounds(
     applyRangePred(bounds, fullKey, pred.comparisonType);
   }
 
+  // Equality prefix fills any unbounded side: all-equality collapses to
+  // lower=upper=prefix (prefix-scan via bound-length slicing in
+  // SyncBTree.isBelowLower/isAboveUpper); equality + one-sided range anchors
+  // the open side to the prefix.
   if (prefix.length > 0) {
-    if (!bounds.lowerKey) {
-      bounds.lowerKey = prefix;
+    if (!bounds.lower) {
+      bounds.lower = prefix;
       bounds.lowerInclusive = true;
     }
-    if (!bounds.upperKey) {
-      bounds.upperKey = prefix;
+    if (!bounds.upper) {
+      bounds.upper = prefix;
       bounds.upperInclusive = true;
-      bounds.prefixScan = true;
     }
   }
 

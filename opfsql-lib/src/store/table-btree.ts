@@ -189,6 +189,7 @@ export class SyncTableBTree {
         ...parent.children.slice(pos + 1),
       ],
     };
+
     this.writeNode(newParent);
     if (newParent.keys.length >= ORDER) {
       this.splitInternal(meta, newParent, path, parentIdx);

@@ -2,59 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { computeBounds, type SearchPredicate } from '../index-btree/search-bounds.js';
 
 describe('computeBounds', () => {
-  describe('point lookup', () => {
-    it('single equality predicate (totalColumns unknown)', () => {
+  describe('equality-only (point lookup or prefix scan)', () => {
+    it('single equality sets lower=upper (inclusive)', () => {
       const preds: SearchPredicate[] = [
         { columnPosition: 0, comparisonType: 'EQUAL', value: 42 },
       ];
       const b = computeBounds(preds);
-      expect(b.exactKey).toEqual([42]);
-      expect(b.lowerKey).toBeNull();
-      expect(b.upperKey).toBeNull();
-    });
-
-    it('single equality with totalColumns=1 is point lookup', () => {
-      const preds: SearchPredicate[] = [
-        { columnPosition: 0, comparisonType: 'EQUAL', value: 'foo' },
-      ];
-      const b = computeBounds(preds, 1);
-      expect(b.exactKey).toEqual(['foo']);
-    });
-
-    it('two equalities covering all columns', () => {
-      const preds: SearchPredicate[] = [
-        { columnPosition: 0, comparisonType: 'EQUAL', value: 1 },
-        { columnPosition: 1, comparisonType: 'EQUAL', value: 'x' },
-      ];
-      const b = computeBounds(preds, 2);
-      expect(b.exactKey).toEqual([1, 'x']);
-    });
-  });
-
-  describe('prefix scan', () => {
-    it('equality on first column of composite index', () => {
-      const preds: SearchPredicate[] = [
-        { columnPosition: 0, comparisonType: 'EQUAL', value: 10 },
-      ];
-      const b = computeBounds(preds, 3);
-      expect(b.exactKey).toBeNull();
-      expect(b.lowerKey).toEqual([10]);
-      expect(b.upperKey).toEqual([10]);
+      expect(b.lower).toEqual([42]);
+      expect(b.upper).toEqual([42]);
       expect(b.lowerInclusive).toBe(true);
       expect(b.upperInclusive).toBe(true);
-      expect(b.prefixScan).toBe(true);
     });
 
-    it('two equalities on 3-column index', () => {
+    it('two equalities sorted by column', () => {
       const preds: SearchPredicate[] = [
-        { columnPosition: 0, comparisonType: 'EQUAL', value: 'a' },
         { columnPosition: 1, comparisonType: 'EQUAL', value: 'b' },
+        { columnPosition: 0, comparisonType: 'EQUAL', value: 'a' },
       ];
-      const b = computeBounds(preds, 3);
-      expect(b.exactKey).toBeNull();
-      expect(b.lowerKey).toEqual(['a', 'b']);
-      expect(b.upperKey).toEqual(['a', 'b']);
-      expect(b.prefixScan).toBe(true);
+      const b = computeBounds(preds);
+      expect(b.lower).toEqual(['a', 'b']);
+      expect(b.upper).toEqual(['a', 'b']);
     });
   });
 
@@ -64,9 +31,9 @@ describe('computeBounds', () => {
         { columnPosition: 0, comparisonType: 'GREATER', value: 5 },
       ];
       const b = computeBounds(preds);
-      expect(b.lowerKey).toEqual([5]);
+      expect(b.lower).toEqual([5]);
       expect(b.lowerInclusive).toBe(false);
-      expect(b.upperKey).toBeNull();
+      expect(b.upper).toBeUndefined();
     });
 
     it('LESS', () => {
@@ -74,9 +41,9 @@ describe('computeBounds', () => {
         { columnPosition: 0, comparisonType: 'LESS', value: 10 },
       ];
       const b = computeBounds(preds);
-      expect(b.upperKey).toEqual([10]);
+      expect(b.upper).toEqual([10]);
       expect(b.upperInclusive).toBe(false);
-      expect(b.lowerKey).toBeNull();
+      expect(b.lower).toBeUndefined();
     });
 
     it('GREATER_EQUAL and LESS_EQUAL', () => {
@@ -85,9 +52,9 @@ describe('computeBounds', () => {
         { columnPosition: 0, comparisonType: 'LESS_EQUAL', value: 100 },
       ];
       const b = computeBounds(preds);
-      expect(b.lowerKey).toEqual([1]);
+      expect(b.lower).toEqual([1]);
       expect(b.lowerInclusive).toBe(true);
-      expect(b.upperKey).toEqual([100]);
+      expect(b.upper).toEqual([100]);
       expect(b.upperInclusive).toBe(true);
     });
   });
@@ -99,11 +66,10 @@ describe('computeBounds', () => {
         { columnPosition: 1, comparisonType: 'GREATER', value: 5 },
       ];
       const b = computeBounds(preds);
-      expect(b.lowerKey).toEqual(['a', 5]);
+      expect(b.lower).toEqual(['a', 5]);
       expect(b.lowerInclusive).toBe(false);
-      expect(b.upperKey).toEqual(['a']);
+      expect(b.upper).toEqual(['a']);
       expect(b.upperInclusive).toBe(true);
-      expect(b.prefixScan).toBe(true);
     });
 
     it('equality on first column + LESS_EQUAL on second', () => {
@@ -112,9 +78,9 @@ describe('computeBounds', () => {
         { columnPosition: 1, comparisonType: 'LESS_EQUAL', value: 99 },
       ];
       const b = computeBounds(preds);
-      expect(b.lowerKey).toEqual(['x']);
+      expect(b.lower).toEqual(['x']);
       expect(b.lowerInclusive).toBe(true);
-      expect(b.upperKey).toEqual(['x', 99]);
+      expect(b.upper).toEqual(['x', 99]);
       expect(b.upperInclusive).toBe(true);
     });
 
@@ -125,9 +91,9 @@ describe('computeBounds', () => {
         { columnPosition: 1, comparisonType: 'LESS', value: 20 },
       ];
       const b = computeBounds(preds);
-      expect(b.lowerKey).toEqual(['a', 10]);
+      expect(b.lower).toEqual(['a', 10]);
       expect(b.lowerInclusive).toBe(true);
-      expect(b.upperKey).toEqual(['a', 20]);
+      expect(b.upper).toEqual(['a', 20]);
       expect(b.upperInclusive).toBe(false);
     });
   });
@@ -138,18 +104,8 @@ describe('computeBounds', () => {
         { columnPosition: 0, comparisonType: 'EQUAL', value: null },
       ];
       const b = computeBounds(preds);
-      expect(b.exactKey).toEqual([null]);
-    });
-  });
-
-  describe('predicate ordering', () => {
-    it('equalities are sorted by column position', () => {
-      const preds: SearchPredicate[] = [
-        { columnPosition: 1, comparisonType: 'EQUAL', value: 'b' },
-        { columnPosition: 0, comparisonType: 'EQUAL', value: 'a' },
-      ];
-      const b = computeBounds(preds, 2);
-      expect(b.exactKey).toEqual(['a', 'b']);
+      expect(b.lower).toEqual([null]);
+      expect(b.upper).toEqual([null]);
     });
   });
 });

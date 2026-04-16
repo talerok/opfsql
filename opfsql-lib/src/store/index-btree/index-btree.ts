@@ -6,20 +6,31 @@ import type {
   BTreeMeta,
   BTreeNode,
   IndexKey,
+  RangeOptions,
 } from "./types.js";
 import { ORDER } from "./types.js";
 
-export interface RangeOptions {
-  lower?: IndexKey;
-  upper?: IndexKey;
-  lowerInclusive?: boolean;
-  upperInclusive?: boolean;
-  prefixScan?: boolean;
-}
+export type { RangeOptions } from "./types.js";
 
 interface LeafPath {
   ancestors: BTreeInternalNode[];
   leaf: BTreeLeafNode;
+}
+
+// ---------------------------------------------------------------------------
+// Stored keys in index B-tree are [...userKey, rowId] (SQLite-style).
+// Every entry is unique by construction; duplicate user keys differ in the
+// trailing rowId, so leaves split normally regardless of duplicate skew.
+// The rowId is recovered from the last element of the stored key (no parallel
+// rowIds[] array — see extractRowId). Range bounds are user-key-shaped;
+// prefix semantics are built into isBelowLower / isAboveUpper via slicing to
+// the bound length. compareIndexKeys' length tiebreaker makes
+// [userKey] < [...userKey, rowId], so user-key bounds correctly frame every
+// matching stored key.
+// ---------------------------------------------------------------------------
+
+function extractRowId(storedKey: IndexKey): RowId {
+  return storedKey[storedKey.length - 1] as RowId;
 }
 
 export class SyncBTree {
@@ -31,10 +42,13 @@ export class SyncBTree {
 
   // --- Public API -----------------------------------------------------------
 
-  insert(key: IndexKey, rowId: RowId): void {
+  insert(userKey: IndexKey, rowId: RowId): void {
+    if (this.unique && !keyHasNull(userKey) && this.existsWithPrefix(userKey))
+      throw new Error(`UNIQUE constraint failed: index`);
     const meta = { ...this.readMeta() };
-    const { ancestors, leaf } = this.findLeafPath(meta, key);
-    const updated = this.insertIntoLeaf(leaf, key, rowId);
+    const storedKey: IndexKey = [...userKey, rowId];
+    const { ancestors, leaf } = this.findLeafPath(meta, storedKey);
+    const updated = this.insertIntoLeaf(leaf, storedKey);
     meta.size++;
     if (updated.keys.length >= ORDER) {
       this.splitLeaf(meta, updated, ancestors);
@@ -44,24 +58,19 @@ export class SyncBTree {
     this.writeMeta(meta);
   }
 
-  delete(key: IndexKey, rowId: RowId): void {
+  delete(userKey: IndexKey, rowId: RowId): void {
     const meta = { ...this.readMeta() };
-    const { leaf } = this.findLeafPath(meta, key);
-    const updated = this.removeFromLeaf(leaf, key, rowId);
+    const storedKey: IndexKey = [...userKey, rowId];
+    const { leaf } = this.findLeafPath(meta, storedKey);
+    const updated = this.removeFromLeaf(leaf, storedKey);
     if (!updated) return;
     meta.size--;
     this.writeNode(updated);
     this.writeMeta(meta);
   }
 
-  lookup(key: IndexKey): RowId[] {
-    const meta = this.readMeta();
-    if (meta.size === 0) return [];
-    const { leaf } = this.findLeafPath(meta, key);
-    const pos = this.bisectLeft(leaf.keys, key);
-    if (pos < leaf.keys.length && compareIndexKeys(leaf.keys[pos], key) === 0)
-      return [...leaf.rowIds[pos]];
-    return [];
+  lookup(userKey: IndexKey): RowId[] {
+    return this.range({ lower: userKey, upper: userKey });
   }
 
   range(opts: RangeOptions = {}): RowId[] {
@@ -74,20 +83,15 @@ export class SyncBTree {
   }
 
   bulkLoad(entries: Array<{ key: IndexKey; rowId: RowId }>): void {
-    const meta: BTreeMeta = {
-      rootNodeId: 0,
-      height: 1,
-      size: 0,
-      unique: this.unique,
-    };
+    const meta: BTreeMeta = { rootNodeId: 0, height: 1, size: 0 };
     if (entries.length === 0) {
-      meta.rootNodeId = this.createLeaf([], [], null);
+      meta.rootNodeId = this.createLeaf([], null);
       this.writeMeta(meta);
       return;
     }
-    const merged = this.mergeEntries(entries);
+    if (this.unique) this.checkUniqueSorted(entries);
     meta.size = entries.length;
-    const leaves = this.buildLeaves(merged);
+    const leaves = this.buildLeaves(entries);
     this.linkAndWriteLeaves(leaves);
     meta.rootNodeId =
       leaves.length === 1
@@ -106,56 +110,37 @@ export class SyncBTree {
 
   private insertIntoLeaf(
     leaf: BTreeLeafNode,
-    key: IndexKey,
-    rowId: RowId,
+    storedKey: IndexKey,
   ): BTreeLeafNode {
-    const pos = this.bisectLeft(leaf.keys, key);
-    const isDuplicate =
-      pos < leaf.keys.length && compareIndexKeys(leaf.keys[pos], key) === 0;
-    if (isDuplicate) {
-      if (this.unique && !keyHasNull(key))
-        throw new Error(`UNIQUE constraint failed: index`);
-      return {
-        ...leaf,
-        rowIds: leaf.rowIds.map((b, i) =>
-          i === pos ? [...b, rowId] : b,
-        ),
-      };
-    }
+    const pos = this.bisectLeft(leaf.keys, storedKey);
     return {
       ...leaf,
-      keys: [...leaf.keys.slice(0, pos), key, ...leaf.keys.slice(pos)],
-      rowIds: [
-        ...leaf.rowIds.slice(0, pos),
-        [rowId],
-        ...leaf.rowIds.slice(pos),
-      ],
+      keys: [...leaf.keys.slice(0, pos), storedKey, ...leaf.keys.slice(pos)],
     };
   }
 
   private removeFromLeaf(
     leaf: BTreeLeafNode,
-    key: IndexKey,
-    rowId: RowId,
+    storedKey: IndexKey,
   ): BTreeLeafNode | null {
-    const pos = this.bisectLeft(leaf.keys, key);
-    if (pos >= leaf.keys.length || compareIndexKeys(leaf.keys[pos], key) !== 0)
+    const pos = this.bisectLeft(leaf.keys, storedKey);
+    if (
+      pos >= leaf.keys.length ||
+      compareIndexKeys(leaf.keys[pos], storedKey) !== 0
+    )
       return null;
-    const bucket = leaf.rowIds[pos];
-    const idx = bucket.indexOf(rowId);
-    if (idx === -1) return null;
-    const newBucket = [...bucket.slice(0, idx), ...bucket.slice(idx + 1)];
-    if (newBucket.length === 0) {
-      return {
-        ...leaf,
-        keys: [...leaf.keys.slice(0, pos), ...leaf.keys.slice(pos + 1)],
-        rowIds: [...leaf.rowIds.slice(0, pos), ...leaf.rowIds.slice(pos + 1)],
-      };
-    }
     return {
       ...leaf,
-      rowIds: leaf.rowIds.map((b, i) => (i === pos ? newBucket : b)),
+      keys: [...leaf.keys.slice(0, pos), ...leaf.keys.slice(pos + 1)],
     };
+  }
+
+  private existsWithPrefix(prefix: IndexKey): boolean {
+    // Only called from insert() when this.unique is true, so at most one
+    // entry can match — range() reads 1-2 leaves and returns 0 or 1 rowIds.
+    // Using range correctly handles the separator-boundary case where
+    // findLeafPath lands on the left sibling of the matching leaf.
+    return this.range({ lower: prefix, upper: prefix }).length > 0;
   }
 
   // --- Range scan -----------------------------------------------------------
@@ -174,7 +159,7 @@ export class SyncBTree {
         const key = leaf.keys[i];
         if (this.isBelowLower(key, opts)) continue;
         if (this.isAboveUpper(key, opts)) return results;
-        results.push(...leaf.rowIds[i]);
+        results.push(extractRowId(key));
       }
       leaf = leaf.nextLeafId !== null
         ? (this.readNode(leaf.nextLeafId) as BTreeLeafNode)
@@ -185,49 +170,43 @@ export class SyncBTree {
 
   private isBelowLower(key: IndexKey, opts: RangeOptions): boolean {
     if (!opts.lower) return false;
-    const cmp = compareIndexKeys(key, opts.lower);
+    const prefix = key.slice(0, opts.lower.length);
+    const cmp = compareIndexKeys(prefix, opts.lower);
     return opts.lowerInclusive !== false ? cmp < 0 : cmp <= 0;
   }
 
   private isAboveUpper(key: IndexKey, opts: RangeOptions): boolean {
     if (!opts.upper) return false;
-    if (opts.prefixScan)
-      return compareIndexKeys(key.slice(0, opts.upper.length), opts.upper) > 0;
-    const cmp = compareIndexKeys(key, opts.upper);
+    const prefix = key.slice(0, opts.upper.length);
+    const cmp = compareIndexKeys(prefix, opts.upper);
     return opts.upperInclusive !== false ? cmp > 0 : cmp >= 0;
   }
 
   // --- Bulk load ------------------------------------------------------------
 
-  private mergeEntries(
+  private checkUniqueSorted(
     entries: Array<{ key: IndexKey; rowId: RowId }>,
-  ): Array<{ key: IndexKey; rowIds: RowId[] }> {
-    const merged: Array<{ key: IndexKey; rowIds: RowId[] }> = [];
-    for (const { key, rowId } of entries) {
-      const last = merged.at(-1);
-      if (last && compareIndexKeys(last.key, key) === 0) {
-        if (this.unique && !keyHasNull(key))
-          throw new Error(`UNIQUE constraint failed: index`);
-        last.rowIds.push(rowId);
-      } else {
-        merged.push({ key, rowIds: [rowId] });
-      }
+  ): void {
+    for (let i = 1; i < entries.length; i++) {
+      if (
+        compareIndexKeys(entries[i].key, entries[i - 1].key) === 0 &&
+        !keyHasNull(entries[i].key)
+      )
+        throw new Error(`UNIQUE constraint failed: index`);
     }
-    return merged;
   }
 
   private buildLeaves(
-    merged: Array<{ key: IndexKey; rowIds: RowId[] }>,
+    entries: Array<{ key: IndexKey; rowId: RowId }>,
   ): BTreeLeafNode[] {
     const leaves: BTreeLeafNode[] = [];
-    for (let i = 0; i < merged.length; i += ORDER - 1) {
-      const chunk = merged.slice(i, i + ORDER - 1);
+    for (let i = 0; i < entries.length; i += ORDER - 1) {
+      const chunk = entries.slice(i, i + ORDER - 1);
       const nodeId = this.pageStore.allocPage();
       leaves.push({
         kind: "leaf",
         nodeId,
-        keys: chunk.map((e) => e.key),
-        rowIds: chunk.map((e) => e.rowIds),
+        keys: chunk.map((e) => [...e.key, e.rowId]),
         nextLeafId: null,
       });
     }
@@ -276,13 +255,11 @@ export class SyncBTree {
       kind: "leaf",
       nodeId: this.pageStore.allocPage(),
       keys: leaf.keys.slice(mid),
-      rowIds: leaf.rowIds.slice(mid),
       nextLeafId: leaf.nextLeafId,
     };
     const leftLeaf: BTreeLeafNode = {
       ...leaf,
       keys: leaf.keys.slice(0, mid),
-      rowIds: leaf.rowIds.slice(0, mid),
       nextLeafId: rightLeaf.nodeId,
     };
     this.writeNode(leftLeaf);
@@ -433,11 +410,10 @@ export class SyncBTree {
 
   private createLeaf(
     keys: IndexKey[],
-    rowIds: RowId[][],
     nextLeafId: number | null,
   ): number {
     const nodeId = this.pageStore.allocPage();
-    this.writeNode({ kind: "leaf", nodeId, keys, rowIds, nextLeafId });
+    this.writeNode({ kind: "leaf", nodeId, keys, nextLeafId });
     return nodeId;
   }
 }

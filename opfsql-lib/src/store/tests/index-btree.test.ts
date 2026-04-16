@@ -176,7 +176,7 @@ describe('SyncBTree', () => {
       tree.insert(['b', 1], rid(0, 2));
       ps.commit();
 
-      const results = tree.range({ lower: ['a'], upper: ['a'], prefixScan: true });
+      const results = tree.range({ lower: ['a'], upper: ['a'] });
       expect(results).toHaveLength(2);
       expect(results).toContainEqual(rid(0, 0));
       expect(results).toContainEqual(rid(0, 1));
@@ -215,6 +215,21 @@ describe('SyncBTree', () => {
       ps.commit();
 
       expect(uniqueTree.lookup([1])).toEqual([rid(0, 0)]);
+    });
+
+    it('detects duplicate after leaf split (boundary case)', () => {
+      // Fill the tree with 128 unique keys so a leaf split promotes a
+      // separator whose first column equals one of the existing user keys.
+      // The key at the split boundary lives at the start of the right leaf;
+      // a naive existsWithPrefix would descend into the left leaf and miss it.
+      for (let i = 0; i < 128; i++) uniqueTree.insert([i], rid(0, i));
+      ps.commit();
+
+      // key=64 exists as the first entry of the right leaf after the split.
+      // Attempting to re-insert it with a different rowId must throw.
+      expect(() => uniqueTree.insert([64], rid(0, 999))).toThrow(
+        'UNIQUE constraint failed',
+      );
     });
   });
 
@@ -263,6 +278,19 @@ describe('SyncBTree', () => {
         expect(tree.lookup([k])).toEqual([rid(0, k)]);
       }
     });
+
+    it('non-unique index with many duplicates splits without page overflow', () => {
+      // Mirrors the benchmark scenario that originally triggered the refactor:
+      // hundreds of rows share one indexed value. Pre-refactor these went
+      // into a single bucket and never split. Post-refactor each (key, rowId)
+      // is a separate entry, so leaves split naturally.
+      for (let i = 0; i < 500; i++) tree.insert([42], rid(0, i));
+      ps.commit();
+
+      const results = tree.lookup([42]);
+      expect(results).toHaveLength(500);
+      expect(new Set(results).size).toBe(500);
+    });
   });
 
   describe('bulkLoad', () => {
@@ -286,7 +314,7 @@ describe('SyncBTree', () => {
       expect(bt.lookup([1])).toEqual([]);
     });
 
-    it('bulk load merges duplicate keys in non-unique index', () => {
+    it('bulk load stores duplicate keys as separate entries in non-unique index', () => {
       const metaPage = ps.allocPage();
       const bt = new SyncBTree(metaPage, ps, false);
       const entries = [

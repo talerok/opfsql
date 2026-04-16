@@ -6,7 +6,7 @@ import type { SyncIPageStorage } from "../types.js";
 
 const encoder = new Encoder({ structuredClone: false, useRecords: true });
 
-const MAGIC = new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x32]); // "OPFSQL02"
+const MAGIC = new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x33]); // "OPFSQL03"
 const HEADER_SIZE = 16;
 const DEFAULT_PAGE_SIZE = 32768; // 32 KB
 

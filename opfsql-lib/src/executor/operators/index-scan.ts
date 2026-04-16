@@ -5,6 +5,8 @@ import type {
   TableFilter,
 } from "../../binder/types.js";
 import type {
+  IndexDef,
+  IndexKeyValue,
   SearchPredicate,
   SyncIIndexManager,
   SyncIRowManager,
@@ -28,7 +30,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     private readonly op: LogicalGet,
     private readonly rowManager: SyncIRowManager,
     private readonly indexManager: SyncIIndexManager,
-    private readonly indexDef: import("../../store/types.js").IndexDef,
+    private readonly indexDef: IndexDef,
     private readonly indexPredicates: IndexSearchPredicate[],
     private readonly residualFilters: TableFilter[],
     private readonly ctx: SyncEvalContext,
@@ -85,13 +87,8 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     const predicates: SearchPredicate[] = this.indexPredicates.map((p) => ({
       columnPosition: p.columnPosition,
       comparisonType: p.comparisonType,
-      value: resolveFilterValue(p.value, this.ctx.params) as
-        string | number | boolean | null,
+      value: resolveFilterValue(p.value, this.ctx.params) as IndexKeyValue,
     }));
-    return this.indexManager.search(
-      this.indexDef.name,
-      predicates,
-      this.indexDef.columns.length,
-    );
+    return this.indexManager.search(this.indexDef.name, predicates);
   }
 }

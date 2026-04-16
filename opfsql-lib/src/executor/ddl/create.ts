@@ -75,7 +75,10 @@ export function executeCreateIndex(
     entries.push({ key, rowId });
   }
 
-  entries.sort((a, b) => compareIndexKeys(a.key, b.key));
+  entries.sort((a, b) => {
+    const cmp = compareIndexKeys(a.key, b.key);
+    return cmp !== 0 ? cmp : a.rowId - b.rowId;
+  });
   const metaPageNo = indexManager.bulkLoad(
     op.index.name,
     entries,

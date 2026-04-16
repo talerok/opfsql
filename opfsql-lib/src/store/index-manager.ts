@@ -29,21 +29,8 @@ export class SyncIndexManager implements SyncIIndexManager {
     this.tree(indexName).delete(key, rowId);
   }
 
-  search(
-    indexName: string,
-    predicates: SearchPredicate[],
-    totalColumns?: number,
-  ): RowId[] {
-    const tree = this.tree(indexName);
-    const bounds = computeBounds(predicates, totalColumns);
-    if (bounds.exactKey) return tree.lookup(bounds.exactKey);
-    return tree.range({
-      lower: bounds.lowerKey ?? undefined,
-      upper: bounds.upperKey ?? undefined,
-      lowerInclusive: bounds.lowerInclusive,
-      upperInclusive: bounds.upperInclusive,
-      prefixScan: bounds.prefixScan,
-    });
+  search(indexName: string, predicates: SearchPredicate[]): RowId[] {
+    return this.tree(indexName).range(computeBounds(predicates));
   }
 
   bulkLoad(

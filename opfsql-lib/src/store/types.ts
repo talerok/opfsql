@@ -9,8 +9,12 @@ export type {
   TableSchema,
   Value,
 } from "../types.js";
+export type { IndexKey, IndexKeyValue } from "./index-btree/types.js";
+export type { SearchPredicate } from "./index-btree/search-bounds.js";
 
 import type { IndexDef, Row, RowId, TableSchema } from "../types.js";
+import type { IndexKey } from "./index-btree/types.js";
+import type { SearchPredicate } from "./index-btree/search-bounds.js";
 
 // ---------------------------------------------------------------------------
 // Catalog interface
@@ -77,11 +81,7 @@ export interface SyncIRowManager {
 export interface SyncIIndexManager {
   insert(indexName: string, key: IndexKey, rowId: RowId): void;
   delete(indexName: string, key: IndexKey, rowId: RowId): void;
-  search(
-    indexName: string,
-    predicates: SearchPredicate[],
-    totalColumns?: number,
-  ): RowId[];
+  search(indexName: string, predicates: SearchPredicate[]): RowId[];
   bulkLoad(
     indexName: string,
     entries: Array<{ key: IndexKey; rowId: RowId }>,
@@ -90,15 +90,3 @@ export interface SyncIIndexManager {
   dropIndex(indexName: string): void;
 }
 
-// ---------------------------------------------------------------------------
-// Index key types
-// ---------------------------------------------------------------------------
-
-export type IndexKeyValue = string | number | boolean | null;
-export type IndexKey = IndexKeyValue[];
-
-export interface SearchPredicate {
-  columnPosition: number;
-  comparisonType: "EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
-  value: string | number | boolean | null;
-}

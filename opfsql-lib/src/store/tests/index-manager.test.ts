@@ -146,14 +146,14 @@ describe('SyncIndexManager', () => {
     });
   });
 
-  describe('search with totalColumns', () => {
-    it('prefix scan with totalColumns', () => {
+  describe('composite keys', () => {
+    it('prefix match on first column returns all entries with that prefix', () => {
       im.insert('idx1', ['a', 1], rid(0, 0));
       im.insert('idx1', ['a', 2], rid(0, 1));
       im.insert('idx1', ['b', 1], rid(0, 2));
       ps.commit();
 
-      const results = im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 'a' }], 2);
+      const results = im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 'a' }]);
       expect(results).toHaveLength(2);
       expect(results).toContainEqual(rid(0, 0));
       expect(results).toContainEqual(rid(0, 1));
@@ -167,7 +167,7 @@ describe('SyncIndexManager', () => {
       expect(im.search('idx1', [
         { columnPosition: 0, comparisonType: 'EQUAL', value: 'a' },
         { columnPosition: 1, comparisonType: 'EQUAL', value: 1 },
-      ], 2)).toEqual([rid(0, 0)]);
+      ])).toEqual([rid(0, 0)]);
     });
   });
 

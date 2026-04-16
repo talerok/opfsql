@@ -19,11 +19,11 @@ declare global {
 const encoder = new Encoder({ structuredClone: false, useRecords: true });
 
 // ---------------------------------------------------------------------------
-// File format (OPFSQL02)
+// File format (OPFSQL03)
 // ---------------------------------------------------------------------------
 //
 // Page 0: header (PAGE_SIZE bytes, only first 16 used)
-//   [0..7]   magic  "OPFSQL02"
+//   [0..7]   magic  "OPFSQL03"
 //   [8..11]  pageSize  u32 big-endian
 //   [12..15] nextPageId u32
 //
@@ -36,9 +36,13 @@ const encoder = new Encoder({ structuredClone: false, useRecords: true });
 //   [4..]    CBOR bytes
 //
 // File size = nextPageId * pageSize (no trailing index blob).
+//
+// v03 change: index B-tree leaves store [...userKey, rowId] as unique keys
+// (SQLite-style). The rowId lives in the key's trailing element; there is no
+// separate parallel array. Leaves split normally regardless of duplicate skew.
 // ---------------------------------------------------------------------------
 
-const MAGIC = new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x32]); // "OPFSQL02"
+const MAGIC = new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x33]); // "OPFSQL03"
 const HEADER_SIZE = 16;
 const DEFAULT_PAGE_SIZE = 32768; // 32 KB
 
