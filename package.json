@@ -1,5 +1,6 @@
 {
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.4"
+    "@vitest/coverage-v8": "^4.1.4",
+    "opfs-mock": "^2.6.0"
   }
 }
