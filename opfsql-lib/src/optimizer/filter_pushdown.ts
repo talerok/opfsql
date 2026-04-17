@@ -300,6 +300,38 @@ class FilterPushdown {
       }
     }
 
+    // Try to push havingExpression below aggregate if it only references group columns.
+    // The binder binds HAVING refs to groupIndex (aggregate output), so we remap them
+    // to the corresponding group input expressions before pushing down.
+    // For conjunctions like `HAVING group_col > 5 AND COUNT(*) > 10`, we split and
+    // push only the group-column parts; the aggregate parts stay as havingExpression.
+    if (op.havingExpression && op.groups.length > 0) {
+      const havingParts = flattenConjunction(op.havingExpression);
+      const keptParts: BoundExpression[] = [];
+
+      for (const part of havingParts) {
+        const remapped = remapHavingThroughGroups(part, op);
+        if (remapped) {
+          pushable.push(remapped);
+        } else {
+          keptParts.push(part);
+        }
+      }
+
+      if (keptParts.length === 0) {
+        op.havingExpression = null;
+      } else if (keptParts.length === 1) {
+        op.havingExpression = keptParts[0];
+      } else {
+        op.havingExpression = {
+          expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
+          conjunctionType: 'AND',
+          children: keptParts,
+          returnType: 'BOOLEAN',
+        };
+      }
+    }
+
     const childPushdown = new FilterPushdown();
     childPushdown.filters = pushable;
     op.children = [childPushdown.rewrite(op.children[0])] as [LogicalOperator];
@@ -452,6 +484,45 @@ function tryExtractJoinCondition(
 
   // Mixed references — can't be used as a join condition
   return null;
+}
+
+/**
+ * Remap a HAVING expression through aggregate group columns.
+ * The binder binds HAVING column refs to groupIndex (the aggregate output table).
+ * This function replaces those refs with the corresponding group input expressions,
+ * allowing the filter to be pushed below the aggregate.
+ * Returns null if the expression references aggregate results (not just group columns).
+ */
+function remapHavingThroughGroups(
+  expr: BoundExpression,
+  agg: LogicalAggregate,
+): BoundExpression | null {
+  let canRemap = true;
+
+  const remapped = mapExpression(expr, (e) => {
+    if (e.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF) {
+      const ref = e as BoundColumnRefExpression;
+      if (ref.binding.tableIndex === agg.groupIndex) {
+        const idx = ref.binding.columnIndex;
+        if (idx < agg.groups.length) {
+          return agg.groups[idx];
+        }
+        // References beyond groups — this is an error or aggregate output
+        canRemap = false;
+      }
+      if (ref.binding.tableIndex === agg.aggregateIndex) {
+        // References an aggregate result — can't push below
+        canRemap = false;
+      }
+    }
+    if (e.expressionClass === BoundExpressionClass.BOUND_AGGREGATE) {
+      // HAVING COUNT(*) > 5 — references aggregate, can't push
+      canRemap = false;
+    }
+    return e;
+  });
+
+  return canRemap ? remapped : null;
 }
 
 /**

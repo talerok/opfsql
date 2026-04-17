@@ -43,7 +43,7 @@ export function reorderFilters(plan: LogicalOperator): LogicalOperator {
 // Cost estimation for expressions
 // ============================================================================
 
-function estimateCost(expr: BoundExpression): number {
+export function estimateCost(expr: BoundExpression): number {
   switch (expr.expressionClass) {
     case BoundExpressionClass.BOUND_CONSTANT:
       return 1;
@@ -151,7 +151,7 @@ function typeMultiplier(type: string): number {
 // CanThrow — checks if an expression could throw at runtime (e.g. division by zero)
 // ============================================================================
 
-function canThrow(expr: BoundExpression): boolean {
+export function canThrow(expr: BoundExpression): boolean {
   switch (expr.expressionClass) {
     case BoundExpressionClass.BOUND_OPERATOR: {
       const op = expr as BoundOperatorExpression;
