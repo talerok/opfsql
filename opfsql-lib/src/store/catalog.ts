@@ -65,6 +65,11 @@ export class Catalog implements ICatalog {
     };
   }
 
+  snapshot(): CatalogData {
+    const data = this.serialize();
+    return structuredClone(data);
+  }
+
   static deserialize(data: CatalogData): Catalog {
     const catalog = new Catalog();
     for (const table of data.tables) catalog.addTable(table);

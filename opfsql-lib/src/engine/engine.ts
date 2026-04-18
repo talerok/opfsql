@@ -6,11 +6,10 @@ import { Parser } from "../parser/index.js";
 import {
   StatementType,
   TransactionType,
+  type ExplainStatement,
   type Statement,
   type TransactionStatement,
-  type ExplainStatement,
 } from "../parser/types.js";
-import { formatPlan } from "./explain.js";
 import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
 import { Catalog, initCatalog, writeCatalog } from "../store/catalog.js";
 import { SyncIndexManager } from "../store/index-manager.js";
@@ -19,6 +18,7 @@ import { SyncTableManager } from "../store/table-manager.js";
 import type { CatalogData, SyncIPageStorage } from "../store/types.js";
 import { WalStorage } from "../store/wal/wal-storage.js";
 import type { Value } from "../types.js";
+import { formatPlan } from "./explain.js";
 import { EngineError, PreparedStatement, type Result } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,10 @@ export class Engine {
 
   close(): void {
     this.storage.close();
+  }
+
+  getSchema(): CatalogData {
+    return this.catalog.snapshot();
   }
 
   // -------------------------------------------------------------------------

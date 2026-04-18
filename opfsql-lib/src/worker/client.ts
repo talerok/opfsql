@@ -1,4 +1,5 @@
 import { Result } from "../engine/index.js";
+import type { CatalogData } from "../store/types.js";
 import { Value } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -11,12 +12,14 @@ type OutPayload =
   | { type: "exec"; sql: string; params?: Value[] }
   | { type: "prepare"; sql: string }
   | { type: "run"; stmtId: number; params?: Value[] }
-  | { type: "free"; stmtId: number };
+  | { type: "free"; stmtId: number }
+  | { type: "schema" };
 
 type InMsg =
   | { id: number; ok: true }
   | { id: number; results: Result[] }
   | { id: number; stmtId: number }
+  | { id: number; schema: CatalogData }
   | { id: number; error: string };
 
 // ---------------------------------------------------------------------------
@@ -107,6 +110,11 @@ export class WorkerEngine {
 
   async freeStmt(stmtId: number): Promise<void> {
     await this.rpc({ type: "free", stmtId });
+  }
+
+  async getSchema(): Promise<CatalogData> {
+    const r = await this.rpc<{ schema: CatalogData }>({ type: "schema" });
+    return r.schema;
   }
 
   // -------------------------------------------------------------------------

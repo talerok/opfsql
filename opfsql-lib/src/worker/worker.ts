@@ -1,4 +1,5 @@
 import { Engine, PreparedStatement, type Result } from "../engine/index.js";
+import type { CatalogData } from "../store/types.js";
 import { Value } from "../types.js";
 
 console.log("[opfsql worker] loaded");
@@ -13,12 +14,14 @@ type InMsg =
   | { id: number; type: "exec"; sql: string; params?: Value[] }
   | { id: number; type: "prepare"; sql: string }
   | { id: number; type: "run"; stmtId: number; params?: Value[] }
-  | { id: number; type: "free"; stmtId: number };
+  | { id: number; type: "free"; stmtId: number }
+  | { id: number; type: "schema" };
 
 type OutMsg =
   | { id: number; ok: true }
   | { id: number; results: Result[] }
   | { id: number; stmtId: number }
+  | { id: number; schema: CatalogData }
   | { id: number; error: string };
 
 // ---------------------------------------------------------------------------
@@ -84,6 +87,12 @@ function reply(msg: OutMsg): void {
       case "free": {
         prepared.delete(data.stmtId);
         reply({ id, ok: true });
+        break;
+      }
+
+      case "schema": {
+        if (!engine) throw new Error("Engine not opened");
+        reply({ id, schema: engine.getSchema() });
         break;
       }
     }

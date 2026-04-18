@@ -10,12 +10,18 @@ export type {
   TableSchema,
   Value,
 } from "../types.js";
-export type { IndexKey, IndexKeyValue } from "./index-btree/types.js";
 export type { SearchPredicate } from "./index-btree/search-bounds.js";
+export type { IndexKey, IndexKeyValue } from "./index-btree/types.js";
 
-import type { IndexDef, Row, RowId, TableSchema } from "../types.js";
-import type { IndexKey } from "./index-btree/types.js";
+import type {
+  CatalogData,
+  IndexDef,
+  Row,
+  RowId,
+  TableSchema,
+} from "../types.js";
 import type { SearchPredicate } from "./index-btree/search-bounds.js";
+import type { IndexKey } from "./index-btree/types.js";
 
 // ---------------------------------------------------------------------------
 // Catalog interface
@@ -33,7 +39,7 @@ export interface ICatalog {
   getTableIndexes(tableName: string): IndexDef[];
   addIndex(index: IndexDef): void;
   removeIndex(name: string): void;
-  serialize(): import("../types.js").CatalogData;
+  serialize(): CatalogData;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,4 +96,3 @@ export interface SyncIIndexManager {
   ): number;
   dropIndex(indexName: string): void;
 }
-
