@@ -1,6 +1,2 @@
-export {
-  Engine,
-  EngineError,
-  PreparedStatement,
-  type Result,
-} from "./engine.js";
+export { Engine } from "./engine.js";
+export { EngineError, PreparedStatement, type Result } from "./types.js";

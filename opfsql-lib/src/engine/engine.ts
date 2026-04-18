@@ -18,29 +18,8 @@ import { Storage } from "../store/storage.js";
 import { SyncTableManager } from "../store/table-manager.js";
 import type { CatalogData, SyncIPageStorage } from "../store/types.js";
 import { WalStorage } from "../store/wal/wal-storage.js";
-import type { Row, Value } from "../types.js";
-
-// ---------------------------------------------------------------------------
-
-export interface Result {
-  type: "rows" | "ok";
-  rows?: Row[];
-  rowsAffected?: number;
-}
-
-export class EngineError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EngineError";
-  }
-}
-
-export class PreparedStatement {
-  constructor(private readonly executeFn: (params: Value[]) => Result) {}
-  run(params: Value[] = []): Result {
-    return this.executeFn(params);
-  }
-}
+import type { Value } from "../types.js";
+import { EngineError, PreparedStatement, type Result } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Engine
@@ -65,6 +44,9 @@ export class Engine {
     const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
       create: true,
     });
+    // createSyncAccessHandle is part of the OPFS private-file-system API and
+    // is missing from older TypeScript DOM lib versions, so we cast to any.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const walHandle = await (walFh as any).createSyncAccessHandle();
     return Engine.create(new WalStorage(mainStorage, walHandle));
   }
@@ -120,6 +102,7 @@ export class Engine {
       return this.executeTCL(stmt as TransactionStatement);
     }
 
+    // EXPLAIN is allowed even inside an aborted transaction (useful for debugging).
     if (stmt.type === StatementType.EXPLAIN_STATEMENT) {
       const inner = (stmt as ExplainStatement).statement;
       const bound = this.binder.bindStatement(inner);
@@ -218,6 +201,11 @@ export class Engine {
         this.inTransaction = false;
         this.transactionAborted = false;
         return ok;
+
+      default: {
+        const unreachable: never = stmt.transaction_type;
+        throw new EngineError(`Unknown transaction type: ${unreachable}`);
+      }
     }
   }
 
@@ -236,13 +224,14 @@ export class Engine {
       params,
     );
 
+    const hasCatalogChanges = result.catalogChanges.length > 0;
     for (const change of result.catalogChanges) {
       this.applyCatalogChange(change);
     }
-    if (result.catalogChanges.length > 0) {
+    if (hasCatalogChanges) {
       this.binder = new Binder(this.catalog);
     }
-    if (result.catalogChanges.length > 0 || result.catalogDirty) {
+    if (hasCatalogChanges || result.catalogDirty) {
       this.catalogDirty = true;
     }
 
