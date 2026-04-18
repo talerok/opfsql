@@ -5,6 +5,7 @@ import type {
   BoundComparisonExpression,
   BoundJsonAccessExpression,
   LogicalAggregate,
+  LogicalAlterTable,
   LogicalFilter,
   LogicalLimit,
   LogicalMaterializedCTE,
@@ -12,6 +13,7 @@ import type {
   LogicalProjection,
 } from "../types.js";
 import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
+import type { TableSchema } from "../../store/types.js";
 import { createTestContext } from "./test_helpers.js";
 
 let catalog: ReturnType<typeof createTestContext>["catalog"];
@@ -305,11 +307,160 @@ describe("JSON", () => {
     expect(() => bind("SELECT data + 1 FROM docs")).toThrow(BindError);
   });
 
+  it("LIKE on JSON throws BindError", () => {
+    expect(() => bind("SELECT * FROM docs WHERE data LIKE '%x%'")).toThrow(
+      /JSON/,
+    );
+  });
+
   it("JSON PRIMARY KEY throws BindError", () => {
     expect(() => bind("CREATE TABLE bad (data JSON PRIMARY KEY)")).toThrow(BindError);
   });
 
   it("JSON UNIQUE throws BindError", () => {
     expect(() => bind("CREATE TABLE bad (id INTEGER, data JSON UNIQUE)")).toThrow(BindError);
+  });
+});
+
+describe("LIMIT/OFFSET — eval-constant edge cases", () => {
+  it("LIMIT with string constant throws BindError", () => {
+    expect(() => bind("SELECT * FROM users LIMIT 'abc'")).toThrow(BindError);
+    expect(() => bind("SELECT * FROM users LIMIT 'abc'")).toThrow(
+      /integer constant/i,
+    );
+  });
+
+  it("OFFSET with negative value throws BindError", () => {
+    expect(() => bind("SELECT * FROM users LIMIT 10 OFFSET -1")).toThrow(
+      BindError,
+    );
+  });
+});
+
+describe("type-check — BLOB comparison", () => {
+  const blobSchema: TableSchema = {
+    name: "blobs",
+    columns: [
+      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
+      { name: "data", type: "BLOB", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+  };
+
+  beforeEach(() => {
+    catalog.addTable(blobSchema);
+  });
+
+  it("BLOB = BLOB comparison succeeds", () => {
+    expect(() =>
+      bind("SELECT * FROM blobs a JOIN blobs b ON a.data = b.data"),
+    ).not.toThrow();
+  });
+
+  it("BLOB compared with TEXT throws type mismatch", () => {
+    expect(() =>
+      bind("SELECT * FROM blobs WHERE data = 'hello'"),
+    ).toThrow(/Type mismatch/);
+  });
+
+  it("LIKE on BLOB throws BindError", () => {
+    expect(() =>
+      bind("SELECT * FROM blobs WHERE data LIKE '%x%'"),
+    ).toThrow(/BLOB/);
+  });
+
+  it("arithmetic on BLOB throws BindError", () => {
+    expect(() =>
+      bind("SELECT data + 1 FROM blobs"),
+    ).toThrow(/BLOB/);
+  });
+});
+
+describe("type-check — scalar function type restrictions", () => {
+  const blobSchema: TableSchema = {
+    name: "blobs",
+    columns: [
+      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
+      { name: "data", type: "BLOB", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+  };
+
+  beforeEach(() => {
+    catalog.addTable(blobSchema);
+  });
+
+  it("UPPER on BLOB throws BindError", () => {
+    expect(() => bind("SELECT UPPER(data) FROM blobs")).toThrow(/BLOB/);
+  });
+
+  it("ABS on BLOB throws BindError", () => {
+    expect(() => bind("SELECT ABS(data) FROM blobs")).toThrow(/BLOB/);
+  });
+
+  it("ROUND on BLOB throws BindError", () => {
+    expect(() => bind("SELECT ROUND(data) FROM blobs")).toThrow(/BLOB/);
+  });
+
+  it("CONCAT with BLOB throws BindError", () => {
+    expect(() =>
+      bind("SELECT CONCAT(data, 'x') FROM blobs"),
+    ).toThrow(/BLOB/);
+  });
+});
+
+describe("ALTER TABLE ADD COLUMN — AUTOINCREMENT validation", () => {
+  it("AUTOINCREMENT on non-PRIMARY KEY column throws", () => {
+    expect(() =>
+      bind("ALTER TABLE users ADD COLUMN seq INTEGER AUTOINCREMENT"),
+    ).toThrow(/PRIMARY KEY/);
+  });
+
+  it("AUTOINCREMENT on non-INTEGER PRIMARY KEY throws", () => {
+    expect(() =>
+      bind("ALTER TABLE users ADD COLUMN seq TEXT PRIMARY KEY AUTOINCREMENT"),
+    ).toThrow(/INTEGER/);
+  });
+
+  it("AUTOINCREMENT when table already has one throws", () => {
+    const autoSchema: TableSchema = {
+      name: "auto_tbl",
+      columns: [
+        { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: true, defaultValue: null },
+        { name: "val", type: "TEXT", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      ],
+    };
+    catalog.addTable(autoSchema);
+    expect(() =>
+      bind("ALTER TABLE auto_tbl ADD COLUMN seq INTEGER PRIMARY KEY AUTOINCREMENT"),
+    ).toThrow(/already has an AUTOINCREMENT/);
+  });
+});
+
+describe("Binder — statement dispatch errors", () => {
+  it("BEGIN TRANSACTION throws BindError", () => {
+    expect(() => bind("BEGIN")).toThrow(BindError);
+    expect(() => bind("BEGIN")).toThrow(/Transaction/);
+  });
+});
+
+describe("extract-columns — aggregate naming in subquery/CTE", () => {
+  it("CTE with COUNT(*) infers column name count_star", () => {
+    const plan = bind(
+      "WITH agg AS (SELECT COUNT(*) FROM users) SELECT * FROM agg",
+    );
+    expect(plan.type).toBe(LogicalOperatorType.LOGICAL_MATERIALIZED_CTE);
+    const matCte = plan as LogicalMaterializedCTE;
+    const proj = matCte.children[1] as LogicalProjection;
+    const col = proj.expressions[0] as BoundColumnRefExpression;
+    expect(col.columnName).toBe("count_star");
+  });
+
+  it("CTE with SUM infers column name sum_0", () => {
+    const plan = bind(
+      "WITH agg AS (SELECT SUM(age) FROM users) SELECT * FROM agg",
+    );
+    const matCte = plan as LogicalMaterializedCTE;
+    const proj = matCte.children[1] as LogicalProjection;
+    const col = proj.expressions[0] as BoundColumnRefExpression;
+    expect(col.columnName).toBe("sum_0");
   });
 });

@@ -337,3 +337,35 @@ describe("projection aliases", () => {
     expect(proj.aliases).toEqual([null, null, null, null]);
   });
 });
+
+describe("Star — unknown table alias", () => {
+  it("t.* with non-existent alias throws BindError", () => {
+    expect(() =>
+      bind("SELECT missing.* FROM users"),
+    ).toThrow(BindError);
+    expect(() =>
+      bind("SELECT missing.* FROM users"),
+    ).toThrow(/Unknown table alias/);
+  });
+});
+
+describe("Star — GROUP BY context", () => {
+  it("SELECT * with GROUP BY on all columns remaps through group index", () => {
+    const plan = bind(
+      "SELECT * FROM users GROUP BY id, name, age, active",
+    );
+    expect(plan).toBeDefined();
+    const proj = plan as LogicalProjection;
+    // All columns must be accessible
+    expect(proj.expressions).toHaveLength(4);
+  });
+
+  it("SELECT * with GROUP BY on subset throws BindError", () => {
+    expect(() =>
+      bind("SELECT * FROM users GROUP BY id"),
+    ).toThrow(BindError);
+    expect(() =>
+      bind("SELECT * FROM users GROUP BY id"),
+    ).toThrow(/GROUP BY/);
+  });
+});

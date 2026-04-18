@@ -199,9 +199,13 @@ describe("Recursive CTE", () => {
     ).toThrow(/DISTINCT/i);
   });
 
-  // Note: ORDER BY and LIMIT after UNION are placed on the SetOperationNode
-  // by the parser, not on the recursive SelectNode. They cannot structurally
-  // appear on the recursive term in practice.
+  it("errors on HAVING in recursive term", () => {
+    expect(() =>
+      bind(
+        "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r HAVING n < 5) SELECT * FROM r",
+      ),
+    ).toThrow(/HAVING/i);
+  });
 });
 
 describe("Isolated scope CTE parent chain", () => {

@@ -5,6 +5,8 @@ import type {
   BoundBetweenExpression,
   BoundCaseExpression,
   BoundCastExpression,
+  BoundColumnRefExpression,
+  BoundComparisonExpression,
   BoundConjunctionExpression,
   BoundConstantExpression,
   BoundFunctionExpression,
@@ -570,5 +572,189 @@ describe("sameExpression — BOUND_JSON_ACCESS", () => {
       returnType: "JSON",
     };
     expect(sameExpression(a, b)).toBe(true);
+  });
+});
+
+describe("sameExpression — additional expression types", () => {
+  const colA: BoundColumnRefExpression = {
+    expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+    binding: { tableIndex: 0, columnIndex: 0 },
+    tableName: "t",
+    columnName: "id",
+    returnType: "INTEGER",
+  };
+  const colB: BoundColumnRefExpression = {
+    expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+    binding: { tableIndex: 0, columnIndex: 1 },
+    tableName: "t",
+    columnName: "name",
+    returnType: "TEXT",
+  };
+  const constOne: BoundConstantExpression = {
+    expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+    value: 1,
+    returnType: "INTEGER",
+  };
+
+  it("BOUND_COMPARISON: same comparisons are equal", () => {
+    const a: BoundComparisonExpression = {
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "EQUAL",
+      left: colA,
+      right: constOne,
+      returnType: "BOOLEAN",
+    };
+    const b: BoundComparisonExpression = { ...a };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("BOUND_COMPARISON: different comparison types are not equal", () => {
+    const a: BoundComparisonExpression = {
+      expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+      comparisonType: "EQUAL",
+      left: colA,
+      right: constOne,
+      returnType: "BOOLEAN",
+    };
+    const b: BoundComparisonExpression = { ...a, comparisonType: "LESS" };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("BOUND_CONJUNCTION: same conjunctions are equal", () => {
+    const a: BoundConjunctionExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
+      conjunctionType: "AND",
+      children: [colA, colB],
+      returnType: "BOOLEAN",
+    };
+    const b: BoundConjunctionExpression = { ...a, children: [colA, colB] };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("BOUND_CONJUNCTION: different types are not equal", () => {
+    const a: BoundConjunctionExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
+      conjunctionType: "AND",
+      children: [colA],
+      returnType: "BOOLEAN",
+    };
+    const b: BoundConjunctionExpression = { ...a, conjunctionType: "OR" };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("BOUND_OPERATOR: same operators are equal", () => {
+    const a: BoundOperatorExpression = {
+      expressionClass: BoundExpressionClass.BOUND_OPERATOR,
+      operatorType: "ADD",
+      children: [colA, constOne],
+      returnType: "INTEGER",
+    };
+    const b: BoundOperatorExpression = { ...a, children: [colA, constOne] };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("BOUND_OPERATOR: different operator types are not equal", () => {
+    const a: BoundOperatorExpression = {
+      expressionClass: BoundExpressionClass.BOUND_OPERATOR,
+      operatorType: "ADD",
+      children: [colA, constOne],
+      returnType: "INTEGER",
+    };
+    const b: BoundOperatorExpression = { ...a, operatorType: "SUBTRACT" };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("BOUND_FUNCTION: same functions are equal", () => {
+    const a: BoundFunctionExpression = {
+      expressionClass: BoundExpressionClass.BOUND_FUNCTION,
+      functionName: "UPPER",
+      children: [colB],
+      returnType: "TEXT",
+    };
+    const b: BoundFunctionExpression = { ...a, children: [colB] };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("BOUND_FUNCTION: different names are not equal", () => {
+    const a: BoundFunctionExpression = {
+      expressionClass: BoundExpressionClass.BOUND_FUNCTION,
+      functionName: "UPPER",
+      children: [colB],
+      returnType: "TEXT",
+    };
+    const b: BoundFunctionExpression = { ...a, functionName: "LOWER" };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("BOUND_BETWEEN: same between expressions are equal", () => {
+    const a: BoundBetweenExpression = {
+      expressionClass: BoundExpressionClass.BOUND_BETWEEN,
+      input: colA,
+      lower: constOne,
+      upper: { ...constOne, value: 10 },
+      returnType: "BOOLEAN",
+    };
+    const b: BoundBetweenExpression = {
+      ...a,
+      input: colA,
+      lower: constOne,
+      upper: { ...constOne, value: 10 },
+    };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("BOUND_BETWEEN: different bounds are not equal", () => {
+    const a: BoundBetweenExpression = {
+      expressionClass: BoundExpressionClass.BOUND_BETWEEN,
+      input: colA,
+      lower: constOne,
+      upper: { ...constOne, value: 10 },
+      returnType: "BOOLEAN",
+    };
+    const b: BoundBetweenExpression = {
+      ...a,
+      upper: { ...constOne, value: 99 },
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("BOUND_CAST: same casts are equal", () => {
+    const a: BoundCastExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CAST,
+      child: colA,
+      castType: "TEXT",
+      returnType: "TEXT",
+    };
+    const b: BoundCastExpression = { ...a };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("BOUND_CAST: different cast types are not equal", () => {
+    const a: BoundCastExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CAST,
+      child: colA,
+      castType: "TEXT",
+      returnType: "TEXT",
+    };
+    const b: BoundCastExpression = {
+      ...a,
+      castType: "REAL",
+      returnType: "REAL",
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("default: unhandled expression class returns false", () => {
+    const a = {
+      expressionClass: BoundExpressionClass.BOUND_PARAMETER as const,
+      paramIndex: 0,
+      returnType: "ANY" as const,
+    };
+    const b = { ...a };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("different expression classes return false", () => {
+    expect(sameExpression(colA, constOne)).toBe(false);
   });
 });

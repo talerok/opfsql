@@ -252,3 +252,111 @@ describe("Aggregate in JOIN ON", () => {
     ).toThrow("JOIN ON clause");
   });
 });
+
+describe("JOIN — USING with non-existent column", () => {
+  it("USING with missing column throws BindError", () => {
+    expect(() =>
+      bind("SELECT * FROM users JOIN orders USING (nonexistent)"),
+    ).toThrow(BindError);
+  });
+});
+
+describe("JOIN — extractJoinConditions non-comparison path", () => {
+  it("ON with boolean column produces condition = TRUE", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON u.active",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    expect(join.conditions).toHaveLength(1);
+    expect(join.conditions[0].comparisonType).toBe("EQUAL");
+  });
+});
+
+describe("JOIN — flipComparison LESS_EQUAL / GREATER_EQUAL", () => {
+  it("ON o.amount <= u.age flips to GREATER_EQUAL", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON o.amount <= u.age",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+    expect(join.conditions[0].comparisonType).toBe("GREATER_EQUAL");
+  });
+
+  it("ON o.amount >= u.age flips to LESS_EQUAL", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON o.amount >= u.age",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+    expect(join.conditions[0].comparisonType).toBe("LESS_EQUAL");
+  });
+
+  it("ON o.amount < u.age flips to GREATER", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON o.amount < u.age",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+    expect(join.conditions[0].comparisonType).toBe("GREATER");
+  });
+});
+
+describe("JOIN — gatherTables expression types", () => {
+  it("ON with operator expression traverses children", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON o.user_id + 0 = u.id",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    const leftGet = join.children[0] as LogicalGet;
+    // normalization should still put left-table ref on the left side
+    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
+  });
+
+  it("ON with CAST expression traverses child", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON CAST(o.user_id AS TEXT) = CAST(u.id AS TEXT)",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    expect(join.conditions).toHaveLength(1);
+  });
+
+  it("ON with BETWEEN expression traverses input/lower/upper", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON o.amount BETWEEN u.age AND u.id",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    expect(join.conditions).toHaveLength(1);
+  });
+
+  it("ON with CASE expression traverses when/then/else", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON CASE WHEN u.active THEN u.id ELSE 0 END = o.user_id",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    expect(join.conditions).toHaveLength(1);
+  });
+
+  it("ON with function expression traverses children", () => {
+    const plan = bind(
+      "SELECT * FROM users u JOIN orders o ON UPPER(o.status) = UPPER(u.name)",
+    );
+    const proj = plan as LogicalProjection;
+    const join = proj.children[0] as LogicalComparisonJoin;
+    expect(join.conditions).toHaveLength(1);
+  });
+});
