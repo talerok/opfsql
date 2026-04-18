@@ -251,7 +251,7 @@ describe("formatPlan", () => {
   it("formats index scan", () => {
     const scan = makeScan("users");
     scan.indexHint = {
-      indexDef: { name: "idx_email", tableName: "users", columns: ["email"], unique: true },
+      indexDef: { name: "idx_email", tableName: "users", expressions: [{ type: 'column', name: 'email', returnType: 'TEXT' }], unique: true },
       predicates: [],
       residualFilters: [],
       coveredFilters: [],

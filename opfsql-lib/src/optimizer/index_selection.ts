@@ -7,6 +7,8 @@ import type {
 } from "../binder/types.js";
 import { LogicalOperatorType } from "../binder/types.js";
 import type { ICatalog, IndexDef } from "../store/types.js";
+import { bindIndexExpression } from "../store/index-expression.js";
+import { sameExpression } from "./utils/index.js";
 
 // ---------------------------------------------------------------------------
 // Index selection optimizer pass
@@ -74,23 +76,24 @@ function findBestIndex(get: LogicalGet, indexes: IndexDef[]): IndexHint | null {
 }
 
 function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
-  const schema = get.schema;
   const covered: TableFilter[] = [];
   const predicates: IndexSearchPredicate[] = [];
   let prefixMatched = 0;
 
-  // For each column in the index (in order), try to match with equality
-  // filters first, then one range filter.
-  for (let i = 0; i < idx.columns.length; i++) {
-    const colName = idx.columns[i].toLowerCase();
-    const colIndex = schema.columns.findIndex(
-      (c) => c.name.toLowerCase() === colName,
+  // For each expression in the index (in order), convert to BoundExpression
+  // and try to match with equality filters first, then one range filter.
+  for (let i = 0; i < idx.expressions.length; i++) {
+    const boundIdxExpr = bindIndexExpression(
+      idx.expressions[i],
+      get.schema,
+      get.tableIndex,
     );
-    if (colIndex === -1) break;
 
-    // Find equality filter
+    // Find equality filter matching this index expression
     const eqFilter = get.tableFilters.find(
-      (f) => f.columnIndex === colIndex && f.comparisonType === "EQUAL",
+      (f) =>
+        f.comparisonType === "EQUAL" &&
+        sameExpression(f.expression, boundIdxExpr),
     );
 
     if (eqFilter) {
@@ -102,10 +105,10 @@ function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
       covered.push(eqFilter);
       prefixMatched++;
     } else {
-      // Check for range filters on this column
+      // Check for range filters on this expression
       const rangeFilters = get.tableFilters.filter(
         (f) =>
-          f.columnIndex === colIndex &&
+          sameExpression(f.expression, boundIdxExpr) &&
           (f.comparisonType === "LESS" ||
             f.comparisonType === "GREATER" ||
             f.comparisonType === "LESS_EQUAL" ||
@@ -120,7 +123,7 @@ function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
         });
         covered.push(rf);
       }
-      break; // Can't match further columns after a range
+      break; // Can't match further expressions after a range
     }
   }
 
@@ -136,7 +139,7 @@ function matchIndex(get: LogicalGet, idx: IndexDef): MatchResult | null {
 
   // Score: number of covered predicates, with bonus for unique + full key match
   let score = covered.length;
-  if (idx.unique && prefixMatched === idx.columns.length) {
+  if (idx.unique && prefixMatched === idx.expressions.length) {
     score += 10; // strong bonus for unique full-key match (returns at most 1 row)
   }
 

@@ -69,7 +69,7 @@ describe("FilterPushdown", () => {
     const optimized = pushdownFilters(plan);
     const get = getGet(optimized);
     expect(get.tableFilters.length).toBeGreaterThan(0);
-    expect(get.tableFilters[0].columnIndex).toBe(2);
+    expect((get.tableFilters[0].expression as any).binding.columnIndex).toBe(2);
     expect(get.tableFilters[0].comparisonType).toBe("GREATER");
   });
 
@@ -275,7 +275,7 @@ describe("FilterPushdown", () => {
     const usersGet = getAllGets(optimized).find((g) => g.tableName === "users");
     expect(usersGet).toBeDefined();
     expect(usersGet!.tableFilters.length).toBeGreaterThan(0);
-    expect(usersGet!.tableFilters[0].columnIndex).toBe(2);
+    expect((usersGet!.tableFilters[0].expression as any).binding.columnIndex).toBe(2);
   });
 });
 
@@ -378,7 +378,7 @@ describe("FilterPushdown — edge cases", () => {
     const optimized = pushdownFilters(plan);
     const get = getGet(optimized);
     expect(get.tableFilters.length).toBeGreaterThan(0);
-    expect(get.tableFilters.some((tf) => tf.columnIndex === 1)).toBe(true);
+    expect(get.tableFilters.some((tf) => (tf.expression as any).binding.columnIndex === 1)).toBe(true);
     const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
     expect(agg.havingExpression).toBeNull();
   });
@@ -408,7 +408,7 @@ describe("FilterPushdown — edge cases", () => {
     const optimized = pushdownFilters(plan);
     const get = getGet(optimized);
     expect(get.tableFilters.length).toBeGreaterThan(0);
-    expect(get.tableFilters.some((tf) => tf.columnIndex === 1)).toBe(true);
+    expect(get.tableFilters.some((tf) => (tf.expression as any).binding.columnIndex === 1)).toBe(true);
     const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
     expect(agg.havingExpression).not.toBeNull();
   });
@@ -872,20 +872,29 @@ describe("JSON filter pushdown", () => {
     const get = findNode(optimized, LogicalOperatorType.LOGICAL_GET) as LogicalGet;
     expect(get).toBeTruthy();
     for (const tf of get.tableFilters) {
-      expect(tf.columnIndex).not.toBe(1);
+      expect((tf.expression as any).binding?.columnIndex).not.toBe(1);
     }
   });
 
   it("isolate which optimizer pass breaks JSON path AND filter", () => {
-    function countFilterExprs(p: LogicalOperator): number {
+    function countAllConditions(p: LogicalOperator): number {
+      let total = 0;
+      // Count conditions in LogicalFilter nodes
       const f = findNode(p, LogicalOperatorType.LOGICAL_FILTER);
-      if (!f) return 0;
-      return f.expressions.reduce((acc: number, e: any) => {
-        if (e.expressionClass === BoundExpressionClass.BOUND_CONJUNCTION) {
-          return acc + (e as BoundConjunctionExpression).children.length;
-        }
-        return acc + 1;
-      }, 0);
+      if (f) {
+        total += f.expressions.reduce((acc: number, e: any) => {
+          if (e.expressionClass === BoundExpressionClass.BOUND_CONJUNCTION) {
+            return acc + (e as BoundConjunctionExpression).children.length;
+          }
+          return acc + 1;
+        }, 0);
+      }
+      // Count conditions pushed down as table filters
+      const get = findNode(p, LogicalOperatorType.LOGICAL_GET) as LogicalGet | null;
+      if (get) {
+        total += get.tableFilters.length;
+      }
+      return total;
     }
 
     const passes = [
@@ -899,9 +908,9 @@ describe("JSON filter pushdown", () => {
 
     for (const [name, pass] of passes) {
       const plan = bind("SELECT id FROM docs WHERE data.age > 20 AND data.age < 30");
-      const before = countFilterExprs(plan);
+      const before = countAllConditions(plan);
       const result = pass(plan);
-      const after = countFilterExprs(result);
+      const after = countAllConditions(result);
       expect(after, `${name}: filter conditions dropped from ${before} to ${after}`).toBeGreaterThanOrEqual(2);
     }
   });

@@ -1,4 +1,5 @@
 import type { InsertStatement, OnConflictClause, OnConflictUpdate } from '../../parser/types.js';
+import { getIndexColumns } from '../../store/index-expression.js';
 import type * as BT from '../types.js';
 import { LogicalOperatorType } from '../types.js';
 import { BindError } from '../core/errors.js';
@@ -120,7 +121,7 @@ function resolveConflictColumns(
   // Fall back to first unique index
   const uIdx = ctx.catalog.getTableIndexes(schema.name).find((idx) => idx.unique);
   if (uIdx) {
-    return uIdx.columns.map((colName) => findColumnIndexOrThrow(schema, colName));
+    return uIdx.expressions.flatMap(getIndexColumns).map((colName) => findColumnIndexOrThrow(schema, colName));
   }
 
   throw new BindError(
@@ -187,7 +188,9 @@ function validateConflictTarget(
   const indexes = ctx.catalog.getTableIndexes(schema.name);
   for (const idx of indexes) {
     if (!idx.unique) continue;
-    const idxCols = idx.columns.map((colName) => findColumnIndexOrThrow(schema, colName));
+    const allSimple = idx.expressions.every((e) => e.type === 'column');
+    if (!allSimple) continue;
+    const idxCols = idx.expressions.flatMap(getIndexColumns).map((colName) => findColumnIndexOrThrow(schema, colName));
     if (sameSet(conflictColumns, idxCols)) return;
   }
 

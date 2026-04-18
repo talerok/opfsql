@@ -95,6 +95,7 @@ export function resolveScalarFunctionReturnType(
     case "COALESCE":
       return resolveCoalesceType(children);
     case "TYPEOF":
+    case "MD5":
       return "TEXT";
     default:
       return inferFromFirst(children);

@@ -30,7 +30,7 @@ describe('SyncIndexManager', () => {
     catalog.addIndex({
       name: 'idx1',
       tableName: 'test',
-      columns: ['col1'],
+      expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
       unique: false,
       metaPageNo,
     });
@@ -49,7 +49,7 @@ describe('SyncIndexManager', () => {
       catalog.addIndex({
         name: 'idx_unique',
         tableName: 'test',
-        columns: ['col1'],
+        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: true,
         metaPageNo,
       });
@@ -64,7 +64,7 @@ describe('SyncIndexManager', () => {
       catalog.addIndex({
         name: 'idx_b',
         tableName: 'test',
-        columns: ['col1'],
+        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: false,
         metaPageNo,
       });
@@ -97,7 +97,7 @@ describe('SyncIndexManager', () => {
       catalog.addIndex({
         name: 'idx_bulk',
         tableName: 'test',
-        columns: ['col1'],
+        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: false,
         metaPageNo,
       });
@@ -130,7 +130,7 @@ describe('SyncIndexManager', () => {
       catalog.addIndex({
         name: 'idx_b',
         tableName: 'test',
-        columns: ['col1'],
+        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: false,
         metaPageNo,
       });

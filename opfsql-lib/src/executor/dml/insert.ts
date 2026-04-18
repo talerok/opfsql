@@ -11,6 +11,7 @@ import type {
   SyncIRowManager,
   TableSchema,
 } from "../../store/types.js";
+import { getIndexColumns } from "../../store/index-expression.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import { evaluateExpression } from "../evaluate/index.js";
 import { isTruthy } from "../evaluate/utils/compare.js";
@@ -224,27 +225,35 @@ function findConflictViaIndex(
   indexManager: SyncIIndexManager,
   rowManager: SyncIRowManager,
 ): { rowId: RowId; row: Row } | null | undefined {
+  const schema = catalog.getTable(tableName);
+  if (!schema) return undefined;
+
   for (const idx of catalog.getTableIndexes(tableName)) {
     if (!idx.unique) continue;
-    const idxColsSorted = [...idx.columns].sort();
-    const targetSorted = [...conflictColNames].sort();
+
+    // Extract column names from index expressions — only simple column
+    // expressions can match ON CONFLICT column lists
+    const allSimpleColumns = idx.expressions.every((e) => e.type === 'column');
+    if (!allSimpleColumns) continue;
+
+    const idxColNames = idx.expressions.flatMap(getIndexColumns);
+    const idxColsSorted = [...idxColNames].map((c) => c.toLowerCase()).sort();
+    const targetSorted = [...conflictColNames].map((c) => c.toLowerCase()).sort();
     if (
       idxColsSorted.length !== targetSorted.length ||
-      !idxColsSorted.every(
-        (c, i) => c.toLowerCase() === targetSorted[i].toLowerCase(),
-      )
+      !idxColsSorted.every((c, i) => c === targetSorted[i])
     )
       continue;
 
-    const key = buildIndexKey(newRow, idx.columns);
+    const key = buildIndexKey(newRow, schema, idx);
     if (key.some((v) => v === null)) return null;
 
     const rowIds = indexManager.search(
       idx.name,
-      idx.columns.map((col, pos) => ({
+      key.map((val, pos) => ({
         columnPosition: pos,
         comparisonType: "EQUAL" as const,
-        value: (newRow[col] ?? null) as string | number | boolean | null,
+        value: val as string | number | boolean | null,
       })),
     );
     if (rowIds.length > 0) {

@@ -760,7 +760,8 @@ describe('DDL', () => {
     expect(stmt.type).toBe(StatementType.CREATE_INDEX_STATEMENT);
     expect(stmt.index_name).toBe('idx_name');
     expect(stmt.table_name).toBe('users');
-    expect(stmt.columns).toEqual(['name']);
+    expect(stmt.expressions).toHaveLength(1);
+    expect((stmt.expressions[0] as any).column_names).toEqual(['name']);
     expect(stmt.is_unique).toBe(false);
   });
 
@@ -1768,7 +1769,10 @@ describe('DDL edge cases', () => {
 
   it('parses CREATE INDEX with multiple columns', () => {
     const stmt = parseOne('CREATE INDEX idx ON t (a, b, c)') as CreateIndexStatement;
-    expect(stmt.columns).toEqual(['a', 'b', 'c']);
+    expect(stmt.expressions).toHaveLength(3);
+    expect((stmt.expressions[0] as any).column_names).toEqual(['a']);
+    expect((stmt.expressions[1] as any).column_names).toEqual(['b']);
+    expect((stmt.expressions[2] as any).column_names).toEqual(['c']);
   });
 
   it('parses CREATE UNIQUE INDEX IF NOT EXISTS', () => {
@@ -2808,7 +2812,9 @@ describe('Feature interactions', () => {
     const stmt = parseOne('CREATE UNIQUE INDEX idx ON t (a, b)') as CreateIndexStatement;
     expect(stmt.is_unique).toBe(true);
     expect(stmt.index_name).toBe('idx');
-    expect(stmt.columns).toEqual(['a', 'b']);
+    expect(stmt.expressions).toHaveLength(2);
+    expect((stmt.expressions[0] as any).column_names).toEqual(['a']);
+    expect((stmt.expressions[1] as any).column_names).toEqual(['b']);
   });
 
   // --- CREATE INDEX IF NOT EXISTS ---

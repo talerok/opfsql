@@ -129,7 +129,7 @@ describe('DDL executors', () => {
       const idx = {
         name: 'idx_users_name',
         tableName: 'users',
-        columns: ['name'],
+        expressions: [{ type: 'column' as const, name: 'name', returnType: 'TEXT' as const }],
         unique: false,
       };
       const op = {
@@ -766,7 +766,7 @@ describe('PK index via executeCreateTable', () => {
     expect(idxChange.type).toBe('CREATE_INDEX');
     expect(idxChange.index.name).toBe('__pk_users');
     expect(idxChange.index.unique).toBe(true);
-    expect(idxChange.index.columns).toEqual(['id']);
+    expect(idxChange.index.expressions).toEqual([{ type: 'column', name: 'id', returnType: 'INTEGER' }]);
     expect(idxChange.index.metaPageNo).toBe(100);
   });
 
@@ -802,7 +802,7 @@ describe('PK index via executeCreateTable', () => {
     const pkIdx = {
       name: '__pk_users',
       tableName: 'users',
-      columns: ['id'],
+      expressions: [{ type: 'column' as const, name: 'id', returnType: 'INTEGER' as const }],
       unique: true,
       metaPageNo: 100,
     };

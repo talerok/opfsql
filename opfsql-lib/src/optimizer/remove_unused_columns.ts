@@ -79,7 +79,9 @@ function prune(op: LogicalOperator, needed: Set<string>): LogicalOperator {
 function pruneGet(op: LogicalGet, needed: Set<string>): LogicalGet {
   // Ensure columns referenced by pushed-down table filters are kept
   for (const filter of op.tableFilters) {
-    needed.add(bk(op.tableIndex, filter.columnIndex));
+    for (const ref of collectColumnRefs(filter.expression)) {
+      needed.add(bk(ref.tableIndex, ref.columnIndex));
+    }
   }
 
   const keptIds: number[] = [];

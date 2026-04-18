@@ -151,6 +151,30 @@ export const productsSchema: TableSchema = {
   ],
 };
 
+export const docsSchema: TableSchema = {
+  name: "docs",
+  columns: [
+    {
+      name: "id",
+      type: "INTEGER",
+      nullable: false,
+      primaryKey: true,
+      unique: true,
+      autoIncrement: false,
+      defaultValue: null,
+    },
+    {
+      name: "data",
+      type: "JSON",
+      nullable: true,
+      primaryKey: false,
+      unique: false,
+      autoIncrement: false,
+      defaultValue: null,
+    },
+  ],
+};
+
 // ============================================================================
 // Test context
 // ============================================================================
@@ -160,6 +184,7 @@ export function createTestContext() {
   catalog.addTable(usersSchema);
   catalog.addTable(ordersSchema);
   catalog.addTable(productsSchema);
+  catalog.addTable(docsSchema);
   const binder = new Binder(catalog);
   const bind = (sql: string): LogicalOperator =>
     binder.bindStatement(parse(sql));

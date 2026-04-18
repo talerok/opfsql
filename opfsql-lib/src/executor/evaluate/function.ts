@@ -10,6 +10,9 @@ import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
 import type { SyncEvalContext } from "./context.js";
 import { evaluateExpression } from "./index.js";
+import { md5 } from "./functions/md5.js";
+import { normalizeJson } from "./functions/normalize-json.js";
+import type { JsonValue } from "../../types.js";
 
 export function evalFunction(
   expr: BoundExpression,
@@ -63,6 +66,8 @@ export function evalFunction(
       return evalNotLike(args);
     case "TYPEOF":
       return evalTypeof(args);
+    case "MD5":
+      return evalMd5(args);
     default:
       return null;
   }
@@ -152,4 +157,16 @@ function evalTypeof(args: Value[]): Value {
   if (args[0] instanceof Uint8Array) return "blob";
   if (typeof args[0] === "object") return "json";
   return typeof args[0];
+}
+
+function evalMd5(args: Value[]): Value {
+  if (args[0] === null) return null;
+  const v = args[0];
+  if (v instanceof Uint8Array) {
+    throw new ExecutorError("Cannot apply MD5 to BLOB value");
+  }
+  if (typeof v === "object" && v !== null) {
+    return md5(JSON.stringify(normalizeJson(v as JsonValue)));
+  }
+  return md5(String(v));
 }

@@ -1,13 +1,14 @@
 import type {
   ColumnDef,
   IndexDef,
+  IndexExpression,
+  JsonPathSegment,
   LogicalType,
   TableSchema,
   JsonValue,
 } from "../types.js";
-import type { JsonPathSegment } from "../parser/types.js";
 
-export type { ColumnDef, IndexDef, LogicalType, TableSchema, JsonValue, JsonPathSegment };
+export type { ColumnDef, IndexDef, IndexExpression, JsonPathSegment, LogicalType, TableSchema, JsonValue };
 
 // ============================================================================
 // Enums
@@ -208,7 +209,7 @@ export type BoundExpression =
 // ============================================================================
 
 export interface TableFilter {
-  columnIndex: number;
+  expression: BoundExpression;
   comparisonType: ComparisonType;
   /** Constant or runtime parameter — resolved to a value at execute time. */
   constant: BoundConstantExpression | BoundParameterExpression;

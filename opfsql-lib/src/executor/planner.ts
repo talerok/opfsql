@@ -31,7 +31,7 @@ import { PhysicalIndexScan } from "./operators/index-scan.js";
 import { PhysicalHashJoin, PhysicalNestedLoopJoin } from "./operators/join.js";
 import { PhysicalLimit } from "./operators/limit.js";
 import { PhysicalProjection } from "./operators/projection.js";
-import { PhysicalScan } from "./operators/scan.js";
+import { PhysicalChildScan, PhysicalScan } from "./operators/scan.js";
 import { PhysicalDistinct, PhysicalUnion } from "./operators/set.js";
 import { PhysicalSort } from "./operators/sort.js";
 import type { CTECacheEntry, SyncPhysicalOperator } from "./types.js";
@@ -60,9 +60,10 @@ export function createPhysicalPlan(
           ctx,
         );
       }
-      const childOp =
-        get.children.length > 0 ? plan(get.children[0]) : undefined;
-      return new PhysicalScan(get, rowManager, ctx, childOp);
+      if (get.children.length > 0) {
+        return new PhysicalChildScan(get, plan(get.children[0]), ctx);
+      }
+      return new PhysicalScan(get, rowManager, ctx);
     }
 
     case LogicalOperatorType.LOGICAL_FILTER: {

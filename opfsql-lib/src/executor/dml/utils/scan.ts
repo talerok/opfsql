@@ -7,10 +7,12 @@ import type {
 } from "../../../binder/types.js";
 import { BoundExpressionClass, LogicalOperatorType } from "../../../binder/types.js";
 import type { Row } from "../../../store/types.js";
+import type { CompiledFilter } from "../../evaluate/compile.js";
+import { compileFilter } from "../../evaluate/compile.js";
 import type { SyncEvalContext } from "../../evaluate/context.js";
-import { applyComparison, isTruthy } from "../../evaluate/utils/compare.js";
+import { isTruthy } from "../../evaluate/utils/compare.js";
 import { evaluateExpression } from "../../evaluate/index.js";
-import { resolveFilterValue } from "../../operators/utils.js";
+import { passesCompiledFilters } from "../../operators/utils.js";
 import { buildResolver, type Resolver } from "../../resolve.js";
 import { ExecutorError } from "../../errors.js";
 import type { Tuple } from "../../types.js";
@@ -20,15 +22,23 @@ export interface DmlScanInfo {
   condition: BoundExpression | null;
   layout: ColumnBinding[];
   resolver: Resolver;
+  compiledFilters: CompiledFilter[];
 }
 
-export function extractDmlScan(child: LogicalOperator): DmlScanInfo {
+export function extractDmlScan(
+  child: LogicalOperator,
+  ctx: SyncEvalContext,
+): DmlScanInfo {
   const { get, condition } = extractConditions(child);
   const layout = get.schema.columns.map((_, i) => ({
     tableIndex: get.tableIndex,
     columnIndex: i,
   }));
-  return { get, condition, layout, resolver: buildResolver(layout) };
+  const resolver = buildResolver(layout);
+  const compiledFilters = get.tableFilters.map((f) =>
+    compileFilter(f, resolver, ctx),
+  );
+  return { get, condition, layout, resolver, compiledFilters };
 }
 
 function extractConditions(child: LogicalOperator): {
@@ -76,10 +86,8 @@ export function passesFilter(
   scan: DmlScanInfo,
   ctx: SyncEvalContext,
 ): boolean {
-  for (const tf of scan.get.tableFilters) {
-    const val = resolveFilterValue(tf.constant, ctx.params);
-    if (applyComparison(tuple[tf.columnIndex], val, tf.comparisonType) !== true)
-      return false;
+  if (!passesCompiledFilters(tuple, scan.compiledFilters, ctx.params)) {
+    return false;
   }
   if (scan.condition) {
     const val = evaluateExpression(scan.condition, tuple, scan.resolver, ctx);

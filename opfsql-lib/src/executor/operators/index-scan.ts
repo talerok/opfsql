@@ -11,10 +11,13 @@ import type {
   SyncIIndexManager,
   SyncIRowManager,
 } from "../../store/types.js";
+import type { CompiledFilter } from "../evaluate/compile.js";
+import { compileFilter } from "../evaluate/compile.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
+import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import {
-  passesFilters,
+  passesCompiledFilters,
   resolveFilterValue,
   rowToTuple,
   SCAN_BATCH,
@@ -25,6 +28,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
   private cursor = 0;
   private done = false;
   private readonly layout: ColumnBinding[];
+  private readonly compiledResiduals: CompiledFilter[];
 
   constructor(
     private readonly op: LogicalGet,
@@ -32,10 +36,14 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     private readonly indexManager: SyncIIndexManager,
     private readonly indexDef: IndexDef,
     private readonly indexPredicates: IndexSearchPredicate[],
-    private readonly residualFilters: TableFilter[],
+    residualFilters: TableFilter[],
     private readonly ctx: SyncEvalContext,
   ) {
     this.layout = op.getColumnBindings();
+    const resolver = buildResolver(this.layout);
+    this.compiledResiduals = residualFilters.map((f) =>
+      compileFilter(f, resolver, ctx),
+    );
   }
 
   getLayout(): ColumnBinding[] {
@@ -58,14 +66,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
         if (row === null) continue;
 
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
-        if (
-          passesFilters(
-            tuple,
-            this.residualFilters,
-            this.op.columnIds,
-            this.ctx.params,
-          )
-        ) {
+        if (passesCompiledFilters(tuple, this.compiledResiduals, this.ctx.params)) {
           batch.push(tuple);
         }
       }

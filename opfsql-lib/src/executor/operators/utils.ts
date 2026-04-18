@@ -1,10 +1,10 @@
 import type {
-  TableFilter,
   TableSchema,
   BoundConstantExpression,
   BoundParameterExpression,
 } from '../../binder/types.js';
 import { BoundExpressionClass } from '../../binder/types.js';
+import type { CompiledFilter } from '../evaluate/compile.js';
 import type { SyncPhysicalOperator, Tuple, Value } from '../types.js';
 import { applyComparison } from '../evaluate/utils/compare.js';
 import { serializeValue } from '../evaluate/utils/serialize.js';
@@ -36,17 +36,15 @@ export function rowToTuple(
   });
 }
 
-export function passesFilters(
+export function passesCompiledFilters(
   tuple: Tuple,
-  filters: TableFilter[],
-  columnIds: number[],
+  filters: CompiledFilter[],
   params?: readonly Value[],
 ): boolean {
   for (const filter of filters) {
-    const pos = columnIds.indexOf(filter.columnIndex);
-    if (pos === -1) continue;
-    const val = resolveFilterValue(filter.constant, params);
-    if (applyComparison(tuple[pos], val, filter.comparisonType) !== true) return false;
+    const val = filter.getValue(tuple);
+    const cmp = filter.getConstant(params);
+    if (applyComparison(val, cmp, filter.comparisonType) !== true) return false;
   }
   return true;
 }

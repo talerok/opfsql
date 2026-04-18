@@ -1,5 +1,5 @@
 import { BaseParser } from './base.js';
-import { parseUnary } from './expressions.js';
+import { parseExpression, parseUnary } from './expressions.js';
 import { parseTypeToken } from './type-parser.js';
 import {
   TokenType, ParsedExpression,
@@ -163,9 +163,9 @@ function parseCreateIndex(p: BaseParser, is_unique: boolean): CreateIndexStateme
   const table_name = p.expect(TokenType.IDENTIFIER, `Expected table name after ON`).value;
 
   p.expect(TokenType.LEFT_PAREN);
-  const columns: string[] = [];
+  const expressions: ParsedExpression[] = [];
   do {
-    columns.push(p.expect(TokenType.IDENTIFIER, `Expected column name`).value);
+    expressions.push(parseExpression(p));
   } while (p.match(TokenType.COMMA));
   p.expect(TokenType.RIGHT_PAREN);
 
@@ -173,7 +173,7 @@ function parseCreateIndex(p: BaseParser, is_unique: boolean): CreateIndexStateme
     type: StatementType.CREATE_INDEX_STATEMENT,
     index_name,
     table_name,
-    columns,
+    expressions,
     is_unique,
     if_not_exists,
   };

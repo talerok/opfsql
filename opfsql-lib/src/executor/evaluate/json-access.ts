@@ -2,6 +2,7 @@ import type {
   BoundExpression,
   BoundJsonAccessExpression,
 } from "../../binder/types.js";
+import type { JsonPathSegment } from "../../types.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
 import { evalColumnRef } from "./column-ref.js";
@@ -15,15 +16,15 @@ export function evalJsonAccess(
 ): Value {
   const access = expr as BoundJsonAccessExpression;
   const obj = evalColumnRef(access.child, tuple, resolver, ctx);
-  if (obj === null || typeof obj !== "object") {
-    return null;
-  }
+  return traverseJsonPath(obj, access.path);
+}
+
+export function traverseJsonPath(obj: Value, path: JsonPathSegment[]): Value {
+  if (obj === null || typeof obj !== "object") return null;
 
   let current: unknown = obj;
-  for (const seg of access.path) {
-    if (current == null) {
-      return null;
-    }
+  for (const seg of path) {
+    if (current == null) return null;
     if (seg.type === "field") {
       if (typeof current !== "object" || Array.isArray(current)) return null;
       current = (current as Record<string, unknown>)[seg.name];

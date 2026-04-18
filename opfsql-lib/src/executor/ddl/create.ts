@@ -11,6 +11,7 @@ import type {
 } from "../../store/types.js";
 import { ExecutorError } from "../errors.js";
 import type { ExecuteResult } from "../types.js";
+import { buildIndexKey } from "../dml/utils/index-maintenance.js";
 
 const EMPTY: ExecuteResult = { rows: [], rowsAffected: 0, catalogChanges: [] };
 
@@ -38,15 +39,15 @@ export function executeCreateTable(
     if (catalog.hasIndex(pkIdxName)) {
       throw new ExecutorError(`Internal index "${pkIdxName}" already exists`);
     }
-    const idxMetaPageNo = indexManager.bulkLoad(
-      pkIdxName,
-      [],
-      true,
-    );
+    const idxMetaPageNo = indexManager.bulkLoad(pkIdxName, [], true);
     const indexDef = {
       name: pkIdxName,
       tableName: op.schema.name,
-      columns: pkColumns.map((c) => c.name),
+      expressions: pkColumns.map((c) => ({
+        type: "column" as const,
+        name: c.name,
+        returnType: c.type,
+      })),
       unique: true,
       metaPageNo: idxMetaPageNo,
     };
@@ -67,12 +68,14 @@ export function executeCreateIndex(
     throw new ExecutorError(`Index "${op.index.name}" already exists`);
   }
 
+  const schema = catalog.getTable(op.index.tableName);
+  if (!schema) {
+    throw new ExecutorError(`Table "${op.index.tableName}" not found`);
+  }
+
   const entries: Array<{ key: IndexKey; rowId: number }> = [];
   for (const { rowId, row } of rowManager.scanTable(op.index.tableName)) {
-    const key: IndexKey = op.index.columns.map(
-      (col) => (row[col] ?? null) as IndexKey[number],
-    );
-    entries.push({ key, rowId });
+    entries.push({ key: buildIndexKey(row, schema, op.index), rowId });
   }
 
   entries.sort((a, b) => {

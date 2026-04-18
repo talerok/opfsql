@@ -121,7 +121,7 @@ engine.execute("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"]);
 | `CREATE TABLE`                  | `IF NOT EXISTS`, column and table-level constraints                |
 | `ALTER TABLE`                   | `ADD COLUMN`, `DROP COLUMN`                                        |
 | `DROP TABLE`                    | `IF EXISTS`                                                        |
-| `CREATE INDEX`                  | `UNIQUE`, multi-column, `IF NOT EXISTS`                            |
+| `CREATE INDEX`                  | `UNIQUE`, multi-column, expression-based, `IF NOT EXISTS`          |
 | `DROP INDEX`                    |                                                                    |
 | `BEGIN` / `COMMIT` / `ROLLBACK` | Snapshot isolation, autocommit for standalone statements           |
 | `EXPLAIN`                       | Shows optimized logical plan for any statement                     |
@@ -163,6 +163,8 @@ engine.execute("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"]);
 **String:** `UPPER`, `LOWER`, `LENGTH`, `TRIM`, `LTRIM`, `RTRIM`, `SUBSTR`/`SUBSTRING`, `REPLACE`, `CONCAT`
 
 **Math:** `ABS`, `ROUND`, `FLOOR`, `CEIL`/`CEILING`
+
+**Hash:** `MD5`
 
 **Utility:** `COALESCE`, `NULLIF`, `TYPEOF`
 

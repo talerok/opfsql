@@ -169,9 +169,8 @@ export interface Value {
   value: string | number | boolean | Uint8Array | Record<string, unknown> | unknown[] | null;
 }
 
-export type JsonPathSegment =
-  | { type: 'field'; name: string }
-  | { type: 'index'; value: number };
+import type { JsonPathSegment } from '../types.js';
+export type { JsonPathSegment };
 
 // ============================================================================
 // Expression types (DuckDB-style enums)
@@ -559,7 +558,7 @@ export interface CreateIndexStatement {
   type: StatementType.CREATE_INDEX_STATEMENT;
   index_name: string;
   table_name: string;
-  columns: string[];
+  expressions: ParsedExpression[];
   is_unique: boolean;
   if_not_exists: boolean;
 }

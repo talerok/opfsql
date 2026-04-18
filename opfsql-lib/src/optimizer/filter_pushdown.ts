@@ -19,11 +19,11 @@ import {
   flattenConjunction,
   getExpressionTables,
   getOperatorTables,
-  isColumnRef,
   isConstant,
   isComparison,
   mapExpression,
   collectColumnRefs,
+  sameExpression,
 } from './utils/index.js';
 import { FilterCombiner } from './filter_combiner.js';
 
@@ -260,14 +260,10 @@ class FilterPushdown {
     const remaining = optimizedFilters.filter((f) => {
       if (!isComparison(f)) return true;
       const cmp = f as BoundComparisonExpression;
-      if (!isColumnRef(cmp.left)) return true;
-      const ref = cmp.left as BoundColumnRefExpression;
-      if (ref.binding.tableIndex !== op.tableIndex) return true;
       // Check if this exact filter is already covered by a tableFilter
       return !tableFilters.some((tf) => {
-        if (tf.columnIndex !== ref.binding.columnIndex) return false;
         if (tf.comparisonType !== cmp.comparisonType) return false;
-        // For constants: compare values; for parameters: compare indices
+        if (!sameExpression(tf.expression, cmp.left)) return false;
         if (isConstant(tf.constant) && isConstant(cmp.right)) {
           return (tf.constant as BoundConstantExpression).value === (cmp.right as BoundConstantExpression).value;
         }

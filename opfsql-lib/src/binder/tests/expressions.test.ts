@@ -744,6 +744,67 @@ describe("sameExpression — additional expression types", () => {
     expect(sameExpression(a, b)).toBe(false);
   });
 
+  it("identical CASE expressions are equal", () => {
+    const a: BoundCaseExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CASE,
+      caseChecks: [{ when: colA, then: constOne }],
+      elseExpr: colB,
+      returnType: "INTEGER",
+    };
+    const b: BoundCaseExpression = { ...a, caseChecks: [...a.caseChecks] };
+    expect(sameExpression(a, b)).toBe(true);
+  });
+
+  it("CASE with different when returns false", () => {
+    const a: BoundCaseExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CASE,
+      caseChecks: [{ when: colA, then: constOne }],
+      elseExpr: null,
+      returnType: "INTEGER",
+    };
+    const b: BoundCaseExpression = {
+      ...a,
+      caseChecks: [{ when: colB, then: constOne }],
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("CASE with different else returns false", () => {
+    const a: BoundCaseExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CASE,
+      caseChecks: [{ when: colA, then: constOne }],
+      elseExpr: colA,
+      returnType: "INTEGER",
+    };
+    const b: BoundCaseExpression = { ...a, elseExpr: colB };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("CASE with null vs non-null else returns false", () => {
+    const a: BoundCaseExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CASE,
+      caseChecks: [{ when: colA, then: constOne }],
+      elseExpr: null,
+      returnType: "INTEGER",
+    };
+    const b: BoundCaseExpression = { ...a, elseExpr: colB };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
+  it("CASE with different number of checks returns false", () => {
+    const a: BoundCaseExpression = {
+      expressionClass: BoundExpressionClass.BOUND_CASE,
+      caseChecks: [{ when: colA, then: constOne }],
+      elseExpr: null,
+      returnType: "INTEGER",
+    };
+    const b: BoundCaseExpression = {
+      ...a,
+      caseChecks: [{ when: colA, then: constOne }, { when: colB, then: constOne }],
+    };
+    expect(sameExpression(a, b)).toBe(false);
+  });
+
   it("default: unhandled expression class returns false", () => {
     const a = {
       expressionClass: BoundExpressionClass.BOUND_PARAMETER as const,

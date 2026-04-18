@@ -36,7 +36,7 @@ describe("EXPLAIN", () => {
     engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)");
     const plan = explain("EXPLAIN SELECT * FROM t WHERE val > 10");
     // Simple filters get pushed into the scan node
-    expect(plan).toContain("Scan t [val > 10]");
+    expect(plan).toContain("Scan t [t.val > 10]");
   });
 
   it("shows HashJoin for JOIN", async () => {

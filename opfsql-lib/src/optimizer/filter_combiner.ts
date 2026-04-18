@@ -1,6 +1,5 @@
 import type {
   BoundExpression,
-  BoundColumnRefExpression,
   BoundConstantExpression,
   BoundParameterExpression,
   BoundComparisonExpression,
@@ -14,10 +13,16 @@ import {
   isComparison,
   flattenConjunction,
   makeBoolConstant,
+  expressionKey,
+  getExpressionTables,
 } from './utils/index.js';
 
 function isParameter(expr: BoundExpression): expr is BoundParameterExpression {
   return expr.expressionClass === BoundExpressionClass.BOUND_PARAMETER;
+}
+
+function isValueExpression(expr: BoundExpression): boolean {
+  return !isConstant(expr) && !isParameter(expr);
 }
 
 // ============================================================================
@@ -39,11 +44,13 @@ interface ConstantComparison {
 type FilterResult = 'KEEP' | 'PRUNE' | 'UNSATISFIABLE';
 
 export class FilterCombiner {
-  // Equivalence classes: column binding key → set of equivalent column binding keys
+  // Equivalence classes: expression key → set of equivalent expression keys
   private equivalences = new Map<string, Set<string>>();
-  // Constant comparisons for each column binding key
+  // Constant comparisons keyed by expression key
   private constantFilters = new Map<string, ConstantComparison[]>();
-  // Non-column/non-comparison expressions we can't optimize further
+  // Original expressions for each key (for reconstructing filters)
+  private keyExpressions = new Map<string, BoundExpression>();
+  // Non-optimizable expressions
   private remainingFilters: BoundExpression[] = [];
 
   // ============================================================================
@@ -51,7 +58,6 @@ export class FilterCombiner {
   // ============================================================================
 
   addFilter(expr: BoundExpression): void {
-    // Flatten AND conjunctions
     const conditions = flattenConjunction(expr);
     for (const cond of conditions) {
       this.addSingleFilter(cond);
@@ -65,29 +71,33 @@ export class FilterCombiner {
     }
     const cmp = expr as BoundComparisonExpression;
 
-    // Column = Column → equivalence
+    // Expression = Expression → equivalence (only for column refs)
     if (
       cmp.comparisonType === 'EQUAL' &&
       isColumnRef(cmp.left) &&
       isColumnRef(cmp.right)
     ) {
-      const leftKey = bindingKey(cmp.left as BoundColumnRefExpression);
-      const rightKey = bindingKey(cmp.right as BoundColumnRefExpression);
+      const leftKey = expressionKey(cmp.left);
+      const rightKey = expressionKey(cmp.right);
       this.addEquivalence(leftKey, rightKey);
+      this.keyExpressions.set(leftKey, cmp.left);
+      this.keyExpressions.set(rightKey, cmp.right);
       this.remainingFilters.push(expr);
       return;
     }
 
-    // Column COMP Constant/Parameter → constant filter
-    if (isColumnRef(cmp.left) && (isConstant(cmp.right) || isParameter(cmp.right))) {
-      const key = bindingKey(cmp.left as BoundColumnRefExpression);
+    // Expression COMP Constant/Parameter → constant filter
+    if (isValueExpression(cmp.left) && (isConstant(cmp.right) || isParameter(cmp.right))) {
+      const key = expressionKey(cmp.left);
+      this.keyExpressions.set(key, cmp.left);
       this.addConstantFilter(key, cmp.comparisonType, cmp.right as BoundConstantExpression | BoundParameterExpression);
       return;
     }
 
-    // Constant/Parameter COMP Column → flip and add
-    if ((isConstant(cmp.left) || isParameter(cmp.left)) && isColumnRef(cmp.right)) {
-      const key = bindingKey(cmp.right as BoundColumnRefExpression);
+    // Constant/Parameter COMP Expression → flip and add
+    if ((isConstant(cmp.left) || isParameter(cmp.left)) && isValueExpression(cmp.right)) {
+      const key = expressionKey(cmp.right);
+      this.keyExpressions.set(key, cmp.right);
       const flipped = flipComparisonType(cmp.comparisonType);
       this.addConstantFilter(key, flipped, cmp.left as BoundConstantExpression | BoundParameterExpression);
       return;
@@ -105,7 +115,6 @@ export class FilterCombiner {
     const setB = this.equivalences.get(b);
 
     if (setA && setB) {
-      // Merge sets
       for (const item of setB) {
         setA.add(item);
         this.equivalences.set(item, setA);
@@ -138,11 +147,9 @@ export class FilterCombiner {
       this.constantFilters.set(key, existing);
     }
 
-    // Check against existing filters for this column
     for (let i = existing.length - 1; i >= 0; i--) {
       const result = compareFilters(existing[i], { comparisonType, constant });
       if (result === 'UNSATISFIABLE') {
-        // Mark as unsatisfiable — will produce FALSE
         existing.length = 0;
         existing.push(
           { comparisonType: 'EQUAL', constant: makeBoolConstant(false) as BoundConstantExpression },
@@ -150,7 +157,6 @@ export class FilterCombiner {
         return;
       }
       if (result === 'PRUNE') {
-        // New filter is more restrictive, remove old
         existing.splice(i, 1);
       }
     }
@@ -165,9 +171,7 @@ export class FilterCombiner {
   generateFilters(): BoundExpression[] {
     const result: BoundExpression[] = [];
 
-    // Emit constant filters
     for (const [key, filters] of this.constantFilters) {
-      // Check for unsatisfiable marker (only constants can be unsatisfiable markers)
       if (
         filters.length === 1 &&
         filters[0].comparisonType === 'EQUAL' &&
@@ -178,47 +182,38 @@ export class FilterCombiner {
         return [makeBoolConstant(false)];
       }
 
-      const [tableIndex, columnIndex] = key.split(':').map(Number);
+      const leftExpr = this.keyExpressions.get(key);
+      if (!leftExpr) continue;
+
       for (const filter of filters) {
         result.push({
           expressionClass: BoundExpressionClass.BOUND_COMPARISON,
           comparisonType: filter.comparisonType,
-          left: {
-            expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
-            binding: { tableIndex, columnIndex },
-            tableName: '',
-            columnName: '',
-            returnType: filter.constant.returnType,
-          } as BoundColumnRefExpression,
+          left: leftExpr,
           right: filter.constant,
           returnType: 'BOOLEAN',
         });
       }
     }
 
-    // Generate transitive filters (only propagate constant values, not parameters)
+    // Generate transitive filters (only for column refs with constant values)
     for (const [key, equivSet] of this.equivalences) {
       const filters = this.constantFilters.get(key);
       if (!filters) continue;
 
       for (const equivKey of equivSet) {
         if (equivKey === key) continue;
-        if (this.constantFilters.has(equivKey)) continue; // Already has its own filters
+        if (this.constantFilters.has(equivKey)) continue;
 
-        const [tableIndex, columnIndex] = equivKey.split(':').map(Number);
+        const equivExpr = this.keyExpressions.get(equivKey);
+        if (!equivExpr) continue;
+
         for (const filter of filters) {
-          // Don't propagate parameter filters transitively — value is unknown at optimize time
           if (!isConstant(filter.constant)) continue;
           result.push({
             expressionClass: BoundExpressionClass.BOUND_COMPARISON,
             comparisonType: filter.comparisonType,
-            left: {
-              expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
-              binding: { tableIndex, columnIndex },
-              tableName: '',
-              columnName: '',
-              returnType: filter.constant.returnType,
-            } as BoundColumnRefExpression,
+            left: equivExpr,
             right: filter.constant,
             returnType: 'BOOLEAN',
           });
@@ -226,7 +221,6 @@ export class FilterCombiner {
       }
     }
 
-    // Add remaining (non-optimizable) filters
     result.push(...this.remainingFilters);
     return result;
   }
@@ -239,15 +233,19 @@ export class FilterCombiner {
     const result: TableFilter[] = [];
 
     for (const [key, filters] of this.constantFilters) {
-      const [tIdx, columnIndex] = key.split(':').map(Number);
-      if (tIdx !== tableIndex) continue;
+      const expr = this.keyExpressions.get(key);
+      if (!expr) continue;
+
+      // Check if expression belongs to this table
+      const tables = getExpressionTables(expr);
+      if (!tables.has(tableIndex)) continue;
 
       for (const filter of filters) {
         if (isConstant(filter.constant) && filter.constant.returnType === 'BOOLEAN' && (filter.constant as BoundConstantExpression).value === false) {
-          continue; // Skip unsatisfiable markers
+          continue;
         }
         result.push({
-          columnIndex,
+          expression: expr,
           comparisonType: filter.comparisonType,
           constant: filter.constant,
         });
@@ -261,10 +259,6 @@ export class FilterCombiner {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function bindingKey(ref: BoundColumnRefExpression): string {
-  return `${ref.binding.tableIndex}:${ref.binding.columnIndex}`;
-}
 
 function flipComparisonType(type: ComparisonType): ComparisonType {
   switch (type) {
@@ -283,25 +277,16 @@ function flipComparisonType(type: ComparisonType): ComparisonType {
   }
 }
 
-/**
- * Compare two constant filters on the same column.
- * Returns PRUNE if the existing filter is redundant (new one is tighter).
- * Returns UNSATISFIABLE if both together can't be true.
- * Returns KEEP if both are needed.
- */
 function compareFilters(
   existing: ConstantComparison,
   incoming: ConstantComparison,
 ): FilterResult {
-  // Can't compare at optimize time when either side is a runtime parameter
   if (!isConstant(existing.constant) || !isConstant(incoming.constant)) return 'KEEP';
 
   const eVal = (existing.constant as BoundConstantExpression).value;
   const iVal = (incoming.constant as BoundConstantExpression).value;
 
-  // Can only compare numeric values
   if (typeof eVal !== 'number' || typeof iVal !== 'number') {
-    // For EQUAL with same type: if equal values → prune, if different → unsatisfiable
     if (existing.comparisonType === 'EQUAL' && incoming.comparisonType === 'EQUAL') {
       if (eVal === iVal) return 'PRUNE';
       return 'UNSATISFIABLE';
@@ -309,47 +294,38 @@ function compareFilters(
     return 'KEEP';
   }
 
-  // Both EQUAL
   if (existing.comparisonType === 'EQUAL' && incoming.comparisonType === 'EQUAL') {
     if (eVal === iVal) return 'PRUNE';
     return 'UNSATISFIABLE';
   }
 
-  // Existing is EQUAL — check if incoming is compatible
   if (existing.comparisonType === 'EQUAL') {
     if (satisfiesComparison(eVal, incoming.comparisonType, iVal)) {
-      return 'KEEP'; // EQUAL is already more restrictive, keep both
+      return 'KEEP';
     }
     return 'UNSATISFIABLE';
   }
 
-  // Incoming is EQUAL — check if existing is compatible
   if (incoming.comparisonType === 'EQUAL') {
     if (satisfiesComparison(iVal, existing.comparisonType, eVal)) {
-      return 'PRUNE'; // New EQUAL is more restrictive
+      return 'PRUNE';
     }
     return 'UNSATISFIABLE';
   }
 
-  // Both are range comparisons on same direction
-  // e.g., x > 5 AND x > 7 → PRUNE x > 5 (keep x > 7)
   if (isSameDirection(existing.comparisonType, incoming.comparisonType)) {
     if (incoming.comparisonType === 'LESS' || incoming.comparisonType === 'LESS_EQUAL') {
-      // Both are upper bounds — keep the tighter (smaller) one
       if (iVal < eVal || (iVal === eVal && incoming.comparisonType === 'LESS')) {
-        return 'PRUNE'; // Incoming is tighter
+        return 'PRUNE';
       }
       return 'KEEP';
     }
-    // Both are lower bounds — keep the tighter (larger) one
     if (iVal > eVal || (iVal === eVal && incoming.comparisonType === 'GREATER')) {
-      return 'PRUNE'; // Incoming is tighter
+      return 'PRUNE';
     }
     return 'KEEP';
   }
 
-  // Opposite directions — check for unsatisfiable
-  // x > 7 AND x < 5 → UNSATISFIABLE
   if (isLowerBound(existing.comparisonType) && isUpperBound(incoming.comparisonType)) {
     if (eVal > iVal) return 'UNSATISFIABLE';
     if (eVal === iVal) {

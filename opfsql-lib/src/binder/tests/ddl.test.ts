@@ -78,7 +78,7 @@ describe("DDL", () => {
     expect(plan.type).toBe(LogicalOperatorType.LOGICAL_CREATE_INDEX);
     const ci = plan as LogicalCreateIndex;
     expect(ci.index.tableName).toBe("users");
-    expect(ci.index.columns).toEqual(["name"]);
+    expect(ci.index.expressions).toEqual([{ type: 'column', name: 'name', returnType: 'TEXT' }]);
   });
 
   it("CREATE INDEX on non-existent table throws BindError", () => {
@@ -182,7 +182,7 @@ describe("ALTER TABLE DROP COLUMN — index reference check", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      columns: ["name"],
+      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
       unique: false,
     });
     expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(BindError);
@@ -193,7 +193,7 @@ describe("ALTER TABLE DROP COLUMN — index reference check", () => {
     catalog.addIndex({
       name: "idx_name_age",
       tableName: "users",
-      columns: ["name", "age"],
+      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }, { type: 'column', name: 'age', returnType: 'INTEGER' }],
       unique: false,
     });
     expect(() => bind("ALTER TABLE users DROP COLUMN age")).toThrow(BindError);
@@ -209,7 +209,7 @@ describe("ALTER TABLE DROP COLUMN — index reference check", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      columns: ["Name"],
+      expressions: [{ type: 'column', name: 'Name', returnType: 'TEXT' }],
       unique: false,
     });
     expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(BindError);

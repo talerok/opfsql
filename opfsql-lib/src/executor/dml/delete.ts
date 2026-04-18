@@ -17,7 +17,7 @@ export function executeDelete(
   catalog?: ICatalog,
   indexManager?: SyncIIndexManager,
 ): ExecuteResult {
-  const scan = extractDmlScan(op.children[0]);
+  const scan = extractDmlScan(op.children[0], ctx);
 
   const targets: Array<{ rowId: number; row: Row }> = [];
   for (const { rowId, row } of rowManager.scanTable(op.tableName)) {

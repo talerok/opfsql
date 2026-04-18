@@ -106,7 +106,7 @@ describe("FilterCombiner", () => {
 
     const tableFilters = combiner.generateTableFilters(0);
     expect(tableFilters).toHaveLength(1);
-    expect(tableFilters[0].columnIndex).toBe(2);
+    expect((tableFilters[0].expression as any).binding.columnIndex).toBe(2);
     expect(tableFilters[0].comparisonType).toBe("GREATER");
     expect((tableFilters[0].constant as BoundConstantExpression).value).toBe(
       18,
@@ -253,7 +253,7 @@ describe("FilterCombiner", () => {
 
     const tableFilters = combiner.generateTableFilters(0);
     expect(tableFilters).toHaveLength(2);
-    const colIndices = tableFilters.map((f) => f.columnIndex).sort();
+    const colIndices = tableFilters.map((f) => (f.expression as any).binding.columnIndex).sort();
     expect(colIndices).toEqual([0, 2]);
   });
 });
@@ -589,7 +589,7 @@ describe("FilterCombiner — boundary conditions", () => {
     });
     const tableFilters = combiner.generateTableFilters(0);
     expect(tableFilters).toHaveLength(1);
-    expect(tableFilters[0].columnIndex).toBe(2);
+    expect((tableFilters[0].expression as any).binding.columnIndex).toBe(2);
   });
 
   it("tightens upper bounds: x < 5 AND x <= 5 → x < 5", () => {

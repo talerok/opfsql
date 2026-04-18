@@ -2,6 +2,7 @@ export type {
   CatalogData,
   ColumnDef,
   IndexDef,
+  IndexExpression,
   JsonValue,
   LogicalType,
   Row,

@@ -21,7 +21,7 @@ import {
   makeBoolConstant,
   makeNullConstant,
   makeConstant,
-  expressionsEqual,
+  sameExpression,
 } from './utils/index.js';
 
 // ============================================================================
@@ -183,7 +183,7 @@ function comparisonSimplification(expr: BoundExpression): BoundExpression {
   }
 
   // x = x → true, x <> x → false (only for column refs, which are deterministic)
-  if (expressionsEqual(cmp.left, cmp.right) && isColumnRef(cmp.left)) {
+  if (sameExpression(cmp.left, cmp.right) && isColumnRef(cmp.left)) {
     switch (cmp.comparisonType) {
       case 'EQUAL':
       case 'LESS_EQUAL':
