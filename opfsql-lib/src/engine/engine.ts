@@ -157,60 +157,67 @@ export class Engine {
   // -------------------------------------------------------------------------
 
   private executeTCL(stmt: TransactionStatement): Result {
-    const ok: Result = { type: "ok" };
-
     switch (stmt.transaction_type) {
       case TransactionType.BEGIN:
-        if (this.inTransaction) {
-          throw new EngineError("already in a transaction");
-        }
-        this.catalogSnapshot = this.catalog.serialize();
-        this.inTransaction = true;
-        return ok;
-
+        return this.beginTransaction();
       case TransactionType.COMMIT:
-        if (!this.inTransaction) {
-          return ok;
-        }
-        if (this.transactionAborted) {
-          this.catalogSnapshot = null;
-          this.inTransaction = false;
-          this.transactionAborted = false;
-          throw new EngineError(
-            "current transaction is aborted, COMMIT treated as ROLLBACK",
-          );
-        }
-        if (this.catalogDirty) {
-          this.writeCatalog();
-          this.catalogDirty = false;
-        }
-        this.storage.pageStore.commit();
-        this.catalogSnapshot = null;
-        this.inTransaction = false;
-        return ok;
-
+        return this.commitTransaction();
       case TransactionType.ROLLBACK:
-        if (!this.inTransaction) {
-          return ok;
-        }
-        if (!this.transactionAborted) {
-          this.storage.pageStore.rollback();
-          if (this.catalogSnapshot) {
-            this.catalog = Catalog.deserialize(this.catalogSnapshot);
-            this.binder = new Binder(this.catalog);
-          }
-        }
-        this.catalogDirty = false;
-        this.catalogSnapshot = null;
-        this.inTransaction = false;
-        this.transactionAborted = false;
-        return ok;
-
+        return this.rollbackTransaction();
       default: {
         const unreachable: never = stmt.transaction_type;
         throw new EngineError(`Unknown transaction type: ${unreachable}`);
       }
     }
+  }
+
+  private beginTransaction(): Result {
+    if (this.inTransaction) {
+      throw new EngineError("already in a transaction");
+    }
+    this.catalogSnapshot = this.catalog.serialize();
+    this.inTransaction = true;
+    return { type: "ok" };
+  }
+
+  private commitTransaction(): Result {
+    if (!this.inTransaction) {
+      return { type: "ok" };
+    }
+    if (this.transactionAborted) {
+      this.catalogSnapshot = null;
+      this.inTransaction = false;
+      this.transactionAborted = false;
+      throw new EngineError(
+        "current transaction is aborted, COMMIT treated as ROLLBACK",
+      );
+    }
+    if (this.catalogDirty) {
+      this.writeCatalog();
+      this.catalogDirty = false;
+    }
+    this.storage.pageStore.commit();
+    this.catalogSnapshot = null;
+    this.inTransaction = false;
+    return { type: "ok" };
+  }
+
+  private rollbackTransaction(): Result {
+    if (!this.inTransaction) {
+      return { type: "ok" };
+    }
+    if (!this.transactionAborted) {
+      this.storage.pageStore.rollback();
+      if (this.catalogSnapshot) {
+        this.catalog = Catalog.deserialize(this.catalogSnapshot);
+        this.binder = new Binder(this.catalog);
+      }
+    }
+    this.catalogDirty = false;
+    this.catalogSnapshot = null;
+    this.inTransaction = false;
+    this.transactionAborted = false;
+    return { type: "ok" };
   }
 
   // -------------------------------------------------------------------------
