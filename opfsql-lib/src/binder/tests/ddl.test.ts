@@ -7,6 +7,7 @@ import type {
   LogicalDrop,
 } from "../types.js";
 import { LogicalOperatorType } from "../types.js";
+import type { TableSchema } from "../../store/types.js";
 import { createTestContext } from "./test_helpers.js";
 
 let catalog: ReturnType<typeof createTestContext>["catalog"];
@@ -234,5 +235,156 @@ describe("BLOB column restrictions", () => {
       ],
     });
     expect(() => bind("CREATE INDEX idx ON blobs(data)")).toThrow(BindError);
+  });
+});
+
+describe("CREATE INDEX — expression-based", () => {
+  const jsonSchema: TableSchema = {
+    name: "docs",
+    columns: [
+      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
+      { name: "data", type: "JSON", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      { name: "label", type: "TEXT", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      { name: "score", type: "INTEGER", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+  };
+
+  beforeEach(() => {
+    catalog.addTable(jsonSchema);
+  });
+
+  // --- JSON path expressions ---
+
+  it("JSON path expression (data.name) is allowed in index", () => {
+    const plan = bind("CREATE INDEX idx ON docs (data.name)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions).toHaveLength(1);
+    expect(ci.index.expressions[0].type).toBe("json_access");
+  });
+
+  it("nested JSON path (data.nested.field) is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (data.nested.field)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].type).toBe("json_access");
+    expect((ci.index.expressions[0] as any).path).toEqual([
+      { type: "field", name: "nested" },
+      { type: "field", name: "field" },
+    ]);
+  });
+
+  it("bare JSON column (data) is rejected", () => {
+    expect(() => bind("CREATE INDEX idx ON docs (data)")).toThrow(BindError);
+    expect(() => bind("CREATE INDEX idx ON docs (data)")).toThrow(/JSON column directly/);
+  });
+
+  // --- Function expressions ---
+
+  it("MD5(label) function expression is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (MD5(label))");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].type).toBe("function");
+    expect((ci.index.expressions[0] as any).name).toBe("MD5");
+  });
+
+  it("MD5(data.name) — function wrapping JSON path is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (MD5(data.name))");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].type).toBe("function");
+    const fnExpr = ci.index.expressions[0] as any;
+    expect(fnExpr.args[0].type).toBe("json_access");
+  });
+
+  // --- CAST expressions ---
+
+  it("CAST(score AS TEXT) is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (CAST(score AS TEXT))");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].type).toBe("cast");
+  });
+
+  it("CAST(data.name AS TEXT) — CAST wrapping JSON path is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (CAST(data.name AS TEXT))");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].type).toBe("cast");
+    expect((ci.index.expressions[0] as any).child.type).toBe("json_access");
+  });
+
+  // --- Operator expressions ---
+
+  it("arithmetic expression (score + id) is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (score + id)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].type).toBe("operator");
+  });
+
+  // --- Nested expressions ---
+
+  it("nested MD5(CAST(score AS TEXT)) is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (MD5(CAST(score AS TEXT)))");
+    const ci = plan as LogicalCreateIndex;
+    const expr = ci.index.expressions[0] as any;
+    expect(expr.type).toBe("function");
+    expect(expr.args[0].type).toBe("cast");
+  });
+
+  // --- Composite expression indexes ---
+
+  it("composite (data.name, score) is allowed", () => {
+    const plan = bind("CREATE INDEX idx ON docs (data.name, score)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions).toHaveLength(2);
+    expect(ci.index.expressions[0].type).toBe("json_access");
+    expect(ci.index.expressions[1].type).toBe("column");
+  });
+
+  it("composite with mixed types (data.name, MD5(label), score + id)", () => {
+    const plan = bind("CREATE INDEX idx ON docs (data.name, MD5(label), score + id)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions).toHaveLength(3);
+    expect(ci.index.expressions[0].type).toBe("json_access");
+    expect(ci.index.expressions[1].type).toBe("function");
+    expect(ci.index.expressions[2].type).toBe("operator");
+  });
+
+  // --- UNIQUE + expression ---
+
+  it("UNIQUE expression index is allowed", () => {
+    const plan = bind("CREATE UNIQUE INDEX idx ON docs (data.name)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.unique).toBe(true);
+    expect(ci.index.expressions[0].type).toBe("json_access");
+  });
+
+  // --- Validation: aggregates rejected ---
+
+  it("aggregate in index expression is rejected", () => {
+    expect(() => bind("CREATE INDEX idx ON docs (COUNT(label))")).toThrow(BindError);
+    expect(() => bind("CREATE INDEX idx ON docs (COUNT(label))")).toThrow(/aggregate/);
+  });
+
+  // --- Validation: non-existent column rejected ---
+
+  it("non-existent column in expression is rejected", () => {
+    expect(() => bind("CREATE INDEX idx ON docs (nonexistent)")).toThrow(BindError);
+  });
+
+  // --- returnType preserved in IndexExpression ---
+
+  it("column expression preserves returnType", () => {
+    const plan = bind("CREATE INDEX idx ON docs (score)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].returnType).toBe("INTEGER");
+  });
+
+  it("function expression preserves returnType (MD5 → TEXT)", () => {
+    const plan = bind("CREATE INDEX idx ON docs (MD5(label))");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].returnType).toBe("TEXT");
+  });
+
+  it("JSON path expression preserves returnType (JSON)", () => {
+    const plan = bind("CREATE INDEX idx ON docs (data.name)");
+    const ci = plan as LogicalCreateIndex;
+    expect(ci.index.expressions[0].returnType).toBe("JSON");
   });
 });

@@ -1,0 +1,707 @@
+# expression-index.slt — expression-based index tests
+# Tests: JSON path indexes, function indexes (MD5), CAST indexes,
+# operator indexes, CASE indexes, composite expression indexes,
+# index maintenance (INSERT/UPDATE/DELETE), uniqueness enforcement,
+# EXPLAIN output verification, ALTER TABLE interaction.
+
+# ============================================================================
+# Setup
+# ============================================================================
+
+statement ok
+CREATE TABLE docs (id INTEGER PRIMARY KEY, data JSON, label TEXT, score INTEGER)
+
+statement ok
+INSERT INTO docs VALUES (1, '{"name": "Alice", "age": 30, "city": "NYC"}', 'alpha', 10)
+
+statement ok
+INSERT INTO docs VALUES (2, '{"name": "Bob", "age": 25, "city": "LA"}', 'beta', 20)
+
+statement ok
+INSERT INTO docs VALUES (3, '{"name": "Charlie", "age": 35, "city": "NYC"}', 'gamma', 30)
+
+statement ok
+INSERT INTO docs VALUES (4, '{"name": "Diana", "age": 28, "city": "SF"}', 'delta', 40)
+
+statement ok
+INSERT INTO docs VALUES (5, '{"name": "Eve", "age": 30, "city": "LA"}', 'epsilon', 50)
+
+# ============================================================================
+# 1. JSON path index — equality
+# ============================================================================
+
+statement ok
+CREATE INDEX idx_docs_city ON docs (data.city)
+
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.city = 'NYC'
+----
+1|Alice
+3|Charlie
+
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.city = 'LA'
+----
+2|Bob
+5|Eve
+
+# Single-row lookup
+query IT nosort
+SELECT id, data.name FROM docs WHERE data.city = 'SF'
+----
+4|Diana
+
+# No match
+query I nosort
+SELECT id FROM docs WHERE data.city = 'Chicago'
+----
+
+# ============================================================================
+# 2. JSON path index — range queries
+# ============================================================================
+
+statement ok
+CREATE INDEX idx_docs_age ON docs (data.age)
+
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.age > 29
+----
+1|Alice
+3|Charlie
+5|Eve
+
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.age >= 30
+----
+1|Alice
+3|Charlie
+5|Eve
+
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.age < 28
+----
+2|Bob
+
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.age >= 28 AND data.age <= 30
+----
+1|Alice
+4|Diana
+5|Eve
+
+# ============================================================================
+# 3. UNIQUE JSON path index
+# ============================================================================
+
+statement ok
+CREATE UNIQUE INDEX idx_docs_name ON docs (data.name)
+
+# Duplicate JSON path value should fail
+statement error
+INSERT INTO docs VALUES (6, '{"name": "Alice", "age": 99, "city": "X"}', 'zeta', 60)
+
+# Different name succeeds
+statement ok
+INSERT INTO docs VALUES (6, '{"name": "Frank", "age": 22, "city": "X"}', 'zeta', 60)
+
+# Verify lookup
+query I nosort
+SELECT id FROM docs WHERE data.name = 'Frank'
+----
+6
+
+# Cleanup the extra row
+statement ok
+DELETE FROM docs WHERE id = 6
+
+# ============================================================================
+# 4. MD5 function index
+# ============================================================================
+
+statement ok
+CREATE INDEX idx_docs_md5 ON docs (MD5(label))
+
+# MD5 equality lookup — should use index
+query IT nosort
+SELECT id, label FROM docs WHERE MD5(label) = MD5('alpha')
+----
+1|alpha
+
+query IT nosort
+SELECT id, label FROM docs WHERE MD5(label) = MD5('gamma')
+----
+3|gamma
+
+# No match
+query I nosort
+SELECT id FROM docs WHERE MD5(label) = MD5('nonexistent')
+----
+
+# ============================================================================
+# 5. MD5 function — basic correctness
+# ============================================================================
+
+# Known MD5 test vectors (RFC 1321)
+query T nosort
+SELECT MD5('')
+----
+d41d8cd98f00b204e9800998ecf8427e
+
+query T nosort
+SELECT MD5('abc')
+----
+900150983cd24fb0d6963f7d28e17f72
+
+query T nosort
+SELECT MD5('hello')
+----
+5d41402abc4b2a76b9719d911017c592
+
+# MD5(NULL) = NULL
+query T nosort
+SELECT MD5(NULL)
+----
+NULL
+
+# MD5 on number (coerced to string)
+query T nosort
+SELECT MD5(42)
+----
+a1d0c6e83f027327d8461063f4ac58a6
+
+# MD5 on string that looks like JSON — hashed as plain string, not parsed
+query T nosort
+SELECT MD5('{"b":2,"a":1}')
+----
+9915965eb40d343a8fe26e4e341d1a05
+
+# ============================================================================
+# 6. CAST expression index
+# ============================================================================
+
+statement ok
+CREATE TABLE scores (id INTEGER PRIMARY KEY, value INTEGER, tag TEXT)
+
+statement ok
+INSERT INTO scores VALUES (1, 100, 'a')
+
+statement ok
+INSERT INTO scores VALUES (2, 200, 'b')
+
+statement ok
+INSERT INTO scores VALUES (3, 100, 'c')
+
+statement ok
+INSERT INTO scores VALUES (4, 300, 'd')
+
+statement ok
+CREATE INDEX idx_scores_text ON scores (CAST(value AS TEXT))
+
+query IT rowsort
+SELECT id, tag FROM scores WHERE CAST(value AS TEXT) = '100'
+----
+1|a
+3|c
+
+query IT nosort
+SELECT id, tag FROM scores WHERE CAST(value AS TEXT) = '300'
+----
+4|d
+
+# ============================================================================
+# 7. Operator expression index (a + b)
+# ============================================================================
+
+statement ok
+CREATE TABLE calc (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER)
+
+statement ok
+INSERT INTO calc VALUES (1, 10, 20)
+
+statement ok
+INSERT INTO calc VALUES (2, 15, 15)
+
+statement ok
+INSERT INTO calc VALUES (3, 5, 25)
+
+statement ok
+INSERT INTO calc VALUES (4, 30, 10)
+
+statement ok
+CREATE INDEX idx_calc_sum ON calc (a + b)
+
+query II rowsort
+SELECT id, a + b FROM calc WHERE a + b = 30
+----
+1|30
+2|30
+3|30
+
+query II nosort
+SELECT id, a + b FROM calc WHERE a + b = 40
+----
+4|40
+
+query II rowsort
+SELECT id, a + b FROM calc WHERE a + b > 30
+----
+4|40
+
+# ============================================================================
+# 8. Composite expression index (JSON path + column)
+# ============================================================================
+
+statement ok
+CREATE INDEX idx_docs_city_score ON docs (data.city, score)
+
+# Both expressions matched — full prefix
+query II rowsort
+SELECT id, score FROM docs WHERE data.city = 'NYC' AND score = 30
+----
+3|30
+
+# First expression only — prefix scan
+query II rowsort
+SELECT id, score FROM docs WHERE data.city = 'LA'
+----
+2|20
+5|50
+
+# ============================================================================
+# 9. Index maintenance — INSERT adds to index
+# ============================================================================
+
+statement ok
+INSERT INTO docs VALUES (7, '{"name": "Grace", "age": 27, "city": "NYC"}', 'eta', 70)
+
+# New row should be found via JSON path index
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.city = 'NYC'
+----
+1|Alice
+3|Charlie
+7|Grace
+
+# ============================================================================
+# 10. Index maintenance — DELETE removes from index
+# ============================================================================
+
+statement ok
+DELETE FROM docs WHERE id = 7
+
+# Deleted row should NOT appear
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.city = 'NYC'
+----
+1|Alice
+3|Charlie
+
+# ============================================================================
+# 11. Index maintenance — UPDATE modifies index entries
+# ============================================================================
+
+# Move Charlie from NYC to Boston
+statement ok
+UPDATE docs SET data = '{"name": "Charlie", "age": 35, "city": "Boston"}' WHERE id = 3
+
+# NYC should now only have Alice
+query IT nosort
+SELECT id, data.name FROM docs WHERE data.city = 'NYC'
+----
+1|Alice
+
+# Boston should have Charlie
+query IT nosort
+SELECT id, data.name FROM docs WHERE data.city = 'Boston'
+----
+3|Charlie
+
+# Restore for subsequent tests
+statement ok
+UPDATE docs SET data = '{"name": "Charlie", "age": 35, "city": "NYC"}' WHERE id = 3
+
+# ============================================================================
+# 12. UNIQUE expression index — UPDATE violating uniqueness
+# ============================================================================
+
+# Try to update someone's name to "Alice" (already exists)
+statement error
+UPDATE docs SET data = '{"name": "Alice", "age": 99, "city": "X"}' WHERE id = 2
+
+# ============================================================================
+# 13. NULL handling in expression indexes
+# ============================================================================
+
+statement ok
+INSERT INTO docs VALUES (8, NULL, 'theta', 80)
+
+# NULL JSON → NULL path → index entry with NULL key
+# Multiple NULLs allowed even in unique index (NULL != NULL)
+statement ok
+INSERT INTO docs VALUES (9, NULL, 'iota', 90)
+
+# Non-null lookups should not return NULL rows
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.city = 'NYC'
+----
+1|Alice
+3|Charlie
+
+# Cleanup
+statement ok
+DELETE FROM docs WHERE id IN (8, 9)
+
+# ============================================================================
+# 14. DROP INDEX — queries still work via full scan
+# ============================================================================
+
+statement ok
+DROP INDEX idx_docs_city
+
+# Query should still return correct results (full scan)
+query IT rowsort
+SELECT id, data.name FROM docs WHERE data.city = 'NYC'
+----
+1|Alice
+3|Charlie
+
+# ============================================================================
+# 15. ALTER TABLE DROP COLUMN blocked by expression index
+# ============================================================================
+
+statement ok
+CREATE TABLE alter_test (id INTEGER PRIMARY KEY, x INTEGER, y INTEGER)
+
+statement ok
+CREATE INDEX idx_alter_sum ON alter_test (x + y)
+
+# Cannot drop column referenced by expression index
+statement error
+ALTER TABLE alter_test DROP COLUMN x
+
+statement error
+ALTER TABLE alter_test DROP COLUMN y
+
+# Can drop after removing the index
+statement ok
+DROP INDEX idx_alter_sum
+
+statement ok
+ALTER TABLE alter_test DROP COLUMN y
+
+statement ok
+DROP TABLE alter_test
+
+# ============================================================================
+# 16. Expression index on empty table + backfill
+# ============================================================================
+
+statement ok
+CREATE TABLE empty_expr (id INTEGER PRIMARY KEY, data JSON)
+
+statement ok
+CREATE INDEX idx_empty_name ON empty_expr (data.name)
+
+# Insert after index creation
+statement ok
+INSERT INTO empty_expr VALUES (1, '{"name": "X"}')
+
+statement ok
+INSERT INTO empty_expr VALUES (2, '{"name": "Y"}')
+
+query I nosort
+SELECT id FROM empty_expr WHERE data.name = 'X'
+----
+1
+
+statement ok
+DROP TABLE empty_expr
+
+# ============================================================================
+# 17. Backfill — index on populated table
+# ============================================================================
+
+statement ok
+CREATE TABLE backfill (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER)
+
+statement ok
+INSERT INTO backfill VALUES (1, 10, 5)
+
+statement ok
+INSERT INTO backfill VALUES (2, 20, 10)
+
+statement ok
+INSERT INTO backfill VALUES (3, 30, 15)
+
+# Create index on existing data — must backfill correctly
+statement ok
+CREATE INDEX idx_bf_diff ON backfill (a - b)
+
+query II rowsort
+SELECT id, a - b FROM backfill WHERE a - b = 5
+----
+1|5
+
+query II rowsort
+SELECT id, a - b FROM backfill WHERE a - b >= 10
+----
+2|10
+3|15
+
+statement ok
+DROP TABLE backfill
+
+# ============================================================================
+# 18. Multiple expression indexes on same table
+# ============================================================================
+
+statement ok
+CREATE TABLE multi (id INTEGER PRIMARY KEY, data JSON, val TEXT)
+
+statement ok
+INSERT INTO multi VALUES (1, '{"x": 1, "y": "a"}', 'hello')
+
+statement ok
+INSERT INTO multi VALUES (2, '{"x": 2, "y": "b"}', 'world')
+
+statement ok
+INSERT INTO multi VALUES (3, '{"x": 1, "y": "c"}', 'hello')
+
+statement ok
+CREATE INDEX idx_m_x ON multi (data.x)
+
+statement ok
+CREATE INDEX idx_m_md5 ON multi (MD5(val))
+
+# Both indexes active
+query I rowsort
+SELECT id FROM multi WHERE data.x = 1
+----
+1
+3
+
+query I rowsort
+SELECT id FROM multi WHERE MD5(val) = MD5('hello')
+----
+1
+3
+
+statement ok
+DROP TABLE multi
+
+# ============================================================================
+# 19. Expression index with UPSERT (ON CONFLICT)
+# ============================================================================
+
+statement ok
+CREATE TABLE kv (id INTEGER PRIMARY KEY, k TEXT UNIQUE, val INTEGER)
+
+statement ok
+CREATE INDEX idx_kv_md5 ON kv (MD5(k))
+
+statement ok
+INSERT INTO kv VALUES (1, 'foo', 10)
+
+statement ok
+INSERT INTO kv VALUES (2, 'bar', 20)
+
+# UPSERT that conflicts
+statement ok
+INSERT INTO kv (id, k, val) VALUES (1, 'foo', 99) ON CONFLICT (id) DO UPDATE SET val = 99
+
+# Verify update happened
+query I nosort
+SELECT val FROM kv WHERE id = 1
+----
+99
+
+# MD5 index should still work after upsert
+query I nosort
+SELECT val FROM kv WHERE MD5(k) = MD5('foo')
+----
+99
+
+statement ok
+DROP TABLE kv
+
+# ============================================================================
+# 20. Expression index — IF NOT EXISTS
+# ============================================================================
+
+statement ok
+CREATE INDEX IF NOT EXISTS idx_docs_age ON docs (data.age)
+
+# Should not error even though idx_docs_age already exists
+
+# ============================================================================
+# 21. Error: bare JSON column in index (always object)
+# ============================================================================
+
+statement error
+CREATE INDEX idx_bad ON docs (data)
+
+# ============================================================================
+# 22. Runtime error: JSON path returns object/array (non-scalar key)
+# ============================================================================
+
+statement ok
+CREATE TABLE nested_test (id INTEGER PRIMARY KEY, data JSON)
+
+statement ok
+CREATE INDEX idx_nested ON nested_test (data.info)
+
+# Scalar value — should succeed
+statement ok
+INSERT INTO nested_test VALUES (1, '{"info": "hello"}')
+
+# Object value — should fail at runtime (index key must be scalar)
+statement error
+INSERT INTO nested_test VALUES (2, '{"info": {"x": 1, "y": 2}}')
+
+# Array value — should also fail
+statement error
+INSERT INTO nested_test VALUES (3, '{"info": [1, 2, 3]}')
+
+# Verify only the valid row exists
+query IT nosort
+SELECT id, data.info FROM nested_test WHERE data.info = 'hello'
+----
+1|hello
+
+statement ok
+DROP TABLE nested_test
+
+# ============================================================================
+# 23. Error: reserved index name prefix
+# ============================================================================
+
+statement error
+CREATE INDEX __pk_test ON docs (score)
+
+# ============================================================================
+# 24. Expression index with nested function: MD5(CAST(score AS TEXT))
+# ============================================================================
+
+statement ok
+CREATE INDEX idx_docs_md5_score ON docs (MD5(CAST(score AS TEXT)))
+
+query IT nosort
+SELECT id, label FROM docs WHERE MD5(CAST(score AS TEXT)) = MD5('30')
+----
+3|gamma
+
+statement ok
+DROP INDEX idx_docs_md5_score
+
+# ============================================================================
+# 25. Expression index used after transaction rollback
+# ============================================================================
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO docs VALUES (10, '{"name": "Temp", "age": 99, "city": "NYC"}', 'temp', 100)
+
+# Visible inside transaction
+query I nosort
+SELECT COUNT(*) FROM docs WHERE data.city = 'NYC'
+----
+3
+
+statement ok
+ROLLBACK
+
+# After rollback — only original NYC rows
+query I nosort
+SELECT COUNT(*) FROM docs WHERE data.city = 'NYC'
+----
+2
+
+# ============================================================================
+# 26. Large dataset — verify index correctness at scale
+# ============================================================================
+
+statement ok
+CREATE TABLE big (id INTEGER PRIMARY KEY, data JSON, tag TEXT)
+
+statement ok
+CREATE INDEX idx_big_cat ON big (data.category)
+
+statement ok
+INSERT INTO big VALUES (1, '{"category": "A", "val": 1}', 'r1')
+
+statement ok
+INSERT INTO big VALUES (2, '{"category": "B", "val": 2}', 'r2')
+
+statement ok
+INSERT INTO big VALUES (3, '{"category": "A", "val": 3}', 'r3')
+
+statement ok
+INSERT INTO big VALUES (4, '{"category": "C", "val": 4}', 'r4')
+
+statement ok
+INSERT INTO big VALUES (5, '{"category": "B", "val": 5}', 'r5')
+
+statement ok
+INSERT INTO big VALUES (6, '{"category": "A", "val": 6}', 'r6')
+
+statement ok
+INSERT INTO big VALUES (7, '{"category": "C", "val": 7}', 'r7')
+
+statement ok
+INSERT INTO big VALUES (8, '{"category": "A", "val": 8}', 'r8')
+
+statement ok
+INSERT INTO big VALUES (9, '{"category": "B", "val": 9}', 'r9')
+
+statement ok
+INSERT INTO big VALUES (10, '{"category": "A", "val": 10}', 'r10')
+
+# Delete some, update some
+statement ok
+DELETE FROM big WHERE id = 3
+
+statement ok
+UPDATE big SET data = '{"category": "C", "val": 5}' WHERE id = 5
+
+# Verify category counts after mutations
+query I nosort
+SELECT COUNT(*) FROM big WHERE data.category = 'A'
+----
+4
+
+query I nosort
+SELECT COUNT(*) FROM big WHERE data.category = 'B'
+----
+2
+
+query I nosort
+SELECT COUNT(*) FROM big WHERE data.category = 'C'
+----
+3
+
+# Verify exact rows for category A
+query IT rowsort
+SELECT id, tag FROM big WHERE data.category = 'A'
+----
+1|r1
+6|r6
+8|r8
+10|r10
+
+statement ok
+DROP TABLE big
+
+# ============================================================================
+# Cleanup
+# ============================================================================
+
+statement ok
+DROP TABLE scores
+
+statement ok
+DROP TABLE calc
+
+statement ok
+DROP TABLE docs

@@ -8,8 +8,6 @@ import { requireTable } from '../core/utils/require-table.js';
 import { bindExpression } from '../expression/index.js';
 import { boundToIndexExpression } from '../../store/index-expression.js';
 
-const NON_SCALAR_INDEX_TYPES = new Set(['JSON', 'BLOB']);
-
 export function bindCreateIndex(
   ctx: BindContext,
   stmt: CreateIndexStatement,
@@ -30,10 +28,19 @@ export function bindCreateIndex(
     // Bind via standard expression binder
     const bound = bindExpression(ctx, parsedExpr, scope);
 
-    // Validate: result must be scalar
-    if (NON_SCALAR_INDEX_TYPES.has(bound.returnType)) {
+    // Reject BLOB — never valid as index key
+    if (bound.returnType === 'BLOB') {
+      throw new BindError('Index expression must return a scalar type, got BLOB');
+    }
+
+    // Reject bare JSON column reference (always an object).
+    // JSON path access (data.city) is allowed — may resolve to scalar at runtime.
+    if (
+      bound.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF &&
+      bound.returnType === 'JSON'
+    ) {
       throw new BindError(
-        `Index expression must return a scalar type, got ${bound.returnType}`,
+        'Cannot create index on a JSON column directly; use a path expression (e.g. data.field)',
       );
     }
 

@@ -1,4 +1,5 @@
 import type { IndexKey } from "../../../store/index-btree/types.js";
+import { bindIndexExpression } from "../../../store/index-expression.js";
 import type {
   ICatalog,
   IndexDef,
@@ -7,7 +8,6 @@ import type {
   SyncIIndexManager,
   TableSchema,
 } from "../../../store/types.js";
-import { bindIndexExpression } from "../../../store/index-expression.js";
 import { compileExpression } from "../../evaluate/compile.js";
 import { buildResolver } from "../../resolve.js";
 import type { Tuple, Value } from "../../types.js";
@@ -48,7 +48,17 @@ function rowToTuple(row: Row, schema: TableSchema): Tuple {
 }
 
 function evalKey(tuple: Tuple, evaluators: Evaluators): IndexKey {
-  return evaluators.map((fn) => fn(tuple) as IndexKey[number]);
+  return evaluators.map((fn) => {
+    const v = fn(tuple);
+    throwEvalKeyIfObject(v);
+    return v as IndexKey[number];
+  });
+}
+
+function throwEvalKeyIfObject(value: unknown) {
+  if (value !== null && typeof value === "object") {
+    throw new Error("Index key must be a scalar value, got object");
+  }
 }
 
 export function buildIndexKey(

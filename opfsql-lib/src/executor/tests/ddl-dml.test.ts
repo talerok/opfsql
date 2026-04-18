@@ -13,6 +13,7 @@ import type {
 import { LogicalOperatorType } from '../../binder/types.js';
 import type {
   ICatalog,
+  IndexDef,
   SyncIIndexManager,
   SyncIRowManager,
   Row,
@@ -26,6 +27,7 @@ import {
   executeDrop,
 } from '../ddl/index.js';
 import { executeDelete, executeInsert, executeUpdate } from '../dml/index.js';
+import { buildIndexKey } from '../dml/utils/index-maintenance.js';
 import { colRef, comparison, constant, noopCtx } from './helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -1073,6 +1075,281 @@ describe('DML with multi-expression filter', () => {
       'users',
       0,
       expect.objectContaining({ name: 'UPDATED', age: 25 }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildIndexKey — expression-based index key evaluation
+// ---------------------------------------------------------------------------
+
+describe('buildIndexKey — expression-based indexes', () => {
+  const jsonSchema: TableSchema = {
+    name: 'docs',
+    columns: [
+      { name: 'id',    type: 'INTEGER', nullable: false, primaryKey: true,  unique: true,  autoIncrement: false, defaultValue: null },
+      { name: 'data',  type: 'JSON',    nullable: true,  primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      { name: 'label', type: 'TEXT',    nullable: true,  primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      { name: 'score', type: 'INTEGER', nullable: true,  primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+  };
+
+  it('column expression extracts plain value', () => {
+    const idx: IndexDef = {
+      name: 'idx_score',
+      tableName: 'docs',
+      expressions: [{ type: 'column', name: 'score', returnType: 'INTEGER' }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: null, label: 'x', score: 42 }, jsonSchema, idx);
+    expect(key).toEqual([42]);
+  });
+
+  it('JSON path expression extracts scalar field', () => {
+    const idx: IndexDef = {
+      name: 'idx_city',
+      tableName: 'docs',
+      expressions: [{ type: 'json_access', column: 'data', path: [{ type: 'field', name: 'city' }], returnType: 'JSON' }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: { name: 'Alice', city: 'NYC' }, label: 'x', score: 10 }, jsonSchema, idx);
+    expect(key).toEqual(['NYC']);
+  });
+
+  it('JSON path expression returns null for missing field', () => {
+    const idx: IndexDef = {
+      name: 'idx_city',
+      tableName: 'docs',
+      expressions: [{ type: 'json_access', column: 'data', path: [{ type: 'field', name: 'city' }], returnType: 'JSON' }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: { name: 'Alice' }, label: 'x', score: 10 }, jsonSchema, idx);
+    expect(key).toEqual([null]);
+  });
+
+  it('JSON path expression returns null for null JSON column', () => {
+    const idx: IndexDef = {
+      name: 'idx_city',
+      tableName: 'docs',
+      expressions: [{ type: 'json_access', column: 'data', path: [{ type: 'field', name: 'city' }], returnType: 'JSON' }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: null, label: 'x', score: 10 }, jsonSchema, idx);
+    expect(key).toEqual([null]);
+  });
+
+  it('JSON path to object throws runtime error', () => {
+    const idx: IndexDef = {
+      name: 'idx_nested',
+      tableName: 'docs',
+      expressions: [{ type: 'json_access', column: 'data', path: [{ type: 'field', name: 'nested' }], returnType: 'JSON' }],
+      unique: false,
+    };
+    expect(() =>
+      buildIndexKey({ id: 1, data: { nested: { x: 1 } }, label: 'x', score: 10 }, jsonSchema, idx),
+    ).toThrow(/scalar/);
+  });
+
+  it('JSON path to array throws runtime error', () => {
+    const idx: IndexDef = {
+      name: 'idx_tags',
+      tableName: 'docs',
+      expressions: [{ type: 'json_access', column: 'data', path: [{ type: 'field', name: 'tags' }], returnType: 'JSON' }],
+      unique: false,
+    };
+    expect(() =>
+      buildIndexKey({ id: 1, data: { tags: ['a', 'b'] }, label: 'x', score: 10 }, jsonSchema, idx),
+    ).toThrow(/scalar/);
+  });
+
+  it('function expression (MD5) computes hash', () => {
+    const idx: IndexDef = {
+      name: 'idx_md5',
+      tableName: 'docs',
+      expressions: [{ type: 'function', name: 'MD5', args: [{ type: 'column', name: 'label', returnType: 'TEXT' }], returnType: 'TEXT' }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: null, label: 'hello', score: 10 }, jsonSchema, idx);
+    expect(key).toEqual(['5d41402abc4b2a76b9719d911017c592']);
+  });
+
+  it('CAST expression converts type', () => {
+    const idx: IndexDef = {
+      name: 'idx_cast',
+      tableName: 'docs',
+      expressions: [{ type: 'cast', child: { type: 'column', name: 'score', returnType: 'INTEGER' }, castType: 'TEXT', returnType: 'TEXT' }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: null, label: 'x', score: 42 }, jsonSchema, idx);
+    expect(key).toEqual(['42']);
+  });
+
+  it('operator expression (score + id)', () => {
+    const idx: IndexDef = {
+      name: 'idx_sum',
+      tableName: 'docs',
+      expressions: [{
+        type: 'operator',
+        operatorType: 'ADD',
+        args: [
+          { type: 'column', name: 'score', returnType: 'INTEGER' },
+          { type: 'column', name: 'id', returnType: 'INTEGER' },
+        ],
+        returnType: 'INTEGER',
+      }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 3, data: null, label: 'x', score: 10 }, jsonSchema, idx);
+    expect(key).toEqual([13]);
+  });
+
+  it('composite expression index (data.city, score)', () => {
+    const idx: IndexDef = {
+      name: 'idx_composite',
+      tableName: 'docs',
+      expressions: [
+        { type: 'json_access', column: 'data', path: [{ type: 'field', name: 'city' }], returnType: 'JSON' },
+        { type: 'column', name: 'score', returnType: 'INTEGER' },
+      ],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: { city: 'NYC' }, label: 'x', score: 50 }, jsonSchema, idx);
+    expect(key).toEqual(['NYC', 50]);
+  });
+
+  it('nested expression MD5(CAST(score AS TEXT))', () => {
+    const idx: IndexDef = {
+      name: 'idx_nested_fn',
+      tableName: 'docs',
+      expressions: [{
+        type: 'function',
+        name: 'MD5',
+        args: [{
+          type: 'cast',
+          child: { type: 'column', name: 'score', returnType: 'INTEGER' },
+          castType: 'TEXT',
+          returnType: 'TEXT',
+        }],
+        returnType: 'TEXT',
+      }],
+      unique: false,
+    };
+    const key = buildIndexKey({ id: 1, data: null, label: 'x', score: 42 }, jsonSchema, idx);
+    // MD5('42')
+    expect(key[0]).toBe('a1d0c6e83f027327d8461063f4ac58a6');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeCreateIndex — backfill with expression-based indexes
+// ---------------------------------------------------------------------------
+
+describe('executeCreateIndex — expression backfill', () => {
+  const jsonSchema: TableSchema = {
+    name: 'docs',
+    columns: [
+      { name: 'id',    type: 'INTEGER', nullable: false, primaryKey: true,  unique: true,  autoIncrement: false, defaultValue: null },
+      { name: 'data',  type: 'JSON',    nullable: true,  primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      { name: 'label', type: 'TEXT',    nullable: true,  primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    ],
+  };
+
+  it('backfills JSON path index from existing rows', () => {
+    const catalog = mockCatalog([jsonSchema]);
+    const rm = mockRowManager() as any;
+    rm.scanTable = function* () {
+      yield { rowId: 0, row: { id: 1, data: { city: 'NYC' }, label: 'a' } };
+      yield { rowId: 1, row: { id: 2, data: { city: 'LA' }, label: 'b' } };
+    };
+    const im = mockIndexManager();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_CREATE_INDEX,
+      index: {
+        name: 'idx_city',
+        tableName: 'docs',
+        expressions: [{ type: 'json_access' as const, column: 'data', path: [{ type: 'field' as const, name: 'city' }], returnType: 'JSON' as const }],
+        unique: false,
+      },
+      ifNotExists: false,
+      children: [],
+      expressions: [],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalCreateIndex;
+
+    const result = executeCreateIndex(op, catalog, rm, im);
+    expect(result.catalogChanges[0].type).toBe('CREATE_INDEX');
+    expect(im.bulkLoad).toHaveBeenCalledWith(
+      'idx_city',
+      expect.arrayContaining([
+        expect.objectContaining({ key: ['LA'], rowId: 1 }),
+        expect.objectContaining({ key: ['NYC'], rowId: 0 }),
+      ]),
+      false,
+    );
+  });
+
+  it('backfill throws when JSON path returns object', () => {
+    const catalog = mockCatalog([jsonSchema]);
+    const rm = mockRowManager() as any;
+    rm.scanTable = function* () {
+      yield { rowId: 0, row: { id: 1, data: { nested: { x: 1, y: 2 } }, label: 'a' } };
+    };
+    const im = mockIndexManager();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_CREATE_INDEX,
+      index: {
+        name: 'idx_nested',
+        tableName: 'docs',
+        expressions: [{ type: 'json_access' as const, column: 'data', path: [{ type: 'field' as const, name: 'nested' }], returnType: 'JSON' as const }],
+        unique: false,
+      },
+      ifNotExists: false,
+      children: [],
+      expressions: [],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalCreateIndex;
+
+    expect(() => executeCreateIndex(op, catalog, rm, im)).toThrow(/scalar/);
+  });
+
+  it('backfill with MD5 function index', () => {
+    const catalog = mockCatalog([jsonSchema]);
+    const rm = mockRowManager() as any;
+    rm.scanTable = function* () {
+      yield { rowId: 0, row: { id: 1, data: null, label: 'hello' } };
+    };
+    const im = mockIndexManager();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_CREATE_INDEX,
+      index: {
+        name: 'idx_md5',
+        tableName: 'docs',
+        expressions: [{
+          type: 'function' as const,
+          name: 'MD5',
+          args: [{ type: 'column' as const, name: 'label', returnType: 'TEXT' as const }],
+          returnType: 'TEXT' as const,
+        }],
+        unique: false,
+      },
+      ifNotExists: false,
+      children: [],
+      expressions: [],
+      types: [],
+      estimatedCardinality: 0,
+      getColumnBindings: () => [],
+    } as unknown as LogicalCreateIndex;
+
+    const result = executeCreateIndex(op, catalog, rm, im);
+    expect(result.catalogChanges[0].type).toBe('CREATE_INDEX');
+    expect(im.bulkLoad).toHaveBeenCalledWith(
+      'idx_md5',
+      [{ key: ['5d41402abc4b2a76b9719d911017c592'], rowId: 0 }],
+      false,
     );
   });
 });

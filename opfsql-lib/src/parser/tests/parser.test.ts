@@ -3334,3 +3334,91 @@ describe('EXPLAIN', () => {
     expect(stmt.statement.type).toBe(StatementType.CREATE_TABLE_STATEMENT);
   });
 });
+
+// ============================================================================
+// Expression-based CREATE INDEX
+// ============================================================================
+
+describe('CREATE INDEX — expression-based', () => {
+  it('parses JSON path expression (data.name)', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (data.name)') as CreateIndexStatement;
+    expect(stmt.expressions).toHaveLength(1);
+    const expr = stmt.expressions[0] as ColumnRefExpression;
+    expect(expr.expression_class).toBe(ExpressionClass.COLUMN_REF);
+    expect(expr.column_names).toEqual(['data', 'name']);
+  });
+
+  it('parses nested JSON path (data.nested.field)', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (data.nested.field)') as CreateIndexStatement;
+    const expr = stmt.expressions[0] as ColumnRefExpression;
+    expect(expr.column_names).toEqual(['data', 'nested', 'field']);
+  });
+
+  it('parses function expression (MD5(label))', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (MD5(label))') as CreateIndexStatement;
+    expect(stmt.expressions).toHaveLength(1);
+    const expr = stmt.expressions[0] as FunctionExpression;
+    expect(expr.expression_class).toBe(ExpressionClass.FUNCTION);
+    expect(expr.function_name).toBe('md5');
+    expect(expr.children).toHaveLength(1);
+    expect((expr.children[0] as ColumnRefExpression).column_names).toEqual(['label']);
+  });
+
+  it('parses CAST expression (CAST(val AS TEXT))', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (CAST(val AS TEXT))') as CreateIndexStatement;
+    const expr = stmt.expressions[0] as CastExpression;
+    expect(expr.expression_class).toBe(ExpressionClass.CAST);
+    expect(expr.cast_type.id).toBe(LogicalTypeId.VARCHAR);
+    expect((expr.child as ColumnRefExpression).column_names).toEqual(['val']);
+  });
+
+  it('parses arithmetic operator expression (a + b)', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (a + b)') as CreateIndexStatement;
+    const expr = stmt.expressions[0] as OperatorExpression;
+    expect(expr.expression_class).toBe(ExpressionClass.OPERATOR);
+    expect(expr.type).toBe(ExpressionType.OPERATOR_ADD);
+    expect(expr.children).toHaveLength(2);
+  });
+
+  it('parses subtraction operator (a - b)', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (a - b)') as CreateIndexStatement;
+    const expr = stmt.expressions[0] as OperatorExpression;
+    expect(expr.type).toBe(ExpressionType.OPERATOR_SUBTRACT);
+  });
+
+  it('parses nested function (MD5(CAST(score AS TEXT)))', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (MD5(CAST(score AS TEXT)))') as CreateIndexStatement;
+    const fn = stmt.expressions[0] as FunctionExpression;
+    expect(fn.expression_class).toBe(ExpressionClass.FUNCTION);
+    expect(fn.function_name).toBe('md5');
+    const castArg = fn.children[0] as CastExpression;
+    expect(castArg.expression_class).toBe(ExpressionClass.CAST);
+  });
+
+  it('parses composite expression index (data.city, score)', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (data.city, score)') as CreateIndexStatement;
+    expect(stmt.expressions).toHaveLength(2);
+    expect((stmt.expressions[0] as ColumnRefExpression).column_names).toEqual(['data', 'city']);
+    expect((stmt.expressions[1] as ColumnRefExpression).column_names).toEqual(['score']);
+  });
+
+  it('parses composite with mixed expression types (data.name, MD5(label), a + b)', () => {
+    const stmt = parseOne('CREATE INDEX idx ON t (data.name, MD5(label), a + b)') as CreateIndexStatement;
+    expect(stmt.expressions).toHaveLength(3);
+    expect(stmt.expressions[0].expression_class).toBe(ExpressionClass.COLUMN_REF);
+    expect(stmt.expressions[1].expression_class).toBe(ExpressionClass.FUNCTION);
+    expect(stmt.expressions[2].expression_class).toBe(ExpressionClass.OPERATOR);
+  });
+
+  it('parses UNIQUE with expression', () => {
+    const stmt = parseOne('CREATE UNIQUE INDEX idx ON t (MD5(label))') as CreateIndexStatement;
+    expect(stmt.is_unique).toBe(true);
+    expect((stmt.expressions[0] as FunctionExpression).function_name).toBe('md5');
+  });
+
+  it('parses IF NOT EXISTS with expression', () => {
+    const stmt = parseOne('CREATE INDEX IF NOT EXISTS idx ON t (data.name)') as CreateIndexStatement;
+    expect(stmt.if_not_exists).toBe(true);
+    expect((stmt.expressions[0] as ColumnRefExpression).column_names).toEqual(['data', 'name']);
+  });
+});
