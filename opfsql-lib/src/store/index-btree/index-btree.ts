@@ -106,6 +106,42 @@ export class SyncBTree {
     this.pageStore.freePage(this.metaPageNo);
   }
 
+  /** Return the entry with the smallest non-null key, or null if empty. */
+  first(): { key: IndexKey; rowId: RowId } | null {
+    const meta = this.readMeta();
+    if (meta.size === 0) return null;
+    let leaf: BTreeLeafNode | null = this.findLeftmostLeaf(meta);
+    while (leaf) {
+      for (const stored of leaf.keys) {
+        const userKey = stored.slice(0, -1) as IndexKey;
+        if (!keyHasNull(userKey)) {
+          return { key: userKey, rowId: extractRowId(stored) };
+        }
+      }
+      leaf = leaf.nextLeafId !== null
+        ? (this.readNode(leaf.nextLeafId) as BTreeLeafNode)
+        : null;
+    }
+    return null;
+  }
+
+  /** Return the entry with the largest non-null key, or null if empty. */
+  last(): { key: IndexKey; rowId: RowId } | null {
+    const meta = this.readMeta();
+    if (meta.size === 0) return null;
+    const leaf = this.findRightmostLeaf(meta);
+    // Walk backward through the rightmost leaf, skipping nulls
+    for (let i = leaf.keys.length - 1; i >= 0; i--) {
+      const stored = leaf.keys[i];
+      const userKey = stored.slice(0, -1) as IndexKey;
+      if (!keyHasNull(userKey)) {
+        return { key: userKey, rowId: extractRowId(stored) };
+      }
+    }
+    // All entries on the rightmost leaf are null — return null
+    return null;
+  }
+
   // --- Leaf operations ------------------------------------------------------
 
   private insertIntoLeaf(
@@ -148,6 +184,13 @@ export class SyncBTree {
   private findLeftmostLeaf(meta: BTreeMeta): BTreeLeafNode {
     let node: BTreeNode = this.readNode(meta.rootNodeId);
     while (node.kind === "internal") node = this.readNode(node.children[0]);
+    return node;
+  }
+
+  private findRightmostLeaf(meta: BTreeMeta): BTreeLeafNode {
+    let node: BTreeNode = this.readNode(meta.rootNodeId);
+    while (node.kind === "internal")
+      node = this.readNode(node.children[node.children.length - 1]);
     return node;
   }
 

@@ -235,7 +235,8 @@ export interface IndexSearchPredicate {
   value: BoundConstantExpression | BoundParameterExpression;
 }
 
-export interface IndexHint {
+export interface IndexScanHint {
+  kind: 'scan';
   indexDef: IndexDef;
   predicates: IndexSearchPredicate[];
   /** Filters NOT covered by the index (need residual filtering in scan). */
@@ -243,6 +244,15 @@ export interface IndexHint {
   /** Filters covered by the index (can be skipped in scan). */
   coveredFilters: TableFilter[];
 }
+
+export interface IndexUnionHint {
+  kind: 'union';
+  branches: IndexScanHint[];
+  /** The original OR expression — used as residual filter on fetched rows. */
+  originalFilter: BoundExpression;
+}
+
+export type IndexHint = IndexScanHint | IndexUnionHint;
 
 export interface LogicalGet {
   type: LogicalOperatorType.LOGICAL_GET;
@@ -289,7 +299,14 @@ export interface LogicalAggregate {
   havingExpression: BoundExpression | null;
   types: LogicalType[];
   estimatedCardinality: number;
+  minMaxHint?: MinMaxHint;
   getColumnBindings(): ColumnBinding[];
+}
+
+export interface MinMaxHint {
+  indexDef: IndexDef;
+  functionName: 'MIN' | 'MAX';
+  keyPosition: number;
 }
 
 export interface LogicalComparisonJoin {

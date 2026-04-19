@@ -8,6 +8,7 @@ export { flipComparison } from './flip_comparison.js';
 export { negateComparison } from './negate_comparison.js';
 export { isNumericType } from './is_numeric_type.js';
 export { isConstant } from './is_constant.js';
+export { isParameter } from './is_parameter.js';
 export { isColumnRef } from './is_column_ref.js';
 export { isComparison } from './is_comparison.js';
 export { isConjunction } from './is_conjunction.js';

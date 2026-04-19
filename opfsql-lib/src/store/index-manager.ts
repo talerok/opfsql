@@ -47,4 +47,12 @@ export class SyncIndexManager implements SyncIIndexManager {
   dropIndex(indexName: string): void {
     this.tree(indexName).drop();
   }
+
+  first(indexName: string) {
+    return this.tree(indexName).first();
+  }
+
+  last(indexName: string) {
+    return this.tree(indexName).last();
+  }
 }

@@ -95,4 +95,8 @@ export interface SyncIIndexManager {
     unique: boolean,
   ): number;
   dropIndex(indexName: string): void;
+  /** Smallest non-null key in the index, or null. */
+  first(indexName: string): { key: IndexKey; rowId: RowId } | null;
+  /** Largest non-null key in the index, or null. */
+  last(indexName: string): { key: IndexKey; rowId: RowId } | null;
 }

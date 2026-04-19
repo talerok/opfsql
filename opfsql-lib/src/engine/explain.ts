@@ -157,9 +157,19 @@ function formatNode(node: LogicalOperator): string {
 }
 
 function formatGet(n: LogicalGet): string {
-  const label = n.indexHint
-    ? `IndexScan ${n.tableName} (${n.indexHint.indexDef.name})`
-    : `Scan ${n.tableName}`;
+  let label: string;
+  if (n.indexHint?.kind === 'union') {
+    const names = n.indexHint.branches.map((b) => b.indexDef.name).join(", ");
+    label = `IndexUnionScan ${n.tableName} (${names})`;
+  } else if (n.indexHint?.kind === 'scan') {
+    if (n.indexHint.predicates.length === 0 && n.indexHint.coveredFilters.length === 0) {
+      label = `IndexOrderScan ${n.tableName} (${n.indexHint.indexDef.name})`;
+    } else {
+      label = `IndexScan ${n.tableName} (${n.indexHint.indexDef.name})`;
+    }
+  } else {
+    label = `Scan ${n.tableName}`;
+  }
   if (n.tableFilters.length === 0) return label + cardinality(n);
   const filters = n.tableFilters
     .map((f) => `${formatExpression(f.expression)} ${CMP[f.comparisonType]} ${formatExpression(f.constant)}`)
@@ -175,6 +185,9 @@ function formatProjection(n: LogicalProjection): string {
 }
 
 function formatAgg(n: LogicalAggregate): string {
+  if (n.minMaxHint) {
+    return `IndexMinMax [${n.minMaxHint.functionName}] (${n.minMaxHint.indexDef.name})`;
+  }
   const aggs = n.expressions.map(formatExpression).join(", ");
   if (n.groups.length === 0) return `Aggregate [${aggs}]`;
   return `Aggregate [${aggs}] group by (${n.groups.map(formatExpression).join(", ")})`;

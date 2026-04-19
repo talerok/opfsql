@@ -28,6 +28,8 @@ import {
 } from "./operators/cte.js";
 import { PhysicalFilter } from "./operators/filter.js";
 import { PhysicalIndexScan } from "./operators/index-scan.js";
+import { PhysicalIndexMinMax } from "./operators/index-min-max.js";
+import { PhysicalIndexUnionScan } from "./operators/index-union-scan.js";
 import { PhysicalHashJoin, PhysicalNestedLoopJoin } from "./operators/join.js";
 import { PhysicalLimit } from "./operators/limit.js";
 import { PhysicalProjection } from "./operators/projection.js";
@@ -50,15 +52,22 @@ export function createPhysicalPlan(
     case LogicalOperatorType.LOGICAL_GET: {
       const get = node as LogicalGet;
       if (get.indexHint && indexManager) {
-        return new PhysicalIndexScan(
-          get,
-          rowManager,
-          indexManager,
-          get.indexHint.indexDef,
-          get.indexHint.predicates,
-          get.indexHint.residualFilters,
-          ctx,
-        );
+        switch (get.indexHint.kind) {
+          case 'union':
+            return new PhysicalIndexUnionScan(
+              get, rowManager, indexManager, get.indexHint, ctx,
+            );
+          case 'scan':
+            return new PhysicalIndexScan(
+              get,
+              rowManager,
+              indexManager,
+              get.indexHint.indexDef,
+              get.indexHint.predicates,
+              get.indexHint.residualFilters,
+              ctx,
+            );
+        }
       }
       if (get.children.length > 0) {
         return new PhysicalChildScan(get, plan(get.children[0]), ctx);
@@ -89,6 +98,9 @@ export function createPhysicalPlan(
 
     case LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY: {
       const agg = node as LogicalAggregate;
+      if (agg.minMaxHint && indexManager) {
+        return new PhysicalIndexMinMax(agg, indexManager, agg.minMaxHint);
+      }
       return new PhysicalHashAggregate(plan(agg.children[0]), agg, ctx);
     }
 

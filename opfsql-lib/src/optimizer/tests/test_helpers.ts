@@ -6,6 +6,7 @@ import type {
   BoundConjunctionExpression,
   BoundConstantExpression,
   BoundExpression,
+  IndexScanHint,
   LogicalGet,
   LogicalOperator,
 } from "../../binder/types.js";
@@ -227,6 +228,12 @@ export function getGet(plan: LogicalOperator): LogicalGet {
 
 export function getAllGets(plan: LogicalOperator): LogicalGet[] {
   return findAllNodes(plan, LogicalOperatorType.LOGICAL_GET) as LogicalGet[];
+}
+
+export function getScanHint(get: LogicalGet): IndexScanHint {
+  expect(get.indexHint).toBeDefined();
+  expect(get.indexHint!.kind).toBe('scan');
+  return get.indexHint! as IndexScanHint;
 }
 
 // ============================================================================
