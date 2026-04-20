@@ -1,19 +1,24 @@
-import { describe, it } from 'vitest';
+import { beforeEach, describe, it } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { resetMockOPFS } from 'opfs-mock';
 import { Engine } from '../../src/index.js';
-import { MemoryPageStorage } from '../../src/store/backend/memory-storage.js';
+import { OPFSSyncStorage } from '../../src/store/backend/opfs-storage.js';
 import { parseSlt, runSlt } from './runner.js';
 
 const sltDir = new URL('.', import.meta.url).pathname;
 const sltFiles = readdirSync(sltDir).filter((f) => f.endsWith('.slt'));
 
 describe('SLT', () => {
+  beforeEach(() => {
+    resetMockOPFS();
+  });
+
   for (const file of sltFiles) {
     it(file, async () => {
       const source = readFileSync(join(sltDir, file), 'utf-8');
       const blocks = parseSlt(source);
-      const engine = await Engine.create(new MemoryPageStorage());
+      const engine = await Engine.create(new OPFSSyncStorage(`slt-${file}`));
       try {
         const result = await runSlt(engine, blocks);
         if (result.failed > 0) {
