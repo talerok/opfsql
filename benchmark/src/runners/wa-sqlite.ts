@@ -12,11 +12,11 @@ const pending = new Map<
 function initWorker() {
   worker = new Worker(WORKER_URL, { type: "module" });
   worker.onmessage = (e: MessageEvent) => {
-    const { id, ok, rows, error } = e.data;
+    const { id, ok, rows, stmtId, error } = e.data;
     const p = pending.get(id);
     if (!p) return;
     pending.delete(id);
-    if (ok) p.resolve(rows);
+    if (ok) p.resolve(stmtId ?? rows);
     else p.reject(new Error(error));
   };
 }
@@ -25,11 +25,12 @@ function send(
   type: string,
   sql?: string,
   params?: unknown[],
-): Promise<unknown[] | undefined> {
+  stmtId?: number,
+): Promise<any> {
   return new Promise((resolve, reject) => {
     const id = ++msgId;
     pending.set(id, { resolve, reject });
-    worker.postMessage({ id, type, sql, params });
+    worker.postMessage({ id, type, sql, params, stmtId });
   });
 }
 
@@ -41,7 +42,22 @@ async function run(sql: string, params?: unknown[]): Promise<void> {
   await send("run", sql, params);
 }
 
+async function prepare(sql: string): Promise<number> {
+  return (await send("prepare", sql)) as number;
+}
+
+async function stmtRun(stmtId: number, params?: unknown[]): Promise<unknown[]> {
+  return (await send("stmt_run", undefined, params, stmtId)) as unknown[];
+}
+
+async function stmtFree(stmtId: number): Promise<void> {
+  await send("stmt_free", undefined, undefined, stmtId);
+}
+
 export function createWaSqliteRunner(): BenchmarkRunner {
+  let insertStmt: number;
+  let selectPointStmt: number;
+
   return {
     name: "wa-sqlite",
     storage: "OPFS",
@@ -60,21 +76,20 @@ export function createWaSqliteRunner(): BenchmarkRunner {
           category TEXT
         )
       `);
+      insertStmt = await prepare("INSERT INTO products VALUES (?, ?, ?, ?)");
+      selectPointStmt = await prepare("SELECT * FROM products WHERE id = ?");
     },
 
     async teardown() {
+      await stmtFree(insertStmt);
+      await stmtFree(selectPointStmt);
       await exec("DROP TABLE IF EXISTS products");
     },
 
     async insertBatch(rows: Row[]) {
       await exec("BEGIN");
       for (const r of rows) {
-        await run("INSERT INTO products VALUES (?, ?, ?, ?)", [
-          r.id,
-          r.name,
-          r.price,
-          r.category,
-        ]);
+        await stmtRun(insertStmt, [r.id, r.name, r.price, r.category]);
       }
       await exec("COMMIT");
     },
@@ -84,7 +99,7 @@ export function createWaSqliteRunner(): BenchmarkRunner {
     },
 
     async selectPoint(id: number) {
-      const rows = await exec(`SELECT * FROM products WHERE id = ${id}`);
+      const rows = await stmtRun(selectPointStmt, [id]);
       return rows[0];
     },
 
@@ -123,31 +138,24 @@ export function createWaSqliteRunner(): BenchmarkRunner {
       await exec("CREATE INDEX idx_orders_product ON orders(product_id)");
       await exec("CREATE INDEX idx_orders_customer ON orders(customer_id)");
 
+      const pStmt = await prepare("INSERT INTO products VALUES (?, ?, ?, ?)");
       await exec("BEGIN");
       for (const r of productRows) {
-        await run("INSERT INTO products VALUES (?, ?, ?, ?)", [
-          r.id,
-          r.name,
-          r.price,
-          r.category,
-        ]);
+        await stmtRun(pStmt, [r.id, r.name, r.price, r.category]);
       }
       await exec("COMMIT");
+      await stmtFree(pStmt);
 
+      const oStmt = await prepare("INSERT INTO orders VALUES (?, ?, ?, ?, ?)");
       for (let i = 0; i < orderRows.length; i += 10000) {
         const batch = orderRows.slice(i, i + 10000);
         await exec("BEGIN");
         for (const r of batch) {
-          await run("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", [
-            r.id,
-            r.product_id,
-            r.customer_id,
-            r.quantity,
-            r.total,
-          ]);
+          await stmtRun(oStmt, [r.id, r.product_id, r.customer_id, r.quantity, r.total]);
         }
         await exec("COMMIT");
       }
+      await stmtFree(oStmt);
     },
 
     async teardownComplex() {

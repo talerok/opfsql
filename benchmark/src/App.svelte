@@ -8,9 +8,9 @@
 
   const runners: BenchmarkRunner[] = [
     createOpfsqlRunner(),
-    // createAlasqlRunner(),
+    createAlasqlRunner(),
     createWaSqliteRunner(),
-    // createRawIdbRunner(),
+    createRawIdbRunner(),
   ];
 
   // results[suiteId][runnerName] = ms | -1 (running) | NaN (error)
