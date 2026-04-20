@@ -467,7 +467,7 @@ describe("OR / Index Union", () => {
     expect(get.indexHint).toBeDefined();
     expect(get.indexHint!.kind).toBe("union");
     if (get.indexHint!.kind === "union") {
-      expect(get.indexHint.branches).toHaveLength(2);
+      expect(get.indexHint!.branches).toHaveLength(2);
     }
   });
 
@@ -495,7 +495,7 @@ describe("OR / Index Union", () => {
     const get = getGet(optimized);
     expect(get.indexHint?.kind).toBe("union");
     if (get.indexHint?.kind === "union") {
-      expect(get.indexHint.branches).toHaveLength(3);
+      expect(get.indexHint!.branches).toHaveLength(3);
     }
   });
 
@@ -511,7 +511,7 @@ describe("OR / Index Union", () => {
     const get = getGet(optimized);
     expect(get.indexHint?.kind).toBe("union");
     if (get.indexHint?.kind === "union") {
-      expect(get.indexHint.branches).toHaveLength(2);
+      expect(get.indexHint!.branches).toHaveLength(2);
       expect(get.indexHint.branches[0].indexDef.name).toBe("idx_age");
       expect(get.indexHint.branches[1].indexDef.name).toBe("idx_age");
     }

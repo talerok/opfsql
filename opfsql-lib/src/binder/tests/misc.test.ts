@@ -9,6 +9,7 @@ import type {
   LogicalFilter,
   LogicalLimit,
   LogicalMaterializedCTE,
+  LogicalOperator,
   LogicalOrderBy,
   LogicalProjection,
 } from "../types.js";

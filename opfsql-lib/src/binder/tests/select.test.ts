@@ -10,6 +10,7 @@ import type {
   LogicalGet,
   LogicalLimit,
   LogicalMaterializedCTE,
+  LogicalOperator,
   LogicalOrderBy,
   LogicalProjection,
 } from "../types.js";

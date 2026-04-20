@@ -311,6 +311,8 @@ function mockIndexManager(): SyncIIndexManager {
     search:    vi.fn(() => []),
     bulkLoad:  vi.fn((): number => 100),
     dropIndex: vi.fn(() => {}),
+    first:     vi.fn(() => null),
+    last:      vi.fn(() => null),
   };
 }
 

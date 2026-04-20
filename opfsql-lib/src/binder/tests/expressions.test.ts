@@ -808,7 +808,7 @@ describe("sameExpression — additional expression types", () => {
   it("default: unhandled expression class returns false", () => {
     const a = {
       expressionClass: BoundExpressionClass.BOUND_PARAMETER as const,
-      paramIndex: 0,
+      index: 0,
       returnType: "ANY" as const,
     };
     const b = { ...a };
