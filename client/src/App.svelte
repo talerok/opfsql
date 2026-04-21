@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { WorkerEngine } from '../../opfsql-lib/src/worker/client.js';
+  import { WorkerEngine, type Connection } from '../../opfsql-lib/src/worker/client.js';
   import type { Result } from '../../opfsql-lib/src/engine/index.js';
   import type { CatalogData } from '../../opfsql-lib/src/store/types.js';
   import DbDialog from './DbDialog.svelte';
@@ -10,6 +10,7 @@
   const WORKER_URL = new URL('../../opfsql-lib/src/worker/worker.ts', import.meta.url);
 
   const engine = new WorkerEngine(WORKER_URL);
+  let conn: Connection | null = $state(null);
 
   let currentDb: string | null = $state(null);
   let status = $state('');
@@ -32,7 +33,9 @@
 
   async function openDb(name: string) {
     status = 'Opening…';
+    if (conn) { await conn.disconnect(); conn = null; }
     await engine.open(name);
+    conn = await engine.connect();
     currentDb = name;
     localStorage.setItem(STORAGE_KEY, name);
     status = 'Ready';
@@ -43,6 +46,7 @@
   }
 
   async function resetDb() {
+    if (conn) { await conn.disconnect(); conn = null; }
     await engine.close();
     currentDb = null;
     status = '';
@@ -53,15 +57,15 @@
   }
 
   async function loadSchema() {
-    try { schema = await engine.getSchema(); } catch {}
+    try { if (conn) schema = await conn.getSchema(); } catch {}
   }
 
   async function execute() {
-    if (!sql.trim()) return;
+    if (!sql.trim() || !conn) return;
     loading = true;
     error = null;
     try {
-      results = await engine.exec(sql);
+      results = await conn.exec(sql);
       await loadSchema();
     } catch (e: any) {
       error = e.message;

@@ -1,1 +1,1 @@
-export { WorkerEngine, RemotePreparedStatement } from './client.js';
+export { WorkerEngine, Connection, RemotePreparedStatement } from './client.js';

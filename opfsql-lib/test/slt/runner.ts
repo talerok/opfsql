@@ -1,4 +1,4 @@
-import type { Engine } from '../../src/index.js';
+import type { Session } from '../../src/index.js';
 import { blobToHex } from '../../src/executor/evaluate/utils/cast.js';
 
 // ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ function formatRow(row: Record<string, unknown>): string {
   return Object.values(row).map(formatValue).join('|');
 }
 
-export async function runSlt(engine: Engine, blocks: SltBlock[]): Promise<SltResult> {
+export async function runSlt(session: Session, blocks: SltBlock[]): Promise<SltResult> {
   const result: SltResult = { total: 0, passed: 0, failed: 0, skipped: 0, errors: [] };
 
   for (let idx = 0; idx < blocks.length; idx++) {
@@ -148,7 +148,7 @@ export async function runSlt(engine: Engine, blocks: SltBlock[]): Promise<SltRes
 
     if (block.kind === 'statement') {
       try {
-        await engine.execute(block.sql);
+        await session.execute(block.sql);
         if (block.expectError) {
           result.failed++;
           result.errors.push({
@@ -174,7 +174,7 @@ export async function runSlt(engine: Engine, blocks: SltBlock[]): Promise<SltRes
     } else {
       // query
       try {
-        const results = await engine.execute(block.sql);
+        const results = await session.execute(block.sql);
         const queryResult = results[0];
 
         if (!queryResult || queryResult.type !== 'rows') {

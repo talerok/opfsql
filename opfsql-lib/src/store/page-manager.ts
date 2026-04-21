@@ -100,10 +100,89 @@ export class SyncPageStore implements SyncIPageStore {
     this.allocatorDirty = false;
   }
 
+  snapshotAllocator(): { nextPageId: number; freeList: number[] } {
+    return { nextPageId: this.nextPageId, freeList: [...this.freeList] };
+  }
+
+  restoreAllocator(nextPageId: number, freeList: number[]): void {
+    this.nextPageId = nextPageId;
+    this.freeList = freeList;
+  }
+
   private ensureSnapshot(): void {
     if (this.snapNextPageId === null) {
       this.snapNextPageId = this.nextPageId;
       this.snapFreeList = [...this.freeList];
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SessionPageStore — per-session write buffer over shared SyncPageStore
+// ---------------------------------------------------------------------------
+
+export class SessionPageStore implements SyncIPageStore {
+  private buffer = new Map<number, unknown>();
+  private allocatorDirty = false;
+  private snapNextPageId: number | null = null;
+  private snapFreeList: number[] | null = null;
+
+  constructor(private readonly shared: SyncPageStore) {}
+
+  readPage<T>(pageNo: number): T | null {
+    if (this.buffer.has(pageNo)) {
+      const v = this.buffer.get(pageNo);
+      return v === null ? null : (v as T);
+    }
+    return this.shared.readPage<T>(pageNo);
+  }
+
+  writePage(pageNo: number, value: unknown): void {
+    this.ensureSnapshot();
+    this.buffer.set(pageNo, value);
+  }
+
+  allocPage(): number {
+    this.ensureSnapshot();
+    this.allocatorDirty = true;
+    return this.shared.allocPage();
+  }
+
+  freePage(pageNo: number): void {
+    this.ensureSnapshot();
+    this.allocatorDirty = true;
+    this.shared.freePage(pageNo);
+  }
+
+  commit(): void {
+    if (this.buffer.size === 0 && !this.allocatorDirty) return;
+    for (const [pageNo, value] of this.buffer) {
+      this.shared.writePage(pageNo, value);
+    }
+    this.shared.commit();
+    this.buffer.clear();
+    this.clearSnapshot();
+  }
+
+  rollback(): void {
+    this.buffer.clear();
+    if (this.snapNextPageId !== null) {
+      this.shared.restoreAllocator(this.snapNextPageId, this.snapFreeList!);
+    }
+    this.clearSnapshot();
+  }
+
+  private ensureSnapshot(): void {
+    if (this.snapNextPageId === null) {
+      const snap = this.shared.snapshotAllocator();
+      this.snapNextPageId = snap.nextPageId;
+      this.snapFreeList = snap.freeList;
+    }
+  }
+
+  private clearSnapshot(): void {
+    this.snapNextPageId = null;
+    this.snapFreeList = null;
+    this.allocatorDirty = false;
   }
 }

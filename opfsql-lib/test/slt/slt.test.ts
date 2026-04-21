@@ -19,8 +19,9 @@ describe('SLT', () => {
       const source = readFileSync(join(sltDir, file), 'utf-8');
       const blocks = parseSlt(source);
       const engine = await Engine.create(new OPFSSyncStorage(`slt-${file}`));
+      const session = engine.createSession();
       try {
-        const result = await runSlt(engine, blocks);
+        const result = await runSlt(session, blocks);
         if (result.failed > 0) {
           const msgs = result.errors
             .map((e) => `Block #${e.blockIndex}: ${e.sql}\n  -> ${e.message}`)
@@ -30,6 +31,7 @@ describe('SLT', () => {
           );
         }
       } finally {
+        session.close();
         engine.close();
       }
     });

@@ -9,15 +9,18 @@ import { Value } from "../types.js";
 type OutPayload =
   | { type: "open"; dbName: string }
   | { type: "close" }
-  | { type: "exec"; sql: string; params?: Value[] }
-  | { type: "prepare"; sql: string }
-  | { type: "run"; stmtId: number; params?: Value[] }
-  | { type: "free"; stmtId: number }
-  | { type: "schema" };
+  | { type: "connect" }
+  | { type: "disconnect"; sessionId: string }
+  | { type: "exec"; sessionId: string; sql: string; params?: Value[] }
+  | { type: "prepare"; sessionId: string; sql: string }
+  | { type: "run"; sessionId: string; stmtId: number; params?: Value[] }
+  | { type: "free"; sessionId: string; stmtId: number }
+  | { type: "schema"; sessionId: string };
 
 type InMsg =
   | { id: number; ok: true }
   | { id: number; results: Result[] }
+  | { id: number; sessionId: string }
   | { id: number; stmtId: number }
   | { id: number; schema: CatalogData }
   | { id: number; error: string };
@@ -27,14 +30,81 @@ type InMsg =
 // ---------------------------------------------------------------------------
 
 export class RemotePreparedStatement {
-  constructor(private readonly engine: WorkerEngine, readonly stmtId: number) {}
+  constructor(
+    private readonly connection: Connection,
+    readonly stmtId: number,
+  ) {}
 
   run(params: Value[] = []): Promise<Result> {
-    return this.engine.run(this.stmtId, params);
+    return this.connection.run(this.stmtId, params);
   }
 
   free(): Promise<void> {
-    return this.engine.freeStmt(this.stmtId);
+    return this.connection.freeStmt(this.stmtId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connection — per-session client handle
+// ---------------------------------------------------------------------------
+
+export class Connection {
+  constructor(
+    private readonly engine: WorkerEngine,
+    readonly sessionId: string,
+  ) {}
+
+  exec(sql: string, params?: Value[]): Promise<Result[]> {
+    return this.engine.rpc<{ results: Result[] }>({
+      type: "exec",
+      sessionId: this.sessionId,
+      sql,
+      params,
+    }).then((r) => r.results);
+  }
+
+  async prepare(sql: string): Promise<RemotePreparedStatement> {
+    const { stmtId } = await this.engine.rpc<{ stmtId: number }>({
+      type: "prepare",
+      sessionId: this.sessionId,
+      sql,
+    });
+    return new RemotePreparedStatement(this, stmtId);
+  }
+
+  /** @internal used by RemotePreparedStatement */
+  async run(stmtId: number, params: Value[]): Promise<Result> {
+    const r = await this.engine.rpc<{ results: Result[] }>({
+      type: "run",
+      sessionId: this.sessionId,
+      stmtId,
+      params,
+    });
+    return r.results[0];
+  }
+
+  /** @internal used by RemotePreparedStatement */
+  async freeStmt(stmtId: number): Promise<void> {
+    await this.engine.rpc({
+      type: "free",
+      sessionId: this.sessionId,
+      stmtId,
+    });
+  }
+
+  async getSchema(): Promise<CatalogData> {
+    const r = await this.engine.rpc<{ schema: CatalogData }>({
+      type: "schema",
+      sessionId: this.sessionId,
+    });
+    return r.schema;
+  }
+
+  disconnect(): Promise<void> {
+    return this.engine.rpc({
+      type: "disconnect",
+      sessionId: this.sessionId,
+    }).then(() => void 0);
   }
 }
 
@@ -85,43 +155,19 @@ export class WorkerEngine {
     return this.rpc({ type: "close" }).then(() => void 0);
   }
 
-  exec(sql: string, params?: Value[]): Promise<Result[]> {
-    return this.rpc<{ results: Result[] }>({ type: "exec", sql, params }).then(
-      (r) => r.results,
-    );
-  }
-
-  async prepare(sql: string): Promise<RemotePreparedStatement> {
-    const { stmtId } = await this.rpc<{ stmtId: number }>({
-      type: "prepare",
-      sql,
+  async connect(): Promise<Connection> {
+    const { sessionId } = await this.rpc<{ sessionId: string }>({
+      type: "connect",
     });
-    return new RemotePreparedStatement(this, stmtId);
-  }
-
-  async run(stmtId: number, params: Value[]): Promise<Result> {
-    const r = await this.rpc<{ results: Result[] }>({
-      type: "run",
-      stmtId,
-      params,
-    });
-    return r.results[0];
-  }
-
-  async freeStmt(stmtId: number): Promise<void> {
-    await this.rpc({ type: "free", stmtId });
-  }
-
-  async getSchema(): Promise<CatalogData> {
-    const r = await this.rpc<{ schema: CatalogData }>({ type: "schema" });
-    return r.schema;
+    return new Connection(this, sessionId);
   }
 
   // -------------------------------------------------------------------------
-  // RPC plumbing
+  // RPC plumbing (internal, used by Connection)
   // -------------------------------------------------------------------------
 
-  private rpc<T = { ok: true }>(payload: OutPayload): Promise<T> {
+  /** @internal */
+  rpc<T = { ok: true }>(payload: OutPayload): Promise<T> {
     return new Promise((resolve, reject) => {
       const id = this.seq++;
       this.pending.set(id, { resolve, reject });
