@@ -21,14 +21,25 @@ export class Engine {
 
   /** Open a named OPFS database with WAL. Use inside a worker. */
   static async open(dbName: string): Promise<Engine> {
-    const mainStorage = new OPFSSyncStorage(dbName);
-    const root = await navigator.storage.getDirectory();
-    const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
-      create: true,
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const walHandle = await (walFh as any).createSyncAccessHandle();
-    return Engine.create(new WalStorage(mainStorage, walHandle));
+    try {
+      const mainStorage = new OPFSSyncStorage(dbName);
+      const root = await navigator.storage.getDirectory();
+      const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
+        create: true,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const walHandle = await (walFh as any).createSyncAccessHandle();
+      return await Engine.create(new WalStorage(mainStorage, walHandle));
+    } catch (err) {
+      if (
+        err instanceof DOMException &&
+        (err.name === "NoModificationAllowedError" ||
+          err.name === "InvalidStateError")
+      ) {
+        throw new EngineError("database is busy");
+      }
+      throw err;
+    }
   }
 
   /** Create engine with a custom storage backend. */

@@ -14,6 +14,7 @@ type InMsg =
   | { id: number; type: "close" }
   | { id: number; type: "connect" }
   | { id: number; type: "disconnect"; sessionId: string }
+  | { id: number; type: "disconnect-all" }
   | { id: number; type: "exec"; sessionId: string; sql: string; params?: Value[] }
   | { id: number; type: "prepare"; sessionId: string; sql: string }
   | { id: number; type: "run"; sessionId: string; stmtId: number; params?: Value[] }
@@ -29,6 +30,8 @@ type OutMsg =
   | { id: number; error: string };
 
 // ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
 
 let engine: Engine | null = null;
 const sessions = new Map<string, Session>();
@@ -36,19 +39,35 @@ const prepared = new Map<string, Map<number, PreparedStatement>>();
 let sessionSeq = 0;
 let stmtSeq = 0;
 
-function reply(msg: OutMsg): void {
-  (self as unknown as Worker).postMessage(msg);
-}
-
 function getSession(sessionId: string): Session {
   const s = sessions.get(sessionId);
   if (!s) throw new Error(`Session "${sessionId}" not found`);
   return s;
 }
 
-(self as unknown as Worker).onmessage = async ({
-  data,
-}: MessageEvent<InMsg>) => {
+function closeSessionById(sessionId: string): void {
+  const session = sessions.get(sessionId);
+  if (session) {
+    session.close();
+    sessions.delete(sessionId);
+    prepared.delete(sessionId);
+  }
+}
+
+function closeAllSessions(): void {
+  for (const s of sessions.values()) s.close();
+  sessions.clear();
+  prepared.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Message handler
+// ---------------------------------------------------------------------------
+
+async function handleMessage(
+  data: InMsg,
+  reply: (msg: OutMsg) => void,
+): Promise<void> {
   if (!data || typeof data.id !== "number" || typeof data.type !== "string") {
     console.error("[opfsql worker] malformed message", data);
     return;
@@ -59,10 +78,7 @@ function getSession(sessionId: string): Session {
     switch (data.type) {
       case "open": {
         if (engine) {
-          // Close all sessions before re-opening
-          for (const s of sessions.values()) s.close();
-          sessions.clear();
-          prepared.clear();
+          closeAllSessions();
           engine.close();
         }
         console.log("[opfsql worker] opening", data.dbName);
@@ -73,9 +89,7 @@ function getSession(sessionId: string): Session {
       }
 
       case "close": {
-        for (const s of sessions.values()) s.close();
-        sessions.clear();
-        prepared.clear();
+        closeAllSessions();
         engine?.close();
         engine = null;
         reply({ id, ok: true });
@@ -92,11 +106,13 @@ function getSession(sessionId: string): Session {
       }
 
       case "disconnect": {
-        const session = getSession(data.sessionId);
-        session.close();
-        sessions.delete(data.sessionId);
-        // Free all prepared statements for this session
-        prepared.delete(data.sessionId);
+        closeSessionById(data.sessionId);
+        reply({ id, ok: true });
+        break;
+      }
+
+      case "disconnect-all": {
+        closeAllSessions();
         reply({ id, ok: true });
         break;
       }
@@ -144,6 +160,25 @@ function getSession(sessionId: string): Session {
         throw new Error(`Unknown message type: ${(data as { type: string }).type}`);
     }
   } catch (err) {
-    reply({ id, error: (err as Error).message });
+    reply({ id, error: err instanceof Error ? err.message : String(err) });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Message queue — serializes async handleMessage calls
+// ---------------------------------------------------------------------------
+
+let queue: Promise<void> = Promise.resolve();
+
+function enqueue(data: InMsg, reply: (msg: OutMsg) => void): void {
+  queue = queue.then(() => handleMessage(data, reply));
+}
+
+// ---------------------------------------------------------------------------
+// Dedicated Worker bootstrap
+// ---------------------------------------------------------------------------
+
+const scope = self as unknown as Worker;
+scope.onmessage = ({ data }: MessageEvent<InMsg>) => {
+  enqueue(data, (msg) => scope.postMessage(msg));
 };

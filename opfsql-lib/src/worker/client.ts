@@ -11,6 +11,7 @@ type OutPayload =
   | { type: "close" }
   | { type: "connect" }
   | { type: "disconnect"; sessionId: string }
+  | { type: "disconnect-all" }
   | { type: "exec"; sessionId: string; sql: string; params?: Value[] }
   | { type: "prepare"; sessionId: string; sql: string }
   | { type: "run"; sessionId: string; stmtId: number; params?: Value[] }
@@ -119,9 +120,11 @@ export class WorkerEngine {
     { resolve: (v: any) => void; reject: (e: Error) => void }
   >();
   private seq = 0;
+  private cleanupHandler: (() => void) | null = null;
 
-  constructor(workerUrl: string | URL) {
+  constructor(workerUrl: string | URL, _dbName: string) {
     this.worker = new Worker(workerUrl, { type: "module" });
+
     this.worker.onmessage = ({ data }: MessageEvent<InMsg>) => {
       const entry = this.pending.get(data.id);
       if (!entry) return;
@@ -129,18 +132,28 @@ export class WorkerEngine {
       if ("error" in data) entry.reject(new Error(data.error));
       else entry.resolve(data);
     };
+
     this.worker.onerror = (e) => {
-      const msg = `Worker error: ${e.message} (${e.filename}:${e.lineno})`;
+      const msg = `Worker error: ${e.message ?? "unknown"} (${e.filename ?? ""}:${e.lineno ?? ""})`;
       console.error(msg, e);
       for (const entry of this.pending.values()) entry.reject(new Error(msg));
       this.pending.clear();
     };
-    this.worker.onmessageerror = (e) => {
+
+    this.worker.onmessageerror = () => {
       const msg = "Worker message deserialization error";
-      console.error(msg, e);
+      console.error(msg);
       for (const entry of this.pending.values()) entry.reject(new Error(msg));
       this.pending.clear();
     };
+
+    // Cleanup sessions on tab close
+    if (typeof window !== "undefined") {
+      this.cleanupHandler = () => {
+        this.worker.postMessage({ id: -1, type: "disconnect-all" });
+      };
+      window.addEventListener("beforeunload", this.cleanupHandler);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -152,6 +165,10 @@ export class WorkerEngine {
   }
 
   close(): Promise<void> {
+    if (this.cleanupHandler) {
+      window.removeEventListener("beforeunload", this.cleanupHandler);
+      this.cleanupHandler = null;
+    }
     return this.rpc({ type: "close" }).then(() => void 0);
   }
 

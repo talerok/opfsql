@@ -9,7 +9,7 @@
   const STORAGE_KEY = 'opfsql-db';
   const WORKER_URL = new URL('../../opfsql-lib/src/worker/worker.ts', import.meta.url);
 
-  const engine = new WorkerEngine(WORKER_URL);
+  let engine: WorkerEngine | null = $state(null);
   let conn: Connection | null = $state(null);
 
   let currentDb: string | null = $state(null);
@@ -34,6 +34,8 @@
   async function openDb(name: string) {
     status = 'Opening…';
     if (conn) { await conn.disconnect(); conn = null; }
+    if (engine) { await engine.close(); }
+    engine = new WorkerEngine(WORKER_URL, name);
     await engine.open(name);
     conn = await engine.connect();
     currentDb = name;
@@ -47,7 +49,7 @@
 
   async function resetDb() {
     if (conn) { await conn.disconnect(); conn = null; }
-    await engine.close();
+    if (engine) { await engine.close(); engine = null; }
     currentDb = null;
     status = '';
     results = [];

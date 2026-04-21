@@ -11,8 +11,8 @@ async function cleanOpfs() {
 }
 
 export function createOpfsqlRunner(): BenchmarkRunner {
-  const engine = new WorkerEngine(WORKER_URL);
-  let conn: Connection;
+  let engine!: WorkerEngine;
+  let conn!: Connection;
   let insertStmt: RemotePreparedStatement;
   let selectPointStmt: RemotePreparedStatement;
 
@@ -22,6 +22,7 @@ export function createOpfsqlRunner(): BenchmarkRunner {
 
     async setup() {
       await cleanOpfs();
+      engine = new WorkerEngine(WORKER_URL, DB_NAME);
       await engine.open(DB_NAME);
       conn = await engine.connect();
       await conn.exec(`
@@ -76,6 +77,7 @@ export function createOpfsqlRunner(): BenchmarkRunner {
 
     async setupComplex(productRows: Row[], orderRows: OrderRow[]) {
       await cleanOpfs();
+      engine = new WorkerEngine(WORKER_URL, DB_NAME);
       await engine.open(DB_NAME);
       conn = await engine.connect();
 
