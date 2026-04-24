@@ -1,5 +1,5 @@
 import { Binder } from "../binder/index.js";
-import { execute } from "../executor/executor.js";
+import { execute } from "../executor/execute/index.js";
 import type { CatalogChange } from "../executor/types.js";
 import { optimize } from "../optimizer/index.js";
 import { Parser } from "../parser/index.js";

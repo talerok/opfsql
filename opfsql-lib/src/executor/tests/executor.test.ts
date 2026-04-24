@@ -6,7 +6,7 @@ import type {
 } from '../../binder/types.js';
 import { BoundExpressionClass, LogicalOperatorType } from '../../binder/types.js';
 import type { SyncIRowManager, TableSchema, ICatalog } from '../../store/types.js';
-import { execute } from '../executor.js';
+import { execute } from '../execute/index.js';
 import { colRef } from './helpers.js';
 
 // ---------------------------------------------------------------------------
