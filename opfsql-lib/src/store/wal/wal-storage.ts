@@ -1,7 +1,7 @@
-import { Encoder, decode } from 'cbor-x';
-import { crc32 } from './crc32.js';
-import type { ISyncFileHandle } from './file-handle.js';
-import type { SyncIPageStorage } from '../types.js';
+import { Encoder, decode } from "cbor-x";
+import type { SyncIPageStorage } from "../types.js";
+import { crc32 } from "./crc32.js";
+import type { ISyncFileHandle } from "./file-handle.js";
 
 const encoder = new Encoder({ structuredClone: false, useRecords: true });
 
@@ -10,8 +10,9 @@ const encoder = new Encoder({ structuredClone: false, useRecords: true });
 // ---------------------------------------------------------------------------
 //
 // Header (16 bytes):
-//   [0..7]    magic "OPFSWAL1"
-//   [8..15]   reserved (zeros)
+//   [0..7]    magic "OPFSWAL2"
+//   [8..11]   epoch    u32 BE  (incremented on each checkpoint)
+//   [12..15]  reserved (zeros)
 //
 // Data frame (16 + payloadLen bytes):
 //   [0..3]    pageNo       u32 BE
@@ -29,7 +30,14 @@ const encoder = new Encoder({ structuredClone: false, useRecords: true });
 // ---------------------------------------------------------------------------
 
 const WAL_MAGIC = new Uint8Array([
-  0x4f, 0x50, 0x46, 0x53, 0x57, 0x41, 0x4c, 0x31, // "OPFSWAL1"
+  0x4f,
+  0x50,
+  0x46,
+  0x53,
+  0x57,
+  0x41,
+  0x4c,
+  0x32, // "OPFSWAL2"
 ]);
 const WAL_HEADER_SIZE = 16;
 const FRAME_HEADER_SIZE = 16;
@@ -61,6 +69,9 @@ export class WalStorage implements SyncIPageStorage {
   /** Number of committed data frames in the WAL (for auto-checkpoint). */
   private walFrameCount = 0;
 
+  /** WAL epoch — incremented on each checkpoint. */
+  private epoch = 0;
+
   constructor(
     private readonly main: SyncIPageStorage,
     private readonly walHandle: ISyncFileHandle,
@@ -82,7 +93,6 @@ export class WalStorage implements SyncIPageStorage {
   }
 
   close(): void {
-    this.checkpoint();
     this.walHandle.close();
     this.main.close();
   }
@@ -138,6 +148,14 @@ export class WalStorage implements SyncIPageStorage {
   }
 
   // -------------------------------------------------------------------------
+  // Epoch
+  // -------------------------------------------------------------------------
+
+  getEpoch(): number {
+    return this.epoch;
+  }
+
+  // -------------------------------------------------------------------------
   // Checkpoint
   // -------------------------------------------------------------------------
 
@@ -154,7 +172,8 @@ export class WalStorage implements SyncIPageStorage {
     // 2. Shrink main DB file (safe — data already on disk after flush)
     this.main.truncateToSize?.();
 
-    // 3. Reset WAL file
+    // 3. Reset WAL file with incremented epoch
+    this.epoch++;
     this.walHandle.truncate(0);
     this.initWalHeader();
     this.walHandle.flush();
@@ -164,21 +183,71 @@ export class WalStorage implements SyncIPageStorage {
   }
 
   // -------------------------------------------------------------------------
+  // Catch-up — read changes made by other writers
+  // -------------------------------------------------------------------------
+
+  /** Check if WAL has changed and catch up. Returns true if state changed. */
+  catchUp(): boolean {
+    const fileEpoch = this.readEpochFromFile();
+    let changed = false;
+
+    if (fileEpoch !== this.epoch) {
+      // Checkpoint happened — full rebuild
+      this.walIndex.clear();
+      this.walOffset = WAL_HEADER_SIZE;
+      this.walFrameCount = 0;
+      this.epoch = fileEpoch;
+      // Re-read nextPageId from main DB (checkpoint updated it)
+      this.nextPageId = this.main.getNextPageId();
+      changed = true;
+    }
+
+    // Incremental: read new frames from walOffset to end
+    const walSize = this.walHandle.getSize();
+    if (walSize > this.walOffset) {
+      this.readFramesFrom(this.walOffset, walSize);
+      changed = true;
+    }
+
+    return changed;
+  }
+
+  // -------------------------------------------------------------------------
   // Recovery
   // -------------------------------------------------------------------------
 
   private recover(): void {
-    // Verify header
+    this.readAndVerifyHeader();
+    const fileSize = this.walHandle.getSize();
+    this.readFramesFrom(WAL_HEADER_SIZE, fileSize);
+  }
+
+  private readAndVerifyHeader(): void {
     const headerBuf = new Uint8Array(WAL_HEADER_SIZE);
     this.walHandle.read(headerBuf, { at: 0 });
     for (let i = 0; i < WAL_MAGIC.length; i++) {
       if (headerBuf[i] !== WAL_MAGIC[i]) {
-        throw new Error('Invalid WAL file: bad magic');
+        throw new Error("Invalid WAL file: bad magic");
       }
     }
+    const hv = new DataView(headerBuf.buffer);
+    this.epoch = hv.getUint32(8, false);
+  }
 
-    const fileSize = this.walHandle.getSize();
-    let offset = WAL_HEADER_SIZE;
+  /** Read epoch directly from WAL file header (for catch-up checks). */
+  private readEpochFromFile(): number {
+    const buf = new Uint8Array(4);
+    this.walHandle.read(buf, { at: 8 });
+    return new DataView(buf.buffer).getUint32(0, false);
+  }
+
+  /**
+   * Read frames from startOffset to endOffset.
+   * Only advances walOffset to the end of the last valid commit record.
+   * Updates walIndex, nextPageId, currentTxId, walFrameCount.
+   */
+  private readFramesFrom(startOffset: number, endOffset: number): void {
+    let offset = startOffset;
 
     // Two-pass: first collect all frames, then filter by committed txIds
     const committedTxIds = new Set<number>();
@@ -188,8 +257,9 @@ export class WalStorage implements SyncIPageStorage {
       payload: Uint8Array;
     }> = [];
     let lastCommittedNextPageId = this.nextPageId;
+    let lastCommitEnd = startOffset;
 
-    while (offset + FRAME_HEADER_SIZE <= fileSize) {
+    while (offset + FRAME_HEADER_SIZE <= endOffset) {
       // Read frame header
       const hdr = new Uint8Array(FRAME_HEADER_SIZE);
       this.walHandle.read(hdr, { at: offset });
@@ -200,7 +270,9 @@ export class WalStorage implements SyncIPageStorage {
       const storedChecksum = hv.getUint32(12, false);
 
       // Bounds check
-      if (offset + FRAME_HEADER_SIZE + payloadLen > fileSize) break;
+      if (offset + FRAME_HEADER_SIZE + payloadLen > endOffset) {
+        break;
+      }
 
       // Read payload
       const payload = new Uint8Array(payloadLen);
@@ -212,6 +284,8 @@ export class WalStorage implements SyncIPageStorage {
       const computed = this.computeChecksum(hdr.subarray(0, 12), payload);
       if (computed !== storedChecksum) break; // Torn write — stop
 
+      const frameEnd = offset + FRAME_HEADER_SIZE + payloadLen;
+
       if (pageNo === COMMIT_SENTINEL) {
         // Commit record
         const pv = new DataView(
@@ -221,11 +295,12 @@ export class WalStorage implements SyncIPageStorage {
         );
         lastCommittedNextPageId = pv.getUint32(0, false);
         committedTxIds.add(txId);
+        lastCommitEnd = frameEnd;
       } else {
         allFrames.push({ pageNo, txId, payload });
       }
 
-      offset += FRAME_HEADER_SIZE + payloadLen;
+      offset = frameEnd;
     }
 
     // Build walIndex from committed frames only (in order, latest wins)
@@ -237,9 +312,11 @@ export class WalStorage implements SyncIPageStorage {
     }
 
     this.nextPageId = lastCommittedNextPageId;
-    this.currentTxId =
-      committedTxIds.size > 0 ? Math.max(...committedTxIds) + 1 : 1;
-    this.walOffset = offset;
+    if (committedTxIds.size > 0) {
+      this.currentTxId = Math.max(...committedTxIds) + 1;
+    }
+    // Only advance offset to end of last valid commit record
+    this.walOffset = lastCommitEnd;
   }
 
   // -------------------------------------------------------------------------
@@ -265,14 +342,13 @@ export class WalStorage implements SyncIPageStorage {
       view.setUint32(off, f.pageNo, false);
       view.setUint32(off + 4, f.cbor.length, false);
       view.setUint32(off + 8, txId, false);
-      view.setUint32(
-        off + 12,
-        this.computeChecksum(
-          buf.subarray(off, off + 12),
-          f.cbor,
-        ),
-        false,
+
+      const checksum = this.computeChecksum(
+        buf.subarray(off, off + 12),
+        f.cbor,
       );
+
+      view.setUint32(off + 12, checksum, false);
       buf.set(f.cbor, off + FRAME_HEADER_SIZE);
       off += FRAME_HEADER_SIZE + f.cbor.length;
     }
@@ -284,14 +360,13 @@ export class WalStorage implements SyncIPageStorage {
     view.setUint32(off, COMMIT_SENTINEL, false);
     view.setUint32(off + 4, COMMIT_PAYLOAD_SIZE, false);
     view.setUint32(off + 8, txId, false);
-    view.setUint32(
-      off + 12,
-      this.computeChecksum(
-        buf.subarray(off, off + 12),
-        commitPayload,
-      ),
-      false,
+
+    const checkSum = this.computeChecksum(
+      buf.subarray(off, off + 12),
+      commitPayload,
     );
+
+    view.setUint32(off + 12, checkSum, false);
     buf.set(commitPayload, off + FRAME_HEADER_SIZE);
 
     return buf;
@@ -300,7 +375,7 @@ export class WalStorage implements SyncIPageStorage {
   private initWalHeader(): void {
     const hdr = new Uint8Array(WAL_HEADER_SIZE);
     hdr.set(WAL_MAGIC, 0);
-    // bytes 8..15 are reserved zeros
+    new DataView(hdr.buffer).setUint32(8, this.epoch, false);
     this.walHandle.write(hdr, { at: 0 });
     this.walOffset = WAL_HEADER_SIZE;
   }

@@ -1,16 +1,20 @@
+import { resetMockOPFS } from 'opfs-mock';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SyncBTree } from '../index-btree/index-btree.js';
 import type { IndexKey } from '../index-btree/types.js';
 import { SyncPageStore } from '../page-manager.js';
 import type { RowId } from '../types.js';
-import { MemoryPageStorage } from '../backend/memory-storage.js';
+import { OPFSSyncStorage } from '../backend/opfs-storage.js';
+
+let seq = 0;
 
 function rid(a: number, b: number): RowId {
   return a * 1000 + b;
 }
 
-function createStore(): SyncPageStore {
-  const s = new MemoryPageStorage();
+async function createStore(): Promise<SyncPageStore> {
+  const s = new OPFSSyncStorage(`ibt-test-${seq++}`);
+  await s.open();
   return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
 }
 
@@ -26,8 +30,9 @@ describe('SyncBTree', () => {
   let ps: SyncPageStore;
   let tree: SyncBTree;
 
-  beforeEach(() => {
-    ps = createStore();
+  beforeEach(async () => {
+    resetMockOPFS();
+    ps = await createStore();
     tree = createTree(ps, false);
   });
 

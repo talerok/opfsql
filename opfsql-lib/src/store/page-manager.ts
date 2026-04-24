@@ -1,13 +1,9 @@
-import type { ICache } from "./cache.js";
-import { LRUCache } from "./cache.js";
 import type { SyncIPageStorage, SyncIPageStore } from "./types.js";
 
-const DEFAULT_CACHE_SIZE = 256;
 const FREELIST_PAGE_NO = 2;
 
 export class SyncPageStore implements SyncIPageStore {
-  private wal = new Map<number, unknown>();
-  private cache: ICache<number, unknown>;
+  private dirtyPages = new Map<number, unknown>();
   private nextPageId: number;
   private freeList: number[];
   private allocatorDirty = false;
@@ -20,41 +16,29 @@ export class SyncPageStore implements SyncIPageStore {
     private readonly storage: SyncIPageStorage,
     nextPageId: number,
     freeList: number[],
-    cacheSize = DEFAULT_CACHE_SIZE,
   ) {
     this.nextPageId = nextPageId;
     this.freeList = freeList;
-    this.cache = new LRUCache(cacheSize);
   }
 
   readPage<T>(pageNo: number): T | null {
-    if (this.wal.has(pageNo)) {
-      const val = this.wal.get(pageNo);
+    if (this.dirtyPages.has(pageNo)) {
+      const val = this.dirtyPages.get(pageNo);
       return val === null ? null : (val as T);
     }
-    const cached = this.cache.get(pageNo);
-    if (cached !== undefined) {
-      return cached as T;
-    }
-    const val = this.storage.readPage<T>(pageNo);
-    if (val !== null && val !== undefined) {
-      this.cache.set(pageNo, val);
-    }
-    return val;
+    return this.storage.readPage<T>(pageNo);
   }
 
   writePage(pageNo: number, value: unknown): void {
     this.ensureSnapshot();
-    this.wal.set(pageNo, value);
+    this.dirtyPages.set(pageNo, value);
   }
 
   allocPage(): number {
     this.ensureSnapshot();
     this.allocatorDirty = true;
     if (this.freeList.length > 0) {
-      const pageNo = this.freeList.pop()!;
-      this.cache.delete(pageNo);
-      return pageNo;
+      return this.freeList.pop()!;
     }
     return this.nextPageId++;
   }
@@ -66,13 +50,12 @@ export class SyncPageStore implements SyncIPageStore {
   }
 
   commit(): void {
-    if (this.wal.size === 0 && !this.allocatorDirty) return;
+    if (this.dirtyPages.size === 0 && !this.allocatorDirty) return;
 
     // Write all dirty pages to storage
-    for (const [pageNo, value] of this.wal) {
+    for (const [pageNo, value] of this.dirtyPages) {
       if (value !== null) {
         this.storage.writePage(pageNo, value);
-        this.cache.set(pageNo, value);
       }
     }
 
@@ -83,14 +66,14 @@ export class SyncPageStore implements SyncIPageStore {
 
     this.storage.flush();
 
-    this.wal.clear();
+    this.dirtyPages.clear();
     this.snapNextPageId = null;
     this.snapFreeList = null;
     this.allocatorDirty = false;
   }
 
   rollback(): void {
-    this.wal.clear();
+    this.dirtyPages.clear();
     if (this.snapNextPageId !== null) {
       this.nextPageId = this.snapNextPageId;
       this.freeList = this.snapFreeList!;
@@ -107,6 +90,13 @@ export class SyncPageStore implements SyncIPageStore {
   restoreAllocator(nextPageId: number, freeList: number[]): void {
     this.nextPageId = nextPageId;
     this.freeList = freeList;
+  }
+
+  /** Re-read allocator state from storage (after external catch-up). */
+  refreshFromStorage(): void {
+    this.nextPageId = this.storage.getNextPageId();
+    this.freeList = this.storage.readPage<number[]>(FREELIST_PAGE_NO) ?? [];
+    this.dirtyPages.clear();
   }
 
   private ensureSnapshot(): void {

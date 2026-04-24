@@ -12,7 +12,9 @@ interface FileSystemSyncAccessHandle {
 
 declare global {
   interface FileSystemFileHandle {
-    createSyncAccessHandle(): Promise<FileSystemSyncAccessHandle>;
+    createSyncAccessHandle(options?: {
+      mode?: "readwrite" | "read-only" | "readwrite-unsafe";
+    }): Promise<FileSystemSyncAccessHandle>;
   }
 }
 
@@ -54,22 +56,21 @@ export class OPFSSyncStorage implements SyncIPageStorage {
   constructor(private readonly dbName: string) {}
 
   async open(): Promise<void> {
+    if (this.handle) return; // already opened
     const root = await navigator.storage.getDirectory();
     const fh = await root.getFileHandle(`${this.dbName}.opfsql`, {
       create: true,
     });
-    console.log("[OPFSSyncStorage] acquiring sync handle…");
-    this.handle = await fh.createSyncAccessHandle();
-    console.log(
-      "[OPFSSyncStorage] handle acquired, size=",
-      this.handle.getSize(),
-    );
+    this.handle = await fh.createSyncAccessHandle({
+      mode: "readwrite-unsafe",
+    });
     if (this.handle.getSize() === 0) this.initNewFile();
     else this.readHeader();
   }
 
   close(): void {
     this.handle.close();
+    this.handle = undefined!;
   }
 
   readPage<T>(pageNo: number): T | null {
@@ -99,6 +100,9 @@ export class OPFSSyncStorage implements SyncIPageStorage {
   }
 
   getNextPageId(): number {
+    const buf = new Uint8Array(4);
+    this.handle.read(buf, { at: 12 });
+    this.nextPageId = new DataView(buf.buffer).getUint32(0, false);
     return this.nextPageId;
   }
 

@@ -60,8 +60,9 @@ export class Session {
   constructor(
     private readonly pageStore: SyncIPageStore,
     private readonly parser: Parser,
-    private readonly acquireWriteLock: () => void,
+    private readonly acquireWriteLock: () => Promise<void> | void,
     private readonly releaseWriteLock: () => void,
+    private readonly catchUp: () => void,
     private readonly getCatalog: () => Catalog,
     private readonly onCatalogCommit: (data: CatalogData) => void,
   ) {
@@ -70,60 +71,54 @@ export class Session {
     this.indexManager = new SyncIndexManager(pageStore, () => this.catalog);
   }
 
-  /** Pull the latest committed catalog from the engine. */
-  private refreshCatalog(): void {
-    this.catalog = Catalog.deserialize(this.getCatalog().serialize());
-    this.binder = new Binder(this.catalog);
-  }
-
   // -------------------------------------------------------------------------
   // Public API
   // -------------------------------------------------------------------------
 
-  execute(sql: string, params?: Value[]): Result[] {
+  async execute(sql: string, params?: Value[]): Promise<Result[]> {
     if (!this.inTransaction) {
+      this.catchUp();
       this.refreshCatalog();
     }
     const statements = this.parser.parse(sql);
-    return statements.map((stmt) => this.executeOne(stmt, params));
+    const results: Result[] = [];
+    for (const stmt of statements) {
+      results.push(await this.executeOne(stmt, params));
+    }
+    return results;
   }
 
   prepare(sql: string): PreparedStatement {
     const stmts = this.parser.parse(sql);
-    if (stmts.length !== 1)
+    if (stmts.length !== 1) {
       throw new EngineError("prepare() requires exactly one statement");
+    }
     const stmt = stmts[0];
     return new PreparedStatement((params) => this.executeOne(stmt, params));
   }
 
   getSchema(): CatalogData {
+    this.catchUp();
+    this.refreshCatalog();
     return this.catalog.snapshot();
   }
 
   close(): void {
-    if (this.inTransaction) {
-      this.rollbackTransaction();
-    }
-    if (this.holdingWriteLock) {
-      this.releaseWriteLock();
-      this.holdingWriteLock = false;
-    }
+    if (this.inTransaction) this.rollbackTransaction();
+    this.tryReleaseWriteLock();
   }
 
   // -------------------------------------------------------------------------
   // Statement dispatch
   // -------------------------------------------------------------------------
 
-  private executeOne(stmt: Statement, params?: Value[]): Result {
+  private async executeOne(stmt: Statement, params?: Value[]): Promise<Result> {
     if (stmt.type === StatementType.TRANSACTION_STATEMENT) {
       return this.executeTCL(stmt as TransactionStatement);
     }
 
     if (stmt.type === StatementType.EXPLAIN_STATEMENT) {
-      const inner = (stmt as ExplainStatement).statement;
-      const bound = this.binder.bindStatement(inner);
-      const optimized = optimize(bound, this.catalog);
-      return { type: "rows", rows: [{ plan: formatPlan(optimized) }] };
+      return this.executeExplain(stmt as ExplainStatement);
     }
 
     if (this.transactionAborted) {
@@ -132,14 +127,15 @@ export class Session {
       );
     }
 
-    // Acquire write lock on first write statement
     if (isWriteStatement(stmt.type) && !this.holdingWriteLock) {
-      this.acquireWriteLock();
+      await this.acquireWriteLock();
       this.holdingWriteLock = true;
     }
 
     const autocommit = !this.inTransaction;
-    if (autocommit) this.catalogSnapshot = this.catalog.serialize();
+    if (autocommit) {
+      this.catalogSnapshot = this.catalog.serialize();
+    }
 
     try {
       const result = this.runPipeline(stmt, params);
@@ -147,35 +143,35 @@ export class Session {
       if (autocommit) {
         if (this.catalogDirty) {
           this.commitCatalog();
-          this.catalogDirty = false;
         }
+
         this.pageStore.commit();
         this.catalogSnapshot = null;
-        if (this.holdingWriteLock) {
-          this.releaseWriteLock();
-          this.holdingWriteLock = false;
-        }
+        this.catalogDirty = false;
+        this.tryReleaseWriteLock();
       }
 
       return result;
     } catch (err) {
       this.pageStore.rollback();
+      this.restoreCatalog();
       this.catalogDirty = false;
-      if (this.catalogSnapshot) {
-        this.catalog = Catalog.deserialize(this.catalogSnapshot);
-        this.binder = new Binder(this.catalog);
-      }
+
       if (autocommit) {
         this.catalogSnapshot = null;
-        if (this.holdingWriteLock) {
-          this.releaseWriteLock();
-          this.holdingWriteLock = false;
-        }
+        this.tryReleaseWriteLock();
       } else {
         this.transactionAborted = true;
       }
       throw err;
     }
+  }
+
+  private executeExplain(stmt: ExplainStatement): Result {
+    const bound = this.binder.bindStatement(stmt.statement);
+    const optimized = optimize(bound, this.catalog);
+    const rows = [{ plan: formatPlan(optimized) }];
+    return { type: "rows", rows };
   }
 
   // -------------------------------------------------------------------------
@@ -190,10 +186,9 @@ export class Session {
         return this.commitTransaction();
       case TransactionType.ROLLBACK:
         return this.rollbackTransaction();
-      default: {
+      default:
         const unreachable: never = stmt.transaction_type;
         throw new EngineError(`Unknown transaction type: ${unreachable}`);
-      }
     }
   }
 
@@ -210,29 +205,20 @@ export class Session {
     if (!this.inTransaction) {
       return { type: "ok" };
     }
+
     if (this.transactionAborted) {
-      this.catalogSnapshot = null;
-      this.inTransaction = false;
-      this.transactionAborted = false;
-      if (this.holdingWriteLock) {
-        this.releaseWriteLock();
-        this.holdingWriteLock = false;
-      }
+      this.endTransaction();
       throw new EngineError(
         "current transaction is aborted, COMMIT treated as ROLLBACK",
       );
     }
+
     if (this.catalogDirty) {
       this.commitCatalog();
-      this.catalogDirty = false;
     }
+
     this.pageStore.commit();
-    this.catalogSnapshot = null;
-    this.inTransaction = false;
-    if (this.holdingWriteLock) {
-      this.releaseWriteLock();
-      this.holdingWriteLock = false;
-    }
+    this.endTransaction();
     return { type: "ok" };
   }
 
@@ -240,21 +226,13 @@ export class Session {
     if (!this.inTransaction) {
       return { type: "ok" };
     }
+
     if (!this.transactionAborted) {
       this.pageStore.rollback();
-      if (this.catalogSnapshot) {
-        this.catalog = Catalog.deserialize(this.catalogSnapshot);
-        this.binder = new Binder(this.catalog);
-      }
+      this.restoreCatalog();
     }
-    this.catalogDirty = false;
-    this.catalogSnapshot = null;
-    this.inTransaction = false;
-    this.transactionAborted = false;
-    if (this.holdingWriteLock) {
-      this.releaseWriteLock();
-      this.holdingWriteLock = false;
-    }
+
+    this.endTransaction();
     return { type: "ok" };
   }
 
@@ -287,8 +265,38 @@ export class Session {
     if (stmt.type === StatementType.SELECT_STATEMENT) {
       return { type: "rows", rows: result.rows };
     }
-
     return { type: "ok", rowsAffected: result.rowsAffected };
+  }
+
+  // -------------------------------------------------------------------------
+  // State management
+  // -------------------------------------------------------------------------
+
+  private refreshCatalog(): void {
+    this.catalog = this.getCatalog().clone();
+    this.binder = new Binder(this.catalog);
+  }
+
+  private restoreCatalog(): void {
+    if (this.catalogSnapshot) {
+      this.catalog = Catalog.deserialize(this.catalogSnapshot);
+      this.binder = new Binder(this.catalog);
+    }
+  }
+
+  private tryReleaseWriteLock(): void {
+    if (this.holdingWriteLock) {
+      this.releaseWriteLock();
+      this.holdingWriteLock = false;
+    }
+  }
+
+  private endTransaction(): void {
+    this.catalogSnapshot = null;
+    this.catalogDirty = false;
+    this.inTransaction = false;
+    this.transactionAborted = false;
+    this.tryReleaseWriteLock();
   }
 
   // -------------------------------------------------------------------------

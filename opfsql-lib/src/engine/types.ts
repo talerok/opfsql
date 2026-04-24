@@ -13,11 +13,11 @@ export class EngineError extends Error {
   }
 }
 
-export type ExecuteFn = (params: Value[]) => Result;
+export type ExecuteFn = (params: Value[]) => Promise<Result> | Result;
 
 export class PreparedStatement {
   constructor(private readonly executeFn: ExecuteFn) {}
-  run(params: Value[] = []): Result {
+  async run(params: Value[] = []): Promise<Result> {
     return this.executeFn(params);
   }
 }

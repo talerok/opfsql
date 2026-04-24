@@ -1,31 +1,33 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { resetMockOPFS } from 'opfs-mock';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { WalStorage } from '../wal/wal-storage.js';
-import { MemoryPageStorage } from '../backend/memory-storage.js';
+import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 import { MemoryFileHandle } from '../wal/file-handle.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function create(
-  main?: MemoryPageStorage,
-  walHandle?: MemoryFileHandle,
-  threshold?: number,
-): { main: MemoryPageStorage; walHandle: MemoryFileHandle; wal: WalStorage } {
-  const m = main ?? new MemoryPageStorage();
-  const w = walHandle ?? new MemoryFileHandle();
-  const wal = new WalStorage(m, w, threshold);
-  return { main: m, walHandle: w, wal };
+let seq = 0;
+
+beforeEach(() => { resetMockOPFS(); });
+
+async function createMain(): Promise<OPFSSyncStorage> {
+  const s = new OPFSSyncStorage(`wal-main-${seq++}`);
+  await s.open();
+  return s;
 }
 
 async function opened(
-  main?: MemoryPageStorage,
+  main?: OPFSSyncStorage,
   walHandle?: MemoryFileHandle,
   threshold?: number,
 ) {
-  const ctx = create(main, walHandle, threshold);
-  await ctx.wal.open();
-  return ctx;
+  const m = main ?? await createMain();
+  const w = walHandle ?? new MemoryFileHandle();
+  const wal = new WalStorage(m, w, threshold);
+  await wal.open();
+  return { main: m, walHandle: w, wal };
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +67,7 @@ describe('WalStorage', () => {
 
   describe('read merging', () => {
     it('WAL overrides main DB', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       main.writePage(3, 'original');
       main.flush();
       const { wal } = await opened(main);
@@ -80,7 +82,7 @@ describe('WalStorage', () => {
     });
 
     it('non-WAL pages fall through to main', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       main.writePage(3, 'from-main');
       main.flush();
       const { wal } = await opened(main);
@@ -103,7 +105,7 @@ describe('WalStorage', () => {
     });
 
     it('uncommitted writes lost after reopen', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -118,7 +120,7 @@ describe('WalStorage', () => {
 
   describe('recovery', () => {
     it('committed data survives reopen without checkpoint', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -138,7 +140,7 @@ describe('WalStorage', () => {
     });
 
     it('multiple committed transactions recovered', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -161,7 +163,7 @@ describe('WalStorage', () => {
     });
 
     it('latest write wins when same page written in multiple txs', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -179,7 +181,7 @@ describe('WalStorage', () => {
     });
 
     it('nextPageId from latest commit record used', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -197,7 +199,7 @@ describe('WalStorage', () => {
     });
 
     it('can continue committing after recovery', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -221,7 +223,7 @@ describe('WalStorage', () => {
 
   describe('torn writes', () => {
     it('truncated frame header discarded on recovery', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -240,7 +242,7 @@ describe('WalStorage', () => {
     });
 
     it('frame with bad checksum stops recovery at that point', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -278,7 +280,7 @@ describe('WalStorage', () => {
     });
 
     it('uncommitted tx (no commit record) ignored on recovery', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -302,7 +304,7 @@ describe('WalStorage', () => {
 
   describe('checkpoint', () => {
     it('checkpoint applies WAL to main DB', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -318,7 +320,7 @@ describe('WalStorage', () => {
     });
 
     it('WAL file reset after checkpoint', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -333,7 +335,7 @@ describe('WalStorage', () => {
     });
 
     it('reads still work after checkpoint (from main)', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -345,8 +347,8 @@ describe('WalStorage', () => {
       expect(wal.readPage(3)).toBe('persisted');
     });
 
-    it('close() triggers checkpoint', async () => {
-      const main = new MemoryPageStorage();
+    it('close() does not checkpoint (unsafe without cross-tab lock)', async () => {
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
@@ -356,8 +358,9 @@ describe('WalStorage', () => {
 
       wal.close();
 
-      expect(main.readPage(3)).toBe('via-close');
-      expect(main.getNextPageId()).toBe(4);
+      // Reopen main to verify data was NOT checkpointed
+      await main.open();
+      expect(main.readPage(3)).toBeNull();
     });
 
     it('idempotent: checkpoint after checkpoint is no-op', async () => {
@@ -372,7 +375,7 @@ describe('WalStorage', () => {
 
   describe('auto-checkpoint', () => {
     it('triggers checkpoint when frame count reaches threshold', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle, 3); // threshold = 3
 
@@ -398,7 +401,7 @@ describe('WalStorage', () => {
     });
 
     it('continues working after auto-checkpoint', async () => {
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle, 2);
 
@@ -431,11 +434,153 @@ describe('WalStorage', () => {
     });
   });
 
+  describe('epoch', () => {
+    it('epoch starts at 0', async () => {
+      const { wal } = await opened();
+      expect(wal.getEpoch()).toBe(0);
+    });
+
+    it('epoch increments on checkpoint', async () => {
+      const { wal } = await opened();
+      wal.writePage(3, 'data');
+      wal.writeHeader(4);
+      wal.flush();
+
+      wal.checkpoint();
+      expect(wal.getEpoch()).toBe(1);
+
+      wal.writePage(3, 'data2');
+      wal.writeHeader(4);
+      wal.flush();
+
+      wal.checkpoint();
+      expect(wal.getEpoch()).toBe(2);
+    });
+
+    it('epoch persists across recovery', async () => {
+      const main = await createMain();
+      const walHandle = new MemoryFileHandle();
+      const { wal } = await opened(main, walHandle);
+
+      wal.writePage(3, 'data');
+      wal.writeHeader(4);
+      wal.flush();
+      wal.checkpoint();
+      expect(wal.getEpoch()).toBe(1);
+
+      // Write more after checkpoint so WAL is non-empty for recovery
+      wal.writePage(3, 'data2');
+      wal.writeHeader(4);
+      wal.flush();
+
+      // Re-open: should recover epoch from WAL header
+      const wal2 = new WalStorage(main, walHandle);
+      await wal2.open();
+      expect(wal2.getEpoch()).toBe(1);
+    });
+  });
+
+  describe('catchUp', () => {
+    it('catches up frames written by another writer', async () => {
+      const main = await createMain();
+      const walHandle = new MemoryFileHandle();
+
+      // Writer opens and writes
+      const writer = new WalStorage(main, walHandle);
+      await writer.open();
+      writer.writePage(3, 'from-writer');
+      writer.writeHeader(4);
+      writer.flush();
+
+      // Reader opens same WAL — sees frames from recovery
+      const reader = new WalStorage(main, walHandle);
+      await reader.open();
+      expect(reader.readPage(3)).toBe('from-writer');
+
+      // Writer writes more
+      writer.writePage(5, 'second-write');
+      writer.writeHeader(6);
+      writer.flush();
+
+      // Reader doesn't see it yet (no catchUp)
+      expect(reader.readPage(5)).toBeNull();
+
+      // After catchUp, reader sees it
+      const changed = reader.catchUp();
+      expect(changed).toBe(true);
+      expect(reader.readPage(5)).toBe('second-write');
+      expect(reader.getNextPageId()).toBe(6);
+    });
+
+    it('detects epoch change after checkpoint', async () => {
+      const main = await createMain();
+      const walHandle = new MemoryFileHandle();
+
+      const writer = new WalStorage(main, walHandle);
+      await writer.open();
+      writer.writePage(3, 'v1');
+      writer.writeHeader(4);
+      writer.flush();
+
+      const reader = new WalStorage(main, walHandle);
+      await reader.open();
+      expect(reader.readPage(3)).toBe('v1');
+
+      // Writer checkpoints and writes new data
+      writer.checkpoint();
+      writer.writePage(3, 'v2');
+      writer.writeHeader(4);
+      writer.flush();
+
+      // Reader catches up — detects epoch change, rebuilds
+      const changed = reader.catchUp();
+      expect(changed).toBe(true);
+      expect(reader.readPage(3)).toBe('v2');
+      expect(reader.getEpoch()).toBe(1);
+    });
+
+    it('returns false when nothing changed', async () => {
+      const main = await createMain();
+      const walHandle = new MemoryFileHandle();
+
+      const wal = new WalStorage(main, walHandle);
+      await wal.open();
+      wal.writePage(3, 'data');
+      wal.writeHeader(4);
+      wal.flush();
+
+      // No new writes — catchUp returns false
+      const changed = wal.catchUp();
+      expect(changed).toBe(false);
+    });
+
+    it('does not see uncommitted frames from concurrent writer', async () => {
+      const main = await createMain();
+      const walHandle = new MemoryFileHandle();
+
+      const writer = new WalStorage(main, walHandle);
+      await writer.open();
+
+      // Writer commits one frame
+      writer.writePage(3, 'committed');
+      writer.writeHeader(4);
+      writer.flush();
+
+      // Writer starts another frame but doesn't flush (no commit record in file)
+      writer.writePage(5, 'pending');
+
+      const reader = new WalStorage(main, walHandle);
+      await reader.open();
+      expect(reader.readPage(3)).toBe('committed');
+      expect(reader.readPage(5)).toBeNull(); // pending frames not in WAL file
+    });
+  });
+
   describe('integration with SyncPageStore', () => {
-    it('full cycle: SyncPageStore → WalStorage → MemoryPageStorage', async () => {
+    it('full cycle: SyncPageStore → WalStorage → OPFSSyncStorage', async () => {
       const { SyncPageStore } = await import('../page-manager.js');
 
-      const main = new MemoryPageStorage();
+      const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const walStorage = new WalStorage(main, walHandle);
       await walStorage.open();
@@ -462,9 +607,11 @@ describe('WalStorage', () => {
 
       expect(walStorage.readPage(p2)).toBeNull();
 
-      // Close → checkpoint → main has data
-      walStorage.close();
+      // Explicit checkpoint → main has data
+      walStorage.checkpoint();
       expect(main.readPage(p1)).toEqual({ row: 'hello' });
+
+      walStorage.close();
     });
   });
 });

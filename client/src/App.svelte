@@ -35,7 +35,7 @@
     status = 'Opening…';
     if (conn) { await conn.disconnect(); conn = null; }
     if (engine) { await engine.close(); }
-    engine = new WorkerEngine(WORKER_URL, name);
+    engine = new WorkerEngine(WORKER_URL);
     await engine.open(name);
     conn = await engine.connect();
     currentDb = name;

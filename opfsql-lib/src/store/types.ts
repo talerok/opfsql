@@ -56,10 +56,14 @@ export interface SyncIPageStorage {
   flush(): void;
   /** Shrink backing file to match nextPageId. Safe only after flush(). */
   truncateToSize?(): void;
+  /** Catch up with changes made by other writers. Returns true if state changed. */
+  catchUp?(): boolean;
+  /** Merge WAL into main DB and reset WAL. */
+  checkpoint?(): void;
 }
 
 // ---------------------------------------------------------------------------
-// Sync page store — WAL + LRU cache + page allocator over SyncIPageStorage
+// Sync page store — page allocator over SyncIPageStorage
 // ---------------------------------------------------------------------------
 
 export interface SyncIPageStore {

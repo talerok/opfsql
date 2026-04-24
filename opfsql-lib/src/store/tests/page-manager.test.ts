@@ -1,20 +1,24 @@
+import { resetMockOPFS } from 'opfs-mock';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncPageStore } from '../page-manager.js';
-import { MemoryPageStorage } from '../backend/memory-storage.js';
+import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 
-function createStore(storage?: MemoryPageStorage, cacheSize?: number): SyncPageStore {
-  const s = storage ?? new MemoryPageStorage();
-  const nextPageId = s.getNextPageId();
-  const freeList = s.readPage<number[]>(2) ?? [];
-  return new SyncPageStore(s, nextPageId, freeList, cacheSize);
+let seq = 0;
+
+function createStore(storage: OPFSSyncStorage): SyncPageStore {
+  const nextPageId = storage.getNextPageId();
+  const freeList = storage.readPage<number[]>(2) ?? [];
+  return new SyncPageStore(storage, nextPageId, freeList);
 }
 
 describe('SyncPageStore (page-based)', () => {
-  let storage: MemoryPageStorage;
+  let storage: OPFSSyncStorage;
   let ps: SyncPageStore;
 
-  beforeEach(() => {
-    storage = new MemoryPageStorage();
+  beforeEach(async () => {
+    resetMockOPFS();
+    storage = new OPFSSyncStorage(`pm-test-${seq++}`);
+    await storage.open();
     ps = createStore(storage);
   });
 
@@ -130,8 +134,8 @@ describe('SyncPageStore (page-based)', () => {
     });
   });
 
-  describe('allocPage — cache invalidation', () => {
-    it('allocPage from freelist invalidates stale cache entry', () => {
+  describe('allocPage — freelist reuse', () => {
+    it('allocPage from freelist allows overwriting page', () => {
       ps.writePage(10, { old: 'data' });
       ps.commit();
       expect(ps.readPage(10)).toEqual({ old: 'data' });
@@ -145,7 +149,7 @@ describe('SyncPageStore (page-based)', () => {
       expect(ps.readPage(10)).toEqual({ new: 'data' });
     });
 
-    it('allocPage from freelist clears cache so reads go to storage', () => {
+    it('allocPage from freelist reads fresh data from storage', () => {
       storage.writePage(10, 'stale');
       expect(ps.readPage(10)).toBe('stale');
 
@@ -186,37 +190,4 @@ describe('SyncPageStore (page-based)', () => {
     });
   });
 
-  describe('LRU cache', () => {
-    it('caches reads from storage', () => {
-      storage.writePage(10, { data: 1 });
-      expect(ps.readPage<{ data: number }>(10)).toEqual({ data: 1 });
-
-      // Delete from storage directly — cache should still serve
-      storage.writePage(10, null as any);
-      expect(ps.readPage<{ data: number }>(10)).toEqual({ data: 1 });
-    });
-
-    it('commit promotes WAL to cache', () => {
-      ps.writePage(10, 'v');
-      ps.commit();
-
-      storage.writePage(10, null as any);
-      expect(ps.readPage<string>(10)).toBe('v');
-    });
-
-    it('evicts oldest entries', () => {
-      const ps2 = createStore(storage, 2); // capacity=2
-      storage.writePage(10, 1);
-      storage.writePage(11, 2);
-      storage.writePage(12, 3);
-
-      ps2.readPage(10); // cached
-      ps2.readPage(11); // cached, evicts nothing yet
-      ps2.readPage(12); // cached, evicts 10 (capacity=2)
-
-      // 10 was evicted from cache, now delete from storage too
-      storage.writePage(10, null as any);
-      expect(ps2.readPage(10)).toBeNull(); // not in cache, not in storage
-    });
-  });
 });

@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { formatExpression, formatPlan } from "../explain.js";
 import {
   BoundExpressionClass,
   LogicalOperatorType,
   type BoundExpression,
-  type LogicalOperator,
-  type LogicalGet,
-  type LogicalFilter,
-  type LogicalProjection,
-  type LogicalComparisonJoin,
   type ColumnBinding,
+  type LogicalComparisonJoin,
+  type LogicalFilter,
+  type LogicalGet,
+  type LogicalProjection,
 } from "../../binder/types.js";
+import { formatExpression, formatPlan } from "../explain.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,10 +30,10 @@ function constant(value: string | number | boolean | null): BoundExpression {
     value === null
       ? "NULL"
       : typeof value === "string"
-        ? "TEXT"
-        : typeof value === "boolean"
-          ? "BOOLEAN"
-          : "INTEGER";
+      ? "TEXT"
+      : typeof value === "boolean"
+      ? "BOOLEAN"
+      : "INTEGER";
   return {
     expressionClass: BoundExpressionClass.BOUND_CONSTANT,
     value,
@@ -251,9 +250,24 @@ describe("formatPlan", () => {
   it("formats index scan", () => {
     const scan = makeScan("users");
     scan.indexHint = {
-      kind: 'scan',
-      indexDef: { name: "idx_email", tableName: "users", expressions: [{ type: 'column', name: 'email', returnType: 'TEXT' }], unique: true },
-      predicates: [{ columnPosition: 0, comparisonType: 'EQUAL', value: { expressionClass: 'BOUND_CONSTANT' as any, value: 'test', returnType: 'TEXT' } }],
+      kind: "scan",
+      indexDef: {
+        name: "idx_email",
+        tableName: "users",
+        expressions: [{ type: "column", name: "email", returnType: "TEXT" }],
+        unique: true,
+      },
+      predicates: [
+        {
+          columnPosition: 0,
+          comparisonType: "EQUAL",
+          value: {
+            expressionClass: "BOUND_CONSTANT" as any,
+            value: "test",
+            returnType: "TEXT",
+          },
+        },
+      ],
       residualFilters: [],
       coveredFilters: [],
     };

@@ -1,11 +1,15 @@
+import { resetMockOPFS } from 'opfs-mock';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableBTree } from '../table-btree.js';
 import type { TableBTreeMeta, TableLeafNode } from '../table-btree.js';
 import { SyncPageStore } from '../page-manager.js';
-import { MemoryPageStorage } from '../backend/memory-storage.js';
+import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 
-function createStore(storage?: MemoryPageStorage): SyncPageStore {
-  const s = storage ?? new MemoryPageStorage();
+let seq = 0;
+
+async function createStore(): Promise<SyncPageStore> {
+  const s = new OPFSSyncStorage(`tbt-test-${seq++}`);
+  await s.open();
   return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
 }
 
@@ -21,14 +25,13 @@ function createTree(ps: SyncPageStore): { tree: SyncTableBTree; metaPageNo: numb
 }
 
 describe('SyncTableBTree', () => {
-  let storage: MemoryPageStorage;
   let ps: SyncPageStore;
   let tree: SyncTableBTree;
   let metaPageNo: number;
 
-  beforeEach(() => {
-    storage = new MemoryPageStorage();
-    ps = createStore(storage);
+  beforeEach(async () => {
+    resetMockOPFS();
+    ps = await createStore();
     ({ tree, metaPageNo } = createTree(ps));
   });
 

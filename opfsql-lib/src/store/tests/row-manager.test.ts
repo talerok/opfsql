@@ -1,24 +1,29 @@
+import { resetMockOPFS } from 'opfs-mock';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableManager } from '../table-manager.js';
 import { SyncPageStore } from '../page-manager.js';
-import { MemoryPageStorage } from '../backend/memory-storage.js';
+import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 import { Catalog } from '../catalog.js';
 import type { ICatalog, TableSchema } from '../types.js';
 
-function createStore(storage?: MemoryPageStorage): SyncPageStore {
-  const s = storage ?? new MemoryPageStorage();
-  return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
+let seq = 0;
+
+async function createStore(): Promise<{ storage: OPFSSyncStorage; ps: SyncPageStore }> {
+  const storage = new OPFSSyncStorage(`rm-test-${seq++}`);
+  await storage.open();
+  const ps = new SyncPageStore(storage, storage.getNextPageId(), storage.readPage<number[]>(2) ?? []);
+  return { storage, ps };
 }
 
 describe('SyncTableManager (row operations via SyncTableBTree)', () => {
-  let storage: MemoryPageStorage;
+  let storage: OPFSSyncStorage;
   let ps: SyncPageStore;
   let catalog: Catalog;
   let rm: SyncTableManager;
 
-  beforeEach(() => {
-    storage = new MemoryPageStorage();
-    ps = createStore(storage);
+  beforeEach(async () => {
+    resetMockOPFS();
+    ({ storage, ps } = await createStore());
     catalog = new Catalog();
     rm = new SyncTableManager(ps, () => catalog);
 
@@ -170,7 +175,7 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
       ps.commit();
 
       // Create a fresh manager pointing to same storage
-      const ps2 = createStore(storage);
+      const ps2 = new SyncPageStore(storage, storage.getNextPageId(), storage.readPage<number[]>(2) ?? []);
       const rm2 = new SyncTableManager(ps2, () => catalog);
       expect(rm2.readRow('t1', rowId)).toEqual({ id: 1, val: 'persisted' });
     });

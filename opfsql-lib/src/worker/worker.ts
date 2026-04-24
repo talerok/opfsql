@@ -1,184 +1,211 @@
-import { Engine, PreparedStatement, type Result } from "../engine/index.js";
+import { Engine, PreparedStatement } from "../engine/index.js";
 import type { Session } from "../engine/session.js";
-import type { CatalogData } from "../store/types.js";
-import { Value } from "../types.js";
-
-console.log("[opfsql worker] loaded");
-
-// ---------------------------------------------------------------------------
-// Message protocol (worker side)
-// ---------------------------------------------------------------------------
-
-type InMsg =
-  | { id: number; type: "open"; dbName: string }
-  | { id: number; type: "close" }
-  | { id: number; type: "connect" }
-  | { id: number; type: "disconnect"; sessionId: string }
-  | { id: number; type: "disconnect-all" }
-  | { id: number; type: "exec"; sessionId: string; sql: string; params?: Value[] }
-  | { id: number; type: "prepare"; sessionId: string; sql: string }
-  | { id: number; type: "run"; sessionId: string; stmtId: number; params?: Value[] }
-  | { id: number; type: "free"; sessionId: string; stmtId: number }
-  | { id: number; type: "schema"; sessionId: string };
-
-type OutMsg =
-  | { id: number; ok: true }
-  | { id: number; results: Result[] }
-  | { id: number; sessionId: string }
-  | { id: number; stmtId: number }
-  | { id: number; schema: CatalogData }
-  | { id: number; error: string };
+import type { CatalogData, Value } from "../types.js";
+import type { RequestMessage, ResponseMessage } from "./protocol.js";
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
+interface SessionRecord {
+  session: Session;
+  stmts: Map<number, PreparedStatement>;
+}
+
 let engine: Engine | null = null;
-const sessions = new Map<string, Session>();
-const prepared = new Map<string, Map<number, PreparedStatement>>();
+const sessions = new Map<string, SessionRecord>();
+
 let sessionSeq = 0;
 let stmtSeq = 0;
 
 function getSession(sessionId: string): Session {
-  const s = sessions.get(sessionId);
-  if (!s) throw new Error(`Session "${sessionId}" not found`);
-  return s;
+  const rec = sessions.get(sessionId);
+  if (!rec) throw new Error(`Session "${sessionId}" not found`);
+  return rec.session;
 }
 
-function closeSessionById(sessionId: string): void {
-  const session = sessions.get(sessionId);
-  if (session) {
-    session.close();
-    sessions.delete(sessionId);
-    prepared.delete(sessionId);
-  }
+function getStmt(sessionId: string, stmtId: number): PreparedStatement {
+  const rec = sessions.get(sessionId);
+  if (!rec) throw new Error(`Session "${sessionId}" not found`);
+  const stmt = rec.stmts.get(stmtId);
+  if (!stmt) throw new Error(`Prepared statement ${stmtId} not found`);
+  return stmt;
+}
+
+function closeSession(sessionId: string): void {
+  sessions.get(sessionId)?.session.close();
+  sessions.delete(sessionId);
 }
 
 function closeAllSessions(): void {
-  for (const s of sessions.values()) s.close();
+  for (const rec of sessions.values()) rec.session.close();
   sessions.clear();
-  prepared.clear();
 }
 
 // ---------------------------------------------------------------------------
-// Message handler
+// Individual message handlers
 // ---------------------------------------------------------------------------
 
+async function handleOpen(
+  dbName: string,
+): Promise<ResponseMessage & { ok: true }> {
+  closeAllSessions();
+  engine?.close();
+
+  engine = await Engine.open(dbName);
+  return { id: 0, ok: true };
+}
+
+function handleClose(): ResponseMessage & { ok: true } {
+  closeAllSessions();
+  engine?.close();
+  engine = null;
+  return { id: 0, ok: true };
+}
+
+function handleConnect(): ResponseMessage & { sessionId: string } {
+  if (!engine) throw new Error("Engine not opened");
+  const sessionId = `s${sessionSeq++}`;
+  const session = engine.createSession();
+  const stmts = new Map();
+
+  sessions.set(sessionId, { session, stmts });
+  return { id: 0, sessionId };
+}
+
+function handleDisconnect(sessionId: string): ResponseMessage & { ok: true } {
+  closeSession(sessionId);
+  return { id: 0, ok: true };
+}
+
+function handleDisconnectAll(): ResponseMessage & { ok: true } {
+  closeAllSessions();
+  return { id: 0, ok: true };
+}
+
+async function handleExec(
+  sessionId: string,
+  sql: string,
+  params?: Value[],
+): Promise<ResponseMessage> {
+  const session = getSession(sessionId);
+  const results = await session.execute(sql, params);
+  return { id: 0, results };
+}
+
+function handlePrepare(
+  sessionId: string,
+  sql: string,
+): ResponseMessage & { stmtId: number } {
+  const stmtId = stmtSeq++;
+  const stmt = getSession(sessionId).prepare(sql);
+  sessions.get(sessionId)!.stmts.set(stmtId, stmt);
+  return { id: 0, stmtId };
+}
+
+async function handleRun(
+  sessionId: string,
+  stmtId: number,
+  params?: Value[],
+): Promise<ResponseMessage> {
+  const stmt = getStmt(sessionId, stmtId);
+  const results = [await stmt.run(params)];
+  return { id: 0, results };
+}
+
+function handleFree(
+  sessionId: string,
+  stmtId: number,
+): ResponseMessage & { ok: true } {
+  const session = sessions.get(sessionId);
+  session?.stmts.delete(stmtId);
+  return { id: 0, ok: true };
+}
+
+function handleSchema(
+  sessionId: string,
+): ResponseMessage & { schema: CatalogData } {
+  const session = getSession(sessionId);
+  const schema = session.getSchema();
+  return { id: 0, schema };
+}
+
+// ---------------------------------------------------------------------------
+// Message dispatch
+// ---------------------------------------------------------------------------
+
+function isValidMessage(data: unknown): data is RequestMessage {
+  return (
+    !!data &&
+    typeof (data as RequestMessage).id === "number" &&
+    typeof (data as RequestMessage).type === "string"
+  );
+}
+
+async function dispatch(data: RequestMessage): Promise<ResponseMessage> {
+  switch (data.type) {
+    case "open":
+      return handleOpen(data.dbName);
+    case "close":
+      return handleClose();
+    case "connect":
+      return handleConnect();
+    case "disconnect":
+      return handleDisconnect(data.sessionId);
+    case "disconnect-all":
+      return handleDisconnectAll();
+    case "exec":
+      return handleExec(data.sessionId, data.sql, data.params);
+    case "prepare":
+      return handlePrepare(data.sessionId, data.sql);
+    case "run":
+      return handleRun(data.sessionId, data.stmtId, data.params);
+    case "free":
+      return handleFree(data.sessionId, data.stmtId);
+    case "schema":
+      return handleSchema(data.sessionId);
+    default:
+      throw new Error(
+        `Unknown message type: ${(data as { type: string }).type}`,
+      );
+  }
+}
+
 async function handleMessage(
-  data: InMsg,
-  reply: (msg: OutMsg) => void,
+  data: RequestMessage,
+  reply: (msg: ResponseMessage) => void,
 ): Promise<void> {
-  if (!data || typeof data.id !== "number" || typeof data.type !== "string") {
+  if (!isValidMessage(data)) {
     console.error("[opfsql worker] malformed message", data);
     return;
   }
-  const { id } = data;
 
   try {
-    switch (data.type) {
-      case "open": {
-        if (engine) {
-          closeAllSessions();
-          engine.close();
-        }
-        console.log("[opfsql worker] opening", data.dbName);
-        engine = await Engine.open(data.dbName);
-        console.log("[opfsql worker] opened", data.dbName);
-        reply({ id, ok: true });
-        break;
-      }
-
-      case "close": {
-        closeAllSessions();
-        engine?.close();
-        engine = null;
-        reply({ id, ok: true });
-        break;
-      }
-
-      case "connect": {
-        if (!engine) throw new Error("Engine not opened");
-        const sessionId = `s${sessionSeq++}`;
-        sessions.set(sessionId, engine.createSession());
-        prepared.set(sessionId, new Map());
-        reply({ id, sessionId });
-        break;
-      }
-
-      case "disconnect": {
-        closeSessionById(data.sessionId);
-        reply({ id, ok: true });
-        break;
-      }
-
-      case "disconnect-all": {
-        closeAllSessions();
-        reply({ id, ok: true });
-        break;
-      }
-
-      case "exec": {
-        const session = getSession(data.sessionId);
-        const results = session.execute(data.sql, data.params);
-        reply({ id, results });
-        break;
-      }
-
-      case "prepare": {
-        const session = getSession(data.sessionId);
-        const stmt = session.prepare(data.sql);
-        const stmtId = stmtSeq++;
-        prepared.get(data.sessionId)!.set(stmtId, stmt);
-        reply({ id, stmtId });
-        break;
-      }
-
-      case "run": {
-        const stmts = prepared.get(data.sessionId);
-        if (!stmts) throw new Error(`Session "${data.sessionId}" not found`);
-        const stmt = stmts.get(data.stmtId);
-        if (!stmt)
-          throw new Error(`Prepared statement ${data.stmtId} not found`);
-        const result = stmt.run(data.params);
-        reply({ id, results: [result] });
-        break;
-      }
-
-      case "free": {
-        prepared.get(data.sessionId)?.delete(data.stmtId);
-        reply({ id, ok: true });
-        break;
-      }
-
-      case "schema": {
-        const session = getSession(data.sessionId);
-        reply({ id, schema: session.getSchema() });
-        break;
-      }
-
-      default:
-        throw new Error(`Unknown message type: ${(data as { type: string }).type}`);
-    }
+    const result = await dispatch(data);
+    result.id = data.id;
+    reply(result);
   } catch (err) {
-    reply({ id, error: err instanceof Error ? err.message : String(err) });
+    const id = data.id;
+    const isError = err instanceof Error;
+    const error = isError ? err.message : String(err);
+    reply({ id, error });
   }
 }
 
 // ---------------------------------------------------------------------------
-// Message queue — serializes async handleMessage calls
+// Message queue + bootstrap
 // ---------------------------------------------------------------------------
 
 let queue: Promise<void> = Promise.resolve();
 
-function enqueue(data: InMsg, reply: (msg: OutMsg) => void): void {
+function enqueue(
+  data: RequestMessage,
+  reply: (msg: ResponseMessage) => void,
+): void {
   queue = queue.then(() => handleMessage(data, reply));
 }
 
-// ---------------------------------------------------------------------------
-// Dedicated Worker bootstrap
-// ---------------------------------------------------------------------------
-
 const scope = self as unknown as Worker;
-scope.onmessage = ({ data }: MessageEvent<InMsg>) => {
+scope.onmessage = ({ data }: MessageEvent<RequestMessage>) => {
   enqueue(data, (msg) => scope.postMessage(msg));
 };

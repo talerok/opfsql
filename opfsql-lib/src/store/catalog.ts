@@ -19,22 +19,29 @@ export class Catalog implements ICatalog {
   hasTable(name: string): boolean {
     return this.tables.has(this.key(name));
   }
+
   getTable(name: string): TableSchema | undefined {
     return this.tables.get(this.key(name));
   }
+
   addTable(schema: TableSchema): void {
     this.tables.set(this.key(schema.name), schema);
   }
+
   removeTable(name: string): void {
     const k = this.key(name);
     this.tables.delete(k);
     for (const [ik, idx] of this.indexes) {
-      if (this.key(idx.tableName) === k) this.indexes.delete(ik);
+      if (this.key(idx.tableName) === k) {
+        this.indexes.delete(ik);
+      }
     }
   }
+
   updateTable(schema: TableSchema): void {
     this.tables.set(this.key(schema.name), schema);
   }
+
   getAllTables(): TableSchema[] {
     return [...this.tables.values()];
   }
@@ -42,18 +49,22 @@ export class Catalog implements ICatalog {
   hasIndex(name: string): boolean {
     return this.indexes.has(this.key(name));
   }
+
   getIndex(name: string): IndexDef | undefined {
     return this.indexes.get(this.key(name));
   }
+
   getTableIndexes(tableName: string): IndexDef[] {
     const k = this.key(tableName);
     return [...this.indexes.values()].filter(
       (idx) => this.key(idx.tableName) === k,
     );
   }
+
   addIndex(index: IndexDef): void {
     this.indexes.set(this.key(index.name), index);
   }
+
   removeIndex(name: string): void {
     this.indexes.delete(this.key(name));
   }
@@ -68,6 +79,10 @@ export class Catalog implements ICatalog {
   snapshot(): CatalogData {
     const data = this.serialize();
     return structuredClone(data);
+  }
+
+  clone(): Catalog {
+    return Catalog.deserialize(this.serialize());
   }
 
   static deserialize(data: CatalogData): Catalog {

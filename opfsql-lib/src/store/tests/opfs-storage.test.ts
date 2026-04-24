@@ -119,6 +119,30 @@ describe("OPFSSyncStorage", () => {
   });
 });
 
+describe("OPFSSyncStorage — open/close lifecycle", () => {
+  it("open() is idempotent — second call is no-op", async () => {
+    const storage = new OPFSSyncStorage("idem-db");
+    await storage.open();
+    storage.writePage(3, { val: 1 });
+    // Second open should not reset state
+    await storage.open();
+    expect(storage.readPage(3)).toEqual({ val: 1 });
+    storage.close();
+  });
+
+  it("close() + open() allows reuse", async () => {
+    const storage = new OPFSSyncStorage("reopen-db");
+    await storage.open();
+    storage.writePage(3, { val: 42 });
+    storage.flush();
+    storage.close();
+
+    await storage.open();
+    expect(storage.readPage(3)).toEqual({ val: 42 });
+    storage.close();
+  });
+});
+
 describe("OPFSSyncStorage — header validation", () => {
   it("rejects file with bad magic", async () => {
     // Create a file with garbage header

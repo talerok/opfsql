@@ -8,6 +8,7 @@ const WORKER_URL = new URL('../../../opfsql-lib/src/worker/worker.ts', import.me
 async function cleanOpfs() {
   const root = await navigator.storage.getDirectory();
   try { await root.removeEntry(`${DB_NAME}.opfsql`); } catch {}
+  try { await root.removeEntry(`${DB_NAME}.opfsql-wal`); } catch {}
 }
 
 export function createOpfsqlRunner(): BenchmarkRunner {
@@ -22,7 +23,7 @@ export function createOpfsqlRunner(): BenchmarkRunner {
 
     async setup() {
       await cleanOpfs();
-      engine = new WorkerEngine(WORKER_URL, DB_NAME);
+      engine = new WorkerEngine(WORKER_URL);
       await engine.open(DB_NAME);
       conn = await engine.connect();
       await conn.exec(`
@@ -77,7 +78,7 @@ export function createOpfsqlRunner(): BenchmarkRunner {
 
     async setupComplex(productRows: Row[], orderRows: OrderRow[]) {
       await cleanOpfs();
-      engine = new WorkerEngine(WORKER_URL, DB_NAME);
+      engine = new WorkerEngine(WORKER_URL);
       await engine.open(DB_NAME);
       conn = await engine.connect();
 

@@ -1,12 +1,8 @@
-import { SyncIndexManager } from "./index-manager.js";
 import { SyncPageStore } from "./page-manager.js";
-import { SyncTableManager } from "./table-manager.js";
 import type { SyncIPageStorage } from "./types.js";
 
 export class Storage {
   pageStore!: SyncPageStore;
-  rowManager!: SyncTableManager;
-  indexManager!: SyncIndexManager;
 
   constructor(private readonly backend: SyncIPageStorage) {}
 
@@ -15,6 +11,18 @@ export class Storage {
     const nextPageId = this.backend.getNextPageId();
     const freeList = this.backend.readPage<number[]>(2) ?? [];
     this.pageStore = new SyncPageStore(this.backend, nextPageId, freeList);
+  }
+
+  catchUp(): boolean {
+    const changed = this.backend.catchUp?.() ?? false;
+    if (changed) {
+      this.pageStore.refreshFromStorage();
+    }
+    return changed;
+  }
+
+  checkpoint(): void {
+    this.backend.checkpoint?.();
   }
 
   close(): void {

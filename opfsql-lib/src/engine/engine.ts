@@ -3,43 +3,39 @@ import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
 import { Catalog, initCatalog } from "../store/catalog.js";
 import { SessionPageStore } from "../store/page-manager.js";
 import { Storage } from "../store/storage.js";
-import type { SyncIPageStorage } from "../store/types.js";
+import type { CatalogData, SyncIPageStorage } from "../store/types.js";
 import { WalStorage } from "../store/wal/wal-storage.js";
 import { Session } from "./session.js";
 import { EngineError } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Engine — session factory + write lock
+// Engine — session factory + write lock + Web Lock
 // ---------------------------------------------------------------------------
 
 export class Engine {
   private catalog!: Catalog;
   private readonly parser = new Parser();
   private writeLockHolder: Session | null = null;
+  private dbName: string | null = null;
+  private webLockRelease: (() => void) | null = null;
 
   private constructor(private readonly storage: Storage) {}
 
   /** Open a named OPFS database with WAL. Use inside a worker. */
   static async open(dbName: string): Promise<Engine> {
-    try {
-      const mainStorage = new OPFSSyncStorage(dbName);
-      const root = await navigator.storage.getDirectory();
-      const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
-        create: true,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const walHandle = await (walFh as any).createSyncAccessHandle();
-      return await Engine.create(new WalStorage(mainStorage, walHandle));
-    } catch (err) {
-      if (
-        err instanceof DOMException &&
-        (err.name === "NoModificationAllowedError" ||
-          err.name === "InvalidStateError")
-      ) {
-        throw new EngineError("database is busy");
-      }
-      throw err;
-    }
+    const mainStorage = new OPFSSyncStorage(dbName);
+    const root = await navigator.storage.getDirectory();
+    const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
+      create: true,
+    });
+    const walHandle = await walFh.createSyncAccessHandle({
+      mode: "readwrite-unsafe",
+    });
+
+    const wal = new WalStorage(mainStorage, walHandle);
+    const engine = await Engine.create(wal);
+    engine.dbName = dbName;
+    return engine;
   }
 
   /** Create engine with a custom storage backend. */
@@ -57,17 +53,46 @@ export class Engine {
 
   createSession(): Session {
     const ps = new SessionPageStore(this.storage.pageStore);
+
+    const acquireLock = async () => {
+      if (this.dbName) await this.acquireWebLock();
+      this.acquireWriteLock(session);
+    };
+
+    const releaseLock = () => {
+      this.webLockRelease?.();
+      this.webLockRelease = null;
+      this.releaseWriteLock(session);
+    };
+
+    const onCommit = (data: CatalogData) => {
+      this.catalog = Catalog.deserialize(data);
+    };
+
     const session: Session = new Session(
       ps,
       this.parser,
-      () => this.acquireWriteLock(session),
-      () => this.releaseWriteLock(session),
+      acquireLock,
+      releaseLock,
+      () => this.catchUp(),
       () => this.catalog,
-      (data) => {
-        this.catalog = Catalog.deserialize(data);
-      },
+      (data) => onCommit(data),
     );
     return session;
+  }
+
+  catchUp(): void {
+    if (this.writeLockHolder !== null) {
+      return;
+    }
+    if (this.storage.catchUp()) {
+      const pageStore = this.storage.pageStore;
+      this.catalog = initCatalog(pageStore);
+    }
+  }
+
+  checkpoint(): void {
+    this.storage.checkpoint();
   }
 
   close(): void {
@@ -75,7 +100,7 @@ export class Engine {
   }
 
   // -------------------------------------------------------------------------
-  // Write lock
+  // In-process write lock
   // -------------------------------------------------------------------------
 
   private acquireWriteLock(session: Session): void {
@@ -90,5 +115,32 @@ export class Engine {
     if (this.writeLockHolder === session) {
       this.writeLockHolder = null;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Cross-tab Web Lock (only active when opened via Engine.open)
+  // -------------------------------------------------------------------------
+
+  private async acquireWebLock(): Promise<void> {
+    if (this.webLockRelease) {
+      return;
+    }
+
+    return new Promise<void>((acquired, failed) => {
+      const lockName = `opfsql:${this.dbName}:write`;
+      navigator.locks.request(lockName, () => {
+        try {
+          this.catchUp();
+        } catch (err) {
+          failed(err);
+          return Promise.resolve();
+        }
+
+        acquired();
+        return new Promise<void>((release) => {
+          this.webLockRelease = release;
+        });
+      });
+    });
   }
 }

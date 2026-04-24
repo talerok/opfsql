@@ -174,6 +174,36 @@ describe('Catalog', () => {
     snap.tables[0].name = 'mutated';
     expect(c.getTable('users')!.name).toBe('users');
   });
+
+  // --- clone ---
+
+  it('clone returns independent Catalog with same data', () => {
+    const c = new Catalog();
+    c.addTable(usersSchema);
+    c.addTable(ordersSchema);
+    c.addIndex(idxUsersId);
+    c.addIndex(idxOrdersId);
+
+    const cloned = c.clone();
+
+    expect(cloned.hasTable('users')).toBe(true);
+    expect(cloned.hasTable('orders')).toBe(true);
+    expect(cloned.hasIndex('idx_users_id')).toBe(true);
+    expect(cloned.hasIndex('idx_orders_id')).toBe(true);
+    expect(cloned.getAllTables()).toHaveLength(2);
+  });
+
+  it('clone is independent — mutations do not propagate', () => {
+    const c = new Catalog();
+    c.addTable(usersSchema);
+    c.addIndex(idxUsersId);
+
+    const cloned = c.clone();
+    cloned.removeTable('users');
+
+    expect(c.hasTable('users')).toBe(true);
+    expect(c.hasIndex('idx_users_id')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
