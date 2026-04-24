@@ -16,7 +16,7 @@ import type { SyncEvalContext } from "../evaluate/context.js";
 import { evaluateExpression } from "../evaluate/index.js";
 import { isTruthy } from "../evaluate/utils/compare.js";
 import { drainOperator } from "../operators/utils.js";
-import { createPhysicalPlan } from "../planner.js";
+import { createPhysicalPlan } from "../planner/index.js";
 import { buildResolver } from "../resolve.js";
 import type { CTECacheEntry, ExecuteResult, Tuple, Value } from "../types.js";
 import { coerceJsonIfNeeded } from "./utils/coerce.js";

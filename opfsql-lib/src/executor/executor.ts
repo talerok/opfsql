@@ -19,7 +19,7 @@ import {
 import { executeDelete, executeInsert, executeUpdate } from "./dml/index.js";
 import type { SyncEvalContext } from "./evaluate/context.js";
 import { drainOperator } from "./operators/utils.js";
-import { createPhysicalPlan } from "./planner.js";
+import { createPhysicalPlan } from "./planner/index.js";
 import type { CTECacheEntry, ExecuteResult, Tuple, Value } from "./types.js";
 
 export function execute(

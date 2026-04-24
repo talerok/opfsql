@@ -16,7 +16,7 @@ import type {
 } from '../../binder/types.js';
 import { BoundExpressionClass, LogicalOperatorType } from '../../binder/types.js';
 import type { SyncIIndexManager, SyncIRowManager, TableSchema, IndexDef } from '../../store/types.js';
-import { createPhysicalPlan } from '../planner.js';
+import { createPhysicalPlan } from '../planner/index.js';
 import { PhysicalScan, PhysicalChildScan } from '../operators/scan.js';
 import { PhysicalIndexScan } from '../operators/index-scan.js';
 import { PhysicalIndexMinMax } from '../operators/index-min-max.js';
