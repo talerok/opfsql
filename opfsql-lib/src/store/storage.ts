@@ -15,9 +15,7 @@ export class Storage {
 
   catchUp(): boolean {
     const changed = this.backend.catchUp?.() ?? false;
-    if (changed) {
-      this.pageStore.refreshFromStorage();
-    }
+    if (changed) this.pageStore.refreshFromStorage();
     return changed;
   }
 
