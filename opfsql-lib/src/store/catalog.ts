@@ -9,8 +9,13 @@ import type {
 const CATALOG_PAGE_NO = 1;
 
 export class Catalog implements ICatalog {
+  private _version = 0;
   private tables = new Map<string, TableSchema>();
   private indexes = new Map<string, IndexDef>();
+
+  get version(): number {
+    return this._version;
+  }
 
   private key(name: string): string {
     return name.toLowerCase();
@@ -69,8 +74,15 @@ export class Catalog implements ICatalog {
     this.indexes.delete(this.key(name));
   }
 
+  writeTo(ps: SyncIPageStore): void {
+    this._version++;
+    const data = this.serialize();
+    ps.writePage(CATALOG_PAGE_NO, data);
+  }
+
   serialize(): CatalogData {
     return {
+      version: this.version,
       tables: [...this.tables.values()],
       indexes: [...this.indexes.values()],
     };
@@ -89,16 +101,14 @@ export class Catalog implements ICatalog {
     const catalog = new Catalog();
     for (const table of data.tables) catalog.addTable(table);
     for (const index of data.indexes) catalog.addIndex(index);
+    catalog._version = data.version ?? 0;
     return catalog;
+  }
+
+  static fromStorage(ps: SyncIPageStore): Catalog {
+    const data = ps.readPage<CatalogData>(CATALOG_PAGE_NO);
+    if (!data) return new Catalog();
+    return Catalog.deserialize(data);
   }
 }
 
-export function initCatalog(ps: SyncIPageStore): Catalog {
-  const data = ps.readPage<CatalogData>(CATALOG_PAGE_NO);
-  if (!data) return new Catalog();
-  return Catalog.deserialize(data);
-}
-
-export function writeCatalog(catalog: ICatalog, ps: SyncIPageStore): void {
-  ps.writePage(CATALOG_PAGE_NO, catalog.serialize());
-}

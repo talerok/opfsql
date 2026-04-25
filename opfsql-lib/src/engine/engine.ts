@@ -1,6 +1,6 @@
 import { Parser } from "../parser/index.js";
 import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
-import { Catalog, initCatalog } from "../store/catalog.js";
+import { Catalog } from "../store/catalog.js";
 import { SessionPageStore } from "../store/page-manager.js";
 import { Storage } from "../store/storage.js";
 import type { CatalogData, SyncIPageStorage } from "../store/types.js";
@@ -43,7 +43,7 @@ export class Engine {
     const storage = new Storage(backend);
     await storage.open();
     const engine = new Engine(storage);
-    engine.catalog = initCatalog(storage.pageStore);
+    engine.catalog = Catalog.fromStorage(storage.pageStore);
     return engine;
   }
 
@@ -87,7 +87,7 @@ export class Engine {
     }
     if (this.storage.catchUp()) {
       const pageStore = this.storage.pageStore;
-      this.catalog = initCatalog(pageStore);
+      this.catalog = Catalog.fromStorage(pageStore);
     }
   }
 

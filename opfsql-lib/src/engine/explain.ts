@@ -153,6 +153,10 @@ function formatNode(node: LogicalOperator): string {
       return `CTE ${(node as LogicalMaterializedCTE).cteName}`;
     case LogicalOperatorType.LOGICAL_RECURSIVE_CTE:
       return `RecursiveCTE ${(node as LogicalRecursiveCTE).cteName}`;
+    default: {
+      const _exhaustive: never = node;
+      return `Unknown (${(_exhaustive as LogicalOperator).type})`;
+    }
   }
 }
 

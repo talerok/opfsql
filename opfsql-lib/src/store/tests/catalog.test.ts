@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Catalog, initCatalog, writeCatalog } from '../catalog.js';
+import { Catalog } from '../catalog.js';
 import type { TableSchema, IndexDef, SyncIPageStore } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -207,13 +207,13 @@ describe('Catalog', () => {
 });
 
 // ---------------------------------------------------------------------------
-// initCatalog / writeCatalog
+// Catalog.fromStorage / Catalog.writeTo
 // ---------------------------------------------------------------------------
 
-describe('initCatalog', () => {
+describe('Catalog.fromStorage', () => {
   it('returns empty catalog when page is null', () => {
     const ps = { readPage: vi.fn(() => null) } as unknown as SyncIPageStore;
-    const c = initCatalog(ps);
+    const c = Catalog.fromStorage(ps);
     expect(c.getAllTables()).toEqual([]);
   });
 
@@ -223,19 +223,20 @@ describe('initCatalog', () => {
       indexes: [idxUsersId],
     };
     const ps = { readPage: vi.fn(() => data) } as unknown as SyncIPageStore;
-    const c = initCatalog(ps);
+    const c = Catalog.fromStorage(ps);
     expect(c.hasTable('users')).toBe(true);
     expect(c.hasIndex('idx_users_id')).toBe(true);
   });
 });
 
-describe('writeCatalog', () => {
-  it('writes serialized catalog to page 1', () => {
+describe('Catalog.writeTo', () => {
+  it('bumps version and writes serialized catalog to page 1', () => {
     const c = new Catalog();
     c.addTable(usersSchema);
     const ps = { writePage: vi.fn() } as unknown as SyncIPageStore;
-    writeCatalog(c, ps);
+    c.writeTo(ps);
     expect(ps.writePage).toHaveBeenCalledWith(1, {
+      version: 1,
       tables: [usersSchema],
       indexes: [],
     });

@@ -48,7 +48,7 @@ function mockCatalog(tables: TableSchema[] = [usersSchema]): ICatalog {
     getTableIndexes:() => [],
     addIndex:       (i) => { indexMap.set(i.name, i); },
     removeIndex:    (n) => { indexMap.delete(n); },
-    serialize:      () => ({ tables: [...tableMap.values()], indexes: [...indexMap.values()] }),
+    serialize:      () => ({ version: 0, tables: [...tableMap.values()], indexes: [...indexMap.values()] }),
   };
 }
 

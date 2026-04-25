@@ -10,7 +10,7 @@ import {
   type Statement,
   type TransactionStatement,
 } from "../parser/types.js";
-import { Catalog, writeCatalog } from "../store/catalog.js";
+import { Catalog } from "../store/catalog.js";
 import { SyncIndexManager } from "../store/index-manager.js";
 import { SyncTableManager } from "../store/table-manager.js";
 import type {
@@ -51,6 +51,7 @@ export class Session {
   private readonly indexManager: SyncIIndexManager;
 
   private catalog!: Catalog;
+  private lastCatalogVersion = -1;
   private inTransaction = false;
   private transactionAborted = false;
   private catalogSnapshot: CatalogData | null = null;
@@ -58,8 +59,8 @@ export class Session {
   private holdingWriteLock = false;
 
   constructor(
-    private readonly pageStore: SyncIPageStore,
-    private readonly parser: Parser,
+    private pageStore: SyncIPageStore,
+    private parser: Parser,
     private readonly acquireWriteLock: () => Promise<void> | void,
     private readonly releaseWriteLock: () => void,
     private readonly catchUp: () => void,
@@ -94,7 +95,15 @@ export class Session {
       throw new EngineError("prepare() requires exactly one statement");
     }
     const stmt = stmts[0];
-    return new PreparedStatement((params) => this.executeOne(stmt, params));
+    const preparedVersion = this.getCatalog().version;
+    return new PreparedStatement((params) => {
+      if (this.getCatalog().version !== preparedVersion) {
+        throw new EngineError(
+          "prepared statement is stale: schema has changed since prepare()",
+        );
+      }
+      return this.executeOne(stmt, params);
+    });
   }
 
   getSchema(): CatalogData {
@@ -106,6 +115,10 @@ export class Session {
   close(): void {
     if (this.inTransaction) this.rollbackTransaction();
     this.tryReleaseWriteLock();
+    this.pageStore = null!;
+    this.parser = null!;
+    this.catalog = null!;
+    this.binder = null!;
   }
 
   // -------------------------------------------------------------------------
@@ -114,11 +127,11 @@ export class Session {
 
   private async executeOne(stmt: Statement, params?: Value[]): Promise<Result> {
     if (stmt.type === StatementType.TRANSACTION_STATEMENT) {
-      return this.executeTCL(stmt as TransactionStatement);
+      return this.executeTCL(stmt);
     }
 
     if (stmt.type === StatementType.EXPLAIN_STATEMENT) {
-      return this.executeExplain(stmt as ExplainStatement);
+      return this.executeExplain(stmt);
     }
 
     if (this.transactionAborted) {
@@ -198,12 +211,12 @@ export class Session {
     }
     this.catalogSnapshot = this.catalog.serialize();
     this.inTransaction = true;
-    return { type: "ok" };
+    return { type: "ok", rowsAffected: 0 };
   }
 
   private commitTransaction(): Result {
     if (!this.inTransaction) {
-      return { type: "ok" };
+      return { type: "ok", rowsAffected: 0 };
     }
 
     if (this.transactionAborted) {
@@ -219,12 +232,12 @@ export class Session {
 
     this.pageStore.commit();
     this.endTransaction();
-    return { type: "ok" };
+    return { type: "ok", rowsAffected: 0 };
   }
 
   private rollbackTransaction(): Result {
     if (!this.inTransaction) {
-      return { type: "ok" };
+      return { type: "ok", rowsAffected: 0 };
     }
 
     if (!this.transactionAborted) {
@@ -233,7 +246,7 @@ export class Session {
     }
 
     this.endTransaction();
-    return { type: "ok" };
+    return { type: "ok", rowsAffected: 0 };
   }
 
   // -------------------------------------------------------------------------
@@ -273,7 +286,10 @@ export class Session {
   // -------------------------------------------------------------------------
 
   private refreshCatalog(): void {
-    this.catalog = this.getCatalog().clone();
+    const engine = this.getCatalog();
+    if (engine.version === this.lastCatalogVersion) return;
+    this.catalog = engine.clone();
+    this.lastCatalogVersion = engine.version;
     this.binder = new Binder(this.catalog);
   }
 
@@ -324,7 +340,7 @@ export class Session {
   }
 
   private commitCatalog(): void {
-    writeCatalog(this.catalog, this.pageStore);
+    this.catalog.writeTo(this.pageStore);
     this.onCatalogCommit(this.catalog.serialize());
   }
 }

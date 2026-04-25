@@ -1025,3 +1025,125 @@ describe("BLOB type", () => {
     expect(result.rows![0].data).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Catalog versioning
+// ---------------------------------------------------------------------------
+
+describe("catalog versioning", () => {
+  it("version starts at 0 for a fresh engine", async () => {
+    await createEngine();
+    const schema = session.getSchema();
+    expect(schema.version).toBe(0);
+  });
+
+  it("version increments on DDL commit", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const schema = session.getSchema();
+    expect(schema.version).toBe(1);
+  });
+
+  it("multiple DDLs in one transaction produce single version bump", async () => {
+    await createEngine();
+    await session.execute("BEGIN");
+    await session.execute("CREATE TABLE a (id INTEGER PRIMARY KEY)");
+    await session.execute("CREATE TABLE b (id INTEGER PRIMARY KEY)");
+    await session.execute("COMMIT");
+
+    const schema = session.getSchema();
+    expect(schema.version).toBe(1);
+  });
+
+  it("DML-only commit does not bump version", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const v1 = session.getSchema().version;
+
+    await session.execute("INSERT INTO t VALUES (1)");
+    const v2 = session.getSchema().version;
+    expect(v2).toBe(v1);
+  });
+
+  it("version persists across reopen", async () => {
+    const name = newDbName();
+    const e = await createEngine(name);
+    const s = e.createSession();
+    await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    await s.execute("CREATE INDEX idx ON t (id)");
+    const v1 = s.getSchema().version;
+    s.close();
+    e.close();
+
+    engine = await Engine.create(new OPFSSyncStorage(name));
+    session = engine.createSession();
+    expect(session.getSchema().version).toBe(v1);
+  });
+
+  it("DDL rollback does not bump version", async () => {
+    await createEngine();
+    const v0 = session.getSchema().version;
+
+    await session.execute("BEGIN");
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    await session.execute("ROLLBACK");
+
+    expect(session.getSchema().version).toBe(v0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stale prepared statement
+// ---------------------------------------------------------------------------
+
+describe("stale prepared statement", () => {
+  it("throws when schema changes after prepare()", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
+    await session.execute("INSERT INTO t VALUES (1, 'alice')");
+
+    const stmt = session.prepare("SELECT * FROM t WHERE id = $1");
+
+    await session.execute("ALTER TABLE t ADD COLUMN age INTEGER DEFAULT 0");
+
+    await expect(stmt.run([1])).rejects.toThrow(/stale/);
+  });
+
+  it("works when schema has not changed", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
+    await session.execute("INSERT INTO t VALUES (1, 'alice')");
+
+    const stmt = session.prepare("SELECT * FROM t WHERE id = $1");
+    const result = await stmt.run([1]);
+    expect(result.type).toBe("rows");
+    expect(result.rows![0].name).toBe("alice");
+  });
+
+  it("stale across sessions from same engine", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+
+    const s2 = engine.createSession();
+    const stmt = s2.prepare("SELECT * FROM t");
+
+    await session.execute("ALTER TABLE t ADD COLUMN v INTEGER DEFAULT 0");
+
+    await expect(stmt.run()).rejects.toThrow(/stale/);
+    s2.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Use after close
+// ---------------------------------------------------------------------------
+
+describe("use after close", () => {
+  it("execute() throws after session is closed", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    session.close();
+
+    await expect(session.execute("SELECT * FROM t")).rejects.toThrow();
+  });
+});

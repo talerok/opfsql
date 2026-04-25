@@ -1,10 +1,8 @@
 import type { Row, Value } from "../types.js";
 
-export interface Result {
-  type: "rows" | "ok";
-  rows?: Row[];
-  rowsAffected?: number;
-}
+export type Result =
+  | { type: "rows"; rows: Row[]; rowsAffected?: undefined }
+  | { type: "ok"; rowsAffected: number; rows?: undefined };
 
 export class EngineError extends Error {
   constructor(message: string) {

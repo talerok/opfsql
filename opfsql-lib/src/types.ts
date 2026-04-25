@@ -76,6 +76,7 @@ export interface IndexDef {
 }
 
 export interface CatalogData {
+  version: number;
   tables: TableSchema[];
   indexes: IndexDef[];
 }
