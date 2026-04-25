@@ -1,19 +1,17 @@
 # opfsql
 
-Lightweight SQL engine written in TypeScript. ~40 KB gzipped, zero native dependencies. Runs in browser workers (via OPFS) and Node.js.
+Lightweight SQL engine written in TypeScript. ~40 KB gzipped, zero native dependencies. Runs in browser workers via OPFS.
 
 ## Quick Start
 
-### Browser Worker
-
-`Engine.open()` creates a database backed by OPFS with WAL. Must be called inside a Web Worker.
-
 ```ts
-import { Engine } from "opfsql";
+import { WorkerEngine } from "opfsql";
 
-const engine = await Engine.open("my-db");
+const engine = new WorkerEngine(new URL("./worker.ts", import.meta.url));
+await engine.open("my-db");
+const conn = await engine.connect();
 
-engine.execute(`
+await conn.exec(`
   CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -21,76 +19,51 @@ engine.execute(`
   )
 `);
 
-engine.execute("INSERT INTO users (name, email) VALUES ($1, $2)", [
+await conn.exec("INSERT INTO users (name, email) VALUES ($1, $2)", [
   "Alice",
   "alice@example.com",
 ]);
 
-const [result] = engine.execute("SELECT * FROM users");
+const [result] = await conn.exec("SELECT * FROM users");
 // result.type === "rows"
 // result.rows === [{ id: 1, name: "Alice", email: "alice@example.com" }]
 
-engine.close();
-```
-
-### Node.js
-
-```ts
-import { Engine } from "opfsql";
-import { NodeSyncStorage } from "opfsql/store/backend/node-storage.js";
-import { WalStorage } from "opfsql/store/wal/wal-storage.js";
-import { NodeFileHandle } from "opfsql/store/backend/node-storage.js";
-
-const main = new NodeSyncStorage("./data/my.db");
-const walHandle = new NodeFileHandle("./data/my.db-wal");
-const engine = await Engine.create(new WalStorage(main, walHandle));
-
-engine.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
-engine.close();
-```
-
-### Worker Bridge (main thread &rarr; worker)
-
-For use from the main thread, `WorkerEngine` provides an async RPC wrapper:
-
-```ts
-import { WorkerEngine } from "opfsql/worker";
-
-const engine = new WorkerEngine(new URL("./worker.ts", import.meta.url));
-await engine.open("my-db");
-
-const results = await engine.exec("SELECT 1 + 1 AS sum");
-// results[0].rows === [{ sum: 2 }]
-
+await conn.disconnect();
 await engine.close();
 ```
 
 ## API
 
-### `Engine`
+### `WorkerEngine`
 
-| Method                         | Returns             | Description                                       |
-| ------------------------------ | ------------------- | ------------------------------------------------- |
-| `Engine.open(dbName)`          | `Promise<Engine>`   | Open OPFS database with WAL (worker only)         |
-| `Engine.create(backend)`       | `Promise<Engine>`   | Create engine with custom storage backend         |
-| `engine.execute(sql, params?)` | `Result[]`          | Execute one or more SQL statements                |
-| `engine.prepare(sql)`          | `PreparedStatement` | Prepare a single statement for repeated execution |
-| `engine.close()`               | `void`              | Close the database                                |
+| Method                | Returns               | Description                       |
+| --------------------- | --------------------- | --------------------------------- |
+| `engine.open(dbName)` | `Promise<void>`       | Open database in worker           |
+| `engine.connect()`    | `Promise<Connection>` | Create a new connection (session) |
+| `engine.close()`      | `Promise<void>`       | Close the database                |
 
-### `PreparedStatement`
+### `Connection`
 
-| Method              | Returns  | Description                      |
-| ------------------- | -------- | -------------------------------- |
-| `stmt.run(params?)` | `Result` | Execute with optional parameters |
+| Method                    | Returns                            | Description                                       |
+| ------------------------- | ---------------------------------- | ------------------------------------------------- |
+| `conn.exec(sql, params?)` | `Promise<Result[]>`                | Execute one or more SQL statements                |
+| `conn.prepare(sql)`       | `Promise<RemotePreparedStatement>` | Prepare a single statement for repeated execution |
+| `conn.getSchema()`        | `Promise<CatalogData>`             | Get current database schema                       |
+| `conn.disconnect()`       | `Promise<void>`                    | Close the connection                              |
+
+### `RemotePreparedStatement`
+
+| Method              | Returns           | Description                      |
+| ------------------- | ----------------- | -------------------------------- |
+| `stmt.run(params?)` | `Promise<Result>` | Execute with optional parameters |
+| `stmt.free()`       | `Promise<void>`   | Release the prepared statement   |
 
 ### `Result`
 
 ```ts
-interface Result {
-  type: "rows" | "ok";
-  rows?: Row[]; // SELECT results
-  rowsAffected?: number; // INSERT/UPDATE/DELETE count
-}
+type Result =
+  | { type: "rows"; rows: Row[] }
+  | { type: "ok"; rowsAffected: number };
 
 type Row = Record<string, Value>;
 type Value = string | number | boolean | null | JsonValue | Uint8Array;
@@ -101,7 +74,7 @@ type Value = string | number | boolean | null | JsonValue | Uint8Array;
 Use `$1`, `$2`, etc. for parameterized queries:
 
 ```ts
-engine.execute("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"]);
+await conn.exec("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"]);
 ```
 
 ## Supported SQL
@@ -182,51 +155,30 @@ engine.execute("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"]);
 ## Architecture
 
 ```
-SQL string
-  │
-  ▼
-┌────────┐   ┌────────┐   ┌───────────┐   ┌──────────┐
-│ Lexer  │──▶│ Parser │──▶│  Binder   │──▶│Optimizer │
-└────────┘   └────────┘   └───────────┘   └──────────┘
-                                               │
-                                               ▼
-                                         ┌──────────┐
-                                         │ Executor │
-                                         └────┬─────┘
-                                              │
-                              ┌───────────────┼───────────────┐
-                              ▼               ▼               ▼
-                        ┌──────────┐   ┌───────────-┐   ┌───────────┐
-                        │RowManager│   │IndexManager│   │  Catalog  │
-                        └────┬─────┘   └─────┬─────-┘   └───────────┘
-                             │               │
-                             ▼               ▼
-                       ┌──────────┐   ┌──────────┐
-                       │TableBTree│   │IndexBTree│
-                       └────┬─────┘   └─────┬────┘
-                            │               │
-                            ▼               ▼
-                       ┌─────────────────────────┐
-                       │       PageStore         │
-                       │  (WAL + page cache)     │
-                       └────────────┬────────────┘
-                                    │
-                          ┌─────────┴─────────┐
-                          ▼                   ▼
-                    ┌──────────┐        ┌──────────┐
-                    │   OPFS   │        │ Node.js  │
-                    │ (browser)│        │  (fs)    │
-                    └──────────┘        └──────────┘
+Lexer --> Parser --> Binder --> Optimizer --> Executor
+                       |                        |
+                    Catalog              +------+------+
+                                         |             |
+                                     RowManager   IndexManager
+                                         |             |
+                                     TableBTree   IndexBTree
+                                         |             |
+                                         +------+------+
+                                                |
+                                            PageStore
+                                        (WAL + page cache)
+                                                |
+                                              OPFS
 ```
 
 - **Lexer / Parser** — SQL text to AST
 - **Binder** — resolves names, types, and constraints against the catalog
-- **Optimizer** — rewrites logical plan (predicate pushdown, index selection)
+- **Optimizer** — rewrites logical plan (predicate pushdown, join reordering, index selection)
 - **Executor** — pull-based iterator model (volcano), executes physical operators
 - **RowManager / IndexManager** — logical layer over B-trees, handles row CRUD and index maintenance
 - **TableBTree / IndexBTree** — B+ trees for row storage (keyed by rowId) and secondary indexes (composite keys → rowId buckets)
 - **PageStore** — page-level I/O with LRU cache and WAL for crash safety
-- **Storage backends** — OPFS (synchronous access handle in workers) or Node.js filesystem
+- **OPFS** — Origin Private File System (synchronous access handle in workers)
 
 ## Not Supported (vs SQLite)
 
