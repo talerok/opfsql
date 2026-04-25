@@ -2,19 +2,22 @@ import { resetMockOPFS } from 'opfs-mock';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableBTree } from '../table-btree.js';
 import type { TableBTreeMeta, TableLeafNode } from '../table-btree.js';
-import { SyncPageStore } from '../page-manager.js';
+import { Storage } from '../storage.js';
+import type { SessionStore } from '../session-store.js';
 import { OPFSSyncStorage } from '../backend/opfs-storage.js';
+import type { SyncIPageStore } from '../types.js';
 
 let seq = 0;
 
-async function createStore(): Promise<SyncPageStore> {
+async function createStore(): Promise<SessionStore> {
   const s = new OPFSSyncStorage(`tbt-test-${seq++}`);
-  await s.open();
-  return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
+  const storage = new Storage(s);
+  await storage.open();
+  return storage.createSession();
 }
 
 /** Allocate meta + root leaf pages and return a ready-to-use tree. */
-function createTree(ps: SyncPageStore): { tree: SyncTableBTree; metaPageNo: number } {
+function createTree(ps: SyncIPageStore): { tree: SyncTableBTree; metaPageNo: number } {
   const metaPageNo = ps.allocPage();
   const rootPageNo = ps.allocPage();
   const leaf: TableLeafNode = { kind: 'leaf', nodeId: rootPageNo, keys: [], values: [], nextLeafId: null };
@@ -25,7 +28,7 @@ function createTree(ps: SyncPageStore): { tree: SyncTableBTree; metaPageNo: numb
 }
 
 describe('SyncTableBTree', () => {
-  let ps: SyncPageStore;
+  let ps: SessionStore;
   let tree: SyncTableBTree;
   let metaPageNo: number;
 

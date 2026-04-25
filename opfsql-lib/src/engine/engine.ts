@@ -1,7 +1,6 @@
 import { Parser } from "../parser/index.js";
 import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
 import { Catalog } from "../store/catalog.js";
-import { SessionPageStore } from "../store/page-manager.js";
 import { Storage } from "../store/storage.js";
 import type { CatalogData, SyncIPageStorage } from "../store/types.js";
 import { WalStorage } from "../store/wal/wal-storage.js";
@@ -43,7 +42,7 @@ export class Engine {
     const storage = new Storage(backend);
     await storage.open();
     const engine = new Engine(storage);
-    engine.catalog = Catalog.fromStorage(storage.pageStore);
+    engine.catalog = engine.readCatalog();
     return engine;
   }
 
@@ -52,7 +51,7 @@ export class Engine {
   // -------------------------------------------------------------------------
 
   createSession(): Session {
-    const ps = new SessionPageStore(this.storage.pageStore);
+    const sessionStore = this.storage.createSession();
 
     const acquireLock = async () => {
       if (this.dbName) await this.acquireWebLock();
@@ -70,13 +69,13 @@ export class Engine {
     };
 
     const session: Session = new Session(
-      ps,
+      sessionStore,
       this.parser,
-      acquireLock,
-      releaseLock,
+      () => acquireLock(),
+      () => releaseLock(),
       () => this.catchUp(),
       () => this.catalog,
-      (data) => onCommit(data),
+      (d) => onCommit(d),
     );
     return session;
   }
@@ -85,10 +84,14 @@ export class Engine {
     if (this.writeLockHolder !== null) {
       return;
     }
-    if (this.storage.catchUp()) {
-      const pageStore = this.storage.pageStore;
-      this.catalog = Catalog.fromStorage(pageStore);
+    if (this.storage.catchUp()?.catalog) {
+      this.catalog = this.readCatalog();
     }
+  }
+
+  private readCatalog(): Catalog {
+    const data = this.storage.readCatalog();
+    return data ? Catalog.deserialize(data) : new Catalog();
   }
 
   checkpoint(): void {

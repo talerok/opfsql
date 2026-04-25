@@ -2,7 +2,8 @@ import { resetMockOPFS } from 'opfs-mock';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { IndexKey } from '../index-btree/types.js';
 import { SyncIndexManager } from '../index-manager.js';
-import { SyncPageStore } from '../page-manager.js';
+import { Storage } from '../storage.js';
+import type { SessionStore } from '../session-store.js';
 import type { ICatalog, IndexDef, RowId } from '../types.js';
 import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 import { Catalog } from '../catalog.js';
@@ -14,15 +15,16 @@ function rid(a: number, b: number): RowId {
 }
 
 describe('SyncIndexManager', () => {
-  let ps: SyncPageStore;
+  let ps: SessionStore;
   let catalog: Catalog;
   let im: SyncIndexManager;
 
   beforeEach(async () => {
     resetMockOPFS();
-    const s = new OPFSSyncStorage(`im-test-${seq++}`);
-    await s.open();
-    ps = new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
+    const backend = new OPFSSyncStorage(`im-test-${seq++}`);
+    const storage = new Storage(backend);
+    await storage.open();
+    ps = storage.createSession();
     catalog = new Catalog();
     im = new SyncIndexManager(ps, () => catalog);
 

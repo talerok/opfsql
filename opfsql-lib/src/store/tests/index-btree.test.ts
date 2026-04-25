@@ -2,8 +2,9 @@ import { resetMockOPFS } from 'opfs-mock';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SyncBTree } from '../index-btree/index-btree.js';
 import type { IndexKey } from '../index-btree/types.js';
-import { SyncPageStore } from '../page-manager.js';
-import type { RowId } from '../types.js';
+import { Storage } from '../storage.js';
+import type { SessionStore } from '../session-store.js';
+import type { RowId, SyncIPageStore } from '../types.js';
 import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 
 let seq = 0;
@@ -12,14 +13,15 @@ function rid(a: number, b: number): RowId {
   return a * 1000 + b;
 }
 
-async function createStore(): Promise<SyncPageStore> {
+async function createStore(): Promise<SessionStore> {
   const s = new OPFSSyncStorage(`ibt-test-${seq++}`);
-  await s.open();
-  return new SyncPageStore(s, s.getNextPageId(), s.readPage<number[]>(2) ?? []);
+  const storage = new Storage(s);
+  await storage.open();
+  return storage.createSession();
 }
 
 /** Create an initialized (empty) index tree. */
-function createTree(ps: SyncPageStore, unique = false): SyncBTree {
+function createTree(ps: SyncIPageStore, unique = false): SyncBTree {
   const metaPageNo = ps.allocPage();
   const tree = new SyncBTree(metaPageNo, ps, unique);
   tree.bulkLoad([]);
@@ -27,7 +29,7 @@ function createTree(ps: SyncPageStore, unique = false): SyncBTree {
 }
 
 describe('SyncBTree', () => {
-  let ps: SyncPageStore;
+  let ps: SessionStore;
   let tree: SyncBTree;
 
   beforeEach(async () => {

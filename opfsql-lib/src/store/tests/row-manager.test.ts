@@ -1,29 +1,31 @@
 import { resetMockOPFS } from 'opfs-mock';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncTableManager } from '../table-manager.js';
-import { SyncPageStore } from '../page-manager.js';
+import { Storage } from '../storage.js';
+import type { SessionStore } from '../session-store.js';
 import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 import { Catalog } from '../catalog.js';
 import type { ICatalog, TableSchema } from '../types.js';
 
 let seq = 0;
 
-async function createStore(): Promise<{ storage: OPFSSyncStorage; ps: SyncPageStore }> {
-  const storage = new OPFSSyncStorage(`rm-test-${seq++}`);
+async function createStoreAndSession(): Promise<{ backend: OPFSSyncStorage; storage: Storage; ps: SessionStore }> {
+  const backend = new OPFSSyncStorage(`rm-test-${seq++}`);
+  const storage = new Storage(backend);
   await storage.open();
-  const ps = new SyncPageStore(storage, storage.getNextPageId(), storage.readPage<number[]>(2) ?? []);
-  return { storage, ps };
+  return { backend, storage, ps: storage.createSession() };
 }
 
 describe('SyncTableManager (row operations via SyncTableBTree)', () => {
-  let storage: OPFSSyncStorage;
-  let ps: SyncPageStore;
+  let backend: OPFSSyncStorage;
+  let storage: Storage;
+  let ps: SessionStore;
   let catalog: Catalog;
   let rm: SyncTableManager;
 
   beforeEach(async () => {
     resetMockOPFS();
-    ({ storage, ps } = await createStore());
+    ({ backend, storage, ps } = await createStoreAndSession());
     catalog = new Catalog();
     rm = new SyncTableManager(ps, () => catalog);
 
@@ -174,9 +176,9 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
       const rowId = rm.prepareInsert('t1', { id: 1, val: 'persisted' });
       ps.commit();
 
-      // Create a fresh manager pointing to same storage
-      const ps2 = new SyncPageStore(storage, storage.getNextPageId(), storage.readPage<number[]>(2) ?? []);
-      const rm2 = new SyncTableManager(ps2, () => catalog);
+      // Create a fresh manager pointing to same backend
+      const ss2 = storage.createSession();
+      const rm2 = new SyncTableManager(ss2, () => catalog);
       expect(rm2.readRow('t1', rowId)).toEqual({ id: 1, val: 'persisted' });
     });
 

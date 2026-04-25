@@ -56,8 +56,8 @@ export interface SyncIPageStorage {
   flush(): void;
   /** Shrink backing file to match nextPageId. Safe only after flush(). */
   truncateToSize?(): void;
-  /** Catch up with changes made by other writers. Returns true if state changed. */
-  catchUp?(): boolean;
+  /** Catch up with changes made by other writers. Returns set of changed page numbers, or null if nothing changed. */
+  catchUp?(): Set<number> | null;
   /** Merge WAL into main DB and reset WAL. */
   checkpoint?(): void;
 }

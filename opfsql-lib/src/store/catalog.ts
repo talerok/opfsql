@@ -2,11 +2,8 @@ import type {
   CatalogData,
   ICatalog,
   IndexDef,
-  SyncIPageStore,
   TableSchema,
 } from "./types.js";
-
-const CATALOG_PAGE_NO = 1;
 
 export class Catalog implements ICatalog {
   private _version = 0;
@@ -74,10 +71,9 @@ export class Catalog implements ICatalog {
     this.indexes.delete(this.key(name));
   }
 
-  writeTo(ps: SyncIPageStore): void {
+  prepareCommit(): CatalogData {
     this._version++;
-    const data = this.serialize();
-    ps.writePage(CATALOG_PAGE_NO, data);
+    return this.serialize();
   }
 
   serialize(): CatalogData {
@@ -105,10 +101,5 @@ export class Catalog implements ICatalog {
     return catalog;
   }
 
-  static fromStorage(ps: SyncIPageStore): Catalog {
-    const data = ps.readPage<CatalogData>(CATALOG_PAGE_NO);
-    if (!data) return new Catalog();
-    return Catalog.deserialize(data);
-  }
 }
 

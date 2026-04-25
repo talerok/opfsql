@@ -507,7 +507,8 @@ describe('WalStorage', () => {
 
       // After catchUp, reader sees it
       const changed = reader.catchUp();
-      expect(changed).toBe(true);
+      expect(changed).not.toBeNull();
+      expect(changed!.has(5)).toBe(true);
       expect(reader.readPage(5)).toBe('second-write');
       expect(reader.getNextPageId()).toBe(6);
     });
@@ -534,7 +535,8 @@ describe('WalStorage', () => {
 
       // Reader catches up — detects epoch change, rebuilds
       const changed = reader.catchUp();
-      expect(changed).toBe(true);
+      expect(changed).not.toBeNull();
+      expect(changed!.has(3)).toBe(true);
       expect(reader.readPage(3)).toBe('v2');
       expect(reader.getEpoch()).toBe(1);
     });
@@ -549,9 +551,9 @@ describe('WalStorage', () => {
       wal.writeHeader(4);
       wal.flush();
 
-      // No new writes — catchUp returns false
+      // No new writes — catchUp returns null
       const changed = wal.catchUp();
-      expect(changed).toBe(false);
+      expect(changed).toBeNull();
     });
 
     it('does not see uncommitted frames from concurrent writer', async () => {
@@ -576,34 +578,31 @@ describe('WalStorage', () => {
     });
   });
 
-  describe('integration with SyncPageStore', () => {
-    it('full cycle: SyncPageStore → WalStorage → OPFSSyncStorage', async () => {
-      const { SyncPageStore } = await import('../page-manager.js');
+  describe('integration with Storage + SessionStore', () => {
+    it('full cycle: SessionStore → Storage → WalStorage → OPFSSyncStorage', async () => {
+      const { Storage } = await import('../storage.js');
 
       const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const walStorage = new WalStorage(main, walHandle);
       await walStorage.open();
 
-      const freeList = walStorage.readPage<number[]>(2) ?? [];
-      const ps = new SyncPageStore(
-        walStorage,
-        walStorage.getNextPageId(),
-        freeList,
-      );
+      const storage = new Storage(walStorage);
+      await storage.open();
+      const ss = storage.createSession();
 
-      // Allocate and write via SyncPageStore
-      const p1 = ps.allocPage();
-      ps.writePage(p1, { row: 'hello' });
-      ps.commit();
+      // Allocate and write via SessionStore
+      const p1 = ss.allocPage();
+      ss.writePage(p1, { row: 'hello' });
+      ss.commit();
 
       // Data should be readable
       expect(walStorage.readPage(p1)).toEqual({ row: 'hello' });
 
       // Rollback should discard
-      const p2 = ps.allocPage();
-      ps.writePage(p2, { row: 'rolled-back' });
-      ps.rollback();
+      const p2 = ss.allocPage();
+      ss.writePage(p2, { row: 'rolled-back' });
+      ss.rollback();
 
       expect(walStorage.readPage(p2)).toBeNull();
 

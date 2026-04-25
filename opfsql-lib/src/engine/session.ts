@@ -12,11 +12,11 @@ import {
 } from "../parser/types.js";
 import { Catalog } from "../store/catalog.js";
 import { SyncIndexManager } from "../store/index-manager.js";
+import type { SessionStore } from "../store/session-store.js";
 import { SyncTableManager } from "../store/table-manager.js";
 import type {
   CatalogData,
   SyncIIndexManager,
-  SyncIPageStore,
   SyncIRowManager,
 } from "../store/types.js";
 import type { Value } from "../types.js";
@@ -59,7 +59,7 @@ export class Session {
   private holdingWriteLock = false;
 
   constructor(
-    private pageStore: SyncIPageStore,
+    private sessionStore: SessionStore,
     private parser: Parser,
     private readonly acquireWriteLock: () => Promise<void> | void,
     private readonly releaseWriteLock: () => void,
@@ -68,8 +68,8 @@ export class Session {
     private readonly onCatalogCommit: (data: CatalogData) => void,
   ) {
     this.refreshCatalog();
-    this.rowManager = new SyncTableManager(pageStore, () => this.catalog);
-    this.indexManager = new SyncIndexManager(pageStore, () => this.catalog);
+    this.rowManager = new SyncTableManager(sessionStore, () => this.catalog);
+    this.indexManager = new SyncIndexManager(sessionStore, () => this.catalog);
   }
 
   // -------------------------------------------------------------------------
@@ -94,15 +94,17 @@ export class Session {
     if (stmts.length !== 1) {
       throw new EngineError("prepare() requires exactly one statement");
     }
+
     const stmt = stmts[0];
     const preparedVersion = this.getCatalog().version;
     return new PreparedStatement((params) => {
-      if (this.getCatalog().version !== preparedVersion) {
-        throw new EngineError(
-          "prepared statement is stale: schema has changed since prepare()",
-        );
+      if (this.getCatalog().version === preparedVersion) {
+        return this.executeOne(stmt, params);
       }
-      return this.executeOne(stmt, params);
+
+      throw new EngineError(
+        "prepared statement is stale: schema has changed since prepare()",
+      );
     });
   }
 
@@ -115,7 +117,7 @@ export class Session {
   close(): void {
     if (this.inTransaction) this.rollbackTransaction();
     this.tryReleaseWriteLock();
-    this.pageStore = null!;
+    this.sessionStore = null!;
     this.parser = null!;
     this.catalog = null!;
     this.binder = null!;
@@ -158,7 +160,7 @@ export class Session {
           this.commitCatalog();
         }
 
-        this.pageStore.commit();
+        this.sessionStore.commit();
         this.catalogSnapshot = null;
         this.catalogDirty = false;
         this.tryReleaseWriteLock();
@@ -166,7 +168,7 @@ export class Session {
 
       return result;
     } catch (err) {
-      this.pageStore.rollback();
+      this.sessionStore.rollback();
       this.restoreCatalog();
       this.catalogDirty = false;
 
@@ -230,7 +232,7 @@ export class Session {
       this.commitCatalog();
     }
 
-    this.pageStore.commit();
+    this.sessionStore.commit();
     this.endTransaction();
     return { type: "ok", rowsAffected: 0 };
   }
@@ -241,7 +243,7 @@ export class Session {
     }
 
     if (!this.transactionAborted) {
-      this.pageStore.rollback();
+      this.sessionStore.rollback();
       this.restoreCatalog();
     }
 
@@ -340,7 +342,8 @@ export class Session {
   }
 
   private commitCatalog(): void {
-    this.catalog.writeTo(this.pageStore);
-    this.onCatalogCommit(this.catalog.serialize());
+    const data = this.catalog.prepareCommit();
+    this.sessionStore.writeCatalog(data);
+    this.onCatalogCommit(data);
   }
 }

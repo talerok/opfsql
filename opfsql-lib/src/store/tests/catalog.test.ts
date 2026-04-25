@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Catalog } from '../catalog.js';
-import type { TableSchema, IndexDef, SyncIPageStore } from '../types.js';
+import type { TableSchema, IndexDef } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -207,38 +207,28 @@ describe('Catalog', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Catalog.fromStorage / Catalog.writeTo
+// Catalog.prepareCommit
 // ---------------------------------------------------------------------------
 
-describe('Catalog.fromStorage', () => {
-  it('returns empty catalog when page is null', () => {
-    const ps = { readPage: vi.fn(() => null) } as unknown as SyncIPageStore;
-    const c = Catalog.fromStorage(ps);
-    expect(c.getAllTables()).toEqual([]);
-  });
-
-  it('deserializes from stored page', () => {
-    const data = {
-      tables: [usersSchema],
-      indexes: [idxUsersId],
-    };
-    const ps = { readPage: vi.fn(() => data) } as unknown as SyncIPageStore;
-    const c = Catalog.fromStorage(ps);
-    expect(c.hasTable('users')).toBe(true);
-    expect(c.hasIndex('idx_users_id')).toBe(true);
-  });
-});
-
-describe('Catalog.writeTo', () => {
-  it('bumps version and writes serialized catalog to page 1', () => {
+describe('Catalog.prepareCommit', () => {
+  it('bumps version and returns serialized data', () => {
     const c = new Catalog();
     c.addTable(usersSchema);
-    const ps = { writePage: vi.fn() } as unknown as SyncIPageStore;
-    c.writeTo(ps);
-    expect(ps.writePage).toHaveBeenCalledWith(1, {
+    expect(c.version).toBe(0);
+
+    const data = c.prepareCommit();
+    expect(c.version).toBe(1);
+    expect(data).toEqual({
       version: 1,
       tables: [usersSchema],
       indexes: [],
     });
+  });
+
+  it('version increments on each call', () => {
+    const c = new Catalog();
+    c.prepareCommit();
+    c.prepareCommit();
+    expect(c.version).toBe(2);
   });
 });

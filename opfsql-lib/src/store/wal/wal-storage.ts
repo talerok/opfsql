@@ -186,30 +186,31 @@ export class WalStorage implements SyncIPageStorage {
   // Catch-up — read changes made by other writers
   // -------------------------------------------------------------------------
 
-  /** Check if WAL has changed and catch up. Returns true if state changed. */
-  catchUp(): boolean {
+  /** Check if WAL has changed and catch up. Returns set of changed page numbers, or null if nothing changed. */
+  catchUp(): Set<number> | null {
     const fileEpoch = this.readEpochFromFile();
-    let changed = false;
+    const epochChanged = fileEpoch !== this.epoch;
 
-    if (fileEpoch !== this.epoch) {
-      // Checkpoint happened — full rebuild
-      this.walIndex.clear();
-      this.walOffset = WAL_HEADER_SIZE;
-      this.walFrameCount = 0;
-      this.epoch = fileEpoch;
-      // Re-read nextPageId from main DB (checkpoint updated it)
-      this.nextPageId = this.main.getNextPageId();
-      changed = true;
+    if (epochChanged) {
+      this.resetAfterCheckpoint(fileEpoch);
     }
 
-    // Incremental: read new frames from walOffset to end
     const walSize = this.walHandle.getSize();
-    if (walSize > this.walOffset) {
-      this.readFramesFrom(this.walOffset, walSize);
-      changed = true;
-    }
+    const hasNewFrames = walSize > this.walOffset;
 
-    return changed;
+    if (!epochChanged && !hasNewFrames) return null;
+
+    return hasNewFrames
+      ? this.readFramesFrom(this.walOffset, walSize)
+      : new Set<number>();
+  }
+
+  private resetAfterCheckpoint(newEpoch: number): void {
+    this.walIndex.clear();
+    this.walOffset = WAL_HEADER_SIZE;
+    this.walFrameCount = 0;
+    this.epoch = newEpoch;
+    this.nextPageId = this.main.getNextPageId();
   }
 
   // -------------------------------------------------------------------------
@@ -219,7 +220,7 @@ export class WalStorage implements SyncIPageStorage {
   private recover(): void {
     this.readAndVerifyHeader();
     const fileSize = this.walHandle.getSize();
-    this.readFramesFrom(WAL_HEADER_SIZE, fileSize);
+    this.readFramesFrom(WAL_HEADER_SIZE, fileSize); // return value unused during recovery
   }
 
   private readAndVerifyHeader(): void {
@@ -245,8 +246,9 @@ export class WalStorage implements SyncIPageStorage {
    * Read frames from startOffset to endOffset.
    * Only advances walOffset to the end of the last valid commit record.
    * Updates walIndex, nextPageId, currentTxId, walFrameCount.
+   * Returns set of committed page numbers.
    */
-  private readFramesFrom(startOffset: number, endOffset: number): void {
+  private readFramesFrom(startOffset: number, endOffset: number): Set<number> {
     let offset = startOffset;
 
     // Two-pass: first collect all frames, then filter by committed txIds
@@ -256,6 +258,7 @@ export class WalStorage implements SyncIPageStorage {
       txId: number;
       payload: Uint8Array;
     }> = [];
+
     let lastCommittedNextPageId = this.nextPageId;
     let lastCommitEnd = startOffset;
 
@@ -304,10 +307,12 @@ export class WalStorage implements SyncIPageStorage {
     }
 
     // Build walIndex from committed frames only (in order, latest wins)
+    const changedPages = new Set<number>();
     for (const frame of allFrames) {
       if (committedTxIds.has(frame.txId)) {
         this.walIndex.set(frame.pageNo, decode(frame.payload));
         this.walFrameCount++;
+        changedPages.add(frame.pageNo);
       }
     }
 
@@ -317,6 +322,7 @@ export class WalStorage implements SyncIPageStorage {
     }
     // Only advance offset to end of last valid commit record
     this.walOffset = lastCommitEnd;
+    return changedPages;
   }
 
   // -------------------------------------------------------------------------
