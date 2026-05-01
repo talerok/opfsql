@@ -31,13 +31,13 @@ jobs:
       - name: Install & build benchmark
         working-directory: benchmark
         run: |
-          npm ci
+          npm install
           BASE_PATH=/opfsql/benchmark/ npm run build
 
       - name: Install & build client
         working-directory: client
         run: |
-          npm ci
+          npm install
           BASE_PATH=/opfsql/client/ npm run build
 
       - name: Assemble site
