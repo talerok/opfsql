@@ -37,7 +37,7 @@ jobs:
       - name: Install & build client
         working-directory: client
         run: |
-          npm install
+          npm ci
           BASE_PATH=/opfsql/client/ npm run build
 
       - name: Assemble site
