@@ -17,5 +17,8 @@
     "alasql": "^4.0.0",
     "cbor-x": "^1.6.4",
     "wa-sqlite": "^1.0.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "*"
   }
 }
