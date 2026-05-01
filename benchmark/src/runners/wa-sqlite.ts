@@ -1,6 +1,6 @@
 import type { BenchmarkRunner, OrderRow, Row } from "../types.js";
 
-const WORKER_URL = new URL("./wa-sqlite-worker.ts", import.meta.url);
+import waWorkerUrl from './wa-sqlite-worker.ts?worker&url';
 
 let worker: Worker;
 let msgId = 0;
@@ -10,7 +10,7 @@ const pending = new Map<
 >();
 
 function initWorker() {
-  worker = new Worker(WORKER_URL, { type: "module" });
+  worker = new Worker(waWorkerUrl, { type: "module" });
   worker.onmessage = (e: MessageEvent) => {
     const { id, ok, rows, stmtId, error } = e.data;
     const p = pending.get(id);

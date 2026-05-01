@@ -6,8 +6,9 @@
   import DbDialog from './DbDialog.svelte';
   import SchemaSidebar from './SchemaSidebar.svelte';
 
+  import workerUrl from '../../opfsql-lib/src/worker/worker.ts?worker&url';
+
   const STORAGE_KEY = 'opfsql-db';
-  const WORKER_URL = new URL('../../opfsql-lib/src/worker/worker.ts', import.meta.url);
 
   let engine: WorkerEngine | null = $state(null);
   let conn: Connection | null = $state(null);
@@ -35,7 +36,7 @@
     status = 'Opening…';
     if (conn) { await conn.disconnect(); conn = null; }
     if (engine) { await engine.close(); }
-    engine = new WorkerEngine(WORKER_URL);
+    engine = new WorkerEngine(workerUrl);
     await engine.open(name);
     conn = await engine.connect();
     currentDb = name;

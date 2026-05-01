@@ -1,9 +1,9 @@
 import { WorkerEngine, type Connection, RemotePreparedStatement } from '../../../opfsql-lib/src/worker/client.js';
 import type { BenchmarkRunner, Row, OrderRow } from '../types.js';
 
-const DB_NAME = 'bench-opfsql';
+import workerUrl from '../../../opfsql-lib/src/worker/worker.ts?worker&url';
 
-const WORKER_URL = new URL('../../../opfsql-lib/src/worker/worker.ts', import.meta.url);
+const DB_NAME = 'bench-opfsql';
 
 async function cleanOpfs() {
   const root = await navigator.storage.getDirectory();
@@ -23,7 +23,7 @@ export function createOpfsqlRunner(): BenchmarkRunner {
 
     async setup() {
       await cleanOpfs();
-      engine = new WorkerEngine(WORKER_URL);
+      engine = new WorkerEngine(workerUrl);
       await engine.open(DB_NAME);
       conn = await engine.connect();
       await conn.exec(`
@@ -78,7 +78,7 @@ export function createOpfsqlRunner(): BenchmarkRunner {
 
     async setupComplex(productRows: Row[], orderRows: OrderRow[]) {
       await cleanOpfs();
-      engine = new WorkerEngine(WORKER_URL);
+      engine = new WorkerEngine(workerUrl);
       await engine.open(DB_NAME);
       conn = await engine.connect();
 
