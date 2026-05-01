@@ -24,6 +24,10 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install opfsql-lib dependencies
+        working-directory: opfsql-lib
+        run: npm ci
+
       - name: Install & build benchmark
         working-directory: benchmark
         run: |
