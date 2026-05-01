@@ -2,6 +2,8 @@
 
 Lightweight SQL engine written in TypeScript. ~40 KB gzipped, zero native dependencies. Runs in browser workers via OPFS.
 
+[Live Client](https://talerok.github.io/opfsql/client/) | [Benchmark](https://talerok.github.io/opfsql/benchmark/)
+
 ## Quick Start
 
 ```ts
