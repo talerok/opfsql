@@ -3,5 +3,3 @@ coverage/
 dist/
 *.tsbuildinfo
 test-results/
-client/package-lock.json
-benchmark/package-lock.json
