@@ -14,7 +14,7 @@ export class PhysicalProjection implements SyncPhysicalOperator {
     private readonly ctx: SyncEvalContext,
   ) {
     this.resolver = buildResolver(child.getLayout());
-    this.layout = op.getColumnBindings();
+    this.layout = op.columnBindings;
   }
 
   getLayout(): ColumnBinding[] {

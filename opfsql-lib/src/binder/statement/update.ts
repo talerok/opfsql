@@ -1,11 +1,11 @@
-import type { UpdateStatement } from '../../parser/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import { requireTable } from '../core/utils/require-table.js';
-import { findColumnIndexOrThrow } from '../core/utils/find-column.js';
-import { makeGet, makeFilter } from '../core/operators.js';
-import { bindExpression } from '../expression/index.js';
+import type { UpdateStatement } from "../../parser/types.js";
+import type { BindContext } from "../core/context.js";
+import { makeFilter, makeGet } from "../core/operators.js";
+import { findColumnIndexOrThrow } from "../core/utils/find-column.js";
+import { requireTable } from "../core/utils/require-table.js";
+import { bindExpression } from "../expression/index.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
 
 export function bindUpdate(
   ctx: BindContext,
@@ -38,6 +38,6 @@ export function bindUpdate(
     expressions,
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }

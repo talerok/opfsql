@@ -1,17 +1,17 @@
-import type { SetOperationNode, OrderByNode } from '../../parser/types.js';
-import { ResultModifierType } from '../../parser/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import { BindError } from '../core/errors.js';
-import type { BindContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { checkTypeCompatibility } from '../core/type-check.js';
-import { makeOrderBy, makeLimit } from '../core/operators.js';
-import { evalConstantInt } from '../core/utils/eval-constant.js';
-import { bindExpression } from '../expression/index.js';
-import { bindSelect } from './select.js';
-import { bindQueryNode } from './query-node.js';
-import { collectCTEs } from './cte.js';
+import type { OrderByNode, SetOperationNode } from "../../parser/types.js";
+import { ResultModifierType } from "../../parser/types.js";
+import type { BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
+import { makeLimit, makeOrderBy } from "../core/operators.js";
+import type { BindScope } from "../core/scope.js";
+import { checkTypeCompatibility } from "../core/type-check.js";
+import { evalConstantInt } from "../core/utils/eval-constant.js";
+import { bindExpression } from "../expression/index.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
+import { collectCTEs } from "./cte.js";
+import { bindQueryNode } from "./query-node.js";
+import { bindSelect } from "./select.js";
 
 export function bindSetOperation(
   ctx: BindContext,
@@ -37,11 +37,11 @@ export function bindSetOperation(
   let plan: BT.LogicalOperator = {
     type: LogicalOperatorType.LOGICAL_UNION,
     children: [left, right],
-    all: node.set_op_type === 'UNION_ALL',
+    all: node.set_op_type === "UNION_ALL",
     expressions: [],
     types: left.types,
     estimatedCardinality: 0,
-    getColumnBindings: () => left.getColumnBindings(),
+    columnBindings: left.columnBindings,
   } satisfies BT.LogicalUnion;
 
   for (const mod of node.modifiers) {
@@ -69,7 +69,7 @@ export function bindSetOperation(
       expressions: [],
       types: innerPlan.types,
       estimatedCardinality: 0,
-      getColumnBindings: () => innerPlan.getColumnBindings(),
+      columnBindings: innerPlan.columnBindings,
     } satisfies BT.LogicalMaterializedCTE;
   }
 

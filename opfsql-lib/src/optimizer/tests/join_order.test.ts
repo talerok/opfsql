@@ -105,7 +105,7 @@ describe("JoinOrderOptimizer — edge cases", () => {
     expect(getAllGets(optimized)).toHaveLength(3);
   });
 
-  it("reconstructed join tree has working getColumnBindings", () => {
+  it("reconstructed join tree has working columnBindings", () => {
     const plan = bind(
       "SELECT * FROM users JOIN orders ON users.id = orders.user_id JOIN products ON products.id = orders.user_id",
     );
@@ -119,7 +119,7 @@ describe("JoinOrderOptimizer — edge cases", () => {
     const pushed2 = pushdownFilters(pulled);
     const optimized = optimizeJoinOrder(pushed2);
 
-    const bindings = optimized.getColumnBindings();
+    const bindings = optimized.columnBindings;
     expect(bindings.length).toBeGreaterThan(0);
   });
 

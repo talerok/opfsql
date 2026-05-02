@@ -1,20 +1,19 @@
 import type {
-  LogicalOperator,
-  LogicalFilter,
-  LogicalComparisonJoin,
+  BoundComparisonExpression,
   BoundExpression,
   BoundSubqueryExpression,
-  BoundComparisonExpression,
-  BoundColumnRefExpression,
   JoinCondition,
-} from '../binder/types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
+  LogicalComparisonJoin,
+  LogicalFilter,
+  LogicalOperator,
+} from "../binder/types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../binder/types.js";
 import {
   flattenConjunction,
-  makeConjunction,
   getExpressionTables,
   getOperatorTables,
-} from './utils/index.js';
+  makeConjunction,
+} from "./utils/index.js";
 
 // ============================================================================
 // Decorrelate EXISTS / NOT EXISTS subqueries into SEMI / ANTI joins.
@@ -45,11 +44,12 @@ export function decorrelateExists(plan: LogicalOperator): LogicalOperator {
   const parts = flattenConjunction(condition);
 
   // Find EXISTS/NOT_EXISTS subquery expressions in the AND-flattened conditions
-  const existsParts: Array<{ index: number; expr: BoundSubqueryExpression }> = [];
+  const existsParts: Array<{ index: number; expr: BoundSubqueryExpression }> =
+    [];
   for (let i = 0; i < parts.length; i++) {
     if (parts[i].expressionClass === BoundExpressionClass.BOUND_SUBQUERY) {
       const sq = parts[i] as BoundSubqueryExpression;
-      if (sq.subqueryType === 'EXISTS' || sq.subqueryType === 'NOT_EXISTS') {
+      if (sq.subqueryType === "EXISTS" || sq.subqueryType === "NOT_EXISTS") {
         existsParts.push({ index: i, expr: sq });
       }
     }
@@ -80,7 +80,7 @@ export function decorrelateExists(plan: LogicalOperator): LogicalOperator {
         expressions: [remaining],
         types: result.types,
         estimatedCardinality: 0,
-        getColumnBindings: () => result.getColumnBindings(),
+        columnBindings: result.columnBindings,
       } satisfies LogicalFilter;
     }
   }
@@ -116,9 +116,10 @@ function tryDecorrelate(
 
     if (touchesOuter && touchesInner) {
       // Must be an equality comparison for hash join
-      if (pred.expressionClass !== BoundExpressionClass.BOUND_COMPARISON) return null;
+      if (pred.expressionClass !== BoundExpressionClass.BOUND_COMPARISON)
+        return null;
       const cmp = pred as BoundComparisonExpression;
-      if (cmp.comparisonType !== 'EQUAL') return null;
+      if (cmp.comparisonType !== "EQUAL") return null;
       correlated.push(cmp);
     } else {
       uncorrelated.push(pred);
@@ -137,9 +138,17 @@ function tryDecorrelate(
     const rightIsOuter = setOverlaps(rightTables, outerTables);
 
     if (leftIsOuter && !rightIsOuter) {
-      conditions.push({ left: cmp.left, right: cmp.right, comparisonType: 'EQUAL' });
+      conditions.push({
+        left: cmp.left,
+        right: cmp.right,
+        comparisonType: "EQUAL",
+      });
     } else if (rightIsOuter && !leftIsOuter) {
-      conditions.push({ left: cmp.right, right: cmp.left, comparisonType: 'EQUAL' });
+      conditions.push({
+        left: cmp.right,
+        right: cmp.left,
+        comparisonType: "EQUAL",
+      });
     } else {
       // Both sides reference same scope — bail out
       return null;
@@ -157,12 +166,12 @@ function tryDecorrelate(
       expressions: [uncorrCond],
       types: inner.types,
       estimatedCardinality: 0,
-      getColumnBindings: () => inner.getColumnBindings(),
+      columnBindings: inner.columnBindings,
     } satisfies LogicalFilter;
   }
 
   // Build SEMI or ANTI join
-  const joinType = sq.subqueryType === 'EXISTS' ? 'SEMI' : 'ANTI';
+  const joinType = sq.subqueryType === "EXISTS" ? "SEMI" : "ANTI";
   const join: LogicalComparisonJoin = {
     type: LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
     joinType,
@@ -172,7 +181,7 @@ function tryDecorrelate(
     // SEMI/ANTI only output left (outer) side columns
     types: outer.types,
     estimatedCardinality: 0,
-    getColumnBindings: () => outer.getColumnBindings(),
+    columnBindings: outer.columnBindings,
   };
 
   return join;

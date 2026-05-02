@@ -222,10 +222,10 @@ describe("FilterPushdown", () => {
     expect(join.conditions.length).toBeGreaterThan(0);
 
     const leftTables = new Set(
-      join.children[0].getColumnBindings().map((b) => b.tableIndex),
+      join.children[0].columnBindings.map((b) => b.tableIndex),
     );
     const rightTables = new Set(
-      join.children[1].getColumnBindings().map((b) => b.tableIndex),
+      join.children[1].columnBindings.map((b) => b.tableIndex),
     );
 
     for (const cond of join.conditions) {
@@ -250,10 +250,10 @@ describe("FilterPushdown", () => {
     expect(join).not.toBeNull();
 
     const leftTables = new Set(
-      join.children[0].getColumnBindings().map((b) => b.tableIndex),
+      join.children[0].columnBindings.map((b) => b.tableIndex),
     );
     const rightTables = new Set(
-      join.children[1].getColumnBindings().map((b) => b.tableIndex),
+      join.children[1].columnBindings.map((b) => b.tableIndex),
     );
 
     for (const cond of join.conditions) {
@@ -492,7 +492,7 @@ describe("FilterPushdown — defensive code paths", () => {
       schema: { name: "t", columns: [] },
       columnIds: [0, 1],
       tableFilters: [],
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex, columnIndex: 0 },
         { tableIndex, columnIndex: 1 },
       ],
@@ -515,7 +515,7 @@ describe("FilterPushdown — defensive code paths", () => {
       aliases: ["a", "b"],
       types: ["INTEGER", "TEXT"],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: projTableIndex, columnIndex: 0 },
         { tableIndex: projTableIndex, columnIndex: 1 },
       ],
@@ -534,7 +534,7 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [outOfBoundsFilter],
       types: proj.types,
       estimatedCardinality: 100,
-      getColumnBindings: () => proj.getColumnBindings(),
+      columnBindings: proj.columnBindings,
     };
 
     const result = pushdownFilters(filterNode);
@@ -567,7 +567,7 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [paramFilter],
       types: get.types,
       estimatedCardinality: 100,
-      getColumnBindings: () => get.getColumnBindings(),
+      columnBindings: get.columnBindings,
     };
 
     const result = pushdownFilters(filterNode);
@@ -602,7 +602,7 @@ describe("FilterPushdown — defensive code paths", () => {
       } as BoundComparisonExpression,
       types: ["INTEGER"],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: groupIndex, columnIndex: 0 },
         { tableIndex: aggregateIndex, columnIndex: 0 },
       ],
@@ -630,7 +630,7 @@ describe("FilterPushdown — defensive code paths", () => {
       aliases: ["a", "b"],
       types: ["INTEGER", "TEXT"],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: projTableIndex, columnIndex: 0 },
         { tableIndex: projTableIndex, columnIndex: 1 },
       ],
@@ -649,7 +649,7 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [validFilter],
       types: proj.types,
       estimatedCardinality: 100,
-      getColumnBindings: () => proj.getColumnBindings(),
+      columnBindings: proj.columnBindings,
     };
 
     const result = pushdownFilters(filterNode);
@@ -665,7 +665,7 @@ describe("FilterPushdown — defensive code paths", () => {
     const getA = makeGet(0);
     const getB = makeGet(1);
     getB.tableName = "t2";
-    getB.getColumnBindings = () => [
+    getB.columnBindings = [
       { tableIndex: 1, columnIndex: 0 },
       { tableIndex: 1, columnIndex: 1 },
     ];
@@ -675,9 +675,9 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [],
       types: ["INTEGER", "TEXT", "INTEGER", "TEXT"],
       estimatedCardinality: 10000,
-      getColumnBindings: () => [
-        ...getA.getColumnBindings(),
-        ...getB.getColumnBindings(),
+      columnBindings: [
+        ...getA.columnBindings,
+        ...getB.columnBindings,
       ],
     } as LogicalOperator;
     // Construct (t.col0 + t2.col0) = 100 — left side references both tables
@@ -702,7 +702,7 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [mixedEquality],
       types: cross.types,
       estimatedCardinality: 10000,
-      getColumnBindings: () => cross.getColumnBindings(),
+      columnBindings: cross.columnBindings,
     };
 
     const result = pushdownFilters(filterNode);
@@ -736,7 +736,7 @@ describe("FilterPushdown — defensive code paths", () => {
       } as BoundComparisonExpression,
       types: ["INTEGER"],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: groupIndex, columnIndex: 0 },
       ],
     };
@@ -766,7 +766,7 @@ describe("FilterPushdown — defensive code paths", () => {
       havingExpression: null,
       types: ["INTEGER"],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: groupIndex, columnIndex: 0 },
       ],
     };
@@ -784,7 +784,7 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [groupMatchingFilter],
       types: agg.types,
       estimatedCardinality: 100,
-      getColumnBindings: () => agg.getColumnBindings(),
+      columnBindings: agg.columnBindings,
     };
 
     const result = pushdownFilters(filterNode);
@@ -812,7 +812,7 @@ describe("FilterPushdown — defensive code paths", () => {
       havingExpression: null,
       types: ["INTEGER"],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: groupIndex, columnIndex: 0 },
       ],
     };
@@ -830,7 +830,7 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [nonGroupFilter],
       types: agg.types,
       estimatedCardinality: 100,
-      getColumnBindings: () => agg.getColumnBindings(),
+      columnBindings: agg.columnBindings,
     };
 
     const result = pushdownFilters(filterNode);

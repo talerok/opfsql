@@ -1,8 +1,8 @@
 import type { SubqueryRef } from "../../parser/types.js";
 import type { ColumnDef, TableSchema } from "../../store/types.js";
 import type { BindContext } from "../core/context.js";
-import { extractColumnsFromPlan } from "../core/utils/extract-columns.js";
 import type { BindScope } from "../core/scope.js";
+import { extractColumnsFromPlan } from "../core/utils/extract-columns.js";
 import { bindQueryNode } from "../statement/query-node.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";
@@ -41,10 +41,9 @@ export function bindSubqueryRef(
     schema: virtualSchema,
     columnIds,
     tableFilters: [],
-    getColumnBindings: () =>
-      columnIds.map((ci) => ({
-        tableIndex: entry.tableIndex,
-        columnIndex: ci,
-      })),
+    columnBindings: columnIds.map((ci) => ({
+      tableIndex: entry.tableIndex,
+      columnIndex: ci,
+    })),
   } satisfies BT.LogicalGet;
 }

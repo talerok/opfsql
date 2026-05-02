@@ -266,7 +266,7 @@ export interface LogicalGet {
   columnIds: number[];
   tableFilters: TableFilter[];
   indexHint?: IndexHint;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalFilter {
@@ -275,7 +275,7 @@ export interface LogicalFilter {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalProjection {
@@ -286,7 +286,7 @@ export interface LogicalProjection {
   aliases: (string | null)[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalAggregate {
@@ -300,7 +300,7 @@ export interface LogicalAggregate {
   types: LogicalType[];
   estimatedCardinality: number;
   minMaxHint?: MinMaxHint;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface MinMaxHint {
@@ -317,7 +317,7 @@ export interface LogicalComparisonJoin {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalCrossProduct {
@@ -326,7 +326,7 @@ export interface LogicalCrossProduct {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalOrderBy {
@@ -337,7 +337,7 @@ export interface LogicalOrderBy {
   types: LogicalType[];
   estimatedCardinality: number;
   topN?: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalLimit {
@@ -348,7 +348,7 @@ export interface LogicalLimit {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalDistinct {
@@ -357,7 +357,7 @@ export interface LogicalDistinct {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalUnion {
@@ -367,7 +367,7 @@ export interface LogicalUnion {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface BoundOnConflict {
@@ -390,7 +390,7 @@ export interface LogicalInsert {
   types: LogicalType[];
   estimatedCardinality: number;
   onConflict?: BoundOnConflict;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalUpdate {
@@ -402,7 +402,7 @@ export interface LogicalUpdate {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalDelete {
@@ -413,7 +413,7 @@ export interface LogicalDelete {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalCreateTable {
@@ -424,7 +424,7 @@ export interface LogicalCreateTable {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalCreateIndex {
@@ -435,7 +435,7 @@ export interface LogicalCreateIndex {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalAlterTable {
@@ -448,7 +448,7 @@ export interface LogicalAlterTable {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalDrop {
@@ -460,7 +460,7 @@ export interface LogicalDrop {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalCTERef {
@@ -471,7 +471,7 @@ export interface LogicalCTERef {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalMaterializedCTE {
@@ -482,7 +482,7 @@ export interface LogicalMaterializedCTE {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export interface LogicalRecursiveCTE {
@@ -494,7 +494,7 @@ export interface LogicalRecursiveCTE {
   expressions: BoundExpression[];
   types: LogicalType[];
   estimatedCardinality: number;
-  getColumnBindings(): ColumnBinding[];
+  columnBindings: ColumnBinding[];
 }
 
 export type LogicalOperator =

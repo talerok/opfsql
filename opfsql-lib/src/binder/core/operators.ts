@@ -18,7 +18,7 @@ export function makeEmptyGet(ctx: BindContext): BT.LogicalGet {
     schema: emptySchema,
     columnIds: [],
     tableFilters: [],
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }
 
@@ -39,11 +39,10 @@ export function makeGet(
     schema,
     columnIds,
     tableFilters: [],
-    getColumnBindings: () =>
-      columnIds.map((ci) => ({
-        tableIndex: entry.tableIndex,
-        columnIndex: ci,
-      })),
+    columnBindings: columnIds.map((ci) => ({
+      tableIndex: entry.tableIndex,
+      columnIndex: ci,
+    })),
   };
 }
 
@@ -57,7 +56,7 @@ export function makeFilter(
     expressions: exprs,
     types: child.types,
     estimatedCardinality: 0,
-    getColumnBindings: () => child.getColumnBindings(),
+    columnBindings: child.columnBindings,
   };
 }
 
@@ -68,7 +67,7 @@ export function makeDistinct(child: BT.LogicalOperator): BT.LogicalDistinct {
     expressions: [],
     types: child.types,
     estimatedCardinality: 0,
-    getColumnBindings: () => child.getColumnBindings(),
+    columnBindings: child.columnBindings,
   };
 }
 
@@ -83,7 +82,7 @@ export function makeOrderBy(
     expressions: [],
     types: child.types,
     estimatedCardinality: 0,
-    getColumnBindings: () => child.getColumnBindings(),
+    columnBindings: child.columnBindings,
   };
 }
 
@@ -100,7 +99,7 @@ export function makeLimit(
     expressions: [],
     types: child.types,
     estimatedCardinality: 0,
-    getColumnBindings: () => child.getColumnBindings(),
+    columnBindings: child.columnBindings,
   };
 }
 
@@ -114,7 +113,10 @@ export function makeAggregate(
 ): BT.LogicalAggregate {
   const bindings: BT.ColumnBinding[] = [
     ...groups.map((_, i) => ({ tableIndex: groupIndex, columnIndex: i })),
-    ...aggregates.map((_, i) => ({ tableIndex: aggregateIndex, columnIndex: i })),
+    ...aggregates.map((_, i) => ({
+      tableIndex: aggregateIndex,
+      columnIndex: i,
+    })),
   ];
   return {
     type: LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
@@ -129,7 +131,7 @@ export function makeAggregate(
       ...aggregates.map((a) => a.returnType),
     ],
     estimatedCardinality: 0,
-    getColumnBindings: () => bindings,
+    columnBindings: bindings,
   };
 }
 
@@ -152,6 +154,6 @@ export function makeProjection(
     aliases,
     types,
     estimatedCardinality: 0,
-    getColumnBindings: () => bindings,
+    columnBindings: bindings,
   };
 }

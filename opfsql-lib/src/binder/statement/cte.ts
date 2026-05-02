@@ -1,13 +1,22 @@
-import type { SelectStatement, SetOperationNode, SelectNode, TableRef } from '../../parser/types.js';
-import { TableRefType, SetOperationType, ResultModifierType } from '../../parser/types.js';
-import type { LogicalOperator } from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { BindError } from '../core/errors.js';
-import { detectAggregates } from '../expression/aggregate.js';
-import { bindQueryNode } from './query-node.js';
-import { bindSelect } from './select.js';
+import type {
+  SelectNode,
+  SelectStatement,
+  SetOperationNode,
+  TableRef,
+} from "../../parser/types.js";
+import {
+  ResultModifierType,
+  SetOperationType,
+  TableRefType,
+} from "../../parser/types.js";
+import type { BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
+import type { BindScope } from "../core/scope.js";
+import { detectAggregates } from "../expression/aggregate.js";
+import type { LogicalOperator } from "../types.js";
+import { LogicalOperatorType } from "../types.js";
+import { bindQueryNode } from "./query-node.js";
+import { bindSelect } from "./select.js";
 
 export interface CTECollected {
   name: string;
@@ -17,12 +26,16 @@ export interface CTECollected {
 
 export function collectCTEs(
   ctx: BindContext,
-  cteMap: { map: Record<string, { query: SelectStatement; aliases: string[] }>; recursive: boolean },
+  cteMap: {
+    map: Record<string, { query: SelectStatement; aliases: string[] }>;
+    recursive: boolean;
+  },
   scope: BindScope,
 ): CTECollected[] {
   const entries: CTECollected[] = [];
   for (const [name, cteNode] of Object.entries(cteMap.map)) {
-    const isRecursive = cteMap.recursive && isSelfReferencing(name, cteNode.query);
+    const isRecursive =
+      cteMap.recursive && isSelfReferencing(name, cteNode.query);
 
     const cteIndex = ctx.nextTableIndex();
     const ctePlan = isRecursive
@@ -67,10 +80,8 @@ function bindRecursiveCTE(
   scope: BindScope,
 ): LogicalOperator {
   const body = cteNode.query.node;
-  if (body.type !== 'SET_OPERATION_NODE') {
-    throw new BindError(
-      `Recursive CTE "${name}" must use UNION or UNION ALL`,
-    );
+  if (body.type !== "SET_OPERATION_NODE") {
+    throw new BindError(`Recursive CTE "${name}" must use UNION or UNION ALL`);
   }
   const setOp = body as SetOperationNode;
   const isUnionAll = setOp.set_op_type === SetOperationType.UNION_ALL;
@@ -103,7 +114,7 @@ function bindRecursiveCTE(
     }
   }
 
-  const bindings = anchorPlan.getColumnBindings();
+  const bindings = anchorPlan.columnBindings;
 
   return {
     type: LogicalOperatorType.LOGICAL_RECURSIVE_CTE,
@@ -114,7 +125,7 @@ function bindRecursiveCTE(
     expressions: [],
     types: anchorPlan.types,
     estimatedCardinality: 0,
-    getColumnBindings: () => bindings,
+    columnBindings: bindings,
   };
 }
 
@@ -124,7 +135,7 @@ function bindRecursiveCTE(
 
 function isSelfReferencing(cteName: string, query: SelectStatement): boolean {
   const node = query.node;
-  if (node.type !== 'SET_OPERATION_NODE') return false;
+  if (node.type !== "SET_OPERATION_NODE") return false;
   // Check if the right side of the UNION references the CTE name
   return selectNodeRefs(node.right, cteName);
 }
@@ -188,12 +199,12 @@ function validateRecursiveTerm(cteName: string, node: SelectNode): void {
 // Type compatibility for anchor vs recursive term
 // ---------------------------------------------------------------------------
 
-const NUMERIC_TYPES = new Set(['INTEGER', 'BIGINT', 'REAL']);
+const NUMERIC_TYPES = new Set(["INTEGER", "BIGINT", "REAL"]);
 
 function areTypesCompatible(anchor: string, recursive: string): boolean {
   if (anchor === recursive) return true;
-  if (anchor === 'NULL' || anchor === 'ANY') return true;
-  if (recursive === 'NULL' || recursive === 'ANY') return true;
+  if (anchor === "NULL" || anchor === "ANY") return true;
+  if (recursive === "NULL" || recursive === "ANY") return true;
   if (NUMERIC_TYPES.has(anchor) && NUMERIC_TYPES.has(recursive)) return true;
   return false;
 }

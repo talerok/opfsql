@@ -43,7 +43,7 @@ function makeGet(overrides: Partial<LogicalGet> = {}): LogicalGet {
     schema: usersSchema,
     columnIds: [0, 1, 2],
     tableFilters: [],
-    getColumnBindings: () => [
+    columnBindings: [
       { tableIndex: 0, columnIndex: 0 },
       { tableIndex: 0, columnIndex: 1 },
       { tableIndex: 0, columnIndex: 2 },

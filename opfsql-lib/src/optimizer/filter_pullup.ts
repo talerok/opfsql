@@ -1,12 +1,12 @@
 import type {
-  LogicalOperator,
-  LogicalFilter,
+  BoundExpression,
   LogicalComparisonJoin,
   LogicalCrossProduct,
-  BoundExpression,
-} from '../binder/types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
-import { flattenConjunction, makeConjunction } from './utils/index.js';
+  LogicalFilter,
+  LogicalOperator,
+} from "../binder/types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../binder/types.js";
+import { flattenConjunction, makeConjunction } from "./utils/index.js";
 
 // ============================================================================
 // Filter Pullup — extracts filters from INNER JOIN conditions
@@ -48,10 +48,12 @@ function pullupFromFilterChild(filter: LogicalFilter): LogicalOperator {
   // Pull conditions from INNER JOIN up into the filter
   if (child.type === LogicalOperatorType.LOGICAL_COMPARISON_JOIN) {
     const join = child as LogicalComparisonJoin;
-    if (join.joinType !== 'INNER') return filter;
+    if (join.joinType !== "INNER") return filter;
 
     // Collect all filter expressions + join conditions
-    const allFilters: BoundExpression[] = [...flattenConjunction(extractFilterExpr(filter))];
+    const allFilters: BoundExpression[] = [
+      ...flattenConjunction(extractFilterExpr(filter)),
+    ];
 
     for (const cond of join.conditions) {
       allFilters.push({
@@ -59,7 +61,7 @@ function pullupFromFilterChild(filter: LogicalFilter): LogicalOperator {
         comparisonType: cond.comparisonType,
         left: cond.left,
         right: cond.right,
-        returnType: 'BOOLEAN',
+        returnType: "BOOLEAN",
       });
     }
 
@@ -70,11 +72,10 @@ function pullupFromFilterChild(filter: LogicalFilter): LogicalOperator {
       expressions: [],
       types: join.types,
       estimatedCardinality: join.estimatedCardinality,
-      getColumnBindings: () => {
-        const left = crossProduct.children[0].getColumnBindings();
-        const right = crossProduct.children[1].getColumnBindings();
-        return [...left, ...right];
-      },
+      columnBindings: [
+        ...join.children[0].columnBindings,
+        ...join.children[1].columnBindings,
+      ],
     };
 
     // Create new filter with all conditions
@@ -87,7 +88,7 @@ function pullupFromFilterChild(filter: LogicalFilter): LogicalOperator {
       expressions: flattenConjunction(combined),
       types: crossProduct.types,
       estimatedCardinality: filter.estimatedCardinality,
-      getColumnBindings: () => crossProduct.getColumnBindings(),
+      columnBindings: crossProduct.columnBindings,
     };
 
     return newFilter;
@@ -100,8 +101,8 @@ function extractFilterExpr(filter: LogicalFilter): BoundExpression {
   if (filter.expressions.length === 1) return filter.expressions[0];
   return {
     expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
-    conjunctionType: 'AND',
+    conjunctionType: "AND",
     children: filter.expressions,
-    returnType: 'BOOLEAN',
+    returnType: "BOOLEAN",
   };
 }

@@ -1,12 +1,12 @@
-import type { AlterTableStatement } from '../../parser/types.js';
-import { getIndexColumns } from '../../store/index-expression.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import { BindError } from '../core/errors.js';
-import { requireTable } from '../core/utils/require-table.js';
-import { mapParserType } from '../core/type-map.js';
-import { evalConstantValue } from '../core/utils/eval-constant.js';
+import type { AlterTableStatement } from "../../parser/types.js";
+import { getIndexColumns } from "../../store/index-expression.js";
+import type { BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
+import { mapParserType } from "../core/type-map.js";
+import { evalConstantValue } from "../core/utils/eval-constant.js";
+import { requireTable } from "../core/utils/require-table.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
 
 export function bindAlterTable(
   ctx: BindContext,
@@ -14,7 +14,7 @@ export function bindAlterTable(
 ): BT.LogicalAlterTable {
   const table = requireTable(ctx, stmt.table);
   const action =
-    stmt.alter_type === 'ADD_COLUMN' && stmt.column_def
+    stmt.alter_type === "ADD_COLUMN" && stmt.column_def
       ? bindAddColumn(stmt.column_def, table)
       : bindDropColumn(ctx, stmt.table, stmt.column_name!);
 
@@ -26,21 +26,23 @@ export function bindAlterTable(
     expressions: [],
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }
 
 function bindAddColumn(
-  def: NonNullable<AlterTableStatement['column_def']>,
+  def: NonNullable<AlterTableStatement["column_def"]>,
   table: BT.TableSchema,
-): BT.LogicalAlterTable['action'] {
+): BT.LogicalAlterTable["action"] {
   const colType = mapParserType(def.type);
 
   if (def.is_autoincrement) {
     if (!def.is_primary_key) {
-      throw new BindError(`AUTOINCREMENT is only allowed on PRIMARY KEY columns`);
+      throw new BindError(
+        `AUTOINCREMENT is only allowed on PRIMARY KEY columns`,
+      );
     }
-    if (colType !== 'INTEGER') {
+    if (colType !== "INTEGER") {
       throw new BindError(`AUTOINCREMENT is only allowed on INTEGER columns`);
     }
     if (table.columns.some((c) => c.autoIncrement)) {
@@ -49,7 +51,7 @@ function bindAddColumn(
   }
 
   return {
-    type: 'ADD_COLUMN',
+    type: "ADD_COLUMN",
     column: {
       name: def.name,
       type: colType,
@@ -68,7 +70,7 @@ function bindDropColumn(
   ctx: BindContext,
   tableName: string,
   colName: string,
-): BT.LogicalAlterTable['action'] {
+): BT.LogicalAlterTable["action"] {
   for (const idx of ctx.catalog.getTableIndexes(tableName)) {
     const referencedCols = idx.expressions.flatMap(getIndexColumns);
     if (referencedCols.some((c) => c.toLowerCase() === colName.toLowerCase())) {
@@ -77,5 +79,5 @@ function bindDropColumn(
       );
     }
   }
-  return { type: 'DROP_COLUMN', columnName: colName };
+  return { type: "DROP_COLUMN", columnName: colName };
 }

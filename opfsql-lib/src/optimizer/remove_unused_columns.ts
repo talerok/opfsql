@@ -1,18 +1,17 @@
 import type {
-  LogicalOperator,
-  LogicalGet,
-  LogicalFilter,
-  LogicalProjection,
+  BoundColumnRefExpression,
+  BoundExpression,
   LogicalAggregate,
   LogicalComparisonJoin,
   LogicalCrossProduct,
+  LogicalFilter,
+  LogicalGet,
+  LogicalOperator,
   LogicalOrderBy,
-  BoundExpression,
-  BoundColumnRefExpression,
-  ColumnBinding,
-} from '../binder/types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
-import { collectColumnRefs, isColumnRef } from './utils/index.js';
+  LogicalProjection,
+} from "../binder/types.js";
+import { LogicalOperatorType } from "../binder/types.js";
+import { collectColumnRefs, isColumnRef } from "./utils/index.js";
 
 // ============================================================================
 // Remove Unused Columns — prunes columns that aren't needed downstream
@@ -31,7 +30,7 @@ import { collectColumnRefs, isColumnRef } from './utils/index.js';
 export function removeUnusedColumns(plan: LogicalOperator): LogicalOperator {
   // Root: start with all bindings the root outputs as needed
   const needed = new Set<string>();
-  for (const b of plan.getColumnBindings()) {
+  for (const b of plan.columnBindings) {
     needed.add(bk(b.tableIndex, b.columnIndex));
   }
   addNodeRefs(plan, needed);
@@ -105,8 +104,10 @@ function pruneGet(op: LogicalGet, needed: Set<string>): LogicalGet {
   op.columnIds = keptIds;
   op.types = keptTypes;
   const ti = op.tableIndex;
-  op.getColumnBindings = () =>
-    keptIds.map((ci) => ({ tableIndex: ti, columnIndex: ci }));
+  op.columnBindings = keptIds.map((ci) => ({
+    tableIndex: ti,
+    columnIndex: ci,
+  }));
   return op;
 }
 
@@ -119,7 +120,10 @@ function pruneGet(op: LogicalGet, needed: Set<string>): LogicalGet {
 //       (handles ORDER BY/etc. referencing scan columns above projection)
 // ============================================================================
 
-function pruneProjection(op: LogicalProjection, needed: Set<string>): LogicalProjection {
+function pruneProjection(
+  op: LogicalProjection,
+  needed: Set<string>,
+): LogicalProjection {
   const keptExprs: BoundExpression[] = [];
   const keptAliases: (string | null)[] = [];
   const keptTypes: typeof op.types = [];
@@ -133,7 +137,9 @@ function pruneProjection(op: LogicalProjection, needed: Set<string>): LogicalPro
       const expr = op.expressions[i];
       if (isColumnRef(expr)) {
         const ref = expr as BoundColumnRefExpression;
-        isNeeded = needed.has(bk(ref.binding.tableIndex, ref.binding.columnIndex));
+        isNeeded = needed.has(
+          bk(ref.binding.tableIndex, ref.binding.columnIndex),
+        );
       }
     }
 
@@ -164,13 +170,10 @@ function pruneProjection(op: LogicalProjection, needed: Set<string>): LogicalPro
 
   const ti = op.tableIndex;
   const count = keptExprs.length;
-  op.getColumnBindings = () => {
-    const bindings: ColumnBinding[] = [];
-    for (let i = 0; i < count; i++) {
-      bindings.push({ tableIndex: ti, columnIndex: i });
-    }
-    return bindings;
-  };
+  op.columnBindings = Array.from({ length: count }, (_, i) => ({
+    tableIndex: ti,
+    columnIndex: i,
+  }));
 
   return op;
 }
@@ -179,7 +182,10 @@ function pruneProjection(op: LogicalProjection, needed: Set<string>): LogicalPro
 // AGGREGATE — prune unused aggregate expressions
 // ============================================================================
 
-function pruneAggregate(op: LogicalAggregate, needed: Set<string>): LogicalAggregate {
+function pruneAggregate(
+  op: LogicalAggregate,
+  needed: Set<string>,
+): LogicalAggregate {
   const keptAggs: typeof op.expressions = [];
   const keptAggTypes: typeof op.types = [];
   const groupCount = op.groups.length;
@@ -201,6 +207,13 @@ function pruneAggregate(op: LogicalAggregate, needed: Set<string>): LogicalAggre
   if (op.havingExpression) addExprRefs(op.havingExpression, childNeeded);
 
   op.children = [prune(op.children[0], childNeeded)] as [LogicalOperator];
+
+  // Rebuild bindings: groups (unchanged) + kept aggregates (re-indexed)
+  op.columnBindings = [
+    ...op.groups.map((_, i) => ({ tableIndex: op.groupIndex, columnIndex: i })),
+    ...keptAggs.map((_, i) => ({ tableIndex: op.aggregateIndex, columnIndex: i })),
+  ];
+
   return op;
 }
 
@@ -212,6 +225,7 @@ function pruneFilter(op: LogicalFilter, needed: Set<string>): LogicalFilter {
   const childNeeded = new Set(needed);
   for (const expr of op.expressions) addExprRefs(expr, childNeeded);
   op.children = [prune(op.children[0], childNeeded)] as [LogicalOperator];
+  op.columnBindings = op.children[0].columnBindings;
   return op;
 }
 
@@ -219,7 +233,10 @@ function pruneFilter(op: LogicalFilter, needed: Set<string>): LogicalFilter {
 // JOIN — adds condition refs, passes to both sides
 // ============================================================================
 
-function pruneJoin(op: LogicalComparisonJoin, needed: Set<string>): LogicalComparisonJoin {
+function pruneJoin(
+  op: LogicalComparisonJoin,
+  needed: Set<string>,
+): LogicalComparisonJoin {
   const allNeeded = new Set(needed);
   for (const cond of op.conditions) {
     addExprRefs(cond.left, allNeeded);
@@ -227,6 +244,10 @@ function pruneJoin(op: LogicalComparisonJoin, needed: Set<string>): LogicalCompa
   }
   op.children[0] = prune(op.children[0], allNeeded);
   op.children[1] = prune(op.children[1], allNeeded);
+  op.columnBindings = [
+    ...op.children[0].columnBindings,
+    ...op.children[1].columnBindings,
+  ];
   return op;
 }
 
@@ -234,9 +255,16 @@ function pruneJoin(op: LogicalComparisonJoin, needed: Set<string>): LogicalCompa
 // CROSS PRODUCT — passes through
 // ============================================================================
 
-function pruneCross(op: LogicalCrossProduct, needed: Set<string>): LogicalCrossProduct {
+function pruneCross(
+  op: LogicalCrossProduct,
+  needed: Set<string>,
+): LogicalCrossProduct {
   op.children[0] = prune(op.children[0], needed);
   op.children[1] = prune(op.children[1], needed);
+  op.columnBindings = [
+    ...op.children[0].columnBindings,
+    ...op.children[1].columnBindings,
+  ];
   return op;
 }
 
@@ -248,6 +276,7 @@ function pruneOrderBy(op: LogicalOrderBy, needed: Set<string>): LogicalOrderBy {
   const childNeeded = new Set(needed);
   for (const order of op.orders) addExprRefs(order.expression, childNeeded);
   op.children = [prune(op.children[0], childNeeded)] as [LogicalOperator];
+  op.columnBindings = op.children[0].columnBindings;
   return op;
 }
 
@@ -255,8 +284,12 @@ function pruneOrderBy(op: LogicalOrderBy, needed: Set<string>): LogicalOrderBy {
 // PASSTHROUGH — LIMIT, DISTINCT
 // ============================================================================
 
-function prunePassthrough(op: LogicalOperator, needed: Set<string>): LogicalOperator {
+function prunePassthrough(
+  op: LogicalOperator,
+  needed: Set<string>,
+): LogicalOperator {
   op.children[0] = prune(op.children[0], needed);
+  op.columnBindings = op.children[0].columnBindings;
   return op;
 }
 
@@ -269,11 +302,14 @@ function prunePassthrough(op: LogicalOperator, needed: Set<string>): LogicalOper
 // columns the outer query needs.
 // ============================================================================
 
-function pruneMaterializedCTE(op: LogicalOperator, needed: Set<string>): LogicalOperator {
+function pruneMaterializedCTE(
+  op: LogicalOperator,
+  needed: Set<string>,
+): LogicalOperator {
   // children[0] = CTE inner plan: keep all columns (don't prune)
   const cteNeeded = new Set<string>();
   collectAllRefs(op.children[0], cteNeeded);
-  for (const b of op.children[0].getColumnBindings()) {
+  for (const b of op.children[0].columnBindings) {
     cteNeeded.add(bk(b.tableIndex, b.columnIndex));
   }
   op.children[0] = prune(op.children[0], cteNeeded);
@@ -292,11 +328,14 @@ function pruneMaterializedCTE(op: LogicalOperator, needed: Set<string>): Logical
 // recursive must match). Pruning either side would break the CTE output.
 // ============================================================================
 
-function pruneRecursiveCTE(op: LogicalOperator, needed: Set<string>): LogicalOperator {
+function pruneRecursiveCTE(
+  op: LogicalOperator,
+  needed: Set<string>,
+): LogicalOperator {
   for (let i = 0; i < op.children.length; i++) {
     const childNeeded = new Set<string>();
     collectAllRefs(op.children[i], childNeeded);
-    for (const b of op.children[i].getColumnBindings()) {
+    for (const b of op.children[i].columnBindings) {
       childNeeded.add(bk(b.tableIndex, b.columnIndex));
     }
     op.children[i] = prune(op.children[i], childNeeded);
@@ -321,19 +360,19 @@ function addExprRefs(expr: BoundExpression, out: Set<string>): void {
 /** Add all expression/condition/order refs from a single node (not recursive). */
 function addNodeRefs(op: LogicalOperator, out: Set<string>): void {
   for (const expr of op.expressions) addExprRefs(expr, out);
-  if ('conditions' in op && Array.isArray(op.conditions)) {
+  if ("conditions" in op && Array.isArray(op.conditions)) {
     for (const c of op.conditions) {
       addExprRefs(c.left, out);
       addExprRefs(c.right, out);
     }
   }
-  if ('orders' in op && Array.isArray(op.orders)) {
+  if ("orders" in op && Array.isArray(op.orders)) {
     for (const o of op.orders) addExprRefs(o.expression, out);
   }
-  if ('groups' in op && Array.isArray(op.groups)) {
+  if ("groups" in op && Array.isArray(op.groups)) {
     for (const g of op.groups) addExprRefs(g, out);
   }
-  if ('havingExpression' in op && op.havingExpression) {
+  if ("havingExpression" in op && op.havingExpression) {
     addExprRefs(op.havingExpression, out);
   }
 }

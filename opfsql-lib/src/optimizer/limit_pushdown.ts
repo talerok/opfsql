@@ -1,10 +1,10 @@
 import type {
-  LogicalOperator,
   LogicalLimit,
+  LogicalOperator,
   LogicalOrderBy,
   LogicalProjection,
-} from '../binder/types.js';
-import { LogicalOperatorType } from '../binder/types.js';
+} from "../binder/types.js";
+import { LogicalOperatorType } from "../binder/types.js";
 
 // ============================================================================
 // Limit Pushdown — pushes LIMIT below PROJECTION for early termination,
@@ -28,7 +28,8 @@ export function pushdownLimit(plan: LogicalOperator): LogicalOperator {
   if (plan.type !== LogicalOperatorType.LOGICAL_LIMIT) return plan;
 
   const limit = plan as LogicalLimit;
-  if (limit.limitVal === null || limit.limitVal >= MAX_PUSHDOWN_LIMIT) return plan;
+  if (limit.limitVal === null || limit.limitVal >= MAX_PUSHDOWN_LIMIT)
+    return plan;
 
   const topN = limit.limitVal + limit.offsetVal;
   const child = limit.children[0];
@@ -58,7 +59,7 @@ export function pushdownLimit(plan: LogicalOperator): LogicalOperator {
       expressions: [],
       types: projection.children[0].types,
       estimatedCardinality: limit.limitVal + limit.offsetVal,
-      getColumnBindings: () => newLimit.children[0].getColumnBindings(),
+      columnBindings: projection.children[0].columnBindings,
     };
 
     // Put projection on top

@@ -1,20 +1,24 @@
 import type {
-  ParsedExpression,
   ComparisonExpression,
   ConjunctionExpression,
   JoinRef,
-} from '../../parser/types.js';
-import { ExpressionClass, ExpressionType, JoinType } from '../../parser/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { BindError } from '../core/errors.js';
-import { mapComparisonType } from '../core/type-map.js';
-import { checkTypeCompatibility } from '../core/type-check.js';
-import { checkNoAggregates } from '../expression/aggregate.js';
-import { bindExpression } from '../expression/index.js';
-import { bindTableRef } from './index.js';
+  ParsedExpression,
+} from "../../parser/types.js";
+import {
+  ExpressionClass,
+  ExpressionType,
+  JoinType,
+} from "../../parser/types.js";
+import type { BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
+import type { BindScope } from "../core/scope.js";
+import { checkTypeCompatibility } from "../core/type-check.js";
+import { mapComparisonType } from "../core/type-map.js";
+import { checkNoAggregates } from "../expression/aggregate.js";
+import { bindExpression } from "../expression/index.js";
+import type * as BT from "../types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
+import { bindTableRef } from "./index.js";
 
 export function bindJoinRef(
   ctx: BindContext,
@@ -33,19 +37,16 @@ export function bindJoinRef(
       expressions: [],
       types: [...left.types, ...right.types],
       estimatedCardinality: 0,
-      getColumnBindings: () => [
-        ...left.getColumnBindings(),
-        ...right.getColumnBindings(),
-      ],
+      columnBindings: [...left.columnBindings, ...right.columnBindings],
     } satisfies BT.LogicalCrossProduct;
   }
 
   if (ref.join_type === JoinType.RIGHT) {
-    throw new BindError('RIGHT JOIN is not supported');
+    throw new BindError("RIGHT JOIN is not supported");
   }
 
-  const joinType: 'INNER' | 'LEFT' =
-    ref.join_type === JoinType.LEFT ? 'LEFT' : 'INNER';
+  const joinType: "INNER" | "LEFT" =
+    ref.join_type === JoinType.LEFT ? "LEFT" : "INNER";
 
   let conditions: BT.JoinCondition[] = [];
 
@@ -58,18 +59,20 @@ export function bindJoinRef(
       conditions.push({
         left: scope.resolveColumnIn(colName, leftEntries),
         right: scope.resolveColumnIn(colName, rightEntries),
-        comparisonType: 'EQUAL',
+        comparisonType: "EQUAL",
       });
     }
   } else if (ref.condition) {
-    checkNoAggregates(ref.condition, 'JOIN ON clause');
+    checkNoAggregates(ref.condition, "JOIN ON clause");
     conditions = extractJoinConditions(ctx, ref.condition, scope);
 
     // Normalize: cond.left must reference left child, cond.right — right child.
     // extractJoinConditions preserves SQL order which may be backwards.
     const allBindings = scope.getAllBindings();
     const leftTables = new Set(
-      allBindings.slice(bindingsBefore, bindingsAfterLeft).map((b) => b.tableIndex),
+      allBindings
+        .slice(bindingsBefore, bindingsAfterLeft)
+        .map((b) => b.tableIndex),
     );
     for (let i = 0; i < conditions.length; i++) {
       conditions[i] = normalizeConditionSides(conditions[i], leftTables);
@@ -84,10 +87,7 @@ export function bindJoinRef(
     expressions: [],
     types: [...left.types, ...right.types],
     estimatedCardinality: 0,
-    getColumnBindings: () => [
-      ...left.getColumnBindings(),
-      ...right.getColumnBindings(),
-    ],
+    columnBindings: [...left.columnBindings, ...right.columnBindings],
   } satisfies BT.LogicalComparisonJoin;
 }
 
@@ -122,9 +122,9 @@ export function extractJoinConditions(
       right: {
         expressionClass: BoundExpressionClass.BOUND_CONSTANT,
         value: true,
-        returnType: 'BOOLEAN',
+        returnType: "BOOLEAN",
       } satisfies BT.BoundConstantExpression,
-      comparisonType: 'EQUAL',
+      comparisonType: "EQUAL",
     },
   ];
 }
@@ -161,11 +161,16 @@ function normalizeConditionSides(
 
 function flipComparison(type: BT.ComparisonType): BT.ComparisonType {
   switch (type) {
-    case 'LESS': return 'GREATER';
-    case 'GREATER': return 'LESS';
-    case 'LESS_EQUAL': return 'GREATER_EQUAL';
-    case 'GREATER_EQUAL': return 'LESS_EQUAL';
-    default: return type;
+    case "LESS":
+      return "GREATER";
+    case "GREATER":
+      return "LESS";
+    case "LESS_EQUAL":
+      return "GREATER_EQUAL";
+    case "GREATER_EQUAL":
+      return "LESS_EQUAL";
+    default:
+      return type;
   }
 }
 

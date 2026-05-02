@@ -152,13 +152,13 @@ describe('findProjection', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as any],
       expressions: [],
       aliases: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     expect(findProjection(proj)).toBe(proj);
   });
@@ -173,13 +173,13 @@ describe('findProjection', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as any],
       expressions: [],
       aliases: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     const filter: LogicalFilter = {
       type: LogicalOperatorType.LOGICAL_FILTER,
@@ -187,7 +187,7 @@ describe('findProjection', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     expect(findProjection(filter)).toBe(proj);
   });
@@ -199,7 +199,7 @@ describe('findProjection', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     expect(findProjection(get as any)).toBeNull();
   });
@@ -210,14 +210,14 @@ describe('extractColumnsFromPlan', () => {
     const proj: LogicalProjection = {
       type: LogicalOperatorType.LOGICAL_PROJECTION,
       tableIndex: 1,
-      children: [{ type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, getColumnBindings: () => [] } as any],
+      children: [{ type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, columnBindings: [] } as any],
       expressions: [
         { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: 't0', columnName: 'id', returnType: 'INTEGER' },
       ],
       aliases: ['user_id'],
       types: ['INTEGER'],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     const cols = extractColumnsFromPlan(proj, ['INTEGER']);
     expect(cols[0].name).toBe('user_id');
@@ -227,14 +227,14 @@ describe('extractColumnsFromPlan', () => {
     const proj: LogicalProjection = {
       type: LogicalOperatorType.LOGICAL_PROJECTION,
       tableIndex: 1,
-      children: [{ type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, getColumnBindings: () => [] } as any],
+      children: [{ type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, columnBindings: [] } as any],
       expressions: [
         { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: 't0', columnName: 'id', returnType: 'INTEGER' },
       ],
       aliases: [null],
       types: ['INTEGER'],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     const cols = extractColumnsFromPlan(proj, ['INTEGER']);
     expect(cols[0].name).toBe('id');
@@ -247,7 +247,7 @@ describe('extractColumnsFromPlan', () => {
       expressions: [],
       types: ['INTEGER', 'TEXT'],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     const cols = extractColumnsFromPlan(get as any, ['INTEGER', 'TEXT']);
     expect(cols[0].name).toBe('column0');
@@ -260,14 +260,14 @@ describe('extractColumnsFromPlan', () => {
     const proj: LogicalProjection = {
       type: LogicalOperatorType.LOGICAL_PROJECTION,
       tableIndex: 1,
-      children: [{ type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, getColumnBindings: () => [] } as any],
+      children: [{ type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, columnBindings: [] } as any],
       expressions: [
         { expressionClass: BoundExpressionClass.BOUND_AGGREGATE, functionName: 'COUNT', isStar: true, distinct: false, aggregateIndex: 0, children: [], returnType: 'INTEGER' },
       ],
       aliases: [null],
       types: ['INTEGER'],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     const cols = extractColumnsFromPlan(proj, ['INTEGER']);
     expect(cols[0].name).toBe('count_star');

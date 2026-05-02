@@ -32,7 +32,7 @@ function makeGet(overrides: Partial<LogicalGet> = {}): LogicalGet {
     schema: usersSchema,
     columnIds: [0, 1, 2],
     tableFilters: [],
-    getColumnBindings: () => [
+    columnBindings: [
       { tableIndex: 0, columnIndex: 0 },
       { tableIndex: 0, columnIndex: 1 },
       { tableIndex: 0, columnIndex: 2 },
@@ -202,7 +202,7 @@ describe('PhysicalChildScan', () => {
         ],
       },
       types: ['INTEGER', 'INTEGER'],
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -217,7 +217,7 @@ describe('PhysicalChildScan', () => {
     const get = makeGet({
       columnIds: [0],
       types: ['INTEGER'],
-      getColumnBindings: () => [{ tableIndex: 0, columnIndex: 0 }],
+      columnBindings: [{ tableIndex: 0, columnIndex: 0 }],
     });
     const scan = new PhysicalChildScan(get, child, noopCtx);
     expect(scan.next()).toBeNull();
@@ -241,7 +241,7 @@ describe('PhysicalChildScan', () => {
       columnIds: [0, 1],
       tableFilters: [filter],
       types: ['INTEGER', 'TEXT'],
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -260,7 +260,7 @@ describe('PhysicalChildScan', () => {
     const get = makeGet({
       columnIds: [0, 5],
       types: ['INTEGER', 'TEXT'],
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -278,7 +278,7 @@ describe('PhysicalChildScan', () => {
     const get = makeGet({
       columnIds: [0, 1],
       types: ['INTEGER', 'TEXT'],
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],

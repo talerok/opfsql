@@ -1,9 +1,9 @@
 import type {
-  LogicalOperator,
   LogicalComparisonJoin,
-} from '../binder/types.js';
-import { LogicalOperatorType } from '../binder/types.js';
-import { flipComparison } from './utils/index.js';
+  LogicalOperator,
+} from "../binder/types.js";
+import { LogicalOperatorType } from "../binder/types.js";
+import { flipComparison } from "./utils/index.js";
 
 // ============================================================================
 // Build/Probe Side Optimizer — selects which side of a hash join builds
@@ -18,11 +18,11 @@ function estimateRowSize(types: readonly string[]): number {
   let size = 0;
   for (const t of types) {
     switch (t) {
-      case 'TEXT':
-      case 'BLOB':
+      case "TEXT":
+      case "BLOB":
         size += 32; // variable-length, estimate average
         break;
-      case 'REAL':
+      case "REAL":
         size += 8;
         break;
       default:
@@ -49,7 +49,7 @@ export function optimizeBuildProbeSide(plan: LogicalOperator): LogicalOperator {
   const join = plan as LogicalComparisonJoin;
 
   // LEFT/SEMI/ANTI JOIN: can't swap sides (left must remain the probe side)
-  if (join.joinType !== 'INNER') return plan;
+  if (join.joinType !== "INNER") return plan;
 
   // Build side cost = cardinality * estimated row size (from types)
   const leftCost = estimateBuildCost(join.children[0]);
@@ -75,12 +75,10 @@ export function optimizeBuildProbeSide(plan: LogicalOperator): LogicalOperator {
     const leftTypes = join.children[0].types;
     const rightTypes = join.children[1].types;
     join.types = [...leftTypes, ...rightTypes];
-    join.getColumnBindings = () => {
-      return [
-        ...join.children[0].getColumnBindings(),
-        ...join.children[1].getColumnBindings(),
-      ];
-    };
+    join.columnBindings = [
+      ...join.children[0].columnBindings,
+      ...join.children[1].columnBindings,
+    ];
   }
 
   return plan;

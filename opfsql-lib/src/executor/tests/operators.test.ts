@@ -85,7 +85,7 @@ describe('PhysicalProjection', () => {
         colRef(0, 1, 'name', 'TEXT'),
         operator('ADD', [colRef(0, 0), constant(5)]),
       ],
-      getColumnBindings: () => layout([1, 0], [1, 1]),
+      columnBindings: layout([1, 0], [1, 1]),
     } as unknown as LogicalProjection;
 
     const proj = new PhysicalProjection(child, op, noopCtx);
@@ -101,7 +101,7 @@ describe('PhysicalProjection', () => {
     const op = {
       type: LogicalOperatorType.LOGICAL_PROJECTION,
       expressions: [constant(42)],
-      getColumnBindings: () => layout([1, 0]),
+      columnBindings: layout([1, 0]),
     } as unknown as LogicalProjection;
 
     const proj = new PhysicalProjection(child, op, noopCtx);
@@ -318,7 +318,7 @@ describe('PhysicalHashAggregate', () => {
       havingExpression: null,
       types: bindings.map(() => 'INTEGER' as const),
       estimatedCardinality: 0,
-      getColumnBindings: () => bindings,
+      columnBindings: bindings,
     } as unknown as LogicalAggregate;
   }
 
@@ -641,7 +641,7 @@ describe('CTE operators', () => {
       type: LogicalOperatorType.LOGICAL_CTE_REF,
       cteName: 'cte0',
       cteIndex: 0,
-      getColumnBindings: () => layout([0, 0], [0, 1]),
+      columnBindings: layout([0, 0], [0, 1]),
     } as any;
 
     const scan = new PhysicalCTEScan(ref, cteCache);
@@ -654,7 +654,7 @@ describe('CTE operators', () => {
       type: LogicalOperatorType.LOGICAL_CTE_REF,
       cteName: 'missing',
       cteIndex: 99,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as any;
 
     const scan = new PhysicalCTEScan(ref, cteCache);

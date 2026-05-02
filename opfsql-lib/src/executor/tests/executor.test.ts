@@ -64,7 +64,7 @@ function makeGet(overrides: Partial<LogicalGet> = {}): LogicalGet {
     schema: usersSchema,
     columnIds: [0, 1],
     tableFilters: [],
-    getColumnBindings: () => [
+    columnBindings: [
       { tableIndex: 0, columnIndex: 0 },
       { tableIndex: 0, columnIndex: 1 },
     ],
@@ -81,7 +81,7 @@ function makeProjection(child: LogicalGet): LogicalProjection {
     aliases: [null, null],
     types: ['INTEGER', 'TEXT'],
     estimatedCardinality: 100,
-    getColumnBindings: () => [
+    columnBindings: [
       { tableIndex: 1, columnIndex: 0 },
       { tableIndex: 1, columnIndex: 1 },
     ],
@@ -188,7 +188,7 @@ describe('execute', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
       schema: usersSchema,
       ifNotExists: false,
     };

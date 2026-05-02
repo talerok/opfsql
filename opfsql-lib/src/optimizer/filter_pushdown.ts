@@ -1,31 +1,31 @@
 import type {
-  LogicalOperator,
-  LogicalFilter,
-  LogicalProjection,
-  LogicalComparisonJoin,
-  LogicalCrossProduct,
-  LogicalGet,
-  LogicalAggregate,
-  LogicalUnion,
-  BoundExpression,
   BoundColumnRefExpression,
   BoundComparisonExpression,
   BoundConstantExpression,
+  BoundExpression,
   BoundParameterExpression,
   JoinCondition,
-} from '../binder/types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
+  LogicalAggregate,
+  LogicalComparisonJoin,
+  LogicalCrossProduct,
+  LogicalFilter,
+  LogicalGet,
+  LogicalOperator,
+  LogicalProjection,
+  LogicalUnion,
+} from "../binder/types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../binder/types.js";
+import { FilterCombiner } from "./filter_combiner.js";
 import {
+  collectColumnRefs,
   flattenConjunction,
   getExpressionTables,
   getOperatorTables,
-  isConstant,
   isComparison,
+  isConstant,
   mapExpression,
-  collectColumnRefs,
   sameExpression,
-} from './utils/index.js';
-import { FilterCombiner } from './filter_combiner.js';
+} from "./utils/index.js";
 
 // ============================================================================
 // Filter Pushdown — pushes WHERE conditions as close to scan as possible
@@ -137,15 +137,23 @@ class FilterPushdown {
         leftFilters.push(filter);
       } else if (touchesRight && !touchesLeft) {
         // Only references right (build) side
-        if (op.joinType === 'INNER' || op.joinType === 'SEMI' || op.joinType === 'ANTI') {
+        if (
+          op.joinType === "INNER" ||
+          op.joinType === "SEMI" ||
+          op.joinType === "ANTI"
+        ) {
           rightFilters.push(filter);
         } else {
           // LEFT JOIN: can't push to right side (would filter out NULLs)
           remaining.push(filter);
         }
-      } else if (touchesLeft && touchesRight && op.joinType === 'INNER') {
+      } else if (touchesLeft && touchesRight && op.joinType === "INNER") {
         // References both sides — try to convert to equi-join condition
-        const joinCond = tryExtractJoinCondition(filter, leftTables, rightTables);
+        const joinCond = tryExtractJoinCondition(
+          filter,
+          leftTables,
+          rightTables,
+        );
         if (joinCond) {
           op.conditions.push(joinCond);
         } else {
@@ -192,7 +200,11 @@ class FilterPushdown {
       } else if (touchesRight && !touchesLeft) {
         rightFilters.push(filter);
       } else if (touchesLeft && touchesRight) {
-        const joinCond = tryExtractJoinCondition(filter, leftTables, rightTables);
+        const joinCond = tryExtractJoinCondition(
+          filter,
+          leftTables,
+          rightTables,
+        );
         if (joinCond) {
           joinConditions.push(joinCond);
         } else {
@@ -217,17 +229,13 @@ class FilterPushdown {
     if (joinConditions.length > 0) {
       const join: LogicalComparisonJoin = {
         type: LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
-        joinType: 'INNER',
+        joinType: "INNER",
         children: [newLeft, newRight],
         conditions: joinConditions,
         expressions: [],
         types: op.types,
         estimatedCardinality: op.estimatedCardinality,
-        getColumnBindings: () => {
-          const left = join.children[0].getColumnBindings();
-          const right = join.children[1].getColumnBindings();
-          return [...left, ...right];
-        },
+        columnBindings: [...newLeft.columnBindings, ...newRight.columnBindings],
       };
       this.filters = remaining;
       return this.finishPushdown(join);
@@ -265,11 +273,20 @@ class FilterPushdown {
         if (tf.comparisonType !== cmp.comparisonType) return false;
         if (!sameExpression(tf.expression, cmp.left)) return false;
         if (isConstant(tf.constant) && isConstant(cmp.right)) {
-          return (tf.constant as BoundConstantExpression).value === (cmp.right as BoundConstantExpression).value;
+          return (
+            (tf.constant as BoundConstantExpression).value ===
+            (cmp.right as BoundConstantExpression).value
+          );
         }
-        if (tf.constant.expressionClass === BoundExpressionClass.BOUND_PARAMETER &&
-            cmp.right.expressionClass === BoundExpressionClass.BOUND_PARAMETER) {
-          return (tf.constant as BoundParameterExpression).index === (cmp.right as BoundParameterExpression).index;
+        if (
+          tf.constant.expressionClass ===
+            BoundExpressionClass.BOUND_PARAMETER &&
+          cmp.right.expressionClass === BoundExpressionClass.BOUND_PARAMETER
+        ) {
+          return (
+            (tf.constant as BoundParameterExpression).index ===
+            (cmp.right as BoundParameterExpression).index
+          );
         }
         return false;
       });
@@ -321,9 +338,9 @@ class FilterPushdown {
       } else {
         op.havingExpression = {
           expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
-          conjunctionType: 'AND',
+          conjunctionType: "AND",
           children: keptParts,
-          returnType: 'BOOLEAN',
+          returnType: "BOOLEAN",
         };
       }
     }
@@ -404,7 +421,7 @@ class FilterPushdown {
       expressions: this.filters,
       types: op.types,
       estimatedCardinality: op.estimatedCardinality,
-      getColumnBindings: () => op.getColumnBindings(),
+      columnBindings: op.columnBindings,
     };
     this.filters = [];
     return filterNode;
@@ -459,7 +476,7 @@ function tryExtractJoinCondition(
   const cmp = expr as BoundComparisonExpression;
 
   // Only equality conditions can be used as hash-join keys
-  if (cmp.comparisonType !== 'EQUAL') return null;
+  if (cmp.comparisonType !== "EQUAL") return null;
 
   const leftExprTables = getExpressionTables(cmp.left);
   const rightExprTables = getExpressionTables(cmp.right);
@@ -468,14 +485,14 @@ function tryExtractJoinCondition(
   const rightInRight = [...rightExprTables].every((t) => rightTables.has(t));
 
   if (leftInLeft && rightInRight) {
-    return { left: cmp.left, right: cmp.right, comparisonType: 'EQUAL' };
+    return { left: cmp.left, right: cmp.right, comparisonType: "EQUAL" };
   }
 
   const leftInRight = [...leftExprTables].every((t) => rightTables.has(t));
   const rightInLeft = [...rightExprTables].every((t) => leftTables.has(t));
 
   if (leftInRight && rightInLeft) {
-    return { left: cmp.right, right: cmp.left, comparisonType: 'EQUAL' };
+    return { left: cmp.right, right: cmp.left, comparisonType: "EQUAL" };
   }
 
   // Mixed references — can't be used as a join condition

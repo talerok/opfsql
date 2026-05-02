@@ -282,11 +282,11 @@ describe("ColumnBinding", () => {
     expect(leftGet.tableIndex).not.toBe(rightGet.tableIndex);
   });
 
-  it("getColumnBindings() returns correct bindings for LogicalGet", () => {
+  it("columnBindings() returns correct bindings for LogicalGet", () => {
     const plan = bind("SELECT * FROM users");
     const proj = plan as LogicalProjection;
     const get = proj.children[0] as LogicalGet;
-    const bindings = get.getColumnBindings();
+    const bindings = get.columnBindings;
     expect(bindings).toHaveLength(4);
     expect(bindings[0].tableIndex).toBe(get.tableIndex);
     expect(bindings[0].columnIndex).toBe(0);
@@ -295,10 +295,10 @@ describe("ColumnBinding", () => {
     expect(bindings[3].columnIndex).toBe(3);
   });
 
-  it("after PROJECTION getColumnBindings() reflects only selected columns", () => {
+  it("after PROJECTION columnBindings() reflects only selected columns", () => {
     const plan = bind("SELECT name, age FROM users");
     const proj = plan as LogicalProjection;
-    const bindings = proj.getColumnBindings();
+    const bindings = proj.columnBindings;
     expect(bindings).toHaveLength(2);
     expect(bindings[0].tableIndex).toBe(proj.tableIndex);
     expect(bindings[0].columnIndex).toBe(0);

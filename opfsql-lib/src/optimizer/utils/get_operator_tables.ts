@@ -18,7 +18,7 @@ function collectOperatorTables(
   // the virtual table assigned during binding. Extract those so join order
   // and filter pushdown can correctly associate CTE refs with join edges.
   if (op.type === LogicalOperatorType.LOGICAL_CTE_REF) {
-    for (const binding of op.getColumnBindings()) {
+    for (const binding of op.columnBindings) {
       tables.add(binding.tableIndex);
     }
   }

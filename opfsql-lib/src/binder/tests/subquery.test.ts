@@ -61,13 +61,13 @@ describe("Subqueries — additional", () => {
 });
 
 describe("Subquery in FROM — bindings", () => {
-  it("subquery ref getColumnBindings matches outer scope tableIndex", () => {
+  it("subquery ref columnBindings matches outer scope tableIndex", () => {
     const plan = bind("SELECT sub.id FROM (SELECT id, name FROM users) sub");
     const proj = plan as LogicalProjection;
     const col = proj.expressions[0] as BoundColumnRefExpression;
     // The subquery wrapper should have bindings matching the resolved column
     const subGet = proj.children[0] as LogicalGet;
-    const bindings = subGet.getColumnBindings();
+    const bindings = subGet.columnBindings;
     expect(bindings.some((b) => b.tableIndex === col.binding.tableIndex)).toBe(
       true,
     );

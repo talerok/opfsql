@@ -27,13 +27,13 @@ beforeEach(() => {
 });
 
 describe("Review fixes", () => {
-  it("CTE getColumnBindings does not infinite loop", () => {
+  it("CTE columnBindings does not infinite loop", () => {
     const plan = bind(
       "WITH active AS (SELECT * FROM users WHERE active = true) SELECT * FROM active",
     );
     const cte = plan as LogicalMaterializedCTE;
     // This would stack overflow before the fix
-    const bindings = cte.getColumnBindings();
+    const bindings = cte.columnBindings;
     expect(bindings).toBeDefined();
   });
 
@@ -44,9 +44,9 @@ describe("Review fixes", () => {
     const cte = plan as LogicalMaterializedCTE;
     const mainProj = cte.children[1] as LogicalProjection;
     const col = mainProj.expressions[0] as BoundColumnRefExpression;
-    // The CTE ref's getColumnBindings should have matching tableIndex
+    // The CTE ref's columnBindings should have matching tableIndex
     const cteRef = mainProj.children[0];
-    const refBindings = cteRef.getColumnBindings();
+    const refBindings = cteRef.columnBindings;
     // The column's tableIndex should match one of the CTE ref bindings
     expect(
       refBindings.some((b) => b.tableIndex === col.binding.tableIndex),
@@ -157,7 +157,7 @@ describe("ORDER BY — additional", () => {
     expect(orderExpr.expressionClass).toBe(
       BoundExpressionClass.BOUND_COLUMN_REF,
     );
-    const projBindings = proj.getColumnBindings();
+    const projBindings = proj.columnBindings;
     // age is the 2nd select list item → projBindings[1]
     expect(orderExpr.binding.tableIndex).toBe(projBindings[1].tableIndex);
     expect(orderExpr.binding.columnIndex).toBe(projBindings[1].columnIndex);
@@ -181,7 +181,7 @@ describe("ORDER BY — additional", () => {
 
     // ORDER BY expression references the extended projection's 2nd column
     const orderExpr = orderBy.orders[0].expression as BoundColumnRefExpression;
-    const extBindings = extendedProj.getColumnBindings();
+    const extBindings = extendedProj.columnBindings;
     expect(orderExpr.binding.tableIndex).toBe(extBindings[1].tableIndex);
     expect(orderExpr.binding.columnIndex).toBe(extBindings[1].columnIndex);
   });
@@ -209,7 +209,7 @@ describe("ORDER BY — additional", () => {
 
     // It should reference the projection's output binding for the 2nd column (SUM)
     const proj = orderBy.children[0] as LogicalProjection;
-    const projBindings = proj.getColumnBindings();
+    const projBindings = proj.columnBindings;
     expect(orderExpr.binding.tableIndex).toBe(projBindings[1].tableIndex);
     expect(orderExpr.binding.columnIndex).toBe(projBindings[1].columnIndex);
   });

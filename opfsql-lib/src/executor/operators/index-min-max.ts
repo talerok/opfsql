@@ -15,7 +15,7 @@ export class PhysicalIndexMinMax implements SyncPhysicalOperator {
       keyPosition: number;
     },
   ) {
-    this.layout = agg.getColumnBindings();
+    this.layout = agg.columnBindings;
   }
 
   getLayout(): ColumnBinding[] {

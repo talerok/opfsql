@@ -2,8 +2,8 @@ import type { CreateTableStatement } from "../../parser/types.js";
 import type { ColumnDef, TableSchema } from "../../store/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
-import { evalConstantValue } from "../core/utils/eval-constant.js";
 import { mapParserType } from "../core/type-map.js";
+import { evalConstantValue } from "../core/utils/eval-constant.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";
 
@@ -21,7 +21,9 @@ export function bindCreateTable(
 
     if (colType === "JSON" || colType === "BLOB") {
       if (isPk) {
-        throw new BindError(`${colType} column "${col.name}" cannot be a PRIMARY KEY`);
+        throw new BindError(
+          `${colType} column "${col.name}" cannot be a PRIMARY KEY`,
+        );
       }
       if (col.is_unique) {
         throw new BindError(`${colType} column "${col.name}" cannot be UNIQUE`);
@@ -35,9 +37,7 @@ export function bindCreateTable(
         );
       }
       if (colType !== "INTEGER") {
-        throw new BindError(
-          `AUTOINCREMENT is only allowed on INTEGER columns`,
-        );
+        throw new BindError(`AUTOINCREMENT is only allowed on INTEGER columns`);
       }
     }
 
@@ -68,6 +68,6 @@ export function bindCreateTable(
     expressions: [],
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }

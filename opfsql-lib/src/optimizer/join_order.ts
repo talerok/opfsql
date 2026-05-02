@@ -1,12 +1,11 @@
 import type {
-  LogicalOperator,
+  JoinCondition,
   LogicalComparisonJoin,
   LogicalCrossProduct,
-  JoinCondition,
-  BoundExpression,
-} from '../binder/types.js';
-import { LogicalOperatorType } from '../binder/types.js';
-import { getOperatorTables, getExpressionTables, collectColumnRefs } from './utils/index.js';
+  LogicalOperator,
+} from "../binder/types.js";
+import { LogicalOperatorType } from "../binder/types.js";
+import { getOperatorTables } from "./utils/index.js";
 
 // ============================================================================
 // Join Order Optimizer — reorders joins for minimal intermediate cardinality
@@ -47,7 +46,7 @@ export function optimizeJoinOrder(plan: LogicalOperator): LogicalOperator {
   // Only reorder INNER joins and cross products
   if (
     plan.type === LogicalOperatorType.LOGICAL_COMPARISON_JOIN &&
-    (plan as LogicalComparisonJoin).joinType !== 'INNER'
+    (plan as LogicalComparisonJoin).joinType !== "INNER"
   ) {
     return plan;
   }
@@ -80,7 +79,7 @@ function extractJoinTree(
 ): void {
   if (op.type === LogicalOperatorType.LOGICAL_COMPARISON_JOIN) {
     const join = op as LogicalComparisonJoin;
-    if (join.joinType === 'INNER') {
+    if (join.joinType === "INNER") {
       // Recurse into both sides
       extractJoinTree(join.children[0], relations, edges);
       extractJoinTree(join.children[1], relations, edges);
@@ -143,10 +142,7 @@ function exhaustiveJoinOrder(
 // Greedy heuristic for >6 relations
 // ============================================================================
 
-function greedyJoinOrder(
-  relations: Relation[],
-  edges: JoinEdge[],
-): Relation[] {
+function greedyJoinOrder(relations: Relation[], edges: JoinEdge[]): Relation[] {
   const result: Relation[] = [];
   const remaining = [...relations];
 
@@ -195,10 +191,7 @@ function greedyJoinOrder(
 // Cost estimation
 // ============================================================================
 
-function estimateJoinTreeCost(
-  order: Relation[],
-  edges: JoinEdge[],
-): number {
+function estimateJoinTreeCost(order: Relation[], edges: JoinEdge[]): number {
   if (order.length <= 1) return 0;
 
   let totalCost = 0;
@@ -260,7 +253,7 @@ function reconstructJoinTree(
   edges: JoinEdge[],
 ): LogicalOperator {
   if (order.length === 0) {
-    throw new Error('Empty relation set in join order reconstruction');
+    throw new Error("Empty relation set in join order reconstruction");
   }
   if (order.length === 1) return order[0].plan;
 
@@ -278,10 +271,8 @@ function reconstructJoinTree(
       const combinedTables = new Set([...resultTables, ...next.tables]);
 
       // Check if all tables referenced by this edge are now available
-      const leftAvailable =
-        allLeft.every((t) => combinedTables.has(t));
-      const rightAvailable =
-        allRight.every((t) => combinedTables.has(t));
+      const leftAvailable = allLeft.every((t) => combinedTables.has(t));
+      const rightAvailable = allRight.every((t) => combinedTables.has(t));
 
       if (leftAvailable && rightAvailable) {
         // Check that the edge actually connects the current result with the new relation
@@ -299,7 +290,7 @@ function reconstructJoinTree(
     if (applicableConditions.length > 0) {
       const join: LogicalComparisonJoin = {
         type: LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
-        joinType: 'INNER',
+        joinType: "INNER",
         children: [result, next.plan],
         conditions: applicableConditions,
         expressions: [],
@@ -309,17 +300,15 @@ function reconstructJoinTree(
           Math.round(
             (result.estimatedCardinality * next.plan.estimatedCardinality) /
               Math.pow(
-                Math.max(result.estimatedCardinality, next.plan.estimatedCardinality),
+                Math.max(
+                  result.estimatedCardinality,
+                  next.plan.estimatedCardinality,
+                ),
                 applicableConditions.length,
               ),
           ),
         ),
-        getColumnBindings: () => {
-          return [
-            ...join.children[0].getColumnBindings(),
-            ...join.children[1].getColumnBindings(),
-          ];
-        },
+        columnBindings: [...result.columnBindings, ...next.plan.columnBindings],
       };
       result = join;
     } else {
@@ -331,12 +320,7 @@ function reconstructJoinTree(
         types: [...result.types, ...next.plan.types],
         estimatedCardinality:
           result.estimatedCardinality * next.plan.estimatedCardinality,
-        getColumnBindings: () => {
-          return [
-            ...cross.children[0].getColumnBindings(),
-            ...cross.children[1].getColumnBindings(),
-          ];
-        },
+        columnBindings: [...result.columnBindings, ...next.plan.columnBindings],
       };
       result = cross;
     }

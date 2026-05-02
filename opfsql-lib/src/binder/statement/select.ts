@@ -8,7 +8,6 @@ import type {
 import { ExpressionClass, ResultModifierType } from "../../parser/types.js";
 import type { LogicalType } from "../../store/types.js";
 import type { AggregateContext, BindContext } from "../core/context.js";
-import { evalConstantInt } from "../core/utils/eval-constant.js";
 import {
   makeAggregate,
   makeDistinct,
@@ -19,6 +18,7 @@ import {
   makeProjection,
 } from "../core/operators.js";
 import type { BindScope } from "../core/scope.js";
+import { evalConstantInt } from "../core/utils/eval-constant.js";
 import {
   checkNoAggregates,
   detectAggregates,
@@ -93,7 +93,12 @@ function bindAggregation(
   const groups = node.groups.group_expressions.map((g) =>
     bindExpression(ctx, g, scope),
   );
-  const aggregates = collectAllAggregates(ctx, node.select_list, node.having, scope);
+  const aggregates = collectAllAggregates(
+    ctx,
+    node.select_list,
+    node.having,
+    scope,
+  );
 
   const groupIndex = ctx.nextTableIndex();
   const aggregateIndex = ctx.nextTableIndex();
@@ -108,7 +113,14 @@ function bindAggregation(
     : null;
 
   return {
-    aggregatePlan: makeAggregate(plan, groups, aggregates, groupIndex, aggregateIndex, havingBound),
+    aggregatePlan: makeAggregate(
+      plan,
+      groups,
+      aggregates,
+      groupIndex,
+      aggregateIndex,
+      havingBound,
+    ),
     context: aggCtx,
   };
 }
@@ -167,8 +179,7 @@ function buildProjection(
 
   const tableIndex = ctx.nextTableIndex();
   const projPlan = makeProjection(plan, tableIndex, expressions, aliases);
-  const { types, getColumnBindings } = projPlan;
-  const bindings = getColumnBindings();
+  const { types, columnBindings: bindings } = projPlan;
 
   return { plan: projPlan, expressions, aliases, types, bindings, tableIndex };
 }
@@ -243,7 +254,10 @@ function resolveOrderExpression(
   // 1. Try alias match (e.g. ORDER BY total)
   const aliasIdx = tryMatchAlias(order.expression, proj);
   if (aliasIdx !== -1) {
-    return makeBoundOrder(order, projRef(proj.bindings[aliasIdx], proj.types[aliasIdx]));
+    return makeBoundOrder(
+      order,
+      projRef(proj.bindings[aliasIdx], proj.types[aliasIdx]),
+    );
   }
 
   // 2. Bind and try structural match against projection expressions
@@ -252,7 +266,10 @@ function resolveOrderExpression(
     sameExpression(sel, bound),
   );
   if (matchIdx !== -1) {
-    return makeBoundOrder(order, projRef(proj.bindings[matchIdx], bound.returnType));
+    return makeBoundOrder(
+      order,
+      projRef(proj.bindings[matchIdx], bound.returnType),
+    );
   }
 
   // 3. Not in select list — extend projection so sort can access it
@@ -266,9 +283,7 @@ function tryMatchAlias(expr: ParsedExpression, proj: ProjectionState): number {
   const ref = expr as ColumnRefExpression;
   if (ref.column_names.length !== 1) return -1;
   const name = ref.column_names[0].toLowerCase();
-  return proj.aliases.findIndex(
-    (a) => a !== null && a.toLowerCase() === name,
-  );
+  return proj.aliases.findIndex((a) => a !== null && a.toLowerCase() === name);
 }
 
 /** Add an expression to the projection and return its binding. */
@@ -303,7 +318,12 @@ function buildTrimProjection(
         : "";
     return projRef(proj.bindings[i], proj.types[i], name);
   });
-  return makeProjection(plan, trimIdx, trimExprs, proj.aliases.slice(0, originalCount));
+  return makeProjection(
+    plan,
+    trimIdx,
+    trimExprs,
+    proj.aliases.slice(0, originalCount),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +345,7 @@ function wrapCTEs(
       expressions: [],
       types: inner.types,
       estimatedCardinality: 0,
-      getColumnBindings: () => inner.getColumnBindings(),
+      columnBindings: inner.columnBindings,
     } satisfies BT.LogicalMaterializedCTE;
   }
   return plan;

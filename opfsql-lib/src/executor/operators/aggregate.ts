@@ -35,7 +35,7 @@ export class PhysicalHashAggregate implements SyncPhysicalOperator {
     private readonly ctx: SyncEvalContext,
   ) {
     this.childResolver = buildResolver(child.getLayout());
-    this.layout = op.getColumnBindings();
+    this.layout = op.columnBindings;
   }
 
   getLayout(): ColumnBinding[] {

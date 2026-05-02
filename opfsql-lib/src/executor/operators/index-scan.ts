@@ -39,7 +39,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     residualFilters: TableFilter[],
     private readonly ctx: SyncEvalContext,
   ) {
-    this.layout = op.getColumnBindings();
+    this.layout = op.columnBindings;
     const resolver = buildResolver(this.layout);
     this.compiledResiduals = residualFilters.map((f) =>
       compileFilter(f, resolver, ctx),

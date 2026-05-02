@@ -50,7 +50,7 @@ export class PhysicalCTEScan implements SyncPhysicalOperator {
     private readonly op: LogicalCTERef,
     private readonly cteCache: Map<number, CTECacheEntry>,
   ) {
-    this.layout = op.getColumnBindings();
+    this.layout = op.columnBindings;
   }
 
   getLayout(): ColumnBinding[] {

@@ -22,7 +22,7 @@ export class PhysicalScan implements SyncPhysicalOperator {
     private readonly rowManager: SyncIRowManager,
     private readonly ctx: SyncEvalContext,
   ) {
-    this.layout = op.getColumnBindings();
+    this.layout = op.columnBindings;
     const resolver = buildResolver(this.layout);
     this.compiledFilters = op.tableFilters.map((f) =>
       compileFilter(f, resolver, ctx),
@@ -89,7 +89,7 @@ export class PhysicalChildScan implements SyncPhysicalOperator {
     private readonly childOp: SyncPhysicalOperator,
     private readonly ctx: SyncEvalContext,
   ) {
-    this.layout = op.getColumnBindings();
+    this.layout = op.columnBindings;
     const resolver = buildResolver(this.layout);
     this.compiledFilters = op.tableFilters.map((f) =>
       compileFilter(f, resolver, ctx),

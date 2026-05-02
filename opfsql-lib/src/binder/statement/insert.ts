@@ -1,13 +1,20 @@
-import type { InsertStatement, OnConflictClause, OnConflictUpdate } from '../../parser/types.js';
-import { getIndexColumns } from '../../store/index-expression.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import { BindError } from '../core/errors.js';
-import type { BindContext } from '../core/context.js';
-import { requireTable } from '../core/utils/require-table.js';
-import { findColumnIndexOrThrow, getPrimaryKeyColumns } from '../core/utils/find-column.js';
-import { bindExpression } from '../expression/index.js';
-import { bindQueryNode } from './query-node.js';
+import type {
+  InsertStatement,
+  OnConflictClause,
+  OnConflictUpdate,
+} from "../../parser/types.js";
+import { getIndexColumns } from "../../store/index-expression.js";
+import type { BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
+import {
+  findColumnIndexOrThrow,
+  getPrimaryKeyColumns,
+} from "../core/utils/find-column.js";
+import { requireTable } from "../core/utils/require-table.js";
+import { bindExpression } from "../expression/index.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
+import { bindQueryNode } from "./query-node.js";
 
 export function bindInsert(
   ctx: BindContext,
@@ -30,7 +37,10 @@ export function bindInsert(
   return result;
 }
 
-function resolveColumns(stmt: InsertStatement, schema: BT.TableSchema): number[] {
+function resolveColumns(
+  stmt: InsertStatement,
+  schema: BT.TableSchema,
+): number[] {
   if (stmt.columns.length === 0) {
     return schema.columns.map((_, i) => i);
   }
@@ -95,7 +105,7 @@ function bindOnConflict(
   const conflictColumns = resolveConflictColumns(ctx, clause, schema);
   validateConflictTarget(conflictColumns, schema, ctx);
 
-  if (clause.action === 'NOTHING') {
+  if (clause.action === "NOTHING") {
     return bindDoNothing(conflictColumns);
   }
   return bindDoUpdate(ctx, clause.action, conflictColumns, schema);
@@ -107,7 +117,9 @@ function resolveConflictColumns(
   schema: BT.TableSchema,
 ): number[] {
   if (clause.conflictTarget) {
-    return clause.conflictTarget.map((colName) => findColumnIndexOrThrow(schema, colName));
+    return clause.conflictTarget.map((colName) =>
+      findColumnIndexOrThrow(schema, colName),
+    );
   }
 
   // No explicit target — infer from PK
@@ -119,9 +131,13 @@ function resolveConflictColumns(
   if (uniqueIdx !== -1) return [uniqueIdx];
 
   // Fall back to first unique index
-  const uIdx = ctx.catalog.getTableIndexes(schema.name).find((idx) => idx.unique);
+  const uIdx = ctx.catalog
+    .getTableIndexes(schema.name)
+    .find((idx) => idx.unique);
   if (uIdx) {
-    return uIdx.expressions.flatMap(getIndexColumns).map((colName) => findColumnIndexOrThrow(schema, colName));
+    return uIdx.expressions
+      .flatMap(getIndexColumns)
+      .map((colName) => findColumnIndexOrThrow(schema, colName));
   }
 
   throw new BindError(
@@ -132,7 +148,7 @@ function resolveConflictColumns(
 function bindDoNothing(conflictColumns: number[]): BT.BoundOnConflict {
   return {
     conflictColumns,
-    action: 'NOTHING',
+    action: "NOTHING",
     updateColumns: [],
     updateExpressions: [],
     whereExpression: null,
@@ -149,7 +165,7 @@ function bindDoUpdate(
 ): BT.BoundOnConflict {
   const scope = ctx.createScope();
   const tableEntry = scope.addTable(schema.name, schema.name, schema); // target table
-  const excludedEntry = scope.addTable(schema.name, 'excluded', schema); // pseudo-table for new row values
+  const excludedEntry = scope.addTable(schema.name, "excluded", schema); // pseudo-table for new row values
 
   const updateColumns: number[] = [];
   const updateExpressions: BT.BoundExpression[] = [];
@@ -164,7 +180,7 @@ function bindDoUpdate(
 
   return {
     conflictColumns,
-    action: 'UPDATE',
+    action: "UPDATE",
     updateColumns,
     updateExpressions,
     whereExpression,
@@ -182,19 +198,24 @@ function validateConflictTarget(
   if (sameSet(conflictColumns, getPrimaryKeyColumns(schema))) return;
 
   // Check single-column unique
-  if (conflictColumns.length === 1 && schema.columns[conflictColumns[0]].unique) return;
+  if (conflictColumns.length === 1 && schema.columns[conflictColumns[0]].unique)
+    return;
 
   // Check unique indexes
   const indexes = ctx.catalog.getTableIndexes(schema.name);
   for (const idx of indexes) {
     if (!idx.unique) continue;
-    const allSimple = idx.expressions.every((e) => e.type === 'column');
+    const allSimple = idx.expressions.every((e) => e.type === "column");
     if (!allSimple) continue;
-    const idxCols = idx.expressions.flatMap(getIndexColumns).map((colName) => findColumnIndexOrThrow(schema, colName));
+    const idxCols = idx.expressions
+      .flatMap(getIndexColumns)
+      .map((colName) => findColumnIndexOrThrow(schema, colName));
     if (sameSet(conflictColumns, idxCols)) return;
   }
 
-  const colNames = conflictColumns.map((i) => schema.columns[i].name).join(', ');
+  const colNames = conflictColumns
+    .map((i) => schema.columns[i].name)
+    .join(", ");
   throw new BindError(
     `ON CONFLICT columns (${colNames}) do not match any unique constraint on table "${schema.name}"`,
   );
@@ -222,6 +243,6 @@ function makeInsert(
     expressions,
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }

@@ -1,12 +1,12 @@
-import type { CreateIndexStatement } from '../../parser/types.js';
-import type { IndexExpression } from '../../types.js';
-import type * as BT from '../types.js';
-import { BoundExpressionClass, LogicalOperatorType } from '../types.js';
-import { BindError } from '../core/errors.js';
-import type { BindContext } from '../core/context.js';
-import { requireTable } from '../core/utils/require-table.js';
-import { bindExpression } from '../expression/index.js';
-import { boundToIndexExpression } from '../../store/index-expression.js';
+import type { CreateIndexStatement } from "../../parser/types.js";
+import { boundToIndexExpression } from "../../store/index-expression.js";
+import type { IndexExpression } from "../../types.js";
+import type { BindContext } from "../core/context.js";
+import { BindError } from "../core/errors.js";
+import { requireTable } from "../core/utils/require-table.js";
+import { bindExpression } from "../expression/index.js";
+import type * as BT from "../types.js";
+import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
 
 export function bindCreateIndex(
   ctx: BindContext,
@@ -14,8 +14,10 @@ export function bindCreateIndex(
 ): BT.LogicalCreateIndex {
   const schema = requireTable(ctx, stmt.table_name);
 
-  if (stmt.index_name.toLowerCase().startsWith('__pk_')) {
-    throw new BindError(`Index name "${stmt.index_name}" uses reserved prefix "__pk_"`);
+  if (stmt.index_name.toLowerCase().startsWith("__pk_")) {
+    throw new BindError(
+      `Index name "${stmt.index_name}" uses reserved prefix "__pk_"`,
+    );
   }
 
   // Create a mini bind scope with just the indexed table
@@ -29,18 +31,20 @@ export function bindCreateIndex(
     const bound = bindExpression(ctx, parsedExpr, scope);
 
     // Reject BLOB — never valid as index key
-    if (bound.returnType === 'BLOB') {
-      throw new BindError('Index expression must return a scalar type, got BLOB');
+    if (bound.returnType === "BLOB") {
+      throw new BindError(
+        "Index expression must return a scalar type, got BLOB",
+      );
     }
 
     // Reject bare JSON column reference (always an object).
     // JSON path access (data.city) is allowed — may resolve to scalar at runtime.
     if (
       bound.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF &&
-      bound.returnType === 'JSON'
+      bound.returnType === "JSON"
     ) {
       throw new BindError(
-        'Cannot create index on a JSON column directly; use a path expression (e.g. data.field)',
+        "Cannot create index on a JSON column directly; use a path expression (e.g. data.field)",
       );
     }
 
@@ -64,18 +68,20 @@ export function bindCreateIndex(
     expressions: [],
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }
 
 function validateIndexExpression(expr: BT.BoundExpression): void {
   switch (expr.expressionClass) {
     case BoundExpressionClass.BOUND_AGGREGATE:
-      throw new BindError('Index expressions cannot contain aggregate functions');
+      throw new BindError(
+        "Index expressions cannot contain aggregate functions",
+      );
     case BoundExpressionClass.BOUND_SUBQUERY:
-      throw new BindError('Index expressions cannot contain subqueries');
+      throw new BindError("Index expressions cannot contain subqueries");
     case BoundExpressionClass.BOUND_PARAMETER:
-      throw new BindError('Index expressions cannot contain parameters');
+      throw new BindError("Index expressions cannot contain parameters");
     case BoundExpressionClass.BOUND_COLUMN_REF:
     case BoundExpressionClass.BOUND_CONSTANT:
       return;

@@ -292,7 +292,7 @@ describe("estimateCost", () => {
     const expr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_SUBQUERY,
       subqueryType: "SCALAR",
-      subplan: { type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, getColumnBindings: () => [] } as unknown as LogicalOperator,
+      subplan: { type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, columnBindings: [] } as unknown as LogicalOperator,
       returnType: "INTEGER",
     } as BoundExpression;
     expect(estimateCost(expr)).toBe(10000);

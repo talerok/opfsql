@@ -46,7 +46,7 @@ function makeAgg(hint: MinMaxHint): LogicalAggregate {
     types: ['INTEGER'],
     estimatedCardinality: 1,
     minMaxHint: hint,
-    getColumnBindings: () => [{ tableIndex: 1, columnIndex: 0 }],
+    columnBindings: [{ tableIndex: 1, columnIndex: 0 }],
   };
 }
 

@@ -79,7 +79,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalCreateTable;
 
       const result = executeCreateTable(op, catalog, rm);
@@ -98,7 +98,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalCreateTable;
 
       expect(() => executeCreateTable(op, catalog, rm)).toThrow('already exists');
@@ -115,7 +115,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalCreateTable;
 
       const result = executeCreateTable(op, catalog, rm);
@@ -142,7 +142,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalCreateIndex;
 
       const result = executeCreateIndex(op, catalog, rm, im);
@@ -173,7 +173,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalAlterTable;
 
       const result = executeAlterTable(op, catalog);
@@ -192,7 +192,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalAlterTable;
 
       const result = executeAlterTable(op, catalog);
@@ -211,7 +211,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalAlterTable;
 
       expect(() => executeAlterTable(op, catalog)).toThrow('not found');
@@ -231,7 +231,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalDrop;
 
       const result = executeDrop(op, catalog, rm, mockIndexManager());
@@ -251,7 +251,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalDrop;
 
       const result = executeDrop(op, catalog, rm, mockIndexManager());
@@ -270,7 +270,7 @@ describe('DDL executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalDrop;
 
       expect(() => executeDrop(op, catalog, rm, mockIndexManager())).toThrow('not found');
@@ -328,7 +328,7 @@ function makeGet(tableIndex = 0): LogicalGet {
     schema: usersSchema,
     columnIds: [0, 1, 2],
     tableFilters: [],
-    getColumnBindings: () => [
+    columnBindings: [
       { tableIndex, columnIndex: 0 },
       { tableIndex, columnIndex: 1 },
       { tableIndex, columnIndex: 2 },
@@ -349,7 +349,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('Alice'), constant(30)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalInsert;
 
       const result = executeInsert(op, rm, noopCtx);
@@ -369,7 +369,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('Alice'), constant(2), constant('Bob')],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalInsert;
 
       const result = executeInsert(op, rm, noopCtx);
@@ -388,7 +388,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('Alice')],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalInsert;
 
       executeInsert(op, rm, noopCtx);
@@ -412,7 +412,7 @@ describe('DML executors', () => {
         expressions: [constant(99)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalUpdate;
 
       const result = executeUpdate(op, rm, noopCtx);
@@ -432,7 +432,7 @@ describe('DML executors', () => {
         expressions: [comparison(colRef(0, 0), constant(1), 'EQUAL')],
         types: ['INTEGER', 'TEXT', 'INTEGER'],
         estimatedCardinality: 0,
-        getColumnBindings: () => get.getColumnBindings(),
+        columnBindings: get.columnBindings,
       };
       const op = {
         type: LogicalOperatorType.LOGICAL_UPDATE,
@@ -443,7 +443,7 @@ describe('DML executors', () => {
         expressions: [constant('UPDATED')],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalUpdate;
 
       const result = executeUpdate(op, rm, noopCtx);
@@ -471,7 +471,7 @@ describe('DML executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalDelete;
 
       const result = executeDelete(op, rm, noopCtx);
@@ -491,7 +491,7 @@ describe('DML executors', () => {
         expressions: [comparison(colRef(0, 0), constant(2), 'EQUAL')],
         types: ['INTEGER', 'TEXT', 'INTEGER'],
         estimatedCardinality: 0,
-        getColumnBindings: () => get.getColumnBindings(),
+        columnBindings: get.columnBindings,
       };
       const op = {
         type: LogicalOperatorType.LOGICAL_DELETE,
@@ -501,7 +501,7 @@ describe('DML executors', () => {
         expressions: [],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalDelete;
 
       const result = executeDelete(op, rm, noopCtx);
@@ -524,7 +524,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('Updated'), constant(30)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
         onConflict: {
           conflictColumns: [0],
           action: 'NOTHING' as const,
@@ -554,7 +554,7 @@ describe('DML executors', () => {
         expressions: [constant(2), constant('Bob'), constant(30)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
         onConflict: {
           conflictColumns: [0],
           action: 'NOTHING' as const,
@@ -586,7 +586,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('AliceNew'), constant(30)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
         onConflict: {
           conflictColumns: [0],
           action: 'UPDATE' as const,
@@ -625,7 +625,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('AliceNew'), constant(20)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
         onConflict: {
           conflictColumns: [0],
           action: 'UPDATE' as const,
@@ -661,7 +661,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('AliceNew'), constant(50)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
         onConflict: {
           conflictColumns: [0],
           action: 'UPDATE' as const,
@@ -702,7 +702,7 @@ describe('DML executors', () => {
         ],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
         onConflict: {
           conflictColumns: [0],
           action: 'NOTHING' as const,
@@ -734,7 +734,7 @@ describe('DML executors', () => {
         expressions: [constant(1), constant('Alice'), constant(30)],
         types: [],
         estimatedCardinality: 0,
-        getColumnBindings: () => [],
+        columnBindings: [],
       } as unknown as LogicalInsert;
 
       const result = executeInsert(op, rm, noopCtx);
@@ -761,7 +761,7 @@ describe('PK index via executeCreateTable', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalCreateTable;
 
     const result = executeCreateTable(op, catalog, rm, im);
@@ -792,7 +792,7 @@ describe('PK index via executeCreateTable', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalCreateTable;
 
     const result = executeCreateTable(op, catalog, rm, im);
@@ -823,7 +823,7 @@ describe('PK index via executeCreateTable', () => {
       expressions: [constant(1), constant('Alice'), constant(30)],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalInsert;
 
     executeInsert(op, rm, noopCtx, catalog, im);
@@ -861,7 +861,7 @@ describe('AUTOINCREMENT', () => {
       expressions: [constant('Alice')],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalInsert;
 
     const result = executeInsert(op, rm, noopCtx, catalog);
@@ -886,7 +886,7 @@ describe('AUTOINCREMENT', () => {
       expressions: [constant('Alice'), constant('Bob'), constant('Charlie')],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalInsert;
 
     const result = executeInsert(op, rm, noopCtx, catalog);
@@ -919,7 +919,7 @@ describe('AUTOINCREMENT', () => {
       expressions: [constant(42), constant('Alice')],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalInsert;
 
     const result = executeInsert(op, rm, noopCtx, catalog);
@@ -944,7 +944,7 @@ describe('AUTOINCREMENT', () => {
       expressions: [constant('Dave')],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalInsert;
 
     const result = executeInsert(op, rm, noopCtx, catalog);
@@ -969,7 +969,7 @@ describe('AUTOINCREMENT', () => {
       expressions: [constant(null), constant('Alice')],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalInsert;
 
     const result = executeInsert(op, rm, noopCtx, catalog);
@@ -993,7 +993,7 @@ describe('AUTOINCREMENT', () => {
       expressions: [constant('Alice')],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalInsert;
 
     const result = executeInsert(op, rm, noopCtx, catalog);
@@ -1022,7 +1022,7 @@ describe('DML with multi-expression filter', () => {
       ],
       types: ['INTEGER', 'TEXT', 'INTEGER'],
       estimatedCardinality: 0,
-      getColumnBindings: () => get.getColumnBindings(),
+      columnBindings: get.columnBindings,
     };
     const op = {
       type: LogicalOperatorType.LOGICAL_DELETE,
@@ -1032,7 +1032,7 @@ describe('DML with multi-expression filter', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalDelete;
 
     const result = executeDelete(op, rm, noopCtx);
@@ -1057,7 +1057,7 @@ describe('DML with multi-expression filter', () => {
       ],
       types: ['INTEGER', 'TEXT', 'INTEGER'],
       estimatedCardinality: 0,
-      getColumnBindings: () => get.getColumnBindings(),
+      columnBindings: get.columnBindings,
     };
     const op = {
       type: LogicalOperatorType.LOGICAL_UPDATE,
@@ -1068,7 +1068,7 @@ describe('DML with multi-expression filter', () => {
       expressions: [constant('UPDATED')],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalUpdate;
 
     const result = executeUpdate(op, rm, noopCtx);
@@ -1277,7 +1277,7 @@ describe('executeCreateIndex — expression backfill', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalCreateIndex;
 
     const result = executeCreateIndex(op, catalog, rm, im);
@@ -1312,7 +1312,7 @@ describe('executeCreateIndex — expression backfill', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalCreateIndex;
 
     expect(() => executeCreateIndex(op, catalog, rm, im)).toThrow(/scalar/);
@@ -1343,7 +1343,7 @@ describe('executeCreateIndex — expression backfill', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     } as unknown as LogicalCreateIndex;
 
     const result = executeCreateIndex(op, catalog, rm, im);

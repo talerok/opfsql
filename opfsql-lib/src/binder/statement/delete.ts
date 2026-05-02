@@ -1,10 +1,10 @@
-import type { DeleteStatement } from '../../parser/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import { requireTable } from '../core/utils/require-table.js';
-import { makeGet, makeFilter } from '../core/operators.js';
-import { bindExpression } from '../expression/index.js';
+import type { DeleteStatement } from "../../parser/types.js";
+import type { BindContext } from "../core/context.js";
+import { makeFilter, makeGet } from "../core/operators.js";
+import { requireTable } from "../core/utils/require-table.js";
+import { bindExpression } from "../expression/index.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
 
 export function bindDelete(
   ctx: BindContext,
@@ -29,6 +29,6 @@ export function bindDelete(
     expressions: [],
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }

@@ -87,7 +87,7 @@ function makeGet(overrides: Partial<LogicalGet> = {}): LogicalGet {
     schema: usersSchema,
     columnIds: [0, 1],
     tableFilters: [],
-    getColumnBindings: () => [
+    columnBindings: [
       { tableIndex: 0, columnIndex: 0 },
       { tableIndex: 0, columnIndex: 1 },
     ],
@@ -172,7 +172,7 @@ describe('createPhysicalPlan', () => {
       expressions: [comparison(colRef(0, 0), constant(1), 'EQUAL')],
       types: ['INTEGER', 'TEXT'],
       estimatedCardinality: 50,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -191,7 +191,7 @@ describe('createPhysicalPlan', () => {
       ],
       types: ['INTEGER', 'TEXT'],
       estimatedCardinality: 50,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -209,7 +209,7 @@ describe('createPhysicalPlan', () => {
       aliases: [null],
       types: ['INTEGER'],
       estimatedCardinality: 100,
-      getColumnBindings: () => [{ tableIndex: 1, columnIndex: 0 }],
+      columnBindings: [{ tableIndex: 1, columnIndex: 0 }],
     };
     const plan = createPhysicalPlan(proj, mockRowManager(), cteCache, noopCtx);
     expect(plan).toBeInstanceOf(PhysicalProjectionOp);
@@ -235,7 +235,7 @@ describe('createPhysicalPlan', () => {
       havingExpression: null,
       types: ['INTEGER'],
       estimatedCardinality: 1,
-      getColumnBindings: () => [{ tableIndex: 1, columnIndex: 0 }],
+      columnBindings: [{ tableIndex: 1, columnIndex: 0 }],
     };
     const plan = createPhysicalPlan(agg, mockRowManager(), cteCache, noopCtx);
     expect(plan).toBeInstanceOf(PhysicalHashAggregate);
@@ -263,7 +263,7 @@ describe('createPhysicalPlan', () => {
       types: ['INTEGER'],
       estimatedCardinality: 1,
       minMaxHint: hint,
-      getColumnBindings: () => [{ tableIndex: 1, columnIndex: 0 }],
+      columnBindings: [{ tableIndex: 1, columnIndex: 0 }],
     };
     const plan = createPhysicalPlan(agg, mockRowManager(), cteCache, noopCtx, mockIndexManager());
     expect(plan).toBeInstanceOf(PhysicalIndexMinMax);
@@ -277,7 +277,7 @@ describe('createPhysicalPlan', () => {
       expressions: [],
       types: ['INTEGER', 'TEXT'],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -295,7 +295,7 @@ describe('createPhysicalPlan', () => {
       expressions: [],
       types: ['INTEGER', 'TEXT'],
       estimatedCardinality: 10,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -311,7 +311,7 @@ describe('createPhysicalPlan', () => {
       expressions: [] as BoundExpression[],
       types: ['INTEGER' as const, 'TEXT' as const],
       estimatedCardinality: 50,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -328,7 +328,7 @@ describe('createPhysicalPlan', () => {
       expressions: [],
       types: ['INTEGER', 'TEXT'],
       estimatedCardinality: 200,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
       ],
@@ -341,12 +341,12 @@ describe('createPhysicalPlan', () => {
     const join: LogicalComparisonJoin = {
       type: LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
       joinType: 'INNER',
-      children: [makeGet(), makeGet({ tableIndex: 1, getColumnBindings: () => [{ tableIndex: 1, columnIndex: 0 }, { tableIndex: 1, columnIndex: 1 }] })],
+      children: [makeGet(), makeGet({ tableIndex: 1, columnBindings: [{ tableIndex: 1, columnIndex: 0 }, { tableIndex: 1, columnIndex: 1 }] })],
       conditions: [{ left: colRef(0, 0), right: colRef(1, 0), comparisonType: 'EQUAL' }],
       expressions: [],
       types: ['INTEGER', 'TEXT', 'INTEGER', 'TEXT'],
       estimatedCardinality: 100,
-      getColumnBindings: () => [
+      columnBindings: [
         { tableIndex: 0, columnIndex: 0 },
         { tableIndex: 0, columnIndex: 1 },
         { tableIndex: 1, columnIndex: 0 },
@@ -364,7 +364,7 @@ describe('createPhysicalPlan', () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: () => [],
+      columnBindings: [],
     };
     expect(() =>
       createPhysicalPlan(insert as any, mockRowManager(), cteCache, noopCtx),

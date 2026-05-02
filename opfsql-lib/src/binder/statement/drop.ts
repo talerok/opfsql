@@ -1,6 +1,6 @@
-import type { DropStatement } from '../../parser/types.js';
-import type * as BT from '../types.js';
-import { LogicalOperatorType } from '../types.js';
+import type { DropStatement } from "../../parser/types.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
 
 export function bindDrop(stmt: DropStatement): BT.LogicalDrop {
   return {
@@ -12,6 +12,6 @@ export function bindDrop(stmt: DropStatement): BT.LogicalDrop {
     expressions: [],
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: () => [],
+    columnBindings: [],
   };
 }

@@ -49,7 +49,7 @@ function param(index: number): BoundExpression {
   };
 }
 
-const noBindings = (): ColumnBinding[] => [];
+const noBindings: ColumnBinding[] = [];
 
 function makeScan(tableName: string): LogicalGet {
   return {
@@ -63,7 +63,7 @@ function makeScan(tableName: string): LogicalGet {
     expressions: [],
     types: [],
     estimatedCardinality: 0,
-    getColumnBindings: noBindings,
+    columnBindings: noBindings,
   };
 }
 
@@ -289,7 +289,7 @@ describe("formatPlan", () => {
       ],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: noBindings,
+      columnBindings: noBindings,
     };
 
     const projection: LogicalProjection = {
@@ -300,7 +300,7 @@ describe("formatPlan", () => {
       aliases: ["id", "name"],
       types: ["INTEGER", "TEXT"],
       estimatedCardinality: 0,
-      getColumnBindings: noBindings,
+      columnBindings: noBindings,
     };
 
     const plan = formatPlan(projection);
@@ -326,7 +326,7 @@ describe("formatPlan", () => {
       expressions: [],
       types: [],
       estimatedCardinality: 0,
-      getColumnBindings: noBindings,
+      columnBindings: noBindings,
     };
 
     const plan = formatPlan(join);

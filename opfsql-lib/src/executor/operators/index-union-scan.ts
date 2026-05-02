@@ -32,7 +32,7 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
     private readonly hint: IndexUnionHint,
     private readonly ctx: SyncEvalContext,
   ) {
-    this.layout = op.getColumnBindings();
+    this.layout = op.columnBindings;
     this.resolver = buildResolver(this.layout);
     this.residualExpr = hint.originalFilter;
   }

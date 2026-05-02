@@ -102,8 +102,8 @@ describe("decorrelateExists", () => {
     const outerTypes = join.children[0].types;
     expect(join.types).toEqual(outerTypes);
 
-    const outerBindings = join.children[0].getColumnBindings();
-    expect(join.getColumnBindings()).toEqual(outerBindings);
+    const outerBindings = join.children[0].columnBindings;
+    expect(join.columnBindings).toEqual(outerBindings);
   });
 
   it("does not decorrelate uncorrelated EXISTS", () => {
@@ -181,10 +181,10 @@ describe("Recursive CTE optimization", () => {
     );
     expect(recCTE).toBeTruthy();
 
-    const anchorBindings = recCTE!.children[0].getColumnBindings();
+    const anchorBindings = recCTE!.children[0].columnBindings;
     expect(anchorBindings.length).toBe(2);
 
-    const recBindings = recCTE!.children[1]!.getColumnBindings();
+    const recBindings = recCTE!.children[1]!.columnBindings;
     expect(recBindings.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -213,7 +213,7 @@ describe("Recursive CTE optimization", () => {
     );
     expect(recCTE).toBeTruthy();
 
-    const anchorBindings = recCTE!.children[0].getColumnBindings();
+    const anchorBindings = recCTE!.children[0].columnBindings;
     expect(anchorBindings.length).toBe(2);
   });
 });
