@@ -1,6 +1,7 @@
 {
   "name": "opfsql",
-  "version": "0.0.1",
+  "version": "0.0.2",
+  "description": "Lightweight SQL engine in TypeScript. ~40 KB gzipped, zero native deps. Runs in browser workers via OPFS.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,12 +11,34 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npx playwright test --config test/e2e/infra/config.ts",
-    "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:cbor-x --minify && tsc --emitDeclarationOnly --outDir dist"
+    "build": "cp ../README.md ./README.md && cp ../LICENSE ./LICENSE && esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:cbor-x --minify && tsc --emitDeclarationOnly --outDir dist"
+  },
+  "keywords": [
+    "sql",
+    "opfs",
+    "indexeddb",
+    "browser",
+    "database",
+    "sqlite",
+    "in-browser",
+    "worker",
+    "typescript"
+  ],
+  "author": "talerok",
+  "license": "MIT",
+  "homepage": "https://github.com/talerok/opfsql#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/talerok/opfsql.git",
+    "directory": "opfsql-lib"
+  },
+  "bugs": {
+    "url": "https://github.com/talerok/opfsql/issues"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

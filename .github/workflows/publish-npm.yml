@@ -1,0 +1,49 @@
+name: Publish opfsql to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        working-directory: opfsql-lib
+        run: npm ci
+
+      - name: Run tests
+        working-directory: opfsql-lib
+        run: npm test
+
+      - name: Build
+        working-directory: opfsql-lib
+        run: npm run build
+
+      - name: Verify tag matches package.json version
+        working-directory: opfsql-lib
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $TAG_VERSION does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+        if: github.event_name == 'push'
+
+      - name: Publish to npm
+        working-directory: opfsql-lib
+        run: npm publish --provenance --access public
