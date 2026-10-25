@@ -239,7 +239,6 @@ export class Channel {
 }
 
 function detail(event: Event): string {
-  return "message" in event && typeof event.message === "string"
-    ? `: ${event.message}`
-    : "";
+  const hasMessage = "message" in event && typeof event.message === "string";
+  return hasMessage ? `: ${String(event.message)}` : "";
 }
