@@ -75,7 +75,13 @@ export function withoutNegativeZero(number: number): number {
   return number === 0 ? 0 : number;
 }
 
-function normalizeNumber(value: number): number | null {
+/** Rounds toward zero, never to -0. */
+export function truncate(number: number): number {
+  return withoutNegativeZero(Math.trunc(number));
+}
+
+/** A computed number as a value: NaN is NULL, -0 is 0. */
+export function normalizeNumber(value: number): number | null {
   return Number.isNaN(value) ? null : withoutNegativeZero(value);
 }
 
@@ -188,7 +194,7 @@ function castOf(value: Value, type: SqlType): Value | undefined {
 function castToInteger(value: Value): number | undefined {
   const number = castToNumber(value);
   if (number === undefined) return undefined;
-  return integerOf(withoutNegativeZero(Math.trunc(number)));
+  return integerOf(truncate(number));
 }
 
 /** Booleans are 0 and 1. */

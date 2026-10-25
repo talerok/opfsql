@@ -31,6 +31,36 @@ export function or(a: Truth, b: Truth): Truth {
   return false;
 }
 
+/** AND and OR as folds: where they start, and the answer that ends them. */
+export const CONJUNCTIONS = {
+  and: { combine: and, identity: true, decisive: false },
+  or: { combine: or, identity: false, decisive: true },
+} as const satisfies Record<
+  string,
+  {
+    combine: (a: Truth, b: Truth) => Truth;
+    identity: Truth;
+    decisive: Truth;
+  }
+>;
+
+/**
+ * `truths` combined by AND or OR, three-valued, stopping at the first that
+ * decides (false for AND, true for OR) — the rest are never computed.
+ */
+export function foldTruth(
+  kind: keyof typeof CONJUNCTIONS,
+  truths: Iterable<Truth>,
+): Truth {
+  const { combine, identity, decisive } = CONJUNCTIONS[kind];
+  let result: Truth = identity;
+  for (const truth of truths) {
+    result = combine(result, truth);
+    if (result === decisive) return result;
+  }
+  return result;
+}
+
 export function not(a: Truth): Truth {
   return a === null ? null : !a;
 }
@@ -53,9 +83,7 @@ export const isSame = areEqual;
 export function isIn(needle: Value, items: readonly Value[]): Truth {
   if (items.length === 0) return false;
   if (needle === null) return null;
-  const isFound = items.some(
-    (item) => item !== null && compareValues(needle, item) === 0,
-  );
+  const isFound = items.some((item) => item !== null && areEqual(needle, item));
   if (isFound) return true;
   return items.includes(null) ? null : false;
 }

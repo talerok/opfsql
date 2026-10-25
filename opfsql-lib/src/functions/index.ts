@@ -1,11 +1,13 @@
 export { startAggregate } from "./aggregate.js";
-export { commonType, staticType } from "./arguments.js";
+export { argumentTypes, commonType, staticType } from "./arguments.js";
+export { followPath, type Path, type PathStep } from "./json.js";
 export {
   aggregateFunction,
   isAggregateFunction,
   lookupFunction,
   resolveCall,
   scalarFunction,
+  sqlFunction,
 } from "./registry.js";
 export type {
   Accumulator,

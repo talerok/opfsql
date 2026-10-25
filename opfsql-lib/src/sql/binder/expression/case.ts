@@ -4,18 +4,21 @@ import { checkTypeCompatibility, resultType } from "../core/type-check.js";
 import type { BoundCaseExpression, BoundExpression } from "../types.js";
 import { BoundExpressionClass } from "../types.js";
 
-/** Binds a CASE; `bind` binds a subexpression in the CASE's scope. */
+/**
+ * Binds a CASE; `bind` binds a subexpression in the CASE's scope. A simple
+ * CASE (`CASE x WHEN v …`) keeps its operand, bound once, so it is also
+ * evaluated once per row.
+ */
 export function bindCase(
   expression: CaseExpression,
   bind: (child: ParsedExpression) => BoundExpression,
 ): BoundCaseExpression {
-  const operand =
-    expression.operand === null ? undefined : bind(expression.operand);
+  const operand = expression.operand === null ? null : bind(expression.operand);
   const caseChecks = expression.caseChecks.map((check) => ({
     when: bind(check.whenExpression),
     result: bind(check.thenExpression),
   }));
-  if (operand !== undefined) {
+  if (operand !== null) {
     // Each WHEN value is compared with the operand as `=` would.
     for (const check of caseChecks) {
       checkTypeCompatibility(operand.returnType, check.when.returnType);
@@ -27,22 +30,19 @@ export function bindCase(
     ...caseChecks.map((check) => check.result),
     ...(elseExpression === null ? [] : [elseExpression]),
   ];
+  assertCompatible(results.map((result) => result.returnType));
   return {
     expressionClass: BoundExpressionClass.BOUND_CASE,
-    ...(operand !== undefined && { operand }),
+    operand,
     caseChecks,
     elseExpr: elseExpression,
-    returnType: caseType(results.map((result) => result.returnType)),
+    // INTEGER and REAL make a REAL, other mixes ANY: as for COALESCE.
+    returnType: resultType(results),
   };
 }
 
-/**
- * Branches must be of compatible kinds (no TEXT next to INTEGER); the
- * result has their common type, as for COALESCE: INTEGER and REAL make a
- * REAL, other mixes ANY.
- */
-function caseType(types: readonly LogicalType[]): LogicalType {
+/** Branches must be of compatible kinds: no TEXT next to INTEGER. */
+function assertCompatible(types: readonly LogicalType[]): void {
   let common: LogicalType = "NULL";
   for (const type of types) common = checkTypeCompatibility(common, type);
-  return resultType(types);
 }

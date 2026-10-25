@@ -28,7 +28,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
   private cursor = 0;
   private done = false;
   private readonly layout: ColumnBinding[];
-  private readonly residuals: readonly RowFilter[];
+  private readonly filters: readonly RowFilter[];
 
   constructor(
     private readonly op: LogicalGet,
@@ -44,7 +44,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     // those it covers too: the index finds rows by its own key order (and
     // one chosen for ORDER BY covers none), while each row returned must
     // satisfy the filters as compareValues defines them.
-    this.residuals = compileTableFilters(
+    this.filters = compileTableFilters(
       [...new Set([...residualFilters, ...op.tableFilters])],
       buildResolver(this.layout),
       context,
@@ -71,7 +71,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
         if (row === null) continue;
 
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
-        if (passesFilters(tuple, this.residuals)) {
+        if (passesFilters(tuple, this.filters)) {
           batch.push(tuple);
         }
       }

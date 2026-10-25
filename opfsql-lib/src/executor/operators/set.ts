@@ -1,12 +1,13 @@
 import type { ColumnBinding } from "../../sql/binder/types.js";
-import { rowKey } from "../../values/index.js";
+import { firstSighting } from "../../values/index.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
+import { nextNonEmpty } from "./shared.js";
 
 // DISTINCT and UNION keep the first of rows equal under rowKey — the
 // equality of compareValues, with NULLs equal to each other.
 
 export class PhysicalDistinct implements SyncPhysicalOperator {
-  private readonly seen = new Set<string>();
+  private isFirstSighting = firstSighting();
 
   constructor(private readonly child: SyncPhysicalOperator) {}
 
@@ -15,19 +16,13 @@ export class PhysicalDistinct implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    for (
-      let batch = this.child.next();
-      batch !== null;
-      batch = this.child.next()
-    ) {
-      const result = keepUnseen(batch, this.seen);
-      if (result.length > 0) return result;
-    }
-    return null;
+    return nextNonEmpty(this.child, (batch) =>
+      batch.filter((row) => this.isFirstSighting(row)),
+    );
   }
 
   reset(): void {
-    this.seen.clear();
+    this.isFirstSighting = firstSighting();
     this.child.reset();
   }
 }
@@ -35,59 +30,37 @@ export class PhysicalDistinct implements SyncPhysicalOperator {
 export class PhysicalUnion implements SyncPhysicalOperator {
   private isLeftDone = false;
 
-  private readonly seen: Set<string> | null;
+  private isFirstSighting = firstSighting();
 
   constructor(
     private readonly left: SyncPhysicalOperator,
     private readonly right: SyncPhysicalOperator,
-    isAll: boolean,
-  ) {
-    this.seen = isAll ? null : new Set();
-  }
+    private readonly isAll: boolean,
+  ) {}
 
   getLayout(): ColumnBinding[] {
     return this.left.getLayout();
   }
 
   next(): Tuple[] | null {
-    while (!this.isLeftDone) {
-      const batch = this.left.next();
-      if (batch === null) {
-        this.isLeftDone = true;
-        break;
-      }
-      const result = this.deduplicate(batch);
-      if (result.length > 0) return result;
+    const deduplicate = (batch: Tuple[]): Tuple[] => this.deduplicate(batch);
+    if (!this.isLeftDone) {
+      const batch = nextNonEmpty(this.left, deduplicate);
+      if (batch !== null) return batch;
+      this.isLeftDone = true;
     }
-    for (
-      let batch = this.right.next();
-      batch !== null;
-      batch = this.right.next()
-    ) {
-      const result = this.deduplicate(batch);
-      if (result.length > 0) return result;
-    }
-    return null;
+    return nextNonEmpty(this.right, deduplicate);
   }
 
   reset(): void {
     this.isLeftDone = false;
-    this.seen?.clear();
+    this.isFirstSighting = firstSighting();
     this.left.reset();
     this.right.reset();
   }
 
   private deduplicate(batch: Tuple[]): Tuple[] {
-    return this.seen === null ? batch : keepUnseen(batch, this.seen);
+    if (this.isAll) return batch;
+    return batch.filter((row) => this.isFirstSighting(row));
   }
-}
-
-/** The rows of `batch` whose key is not in `seen`, adding their keys. */
-function keepUnseen(batch: readonly Tuple[], seen: Set<string>): Tuple[] {
-  return batch.filter((row) => {
-    const key = rowKey(row);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }

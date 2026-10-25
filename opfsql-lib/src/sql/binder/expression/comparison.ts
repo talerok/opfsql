@@ -1,6 +1,6 @@
 import type { ComparisonExpression } from "../../parser/types.js";
 import { ExpressionType } from "../../parser/types.js";
-import type { BoundExpression, BoundComparisonExpression } from "../types.js";
+import type { BoundComparisonExpression, BoundExpression } from "../types.js";
 import { BoundExpressionClass } from "../types.js";
 import type { BindContext, AggregateContext } from "../core/context.js";
 import type { BindScope } from "../core/scope.js";

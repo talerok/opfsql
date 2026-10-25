@@ -113,22 +113,13 @@ export function boundToIndexExpression(
     }
     case BoundExpressionClass.BOUND_CASE: {
       const cs = expr as BoundCaseExpression;
-      // Stored without an operand: CASE x WHEN v is CASE WHEN x = v.
-      const operand = cs.operand === undefined ? undefined : conv(cs.operand);
-      const condition = (when: IndexExpression): IndexExpression =>
-        operand === undefined
-          ? when
-          : {
-              type: "comparison",
-              comparisonType: "EQUAL",
-              left: operand,
-              right: when,
-              returnType: "BOOLEAN",
-            };
+      // The catalog format has no operand: a simple CASE (CASE x WHEN v) is
+      // stored as the searched CASE WHEN x = v, which computes the same key.
+      const operand = cs.operand === null ? null : conv(cs.operand);
       return {
         type: "case",
         checks: cs.caseChecks.map((ch) => ({
-          when: condition(conv(ch.when)),
+          when: whenCondition(operand, conv(ch.when)),
           then: conv(ch.result),
         })),
         elseExpr: cs.elseExpr ? conv(cs.elseExpr) : null,
@@ -148,6 +139,21 @@ export function boundToIndexExpression(
         `Unsupported expression type in index: ${expr.expressionClass}`,
       );
   }
+}
+
+/** A WHEN as a condition: `operand = value` in a simple CASE. */
+function whenCondition(
+  operand: IndexExpression | null,
+  when: IndexExpression,
+): IndexExpression {
+  if (operand === null) return when;
+  return {
+    type: "comparison",
+    comparisonType: "EQUAL",
+    left: operand,
+    right: when,
+    returnType: "BOOLEAN",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +222,7 @@ export function bindIndexExpression(
     case "case":
       return {
         expressionClass: BoundExpressionClass.BOUND_CASE,
+        operand: null,
         caseChecks: expr.checks.map((ch) => ({
           when: bind(ch.when),
           result: bind(ch.then),

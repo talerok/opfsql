@@ -9,13 +9,38 @@ import type { ScalarFunction } from "./types.js";
 
 const encoder = new TextEncoder();
 
-/** Per-round left-rotation amounts. */
-const SHIFTS = [
-  [7, 12, 17, 22],
-  [5, 9, 14, 20],
-  [4, 11, 16, 23],
-  [6, 10, 15, 21],
-] as const;
+/** One of MD5's four rounds of 16 steps. */
+interface Round {
+  /** The round's function of the state words b, c and d. */
+  readonly mix: (b: number, c: number, d: number) => number;
+  /** Which word of the block step `step` (0–63) adds. */
+  readonly wordIndex: (step: number) => number;
+  /** The left rotations of the round's steps, repeating every four. */
+  readonly shifts: readonly [number, number, number, number];
+}
+
+const ROUNDS: readonly [Round, Round, Round, Round] = [
+  {
+    mix: (b, c, d) => (b & c) | (~b & d),
+    wordIndex: (step) => step,
+    shifts: [7, 12, 17, 22],
+  },
+  {
+    mix: (b, c, d) => (d & b) | (~d & c),
+    wordIndex: (step) => (5 * step + 1) % 16,
+    shifts: [5, 9, 14, 20],
+  },
+  {
+    mix: (b, c, d) => b ^ c ^ d,
+    wordIndex: (step) => (3 * step + 5) % 16,
+    shifts: [4, 11, 16, 23],
+  },
+  {
+    mix: (b, c, d) => c ^ (b | ~d),
+    wordIndex: (step) => (7 * step) % 16,
+    shifts: [6, 10, 15, 21],
+  },
+];
 
 /** floor(2^32 × |sin(i + 1)|) for i in 0..63. */
 const SINES: readonly number[] = [
@@ -69,10 +94,10 @@ function padded(bytes: Uint8Array): Uint32Array {
 function compress(state: State, words: Uint32Array, offset: number): State {
   let [a, b, c, d] = state;
   for (let step = 0; step < 64; step++) {
-    const round = Math.floor(step / 16);
-    const word = words[offset + wordIndex(round, step)] ?? 0;
-    const shift = SHIFTS[round as 0 | 1 | 2 | 3][step % 4] ?? 0;
-    const mixed = add32(mix(round, b, c, d), a, SINES[step] ?? 0, word);
+    const round = ROUNDS[Math.floor(step / 16) as 0 | 1 | 2 | 3];
+    const word = words[offset + round.wordIndex(step)] ?? 0;
+    const shift = round.shifts[(step % 4) as 0 | 1 | 2 | 3];
+    const mixed = add32(round.mix(b, c, d), a, SINES[step] ?? 0, word);
     a = d;
     d = c;
     c = b;
@@ -89,40 +114,6 @@ function compress(state: State, words: Uint32Array, offset: number): State {
 /** The sum of 32-bit words, modulo 2^32. */
 function add32(...words: number[]): number {
   return words.reduce((sum, word) => sum + word, 0) >>> 0;
-}
-
-function mix(round: number, b: number, c: number, d: number): number {
-  switch (round) {
-    case 0: {
-      return (b & c) | (~b & d);
-    }
-    case 1: {
-      return (d & b) | (~d & c);
-    }
-    case 2: {
-      return b ^ c ^ d;
-    }
-    default: {
-      return c ^ (b | ~d);
-    }
-  }
-}
-
-function wordIndex(round: number, step: number): number {
-  switch (round) {
-    case 0: {
-      return step;
-    }
-    case 1: {
-      return (5 * step + 1) % 16;
-    }
-    case 2: {
-      return (3 * step + 5) % 16;
-    }
-    default: {
-      return (7 * step) % 16;
-    }
-  }
 }
 
 function rotateLeft(value: number, shift: number): number {

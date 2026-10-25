@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../../../test/support/random.js";
 import { randomText, randomValue } from "../../../test/support/values.js";
 import { withoutNegativeZero } from "../convert.js";
-import { rowKey, valueKey } from "../key.js";
+import { firstSighting, rowKey, valueKey } from "../key.js";
 import {
   areEqual,
   canonicalJson,
@@ -130,5 +130,17 @@ describe("rowKey", () => {
   it("keeps the boundaries between values", () => {
     expect(rowKey(["ab", "c"])).not.toBe(rowKey(["a", "bc"]));
     expect(rowKey([1, "x"])).toBe(rowKey([0.5 * 2, "x"]));
+  });
+});
+
+describe("firstSighting", () => {
+  it("is true once for each list of equal values", () => {
+    const isFirst = firstSighting();
+    expect(isFirst([1, "a"])).toBe(true);
+    expect(isFirst([1, "a"])).toBe(false);
+    expect(isFirst([0.5 * 2, "a"])).toBe(false);
+    expect(isFirst(["1", "a"])).toBe(true);
+    expect(isFirst([null])).toBe(true);
+    expect(isFirst([null])).toBe(false);
   });
 });

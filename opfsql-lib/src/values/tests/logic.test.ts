@@ -3,6 +3,7 @@ import type { Truth } from "../logic.js";
 import {
   and,
   compareSql,
+  foldTruth,
   isIn,
   isSame,
   membership,
@@ -97,5 +98,28 @@ describe("membership", () => {
         expect(test(needle)).toBe(isIn(needle, list));
       }
     }
+  });
+});
+
+describe("foldTruth", () => {
+  it("folds as AND and OR, three-valued", () => {
+    expect(foldTruth("and", [true, null])).toBeNull();
+    expect(foldTruth("and", [null, false])).toBe(false);
+    expect(foldTruth("or", [false, null])).toBeNull();
+    expect(foldTruth("or", [null, true])).toBe(true);
+    expect(foldTruth("and", [])).toBe(true);
+    expect(foldTruth("or", [])).toBe(false);
+  });
+
+  it("stops at the first truth that decides", () => {
+    const seen: Truth[] = [];
+    function* truths(): Generator<Truth> {
+      for (const truth of [null, false, true] as Truth[]) {
+        seen.push(truth);
+        yield truth;
+      }
+    }
+    expect(foldTruth("and", truths())).toBe(false);
+    expect(seen).toEqual([null, false]);
   });
 });

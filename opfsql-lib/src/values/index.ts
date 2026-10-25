@@ -16,14 +16,18 @@ export {
   castValue,
   describeValue,
   hexToBytes,
+  normalizeNumber,
   normalizeValue,
   numberFromText,
+  truncate,
   withoutNegativeZero,
 } from "./convert.js";
-export { rowKey, valueKey } from "./key.js";
+export { firstSighting, rowKey, valueKey } from "./key.js";
 export {
   and,
   compareSql,
+  CONJUNCTIONS,
+  foldTruth,
   isIn,
   isSame,
   membership,
@@ -39,7 +43,12 @@ export {
   compareValues,
   areEqual,
 } from "./order.js";
-export { isNumericType, type SqlType, typeFromName } from "./types.js";
+export {
+  isNumericType,
+  type SqlType,
+  sqlTypeOf,
+  typeFromName,
+} from "./types.js";
 export {
   type JsonComposite,
   type JsonObject,

@@ -166,8 +166,25 @@ export function caseExpr(
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_CASE,
+    operand: null,
     caseChecks: checks,
     elseExpr,
+    returnType,
+  };
+}
+
+/** `CASE operand WHEN … THEN … [ELSE …] END`. */
+export function simpleCase(
+  operand: BoundExpression,
+  checks: { when: BoundExpression; result: BoundExpression }[],
+  otherwise: BoundExpression | null = null,
+  returnType: LogicalType = "INTEGER",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CASE,
+    operand,
+    caseChecks: checks,
+    elseExpr: otherwise,
     returnType,
   };
 }

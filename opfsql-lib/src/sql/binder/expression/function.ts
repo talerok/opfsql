@@ -1,10 +1,10 @@
 import { SemanticError } from "../../../errors.js";
 import {
-  lookupFunction,
+  argumentTypes,
   resolveCall,
   type ScalarFunction,
   scalarFunction,
-  staticType,
+  sqlFunction,
 } from "../../../functions/index.js";
 import type {
   FunctionExpression,
@@ -39,10 +39,7 @@ export function bindFunction(
   binding: FunctionBinding,
 ): BoundExpression {
   const name = expression.functionName;
-  const definition = lookupFunction(name);
-  if (definition === undefined) {
-    throw new SemanticError(`no such function: ${name}`);
-  }
+  const definition = sqlFunction(name);
   if (definition.kind === "aggregate") {
     const bound = binding.bindAggregate();
     const match = binding.aggregateContext?.aggregates.find((aggregate) =>
@@ -63,10 +60,7 @@ export function bindCall(
   children: BoundExpression[],
   name: string = definition.name,
 ): BoundFunctionExpression {
-  const returnType = resolveCall(
-    definition,
-    children.map((child) => staticType(child.returnType)),
-  );
+  const returnType = resolveCall(definition, argumentTypes(children));
   return {
     expressionClass: BoundExpressionClass.BOUND_FUNCTION,
     functionName: name.toUpperCase(),
@@ -82,6 +76,7 @@ export function bindLike(
   pattern: BoundExpression,
   escape?: BoundExpression,
 ): BoundFunctionExpression {
-  const children = [pattern, text, ...(escape === undefined ? [] : [escape])];
+  const children =
+    escape === undefined ? [pattern, text] : [pattern, text, escape];
   return bindCall(scalarFunction("like"), children);
 }
