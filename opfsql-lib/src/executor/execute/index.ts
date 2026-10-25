@@ -1,5 +1,5 @@
-import type { LogicalOperator } from "../../binder/types.js";
-import { LogicalOperatorType } from "../../binder/types.js";
+import type { LogicalOperator } from "../../sql/binder/types.js";
+import { LogicalOperatorType } from "../../sql/binder/types.js";
 import type {
   ICatalog,
   SyncIIndexManager,

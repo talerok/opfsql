@@ -1,6 +1,6 @@
-import type { BoundExpression } from "../../binder/types.js";
-import { BoundExpressionClass } from "../../binder/types.js";
-import { evalColumnRef } from "../../executor/evaluate/column-ref.js";
+import type { BoundExpression } from "../../sql/binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
+import { evalColumnRef } from "./column-ref.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
 import { evalAggregate } from "./aggregate.js";

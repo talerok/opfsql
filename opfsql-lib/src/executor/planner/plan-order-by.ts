@@ -1,4 +1,7 @@
-import type { LogicalOperator, LogicalOrderBy } from "../../binder/types.js";
+import type {
+  LogicalOperator,
+  LogicalOrderBy,
+} from "../../sql/binder/types.js";
 import { PhysicalSort } from "../operators/sort.js";
 import type { PlannerContext } from "./types.js";
 

@@ -1,4 +1,4 @@
-import type { ColumnBinding } from "../../binder/types.js";
+import type { ColumnBinding } from "../../sql/binder/types.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import { serializeKey } from "./utils.js";
 

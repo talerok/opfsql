@@ -2,7 +2,7 @@ import type {
   BoundAggregateExpression,
   ColumnBinding,
   LogicalAggregate,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { compareValues, isTruthy } from "../evaluate/utils/compare.js";
 import { serializeValue } from "../evaluate/utils/serialize.js";
 import type { SyncEvalContext } from "../evaluate/context.js";

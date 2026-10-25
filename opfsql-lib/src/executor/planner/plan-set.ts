@@ -1,4 +1,4 @@
-import type { LogicalOperator, LogicalUnion } from "../../binder/types.js";
+import type { LogicalOperator, LogicalUnion } from "../../sql/binder/types.js";
 import { PhysicalDistinct, PhysicalUnion } from "../operators/set.js";
 import type { PlannerContext } from "./types.js";
 

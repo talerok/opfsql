@@ -1,4 +1,7 @@
-import type { LogicalOperator, LogicalProjection } from "../../binder/types.js";
+import type {
+  LogicalOperator,
+  LogicalProjection,
+} from "../../sql/binder/types.js";
 import { PhysicalProjection } from "../operators/projection.js";
 import type { PlannerContext } from "./types.js";
 

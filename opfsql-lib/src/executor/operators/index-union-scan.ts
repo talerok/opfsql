@@ -3,7 +3,7 @@ import type {
   ColumnBinding,
   IndexUnionHint,
   LogicalGet,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import type {
   IndexKeyValue,
   SearchPredicate,

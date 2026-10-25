@@ -1,7 +1,7 @@
 import type {
   BoundComparisonExpression,
   BoundExpression,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { applyComparison } from "./utils/compare.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";

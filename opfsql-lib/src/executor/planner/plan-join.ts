@@ -1,7 +1,7 @@
 import type {
   LogicalComparisonJoin,
   LogicalOperator,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { PhysicalHashJoin, PhysicalNestedLoopJoin } from "../operators/join.js";
 import type { PlannerContext } from "./types.js";
 

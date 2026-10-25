@@ -8,8 +8,8 @@ import type {
   BoundFunctionExpression,
   BoundJsonAccessExpression,
   BoundOperatorExpression,
-} from "../binder/types.js";
-import { BoundExpressionClass } from "../binder/types.js";
+} from "../sql/binder/types.js";
+import { BoundExpressionClass } from "../sql/binder/types.js";
 import type { IndexExpression, TableSchema } from "../types.js";
 
 // ---------------------------------------------------------------------------

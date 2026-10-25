@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LogicalOperatorType } from "../../binder/types.js";
+import { LogicalOperatorType } from "../../sql/binder/types.js";
 import type {
   LogicalProjection,
   LogicalComparisonJoin,
@@ -8,8 +8,8 @@ import type {
   LogicalAggregate,
   BoundAggregateExpression,
   BoundOrderByNode,
-} from "../../binder/types.js";
-import { BoundExpressionClass } from "../../binder/types.js";
+} from "../../sql/binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
 import { PhysicalFilter } from "../operators/filter.js";
 import { PhysicalProjection } from "../operators/projection.js";
 import { PhysicalHashJoin, PhysicalNestedLoopJoin } from "../operators/join.js";

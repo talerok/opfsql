@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { TableFilter } from "../../binder/types.js";
-import { BoundExpressionClass } from "../../binder/types.js";
+import type { TableFilter } from "../../sql/binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
 import { compileExpression, compileFilter } from "../evaluate/compile.js";
 import { buildResolver } from "../resolve.js";
 import { colRef, constant, comparison, layout, noopCtx } from "./helpers.js";

@@ -1,4 +1,4 @@
-import type { ComparisonType } from "../../../binder/types.js";
+import type { ComparisonType } from "../../../sql/binder/types.js";
 import type { Value } from "../../types.js";
 
 /** SQL truthiness: only boolean true passes filters */

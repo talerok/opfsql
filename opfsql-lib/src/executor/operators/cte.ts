@@ -1,4 +1,4 @@
-import type { LogicalCTERef, ColumnBinding } from "../../binder/types.js";
+import type { LogicalCTERef, ColumnBinding } from "../../sql/binder/types.js";
 import type { SyncPhysicalOperator, Tuple, CTECacheEntry } from "../types.js";
 import { ExecutorError } from "../errors.js";
 import { drainOperator, serializeKey, SCAN_BATCH } from "./utils.js";

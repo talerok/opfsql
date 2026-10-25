@@ -647,8 +647,8 @@ describe("evaluateExpression", () => {
 // ---------------------------------------------------------------------------
 
 import { evalSubquery } from "../evaluate/subquery.js";
-import { BoundExpressionClass } from "../../binder/types.js";
-import type { LogicalOperator } from "../../binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
+import type { LogicalOperator } from "../../sql/binder/types.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 
 const dummySubplan = {} as LogicalOperator;

@@ -1,4 +1,7 @@
-import type { LogicalAggregate, LogicalOperator } from "../../binder/types.js";
+import type {
+  LogicalAggregate,
+  LogicalOperator,
+} from "../../sql/binder/types.js";
 import { PhysicalHashAggregate } from "../operators/aggregate.js";
 import { PhysicalIndexMinMax } from "../operators/index-min-max.js";
 import type { PlannerContext } from "./types.js";

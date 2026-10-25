@@ -1,4 +1,4 @@
-import type { ColumnBinding, LogicalGet } from "../../binder/types.js";
+import type { ColumnBinding, LogicalGet } from "../../sql/binder/types.js";
 import type { Row, SyncIRowManager } from "../../store/types.js";
 import type { CompiledFilter } from "../evaluate/compile.js";
 import { compileFilter } from "../evaluate/compile.js";

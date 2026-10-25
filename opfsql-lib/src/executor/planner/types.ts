@@ -1,4 +1,4 @@
-import type { LogicalOperator } from "../../binder/types.js";
+import type { LogicalOperator } from "../../sql/binder/types.js";
 import type { SyncIIndexManager, SyncIRowManager } from "../../store/types.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import type { CTECacheEntry, SyncPhysicalOperator } from "../types.js";

@@ -2,8 +2,8 @@ import type {
   TableSchema,
   BoundConstantExpression,
   BoundParameterExpression,
-} from "../../binder/types.js";
-import { BoundExpressionClass } from "../../binder/types.js";
+} from "../../sql/binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
 import type { CompiledFilter } from "../evaluate/compile.js";
 import type { SyncPhysicalOperator, Tuple, Value } from "../types.js";
 import { applyComparison } from "../evaluate/utils/compare.js";

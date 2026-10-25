@@ -1,7 +1,7 @@
 import type {
   BoundExpression,
   BoundFunctionExpression,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { ExecutorError } from "../errors.js";
 import { compareValues } from "./utils/compare.js";
 import { castText } from "./utils/cast.js";

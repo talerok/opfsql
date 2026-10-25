@@ -1,4 +1,4 @@
-import type { LogicalUpdate } from "../../binder/types.js";
+import type { LogicalUpdate } from "../../sql/binder/types.js";
 import type {
   ICatalog,
   Row,

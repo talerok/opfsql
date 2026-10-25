@@ -1,4 +1,4 @@
-import type { LogicalOperator } from "../../binder/types.js";
+import type { LogicalOperator } from "../../sql/binder/types.js";
 import type { Tuple, Value } from "../types.js";
 import type { Resolver } from "../resolve.js";
 

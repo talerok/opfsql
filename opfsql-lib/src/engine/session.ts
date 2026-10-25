@@ -1,15 +1,15 @@
-import { Binder } from "../binder/index.js";
+import { Binder } from "../sql/binder/index.js";
 import { execute } from "../executor/execute/index.js";
 import type { CatalogChange } from "../executor/types.js";
-import { optimize } from "../optimizer/index.js";
-import { Parser } from "../parser/index.js";
+import { optimize } from "../sql/optimizer/index.js";
+import { Parser } from "../sql/parser/index.js";
 import {
   StatementType,
   TransactionType,
   type ExplainStatement,
   type Statement,
   type TransactionStatement,
-} from "../parser/types.js";
+} from "../sql/parser/types.js";
 import { Catalog } from "../store/catalog.js";
 import { SyncIndexManager } from "../store/index-manager.js";
 import type { SessionStore } from "../store/session-store.js";

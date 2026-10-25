@@ -2,8 +2,8 @@ import type {
   BoundConjunctionExpression,
   LogicalFilter,
   LogicalOperator,
-} from "../../binder/types.js";
-import { BoundExpressionClass } from "../../binder/types.js";
+} from "../../sql/binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
 import { PhysicalFilter } from "../operators/filter.js";
 import type { PlannerContext } from "./types.js";
 

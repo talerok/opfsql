@@ -22,7 +22,7 @@ import {
   type LogicalMaterializedCTE,
   type LogicalRecursiveCTE,
   type ComparisonType,
-} from "../binder/types.js";
+} from "../sql/binder/types.js";
 
 // ---------------------------------------------------------------------------
 // Shared symbols

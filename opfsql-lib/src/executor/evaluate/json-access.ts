@@ -1,7 +1,7 @@
 import type {
   BoundExpression,
   BoundJsonAccessExpression,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import type { JsonPathSegment } from "../../types.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";

@@ -1,4 +1,4 @@
-import type { LogicalLimit, LogicalOperator } from "../../binder/types.js";
+import type { LogicalLimit, LogicalOperator } from "../../sql/binder/types.js";
 import { PhysicalLimit } from "../operators/limit.js";
 import type { PlannerContext } from "./types.js";
 

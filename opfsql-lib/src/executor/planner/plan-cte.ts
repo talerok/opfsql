@@ -3,7 +3,7 @@ import type {
   LogicalMaterializedCTE,
   LogicalOperator,
   LogicalRecursiveCTE,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import {
   PhysicalCTEScan,
   PhysicalMaterialize,

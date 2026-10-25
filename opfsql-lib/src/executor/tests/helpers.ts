@@ -2,8 +2,8 @@ import type {
   BoundExpression,
   BoundColumnRefExpression,
   ColumnBinding,
-} from "../../binder/types.js";
-import { BoundExpressionClass } from "../../binder/types.js";
+} from "../../sql/binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
 import type { LogicalType } from "../../store/types.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";

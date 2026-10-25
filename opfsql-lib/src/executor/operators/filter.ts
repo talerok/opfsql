@@ -1,4 +1,4 @@
-import type { BoundExpression, ColumnBinding } from "../../binder/types.js";
+import type { BoundExpression, ColumnBinding } from "../../sql/binder/types.js";
 import { isTruthy } from "../evaluate/utils/compare.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import { evaluateExpression } from "../evaluate/index.js";

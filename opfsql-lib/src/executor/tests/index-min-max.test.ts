@@ -3,11 +3,11 @@ import type {
   LogicalAggregate,
   BoundAggregateExpression,
   MinMaxHint,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import {
   BoundExpressionClass,
   LogicalOperatorType,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import type { SyncIIndexManager, IndexDef } from "../../store/types.js";
 import { PhysicalIndexMinMax } from "../operators/index-min-max.js";
 

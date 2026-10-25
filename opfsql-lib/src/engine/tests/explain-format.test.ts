@@ -8,7 +8,7 @@ import {
   type LogicalFilter,
   type LogicalGet,
   type LogicalProjection,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { formatExpression, formatPlan } from "../explain.js";
 
 // ---------------------------------------------------------------------------

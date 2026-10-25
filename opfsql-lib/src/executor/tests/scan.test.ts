@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import type { LogicalGet, TableFilter } from "../../binder/types.js";
+import type { LogicalGet, TableFilter } from "../../sql/binder/types.js";
 import {
   BoundExpressionClass,
   LogicalOperatorType,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import type { SyncIRowManager, TableSchema } from "../../store/types.js";
 import { PhysicalScan, PhysicalChildScan } from "../operators/scan.js";
 import { drainOperator } from "../operators/utils.js";

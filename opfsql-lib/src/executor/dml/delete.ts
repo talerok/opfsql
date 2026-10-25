@@ -1,4 +1,4 @@
-import type { LogicalDelete } from "../../binder/types.js";
+import type { LogicalDelete } from "../../sql/binder/types.js";
 import type {
   ICatalog,
   Row,

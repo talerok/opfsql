@@ -1,4 +1,4 @@
-import type { LogicalGet, LogicalOperator } from "../../binder/types.js";
+import type { LogicalGet, LogicalOperator } from "../../sql/binder/types.js";
 import { PhysicalIndexScan } from "../operators/index-scan.js";
 import { PhysicalIndexUnionScan } from "../operators/index-union-scan.js";
 import { PhysicalChildScan, PhysicalScan } from "../operators/scan.js";

@@ -1,4 +1,7 @@
-import type { LogicalProjection, ColumnBinding } from "../../binder/types.js";
+import type {
+  LogicalProjection,
+  ColumnBinding,
+} from "../../sql/binder/types.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import { buildResolver } from "../resolve.js";

@@ -1,7 +1,7 @@
 import type {
   BoundCastExpression,
   BoundExpression,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { castValue } from "./utils/cast.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";

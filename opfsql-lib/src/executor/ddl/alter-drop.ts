@@ -1,4 +1,4 @@
-import type { LogicalAlterTable, LogicalDrop } from "../../binder/types.js";
+import type { LogicalAlterTable, LogicalDrop } from "../../sql/binder/types.js";
 import type {
   ICatalog,
   SyncIIndexManager,

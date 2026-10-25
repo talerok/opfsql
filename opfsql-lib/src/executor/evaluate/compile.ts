@@ -6,8 +6,8 @@ import type {
   BoundParameterExpression,
   ComparisonType,
   TableFilter,
-} from "../../binder/types.js";
-import { BoundExpressionClass } from "../../binder/types.js";
+} from "../../sql/binder/types.js";
+import { BoundExpressionClass } from "../../sql/binder/types.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple, Value } from "../types.js";
 import { evaluateExpression } from "./index.js";

@@ -3,11 +3,11 @@ import type {
   LogicalGet,
   LogicalProjection,
   LogicalLimit,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import {
   BoundExpressionClass,
   LogicalOperatorType,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import type {
   SyncIRowManager,
   TableSchema,

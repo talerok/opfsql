@@ -1,4 +1,4 @@
-import type { BoundParameterExpression } from "../../binder/types.js";
+import type { BoundParameterExpression } from "../../sql/binder/types.js";
 import { ExecutorError } from "../errors.js";
 import type { Value } from "../types.js";
 import type { SyncEvalContext } from "./context.js";

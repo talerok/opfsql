@@ -1,4 +1,7 @@
-import type { ColumnBinding, LogicalAggregate } from "../../binder/types.js";
+import type {
+  ColumnBinding,
+  LogicalAggregate,
+} from "../../sql/binder/types.js";
 import type { IndexDef, SyncIIndexManager } from "../../store/types.js";
 import type { SyncPhysicalOperator, Tuple, Value } from "../types.js";
 

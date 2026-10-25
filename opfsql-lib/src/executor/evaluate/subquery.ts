@@ -1,7 +1,7 @@
 import type {
   BoundExpression,
   BoundSubqueryExpression,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { applyComparison } from "./utils/compare.js";
 import { ExecutorError } from "../errors.js";
 import type { Resolver } from "../resolve.js";

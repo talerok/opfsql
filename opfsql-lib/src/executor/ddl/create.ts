@@ -1,7 +1,7 @@
 import type {
   LogicalCreateIndex,
   LogicalCreateTable,
-} from "../../binder/types.js";
+} from "../../sql/binder/types.js";
 import { compareIndexKeys } from "../../store/index-btree/compare.js";
 import type { IndexKey } from "../../store/index-btree/types.js";
 import { rowidColumn } from "../../store/row-codec.js";

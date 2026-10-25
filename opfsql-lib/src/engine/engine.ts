@@ -1,4 +1,4 @@
-import { Parser } from "../parser/index.js";
+import { Parser } from "../sql/parser/index.js";
 import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
 import { Catalog } from "../store/catalog.js";
 import { DatabaseInUseError } from "../store/errors.js";
