@@ -1,17 +1,8 @@
 import type { BoundExpression } from "../../sql/binder/types.js";
 import type { Value } from "../../values/index.js";
-import { InternalError } from "../../errors.js";
 import { buildResolver } from "../resolve.js";
 import { compileExpression } from "./compile.js";
-import type { ExecutionContext } from "./context.js";
-
-const NO_ROW: ExecutionContext = {
-  parameters: [],
-  outer: null,
-  runSubquery: () => {
-    throw new InternalError("a constant expression has no subquery");
-  },
-};
+import { ROW_ONLY_CONTEXT } from "./context.js";
 
 /**
  * The value of an expression without columns, parameters or subqueries,
@@ -24,7 +15,11 @@ export function evaluateConstant(
   expression: BoundExpression,
 ): Value | undefined {
   try {
-    return compileExpression(expression, buildResolver([]), NO_ROW)([]);
+    return compileExpression(
+      expression,
+      buildResolver([]),
+      ROW_ONLY_CONTEXT,
+    )([]);
   } catch {
     return undefined;
   }

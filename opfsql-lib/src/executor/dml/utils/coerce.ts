@@ -1,9 +1,5 @@
 import type { TableSchema } from "../../../store/types.js";
-import {
-  assignValue,
-  typeFromName,
-  type Value,
-} from "../../../values/index.js";
+import { assignValue, sqlTypeOf, type Value } from "../../../values/index.js";
 
 /**
  * `value` converted for storage in column `columnIndex`, as Assignment in
@@ -16,5 +12,5 @@ export function assignToColumn(
   columnIndex: number,
 ): Value {
   const column = schema.columns[columnIndex];
-  return assignValue(value, typeFromName(column.type) ?? "ANY");
+  return assignValue(value, sqlTypeOf(column.type));
 }

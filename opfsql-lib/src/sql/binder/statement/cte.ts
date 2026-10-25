@@ -20,6 +20,7 @@ import type { LogicalOperator } from "../types.js";
 import { LogicalOperatorType } from "../types.js";
 import { bindQueryNode } from "./query-node.js";
 import { bindSelect } from "./select.js";
+import { isNumericType } from "../../../values/index.js";
 
 export interface CTECollected {
   name: string;
@@ -209,12 +210,9 @@ function validateRecursiveTerm(cteName: string, node: SelectNode): void {
 // Type compatibility for anchor vs recursive term
 // ---------------------------------------------------------------------------
 
-const NUMERIC_TYPES = new Set(["INTEGER", "BIGINT", "REAL"]);
-
 function areTypesCompatible(anchor: string, recursive: string): boolean {
   if (anchor === recursive) return true;
   if (anchor === "NULL" || anchor === "ANY") return true;
   if (recursive === "NULL" || recursive === "ANY") return true;
-  if (NUMERIC_TYPES.has(anchor) && NUMERIC_TYPES.has(recursive)) return true;
-  return false;
+  return isNumericType(anchor) && isNumericType(recursive);
 }

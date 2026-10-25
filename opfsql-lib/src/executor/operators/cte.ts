@@ -1,7 +1,7 @@
 import type { LogicalCTERef, ColumnBinding } from "../../sql/binder/types.js";
 import type { SyncPhysicalOperator, Tuple, CTECacheEntry } from "../types.js";
 import { ExecutorError } from "../errors.js";
-import { rowKey } from "../../values/index.js";
+import { firstSighting } from "../../values/index.js";
 import { drainOperator, SCAN_BATCH } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -117,44 +117,20 @@ export class PhysicalRecursiveCTE implements SyncPhysicalOperator {
 
   private execute(): Tuple[] {
     const allRows: Tuple[] = [];
-    const seen = this.isUnionAll ? null : new Set<string>();
+    // UNION (not UNION ALL) keeps only rows not produced before.
+    const isFirstSighting = this.isUnionAll ? () => true : firstSighting();
     const layout = this.anchor.getLayout();
-
-    const anchorRows = drainOperator(this.anchor);
-    let workingTable: Tuple[] = [];
-
-    for (const row of anchorRows) {
-      if (seen) {
-        const key = rowKey(row);
-        if (seen.has(key)) continue;
-        seen.add(key);
-      }
-      allRows.push(row);
-      workingTable.push(row);
-    }
+    const newRowsOf = (operator: SyncPhysicalOperator): Tuple[] =>
+      drainOperator(operator).filter((row) => isFirstSighting(row));
+    let workingTable = newRowsOf(this.anchor);
+    for (const row of workingTable) allRows.push(row);
 
     for (let i = 0; i < MAX_RECURSIVE_ITERATIONS; i++) {
       if (workingTable.length === 0) break;
-
       this.cteCache.set(this.cteIndex, { tuples: workingTable, layout });
       this.recursive.reset();
-      const newRows = drainOperator(this.recursive);
-
-      if (newRows.length === 0) {
-        workingTable = [];
-        break;
-      }
-
-      workingTable = [];
-      for (const row of newRows) {
-        if (seen) {
-          const key = rowKey(row);
-          if (seen.has(key)) continue;
-          seen.add(key);
-        }
-        allRows.push(row);
-        workingTable.push(row);
-      }
+      workingTable = newRowsOf(this.recursive);
+      for (const row of workingTable) allRows.push(row);
     }
 
     if (workingTable.length > 0) {

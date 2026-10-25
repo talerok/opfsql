@@ -223,6 +223,7 @@ describe("IndexExpression — case", () => {
   it("round-trips CASE WHEN a > 0 THEN a ELSE b END", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [
         {
           when: {
@@ -259,6 +260,7 @@ describe("IndexExpression — case", () => {
   it("handles CASE without ELSE", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [{ when: colRef(0), result: colRef(1) }],
       elseExpr: null,
       returnType: "INTEGER",
@@ -374,6 +376,7 @@ describe("IndexExpression — nested expressions", () => {
     };
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [
         {
           when: {

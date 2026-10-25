@@ -1,8 +1,9 @@
 import type { BoundSubqueryExpression } from "../../sql/binder/types.js";
-import { and, or, type Truth, type Value } from "../../values/index.js";
+import { foldTruth, type Truth, type Value } from "../../values/index.js";
 import { ExecutorError } from "../errors.js";
 import type { Tuple } from "../types.js";
 import { compareTyped } from "./logic.js";
+import { required } from "./parameter.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -53,22 +54,23 @@ function compileQuantified(
   scope: Scope,
   run: (row: Tuple) => Tuple[],
 ): CompiledExpression {
-  const input =
-    expression.child === undefined ? null : scope.compile(expression.child);
+  const child = required(
+    expression.child,
+    `the left side of ${expression.subqueryType}`,
+  );
+  const comparison = required(
+    expression.comparisonType,
+    `the comparison of ${expression.subqueryType}`,
+  );
+  const input = scope.compile(child);
   const test = compareTyped(
-    expression.comparisonType ?? "EQUAL",
-    expression.child?.returnType ?? "ANY",
+    comparison,
+    child.returnType,
     expression.subplan.types[0] ?? "ANY",
   );
-  const isAll = expression.subqueryType === "ALL";
-  const [combine, decisive] = isAll ? [and, false] : [or, true];
-  return (row) => {
-    const value = input === null ? null : input(row);
-    let result: Truth = !decisive;
-    for (const [item = null] of run(row)) {
-      result = combine(result, test(value, item));
-      if (result === decisive) return result;
-    }
-    return result;
-  };
+  const kind = expression.subqueryType === "ALL" ? "and" : "or";
+  function* comparisons(row: Tuple, value: Value): Generator<Truth> {
+    for (const [item = null] of run(row)) yield test(value, item);
+  }
+  return (row) => foldTruth(kind, comparisons(row, input(row)));
 }

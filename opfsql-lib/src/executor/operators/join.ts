@@ -12,13 +12,16 @@ import {
 } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
-import { drainOperator, JOIN_BATCH } from "./shared.js";
+import { drainOperator, JOIN_BATCH, rowsOf, takeBatch } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Hash Join (INNER / LEFT / SEMI / ANTI). Rows match when their join keys
 // have the same rowKey — equal under compareValues — and a NULL key matches
 // nothing, as `=` never does.
 // ---------------------------------------------------------------------------
+
+/** Shared by every probe row without a match: never modified. */
+const NO_MATCHES: readonly Tuple[] = [];
 
 export class PhysicalHashJoin implements SyncPhysicalOperator {
   private readonly layout: ColumnBinding[];
@@ -28,8 +31,6 @@ export class PhysicalHashJoin implements SyncPhysicalOperator {
   private readonly buildKeys: readonly CompiledExpression[];
 
   private readonly buildNullTuple: Tuple;
-
-  private readonly isSemiOrAnti: boolean;
 
   private hashTable: Map<string, Tuple[]> | null = null;
 
@@ -41,11 +42,8 @@ export class PhysicalHashJoin implements SyncPhysicalOperator {
     private readonly operator: LogicalComparisonJoin,
     context: ExecutionContext,
   ) {
-    this.isSemiOrAnti =
-      operator.joinType === "SEMI" || operator.joinType === "ANTI";
-    this.layout = this.isSemiOrAnti
-      ? [...probe.getLayout()]
-      : [...probe.getLayout(), ...build.getLayout()];
+    const buildLayout = this.isSemiOrAnti() ? [] : build.getLayout();
+    this.layout = [...probe.getLayout(), ...buildLayout];
     const probeResolver = buildResolver(probe.getLayout());
     const buildSideResolver = buildResolver(build.getLayout());
     // A key of unknown type takes the other side's affinity, as `=` does.
@@ -71,18 +69,10 @@ export class PhysicalHashJoin implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    const hashTable = (this.hashTable ??= this.buildHashTable());
-    this.emitter ??= this.isSemiOrAnti
-      ? this.emitSemiAnti(hashTable)
-      : this.emitMatches(hashTable);
-
-    const batch: Tuple[] = [];
-    for (let count = 0; count < JOIN_BATCH; count++) {
-      const next = this.emitter.next();
-      if (next.done === true) break;
-      batch.push(next.value);
-    }
-    return batch.length > 0 ? batch : null;
+    // The build side is read first, even when the probe side is empty.
+    this.hashTable ??= this.buildHashTable();
+    this.emitter ??= this.emit();
+    return takeBatch(this.emitter, JOIN_BATCH);
   }
 
   reset(): void {
@@ -92,9 +82,18 @@ export class PhysicalHashJoin implements SyncPhysicalOperator {
     this.build.reset();
   }
 
+  private emit(): Iterator<Tuple> {
+    return this.isSemiOrAnti() ? this.emitSemiAnti() : this.emitMatches();
+  }
+
+  private isSemiOrAnti(): boolean {
+    const { joinType } = this.operator;
+    return joinType === "SEMI" || joinType === "ANTI";
+  }
+
   private buildHashTable(): Map<string, Tuple[]> {
     const hashTable = new Map<string, Tuple[]>();
-    for (const row of drainOperator(this.build)) {
+    for (const row of rowsOf(this.build)) {
       const key = joinKey(row, this.buildKeys);
       if (key === null) continue;
       const bucket = hashTable.get(key);
@@ -104,35 +103,29 @@ export class PhysicalHashJoin implements SyncPhysicalOperator {
     return hashTable;
   }
 
-  private *emitMatches(hashTable: Map<string, Tuple[]>): Iterator<Tuple> {
+  /** The build rows a probe row joins with; none for a NULL key. */
+  private matchesFor(probeRow: Tuple): readonly Tuple[] {
+    const key = joinKey(probeRow, this.probeKeys);
+    if (key === null) return NO_MATCHES;
+    return this.hashTable?.get(key) ?? NO_MATCHES;
+  }
+
+  private *emitMatches(): Iterator<Tuple> {
     const isLeft = this.operator.joinType === "LEFT";
-    for (const probeRow of this.probeRows()) {
-      const key = joinKey(probeRow, this.probeKeys);
-      const matches = key === null ? undefined : hashTable.get(key);
-      if (matches !== undefined && matches.length > 0) {
-        for (const buildRow of matches) yield [...probeRow, ...buildRow];
-      } else if (isLeft) {
+    for (const probeRow of rowsOf(this.probe)) {
+      const matches = this.matchesFor(probeRow);
+      for (const buildRow of matches) yield [...probeRow, ...buildRow];
+      if (isLeft && matches.length === 0) {
         yield [...probeRow, ...this.buildNullTuple];
       }
     }
   }
 
-  private *emitSemiAnti(hashTable: Map<string, Tuple[]>): Iterator<Tuple> {
+  private *emitSemiAnti(): Iterator<Tuple> {
     const isSemi = this.operator.joinType === "SEMI";
-    for (const probeRow of this.probeRows()) {
-      const key = joinKey(probeRow, this.probeKeys);
-      const hasMatch = key !== null && (hashTable.get(key)?.length ?? 0) > 0;
+    for (const probeRow of rowsOf(this.probe)) {
+      const hasMatch = this.matchesFor(probeRow).length > 0;
       if (isSemi === hasMatch) yield probeRow;
-    }
-  }
-
-  private *probeRows(): Generator<Tuple> {
-    for (
-      let batch = this.probe.next();
-      batch !== null;
-      batch = this.probe.next()
-    ) {
-      yield* batch;
     }
   }
 }
@@ -162,8 +155,6 @@ function joinKey(
 export class PhysicalNestedLoopJoin implements SyncPhysicalOperator {
   private readonly layout: ColumnBinding[];
 
-  private rightTuples: Tuple[] | null = null;
-
   private emitter: Iterator<Tuple> | null = null;
 
   constructor(
@@ -178,39 +169,21 @@ export class PhysicalNestedLoopJoin implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    if (this.rightTuples === null) {
-      this.rightTuples = drainOperator(this.right);
-      if (this.rightTuples.length === 0) return null;
-    }
-    this.emitter ??= this.emitCrossProduct(this.rightTuples);
-
-    const batch: Tuple[] = [];
-    for (let count = 0; count < JOIN_BATCH; count++) {
-      const next = this.emitter.next();
-      if (next.done === true) break;
-      batch.push(next.value);
-    }
-    return batch.length > 0 ? batch : null;
+    this.emitter ??= this.emitCrossProduct();
+    return takeBatch(this.emitter, JOIN_BATCH);
   }
 
   reset(): void {
-    this.rightTuples = null;
     this.emitter = null;
     this.left.reset();
     this.right.reset();
   }
 
-  private *emitCrossProduct(rightTuples: readonly Tuple[]): Generator<Tuple> {
-    for (
-      let batch = this.left.next();
-      batch !== null;
-      batch = this.left.next()
-    ) {
-      for (const leftTuple of batch) {
-        for (const rightTuple of rightTuples) {
-          yield [...leftTuple, ...rightTuple];
-        }
-      }
+  private *emitCrossProduct(): Generator<Tuple> {
+    const rightRows = drainOperator(this.right);
+    if (rightRows.length === 0) return;
+    for (const leftRow of rowsOf(this.left)) {
+      for (const rightRow of rightRows) yield [...leftRow, ...rightRow];
     }
   }
 }

@@ -2,7 +2,7 @@ import type { BoundExpression, ColumnBinding } from "../../sql/binder/types.js";
 import { compilePredicate, type ExecutionContext } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
-import type { RowFilter } from "./shared.js";
+import { nextNonEmpty, type RowFilter } from "./shared.js";
 
 export class PhysicalFilter implements SyncPhysicalOperator {
   private readonly condition: RowFilter;
@@ -24,15 +24,9 @@ export class PhysicalFilter implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    for (
-      let batch = this.child.next();
-      batch !== null;
-      batch = this.child.next()
-    ) {
-      const result = batch.filter((row) => this.condition(row));
-      if (result.length > 0) return result;
-    }
-    return null;
+    return nextNonEmpty(this.child, (batch) =>
+      batch.filter((row) => this.condition(row)),
+    );
   }
 
   reset(): void {

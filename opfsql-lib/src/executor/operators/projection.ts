@@ -32,9 +32,8 @@ export class PhysicalProjection implements SyncPhysicalOperator {
 
   next(): Tuple[] | null {
     const batch = this.child.next();
-    return batch === null
-      ? null
-      : batch.map((row) => this.columns.map((column) => column(row)));
+    if (batch === null) return null;
+    return batch.map((row) => this.columns.map((column) => column(row)));
   }
 
   reset(): void {

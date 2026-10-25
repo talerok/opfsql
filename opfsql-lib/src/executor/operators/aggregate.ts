@@ -1,11 +1,12 @@
 import {
   type Accumulator,
+  argumentTypes,
   startAggregate,
   type StaticType,
-  staticType,
 } from "../../functions/index.js";
 import type {
   BoundAggregateExpression,
+  BoundExpression,
   ColumnBinding,
   LogicalAggregate,
 } from "../../sql/binder/types.js";
@@ -16,7 +17,7 @@ import {
   compilePredicate,
   type ExecutionContext,
 } from "../evaluate/index.js";
-import { buildResolver } from "../resolve.js";
+import { buildResolver, type Resolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import { drainOperator, type RowFilter } from "./shared.js";
 
@@ -29,10 +30,9 @@ import { drainOperator, type RowFilter } from "./shared.js";
 
 interface CompiledAggregate {
   readonly expression: BoundAggregateExpression;
-  readonly arguments: readonly CompiledExpression[];
-  readonly argumentTypes: readonly StaticType[];
-  /** One row's argument values, refilled for each row. */
-  readonly values: Value[];
+  readonly types: readonly StaticType[];
+  /** A row's argument values, in one array refilled for each row. */
+  readonly argumentValues: (row: Tuple) => readonly Value[];
 }
 
 interface Group {
@@ -63,22 +63,19 @@ export class PhysicalHashAggregate implements SyncPhysicalOperator {
     );
     this.aggregates = operator.expressions.map((expression) => ({
       expression,
-      arguments: expression.children.map((argument) =>
-        compileExpression(argument, resolver, context),
-      ),
-      argumentTypes: expression.children.map((argument) =>
-        staticType(argument.returnType),
+      types: argumentTypes(expression.children),
+      argumentValues: argumentReader(
+        expression.children.map((argument) =>
+          compileExpression(argument, resolver, context),
+        ),
       ),
       values: [],
     }));
-    this.having =
-      operator.havingExpression === null
-        ? null
-        : compilePredicate(
-            operator.havingExpression,
-            buildResolver(this.layout),
-            context,
-          );
+    this.having = compileHaving(
+      operator.havingExpression,
+      buildResolver(this.layout),
+      context,
+    );
   }
 
   getLayout(): ColumnBinding[] {
@@ -110,42 +107,67 @@ export class PhysicalHashAggregate implements SyncPhysicalOperator {
     if (rows.length === 0 && this.groupKeys.length === 0) {
       groups.set("", this.newGroup([]));
     }
-    const isSingleKey = this.groupKeys.length === 1;
     for (const row of rows) {
-      const values = this.groupKeys.map((key) => key(row));
-      // One key needs no list encoding: equal values, equal keys.
-      const key = isSingleKey ? valueKey(values[0]) : rowKey(values);
-      let group = groups.get(key);
-      if (group === undefined) {
-        group = this.newGroup(values);
-        groups.set(key, group);
-      }
+      const group = this.groupFor(
+        groups,
+        this.groupKeys.map((key) => key(row)),
+      );
       this.accumulate(group, row);
     }
     return groups;
   }
 
+  /** Adds a row to each aggregate of its group. */
   private accumulate(group: Group, row: Tuple): void {
     for (let index = 0; index < this.aggregates.length; index++) {
-      const aggregate = this.aggregates[index];
-      const { values } = aggregate;
-      for (
-        let position = 0;
-        position < aggregate.arguments.length;
-        position++
-      ) {
-        values[position] = aggregate.arguments[position](row);
-      }
+      const values = this.aggregates[index].argumentValues(row);
       group.accumulators[index].add(values);
     }
+  }
+
+  /** The group of rows whose GROUP BY values are `values`, made if new. */
+  private groupFor(groups: Map<string, Group>, values: Value[]): Group {
+    // One key needs no list encoding: equal values, equal keys.
+    const key = values.length === 1 ? valueKey(values[0]) : rowKey(values);
+    const existing = groups.get(key);
+    if (existing !== undefined) return existing;
+    const group = this.newGroup(values);
+    groups.set(key, group);
+    return group;
   }
 
   private newGroup(values: readonly Value[]): Group {
     return {
       values,
-      accumulators: this.aggregates.map(({ expression, argumentTypes }) =>
-        startAggregate(expression.function, argumentTypes, expression.distinct),
+      accumulators: this.aggregates.map(({ expression, types }) =>
+        startAggregate(expression.function, types, expression.distinct),
       ),
     };
   }
+}
+
+/**
+ * Reads a row's argument values into one array, reused for every row:
+ * accumulators keep values, never the array.
+ */
+function argumentReader(
+  compiled: readonly CompiledExpression[],
+): (row: Tuple) => readonly Value[] {
+  const values: Value[] = [];
+  return (row) => {
+    for (const [position, argument] of compiled.entries()) {
+      values[position] = argument(row);
+    }
+    return values;
+  };
+}
+
+/** HAVING over the aggregate's output rows, if there is one. */
+function compileHaving(
+  having: BoundExpression | null,
+  resolver: Resolver,
+  context: ExecutionContext,
+): RowFilter | null {
+  if (having === null) return null;
+  return compilePredicate(having, resolver, context);
 }

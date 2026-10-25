@@ -32,8 +32,17 @@ export function typeFromName(name: string): SqlType | null {
   return TYPES_BY_NAME.get(asciiUpperCase(base.trim())) ?? null;
 }
 
-/** True for INTEGER and REAL, which compare and convert as numbers. */
-export function isNumericType(type: SqlType): boolean {
+/** The type a name stands for, ANY for a name opfsql does not know. */
+export function sqlTypeOf(name: string): SqlType {
+  return typeFromName(name) ?? "ANY";
+}
+
+/**
+ * True for the names of INTEGER and REAL types (`BIGINT` included), which
+ * compare and convert as numbers.
+ */
+export function isNumericType(name: string): boolean {
+  const type = typeFromName(name);
   return type === "INTEGER" || type === "REAL";
 }
 

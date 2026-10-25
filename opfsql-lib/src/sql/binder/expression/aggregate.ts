@@ -6,8 +6,8 @@ import type {
 import {
   aggregateFunction,
   isAggregateFunction,
+  argumentTypes,
   resolveCall,
-  staticType,
 } from "../../../functions/index.js";
 import { ExpressionClass } from "../../parser/types.js";
 import type { BindContext } from "../core/context.js";
@@ -127,10 +127,7 @@ export function bindAggregate(
 
   // The registry checks the arguments: SUM over TEXT is a bind error.
   const definition = aggregateFunction(name);
-  const returnType = resolveCall(
-    definition,
-    children.map((child) => staticType(child.returnType)),
-  );
+  const returnType = resolveCall(definition, argumentTypes(children));
 
   return {
     expressionClass: BoundExpressionClass.BOUND_AGGREGATE,

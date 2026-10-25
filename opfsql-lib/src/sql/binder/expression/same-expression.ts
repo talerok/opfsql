@@ -72,22 +72,7 @@ export function sameExpression(
       return ac.castType === bc.castType && sameExpression(ac.child, bc.child);
     }
     case BoundExpressionClass.BOUND_CASE: {
-      const ac = a as BoundCaseExpression;
-      const bc = b as BoundCaseExpression;
-      if (
-        ac.caseChecks.length !== bc.caseChecks.length ||
-        !sameOptional(ac.operand, bc.operand)
-      )
-        return false;
-      for (let i = 0; i < ac.caseChecks.length; i++) {
-        if (!sameExpression(ac.caseChecks[i].when, bc.caseChecks[i].when))
-          return false;
-        if (!sameExpression(ac.caseChecks[i].result, bc.caseChecks[i].result))
-          return false;
-      }
-      if (ac.elseExpr === null && bc.elseExpr === null) return true;
-      if (ac.elseExpr === null || bc.elseExpr === null) return false;
-      return sameExpression(ac.elseExpr, bc.elseExpr);
+      return sameCase(a as BoundCaseExpression, b as BoundCaseExpression);
     }
     case BoundExpressionClass.BOUND_JSON_ACCESS: {
       const aj = a as BT.BoundJsonAccessExpression;
@@ -118,11 +103,29 @@ function sameTaggedChildren<T extends { children: BT.BoundExpression[] }>(
   return a.children.every((c, i) => sameExpression(c, b.children[i]));
 }
 
-function sameOptional(
-  a: BT.BoundExpression | undefined,
-  b: BT.BoundExpression | undefined,
+function sameCase(a: BoundCaseExpression, b: BoundCaseExpression): boolean {
+  if (a.caseChecks.length !== b.caseChecks.length) return false;
+  const areChecksSame = a.caseChecks.every((check, index) => {
+    const other = b.caseChecks[index];
+    return (
+      sameExpression(check.when, other.when) &&
+      sameExpression(check.result, other.result)
+    );
+  });
+  return (
+    areChecksSame &&
+    sameNullable(a.operand, b.operand) &&
+    sameNullable(a.elseExpr, b.elseExpr)
+  );
+}
+
+/** Both absent, or both present and the same. */
+function sameNullable(
+  a: BT.BoundExpression | null,
+  b: BT.BoundExpression | null,
 ): boolean {
-  return a === undefined || b === undefined ? a === b : sameExpression(a, b);
+  if (a === null || b === null) return a === b;
+  return sameExpression(a, b);
 }
 
 export function sameAggregate(

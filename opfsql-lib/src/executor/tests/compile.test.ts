@@ -25,6 +25,7 @@ import type { Tuple } from "../types.js";
 import {
   between,
   caseExpr,
+  simpleCase,
   cast,
   colRef,
   comparison,
@@ -41,6 +42,16 @@ import {
 // Rows of [c0 INTEGER, c1 TEXT, c2 (NULL), c3 BOOLEAN] in table 0.
 const resolver = buildResolver(layout([0, 0], [0, 1], [0, 2], [0, 3]));
 const row: Tuple = [10, "hello", null, true];
+
+type Column = "c0" | "c1" | "c2" | "c3";
+
+/** `row` with some of its columns replaced. */
+function rowWith(changes: Partial<Record<Column, Value>>): Tuple {
+  return row.map((value, index) => {
+    const column = `c${String(index)}` as Column;
+    return Object.hasOwn(changes, column) ? (changes[column] ?? null) : value;
+  });
+}
 
 function evaluate(
   expression: BoundExpression,
@@ -181,7 +192,7 @@ describe("comparison affinity", () => {
     expect(
       evaluate(
         comparison(name, parameter(0)),
-        [1, "5", null, true],
+        rowWith({ c0: 1, c1: "5" }),
         withParameters([5]),
       ),
     ).toBe(true);
@@ -218,14 +229,12 @@ describe("comparison affinity", () => {
         parameters,
       ),
     ).toBe(true);
-    const simple = {
-      ...caseExpr(
-        [{ when: parameter(0), result: constant("ten") }],
-        NULL,
-        "TEXT",
-      ),
-      operand: colRef(0, 0),
-    } as BoundExpression;
+    const simple = simpleCase(
+      colRef(0, 0),
+      [{ when: parameter(0), result: constant("ten") }],
+      NULL,
+      "TEXT",
+    );
     expect(evaluate(simple, row, parameters)).toBe("ten");
   });
 });
@@ -253,7 +262,7 @@ describe("three-valued logic", () => {
       "BOOLEAN",
     );
     expect(evaluate(unknown)).toBeNull();
-    expect(evaluate(unknown, [1, "", null, true])).toBe(true);
+    expect(evaluate(unknown, rowWith({ c0: 1 }))).toBe(true);
   });
 
   it("refuses conditions that are not BOOLEAN", () => {
@@ -365,27 +374,26 @@ describe("CASE", () => {
 
   it("evaluates the operand once and compares it with each WHEN value", () => {
     const operand = counting(2);
-    const simple = {
-      ...caseExpr(
-        [
-          { when: constant(1), result: constant("one") },
-          { when: constant(2), result: constant("two") },
-          { when: constant(3), result: constant("three") },
-        ],
-        constant("other"),
-        "TEXT",
-      ),
-      operand: operand.expression,
-    } as BoundExpression;
+    const simple = simpleCase(
+      operand.expression,
+      [
+        { when: constant(1), result: constant("one") },
+        { when: constant(2), result: constant("two") },
+        { when: constant(3), result: constant("three") },
+      ],
+      constant("other"),
+      "TEXT",
+    );
     expect(evaluate(simple)).toBe("two");
     expect(operand.calls()).toBe(1);
   });
 
   it("matches nothing with a NULL operand", () => {
-    const simple = {
-      ...caseExpr([{ when: NULL, result: constant(1) }], constant(2)),
-      operand: NULL,
-    } as BoundExpression;
+    const simple = simpleCase(
+      NULL,
+      [{ when: NULL, result: constant(1) }],
+      constant(2),
+    );
     expect(evaluate(simple)).toBe(2);
   });
 });
@@ -497,15 +505,14 @@ function subquery(
   return { value: evaluate(expression, row, context), limits };
 }
 
-function anyOf(child: BoundExpression, rows: Tuple[]): Value {
+/** `child = ANY (rows)`. */
+function equalsAny(child: BoundExpression, rows: Tuple[]): Value {
   return subquery("ANY", rows, { child, comparisonType: "EQUAL" }).value;
 }
 
-function allOf(rows: Tuple[]): Value {
-  return subquery("ALL", rows, {
-    child: colRef(0, 0),
-    comparisonType: "GREATER",
-  }).value;
+/** `child > ALL (rows)`. */
+function exceedsAll(child: BoundExpression, rows: Tuple[]): Value {
+  return subquery("ALL", rows, { child, comparisonType: "GREATER" }).value;
 }
 
 describe("subqueries", () => {
@@ -524,18 +531,19 @@ describe("subqueries", () => {
   });
 
   it("x IN (subquery) is false over no rows, even for a NULL x", () => {
-    expect(anyOf(NULL, [])).toBe(false);
-    expect(anyOf(NULL, [[1]])).toBeNull();
-    expect(anyOf(colRef(0, 0), [[1], [10]])).toBe(true);
-    expect(anyOf(colRef(0, 0), [[1], [null]])).toBeNull();
-    expect(anyOf(colRef(0, 0), [[1], [2]])).toBe(false);
+    expect(equalsAny(NULL, [])).toBe(false);
+    expect(equalsAny(NULL, [[1]])).toBeNull();
+    expect(equalsAny(colRef(0, 0), [[1], [10]])).toBe(true);
+    expect(equalsAny(colRef(0, 0), [[1], [null]])).toBeNull();
+    expect(equalsAny(colRef(0, 0), [[1], [2]])).toBe(false);
   });
 
   it("x op ALL (subquery) is true over no rows", () => {
-    expect(allOf([])).toBe(true);
-    expect(allOf([[1], [2]])).toBe(true);
-    expect(allOf([[1], [null]])).toBeNull();
-    expect(allOf([[null], [20]])).toBe(false);
+    const ten = colRef(0, 0);
+    expect(exceedsAll(NULL, [])).toBe(true);
+    expect(exceedsAll(ten, [[1], [2]])).toBe(true);
+    expect(exceedsAll(ten, [[1], [null]])).toBeNull();
+    expect(exceedsAll(ten, [[null], [20]])).toBe(false);
   });
 });
 
@@ -547,8 +555,8 @@ describe("predicates and table filters", () => {
       noopCtx,
     );
     expect(predicate(row)).toBe(true);
-    expect(predicate([1, "", null, true])).toBe(false);
-    expect(predicate([null, "", null, true])).toBe(false);
+    expect(predicate(rowWith({ c0: 1 }))).toBe(false);
+    expect(predicate(rowWith({ c0: null }))).toBe(false);
   });
 
   it("compare a column with a constant or a parameter", () => {
@@ -561,8 +569,8 @@ describe("predicates and table filters", () => {
       } as TableFilter["constant"],
     };
     const isFalse = compileTableFilter(filter, resolver, noopCtx);
-    expect(isFalse([1, "", null, false])).toBe(true);
-    expect(isFalse([1, "", null, true])).toBe(false);
+    expect(isFalse(rowWith({ c3: false }))).toBe(true);
+    expect(isFalse(rowWith({ c3: true }))).toBe(false);
     const byParameter = compileTableFilter(
       { ...filter, constant: parameter(0) },
       resolver,

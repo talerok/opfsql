@@ -7,12 +7,8 @@ import {
   maintainIndexesDelete,
   maintainIndexesInsert,
 } from "./utils/index-maintenance.js";
-import {
-  type DmlTarget,
-  extractDmlScan,
-  passesFilter,
-  rowToTuple,
-} from "./utils/scan.js";
+import { passesFilters, rowToTuple } from "../operators/shared.js";
+import { type DmlTarget, extractDmlScan } from "./utils/scan.js";
 
 export function executeUpdate(
   operator: LogicalUpdate,
@@ -31,8 +27,8 @@ export function executeUpdate(
 
   const targets: { rowId: number; oldRow: Row; newRow: Row }[] = [];
   for (const { rowId, row } of rowManager.scanTable(tableName)) {
-    const tuple = rowToTuple(row, scan.get);
-    if (!passesFilter(tuple, scan)) continue;
+    const tuple = rowToTuple(row, scan.columnIds, scan.table.schema);
+    if (!passesFilters(tuple, scan.filters)) continue;
     const newRow = { ...row };
     for (const { columnIndex, name, value } of assignments) {
       newRow[name] = assignToColumn(value(tuple), schema, columnIndex);

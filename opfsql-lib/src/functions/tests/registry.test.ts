@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { SemanticError } from "../../errors.js";
 import {
+  aggregateFunction,
   isAggregateFunction,
   lookupFunction,
   resolveCall,
   scalarFunction,
+  sqlFunction,
 } from "../index.js";
 import { call } from "./helpers.js";
 
@@ -67,10 +69,10 @@ describe("the registry", () => {
     expect(() => resolveCall(scalarFunction("upper"), ["BLOB"])).toThrow(
       SemanticError,
     );
-    expect(() => resolveCall(lookupFunction("sum")!, ["TEXT"])).toThrow(
+    expect(() => resolveCall(aggregateFunction("sum"), ["TEXT"])).toThrow(
       SemanticError,
     );
-    expect(() => resolveCall(lookupFunction("avg")!, ["BOOLEAN"])).toThrow(
+    expect(() => resolveCall(aggregateFunction("avg"), ["BOOLEAN"])).toThrow(
       SemanticError,
     );
   });
@@ -93,10 +95,10 @@ describe("the registry", () => {
     expect(resolveCall(scalarFunction("coalesce"), ["INTEGER", "ANY"])).toBe(
       "ANY",
     );
-    expect(resolveCall(lookupFunction("sum")!, ["INTEGER"])).toBe("INTEGER");
-    expect(resolveCall(lookupFunction("sum")!, ["REAL"])).toBe("REAL");
-    expect(resolveCall(lookupFunction("avg")!, ["INTEGER"])).toBe("REAL");
-    expect(resolveCall(lookupFunction("count")!, [])).toBe("INTEGER");
+    expect(resolveCall(aggregateFunction("sum"), ["INTEGER"])).toBe("INTEGER");
+    expect(resolveCall(aggregateFunction("sum"), ["REAL"])).toBe("REAL");
+    expect(resolveCall(aggregateFunction("avg"), ["INTEGER"])).toBe("REAL");
+    expect(resolveCall(aggregateFunction("count"), [])).toBe("INTEGER");
   });
 
   it("evaluates lazy functions only as far as needed", () => {
@@ -109,7 +111,25 @@ describe("the registry", () => {
     expect(coalesce.call([() => 1, failing], null)).toBe(1);
   });
 
-  it("is consistent with the helper's direct calls", () => {
-    expect(call("upper", ["abc"])).toBe("ABC");
+  it("knows every name, scalar or aggregate, or fails as SQLite does", () => {
+    expect(sqlFunction("upper").kind).toBe("scalar");
+    expect(sqlFunction("SUM").kind).toBe("aggregate");
+    expect(() => sqlFunction("nosuchfn")).toThrow(
+      new SemanticError("no such function: nosuchfn"),
+    );
+  });
+
+  it("marks random() volatile, so it is never folded", () => {
+    expect(scalarFunction("random").isVolatile).toBe(true);
+    expect(scalarFunction("abs").isVolatile).toBeUndefined();
+  });
+
+  it("gives random() a new safe integer, odd or even, each call", () => {
+    const values = Array.from({ length: 200 }, () => call("random", []));
+    expect(values.every((value) => Number.isSafeInteger(value))).toBe(true);
+    const parities = new Set(
+      values.map((value) => Math.abs(Number(value) % 2)),
+    );
+    expect(parities.size).toBe(2);
   });
 });

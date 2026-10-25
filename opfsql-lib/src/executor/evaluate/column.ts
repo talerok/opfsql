@@ -4,7 +4,7 @@ import type {
   ColumnBinding,
   JsonPathSegment,
 } from "../../sql/binder/types.js";
-import type { JsonValue, Value } from "../../values/index.js";
+import { followPath, type Path, type PathStep } from "../../functions/index.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 /**
@@ -34,34 +34,21 @@ export function compileJsonAccess(
   scope: Scope,
 ): CompiledExpression {
   const column = compileColumn(expression.child.binding, scope);
-  const { path } = expression;
-  return (row) => followJsonPath(column(row), path);
+  const path = jsonPath(expression.path);
+  return (row) => {
+    const value = column(row);
+    // A BLOB is no JSON value; JSON null and a missing value are NULL.
+    if (value instanceof Uint8Array) return null;
+    return followPath(value, path) ?? null;
+  };
 }
 
-export function followJsonPath(
-  value: Value,
-  path: readonly JsonPathSegment[],
-): Value {
-  let current: JsonValue | undefined =
-    value instanceof Uint8Array ? null : value;
-  for (const segment of path) {
-    if (current === null || current === undefined) return null;
-    current = step(current, segment);
-  }
-  return current ?? null;
+/** The bound path as the JSON functions' path, converted once. */
+function jsonPath(segments: readonly JsonPathSegment[]): Path {
+  return segments.map((segment) => pathStep(segment));
 }
 
-function step(
-  value: JsonValue,
-  segment: JsonPathSegment,
-): JsonValue | undefined {
-  if (segment.type === "index") {
-    return Array.isArray(value) ? value[segment.value] : undefined;
-  }
-  return typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.hasOwn(value, segment.name)
-    ? value[segment.name]
-    : undefined;
+function pathStep(segment: JsonPathSegment): PathStep {
+  if (segment.type === "field") return { type: "key", key: segment.name };
+  return { type: "index", index: segment.value, fromEnd: false };
 }

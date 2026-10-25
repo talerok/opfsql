@@ -5,7 +5,7 @@ import {
   type BoundExpression,
   BoundExpressionClass,
 } from "../../sql/binder/types.js";
-import { castValue, truthOf, typeFromName } from "../../values/index.js";
+import { castValue, sqlTypeOf, truthOf } from "../../values/index.js";
 import type { Resolver } from "../resolve.js";
 import type { Tuple } from "../types.js";
 import { compileCase } from "./case.js";
@@ -39,7 +39,7 @@ export function compileExpression(
   const scope: Scope = {
     resolver,
     context,
-    compile: (child) => compileIn(child, scope),
+    compile: (child) => compileNode(child, scope),
   };
   return scope.compile(expression);
 }
@@ -57,7 +57,7 @@ export function compilePredicate(
   return (row) => truthOf(condition(row)) === true;
 }
 
-function compileIn(
+function compileNode(
   expression: BoundExpression,
   scope: Scope,
 ): CompiledExpression {
@@ -124,6 +124,6 @@ function compileCast(
   scope: Scope,
 ): CompiledExpression {
   const child = scope.compile(expression.child);
-  const type = typeFromName(expression.castType) ?? "ANY";
+  const type = sqlTypeOf(expression.castType);
   return (row) => castValue(child(row), type);
 }

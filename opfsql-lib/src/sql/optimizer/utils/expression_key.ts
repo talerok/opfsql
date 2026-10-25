@@ -64,14 +64,17 @@ export function expressionKey(expr: BoundExpression): string {
   }
 }
 
-function optionalKey(child: BoundExpression | null | undefined): string {
-  return child === null || child === undefined ? "_" : expressionKey(child);
+/** The key of a child that may be absent. */
+function nullableKey(child: BoundExpression | null): string {
+  return child === null ? "_" : expressionKey(child);
 }
 
 function caseKey(expression: BoundCaseExpression): string {
-  const key = optionalKey;
   const checks = expression.caseChecks
-    .map((check) => `${key(check.when)}:${key(check.result)}`)
+    .map(
+      (check) => `${expressionKey(check.when)}:${expressionKey(check.result)}`,
+    )
     .join(",");
-  return `K:${key(expression.operand)}(${checks}|${key(expression.elseExpr)})`;
+  const operand = nullableKey(expression.operand);
+  return `K:${operand}(${checks}|${nullableKey(expression.elseExpr)})`;
 }

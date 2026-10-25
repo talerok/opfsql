@@ -11,7 +11,7 @@ import {
 } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
-import { drainOperator, SCAN_BATCH } from "./shared.js";
+import { drainOperator, rowsOf, SCAN_BATCH } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // ORDER BY: rows sorted by the total order of values (values/order.ts),
@@ -67,10 +67,7 @@ export class PhysicalSort implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    this.sorted ??=
-      this.operator.topN === undefined
-        ? this.sortAll()
-        : this.sortFirst(this.operator.topN);
+    this.sorted ??= this.sortRows();
     if (this.offset >= this.sorted.length) return null;
     const batch = this.sorted.slice(this.offset, this.offset + SCAN_BATCH);
     this.offset += batch.length;
@@ -82,6 +79,11 @@ export class PhysicalSort implements SyncPhysicalOperator {
     this.offset = 0;
     this.arrivals = 0;
     this.child.reset();
+  }
+
+  private sortRows(): Tuple[] {
+    const { topN } = this.operator;
+    return topN === undefined ? this.sortAll() : this.sortFirst(topN);
   }
 
   private keyed(row: Tuple): KeyedRow {
@@ -99,13 +101,7 @@ export class PhysicalSort implements SyncPhysicalOperator {
   /** The first `limit` rows in order, holding no more than that many. */
   private sortFirst(limit: number): Tuple[] {
     const heap = new BoundedHeap(limit, this.compare);
-    for (
-      let batch = this.child.next();
-      batch !== null;
-      batch = this.child.next()
-    ) {
-      for (const row of batch) heap.offer(this.keyed(row));
-    }
+    for (const row of rowsOf(this.child)) heap.offer(this.keyed(row));
     return heap.sorted().map((keyed) => keyed.row);
   }
 }
@@ -120,10 +116,10 @@ function sortKey(order: BoundOrderByNode, value: CompiledExpression): SortKey {
 
 /** NULLs where the key puts them, other values by the total order. */
 function compareKeys(key: SortKey, a: Value, b: Value): number {
-  if (a === null || b === null) {
-    if (a === b) return 0;
-    return (a === null) === key.areNullsFirst ? -1 : 1;
-  }
+  if (a === null && b === null) return 0;
+  const nullOrder = key.areNullsFirst ? -1 : 1;
+  if (a === null) return nullOrder;
+  if (b === null) return -nullOrder;
   const order = compareValues(a, b);
   return key.isDescending ? -order : order;
 }
@@ -176,16 +172,22 @@ class BoundedHeap {
 
   private siftDown(start: number): void {
     let index = start;
-    for (;;) {
-      let largest = index;
-      for (const child of [2 * index + 1, 2 * index + 2]) {
-        if (child < this.items.length && this.isAfter(child, largest)) {
-          largest = child;
-        }
-      }
-      if (largest === index) return;
+    let largest = this.largestOf(index);
+    while (largest !== index) {
       this.swap(index, largest);
       index = largest;
+      largest = this.largestOf(index);
     }
+  }
+
+  /** Whichever of the item at `index` and its children sorts last. */
+  private largestOf(index: number): number {
+    let largest = index;
+    for (const child of [2 * index + 1, 2 * index + 2]) {
+      const isLarger =
+        child < this.items.length && this.isAfter(child, largest);
+      if (isLarger) largest = child;
+    }
+    return largest;
   }
 }

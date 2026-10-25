@@ -6,11 +6,13 @@ import {
   bytesToHex,
   castValue,
   hexToBytes,
+  normalizeNumber,
   normalizeValue,
   numberFromText,
+  truncate,
 } from "../convert.js";
 import type { SqlType } from "../types.js";
-import { typeFromName } from "../types.js";
+import { isNumericType, sqlTypeOf, typeFromName } from "../types.js";
 import type { Value } from "../value.js";
 
 const blob = new Uint8Array([0xde, 0xad]);
@@ -172,5 +174,28 @@ describe("comparison affinity", () => {
     expect(applyAffinity(1.5, "text")).toBe("1.5");
     expect(applyAffinity(false, "text")).toBe(false);
     expect(applyAffinity(null, "text")).toBeNull();
+  });
+});
+
+describe("number helpers", () => {
+  it("truncates toward zero, never to -0", () => {
+    expect(truncate(2.7)).toBe(2);
+    expect(truncate(-2.7)).toBe(-2);
+    expect(truncate(-0.5)).toBe(0);
+  });
+
+  it("normalizes computed numbers: NaN is NULL, -0 is 0", () => {
+    expect(normalizeNumber(NaN)).toBeNull();
+    expect(normalizeNumber(-0)).toBe(0);
+    expect(normalizeNumber(1.5)).toBe(1.5);
+  });
+
+  it("names types, ANY for unknown names; BIGINT is numeric", () => {
+    expect(sqlTypeOf("BIGINT")).toBe("INTEGER");
+    expect(sqlTypeOf("whatever")).toBe("ANY");
+    expect(isNumericType("BIGINT")).toBe(true);
+    expect(isNumericType("REAL")).toBe(true);
+    expect(isNumericType("TEXT")).toBe(false);
+    expect(isNumericType("NULL")).toBe(false);
   });
 });

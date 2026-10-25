@@ -13,10 +13,8 @@ import {
 } from "../ddl/index.js";
 import { executeDelete, executeInsert, executeUpdate } from "../dml/index.js";
 import type { ExecutionContext } from "../evaluate/index.js";
+import { normalizeValue } from "../../values/index.js";
 import type { ExecuteResult, Value } from "../types.js";
-import { checkParameters } from "./parameters.js";
-
-export { checkParameters } from "./parameters.js";
 import { createExecutionContext, executeSelect } from "./select.js";
 
 type ExecuteHandler = (
@@ -79,10 +77,10 @@ export function execute(
   params?: readonly Value[],
 ): ExecuteResult {
   const handler = handlers.get(plan.type);
-  const context = createExecutionContext(
-    rowManager,
-    checkParameters(plan, params ?? []),
-  );
+  // The engine checked their count; values from outside are normalized
+  // here (NaN is NULL, -0 is 0), as every value coming in is.
+  const parameters = (params ?? []).map((value) => normalizeValue(value));
+  const context = createExecutionContext(rowManager, parameters);
 
   if (handler) {
     return handler(plan, rowManager, catalog, context, indexManager);

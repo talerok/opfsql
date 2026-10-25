@@ -2,12 +2,8 @@ import type { LogicalDelete } from "../../sql/binder/types.js";
 import type { Row } from "../../store/types.js";
 import type { ExecuteResult } from "../types.js";
 import { maintainIndexesDelete } from "./utils/index-maintenance.js";
-import {
-  type DmlTarget,
-  extractDmlScan,
-  passesFilter,
-  rowToTuple,
-} from "./utils/scan.js";
+import { passesFilters, rowToTuple } from "../operators/shared.js";
+import { type DmlTarget, extractDmlScan } from "./utils/scan.js";
 
 export function executeDelete(
   operator: LogicalDelete,
@@ -17,7 +13,8 @@ export function executeDelete(
 
   const targets: { rowId: number; row: Row }[] = [];
   for (const { rowId, row } of rowManager.scanTable(operator.tableName)) {
-    if (passesFilter(rowToTuple(row, scan.get), scan)) {
+    const tuple = rowToTuple(row, scan.columnIds, scan.table.schema);
+    if (passesFilters(tuple, scan.filters)) {
       targets.push({ rowId, row });
     }
   }

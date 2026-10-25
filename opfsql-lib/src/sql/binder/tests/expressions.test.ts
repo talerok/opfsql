@@ -764,6 +764,7 @@ describe("sameExpression — additional expression types", () => {
   it("identical CASE expressions are equal", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [{ when: colA, result: constOne }],
       elseExpr: colB,
       returnType: "INTEGER",
@@ -775,6 +776,7 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with different when returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [{ when: colA, result: constOne }],
       elseExpr: null,
       returnType: "INTEGER",
@@ -789,6 +791,7 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with different else returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [{ when: colA, result: constOne }],
       elseExpr: colA,
       returnType: "INTEGER",
@@ -800,6 +803,7 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with null vs non-null else returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [{ when: colA, result: constOne }],
       elseExpr: null,
       returnType: "INTEGER",
@@ -811,6 +815,7 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with different number of checks returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
+      operand: null,
       caseChecks: [{ when: colA, result: constOne }],
       elseExpr: null,
       returnType: "INTEGER",

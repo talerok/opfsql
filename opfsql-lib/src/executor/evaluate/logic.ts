@@ -8,11 +8,12 @@ import type {
 import {
   and,
   compareSql,
-  or,
+  foldTruth,
   type Truth,
   truthOf,
   type Value,
 } from "../../values/index.js";
+import type { Tuple } from "../types.js";
 import { comparisonConversion } from "./affinity.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
@@ -92,18 +93,13 @@ export function compileConjunction(
   scope: Scope,
 ): CompiledExpression {
   const children = expression.children.map((child) => scope.compile(child));
-  // AND stops at the first false, OR at the first true: the result is
-  // decided, and the remaining operands are not evaluated.
-  const [combine, decisive] =
-    expression.conjunctionType === "AND" ? [and, false] : [or, true];
-  return (row) => {
-    let result: Truth = !decisive;
-    for (const child of children) {
-      result = combine(result, truthOf(child(row)));
-      if (result === decisive) return result;
-    }
-    return result;
-  };
+  const kind = expression.conjunctionType === "AND" ? "and" : "or";
+  // foldTruth stops once the answer is decided, so the generator never
+  // evaluates the remaining operands.
+  function* truths(row: Tuple): Generator<Truth> {
+    for (const child of children) yield truthOf(child(row));
+  }
+  return (row) => foldTruth(kind, truths(row));
 }
 
 /** `x BETWEEN a AND b` is `x >= a AND x <= b`, with x evaluated once. */
