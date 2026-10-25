@@ -1,5 +1,5 @@
 import type { EngineOpener } from "../../engine/api/index.js";
-import { Engine } from "../../engine/index.js";
+import { Engine, engineContract } from "../../engine/index.js";
 import type { WorkerHandle } from "../channel.js";
 import { type HostScope, startHost } from "../host.js";
 
@@ -17,7 +17,7 @@ export interface TestWorker extends WorkerHandle {
 }
 
 const openEngine: EngineOpener = async (name, options) =>
-  Engine.open(name, options);
+  engineContract(await Engine.open(name, options));
 
 export function startTestWorker(open: EngineOpener = openEngine): TestWorker {
   return testWorker((scope) => {

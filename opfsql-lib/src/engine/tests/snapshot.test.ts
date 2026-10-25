@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import { MemoryFileHandle } from "../../store/wal/file-handle.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
-import { Engine } from "../engine.js";
+import { createEngine } from "../engine.js";
 import type { Session } from "../session.js";
 import { SerializationError } from "../../errors.js";
 import { mulberry32 } from "../../../test/support/random.js";
@@ -27,7 +27,7 @@ async function openDatabase(checkpointThreshold?: number) {
       checkpointThreshold,
     },
   );
-  const engine = await Engine.create(wal);
+  const engine = await createEngine(wal);
   const writer = engine.connect();
   await writer.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)");
   return { wal, engine, writer };

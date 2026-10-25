@@ -1,7 +1,8 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import { Engine } from "../index.js";
+import type { Engine } from "../index.js";
+import { createEngine as engineOn } from "../engine.js";
 import { openTestEngine } from "./test-engine.js";
 
 let engine: Engine;
@@ -265,7 +266,7 @@ describe("failed commit", () => {
   /** Opens an engine whose next commit fails the way a storage write would. */
   async function createEngineWithFailingCommit(): Promise<() => void> {
     const backend = new OPFSSyncStorage(`session-test-${String(seq++)}`);
-    engine = await Engine.create(backend);
+    engine = await engineOn(backend);
     return () => {
       vi.spyOn(backend, "commit").mockImplementationOnce(() => {
         throw new Error("injected commit failure");

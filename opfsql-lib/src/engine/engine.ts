@@ -28,6 +28,17 @@ import { WriteLock } from "./write-lock.js";
 
 const DEFAULT_BUSY_TIMEOUT = 5000;
 
+/** What an engine is made of. */
+interface EngineParts {
+  readonly storage: Storage;
+  readonly lockName: string;
+  readonly busyTimeout: number;
+}
+
+// Set by Engine's static block: the internal ways in, kept off its API.
+let construct: (parts: EngineParts) => Engine;
+let connectWith: (engine: Engine, options: SessionOptions) => Session;
+
 /** Options of an engine on a storage backend of one's own. */
 export interface EngineOptions {
   readonly busyTimeout?: number;
@@ -44,7 +55,12 @@ export interface EngineOptions {
  * The database inside a worker. It makes sessions, owns the write lock they
  * share with every other tab, and closes them all when it closes.
  */
-export class Engine implements EngineContract, AsyncDisposable {
+export class Engine implements AsyncDisposable {
+  static {
+    construct = (parts) => new Engine(parts);
+    connectWith = (engine, options) => engine.openSession(options);
+  }
+
   /**
    * Opens a database in the origin's private file system. Use inside a
    * worker. Fails with DATABASE_IN_USE when another tab has it open in a
@@ -59,29 +75,6 @@ export class Engine implements EngineContract, AsyncDisposable {
     }
   }
 
-  /** An engine on a storage backend of one's own. */
-  static async create(
-    backend: SyncIPageStorage,
-    options: EngineOptions = {},
-  ): Promise<Engine> {
-    const report = options.onCheckpointError ?? warnCheckpointError;
-    const storage = new Storage(backend, {
-      onCheckpointError: (error) => {
-        report(toOpfsqlError(error));
-      },
-    });
-    try {
-      await storage.open();
-    } catch (error) {
-      throw toOpfsqlError(error);
-    }
-    return new Engine(
-      storage,
-      options.lockName ?? `opfsql:private:${crypto.randomUUID()}`,
-      options.busyTimeout ?? DEFAULT_BUSY_TIMEOUT,
-    );
-  }
-
   private state: "open" | "closing" | "closed" = "open";
   private readonly sessions = new Set<SessionCore>();
   private readonly lock: WriteLock;
@@ -93,11 +86,12 @@ export class Engine implements EngineContract, AsyncDisposable {
   /** Sessions dropped without close() are closed when collected. */
   private readonly abandoned = new FinalizationRegistry(closeAbandoned);
 
-  private constructor(
-    private readonly storage: Storage,
-    lockName: string,
-    private readonly busyTimeout: number,
-  ) {
+  private readonly storage: Storage;
+  private readonly busyTimeout: number;
+
+  private constructor({ storage, lockName, busyTimeout }: EngineParts) {
+    this.storage = storage;
+    this.busyTimeout = busyTimeout;
     this.lock = new WriteLock(`${lockName}:write`, () => {
       this.storage.catchUp();
     });
@@ -232,14 +226,18 @@ export class Engine implements EngineContract, AsyncDisposable {
     }
   }
 
-  /** Opens a session. */
-  connect(options: SessionOptions = {}): Session {
+  private openSession(options: SessionOptions): Session {
     this.assertOpen();
     const core = new SessionCore(this.host, options);
     this.sessions.add(core);
     const session = new Session(core);
     this.abandoned.register(session, core, core);
     return session;
+  }
+
+  /** Opens a session. */
+  connect(): Session {
+    return this.openSession({});
   }
 
   /**
@@ -285,6 +283,47 @@ export class Engine implements EngineContract, AsyncDisposable {
   }
 }
 
+/**
+ * An engine on a storage backend of one's own — for tests. Engine.open is
+ * the public way in: snapshot isolation needs a backend that keeps page
+ * versions, as the WAL does.
+ */
+export async function createEngine(
+  backend: SyncIPageStorage,
+  options: EngineOptions = {},
+): Promise<Engine> {
+  const report = options.onCheckpointError ?? warnCheckpointError;
+  const storage = new Storage(backend, {
+    onCheckpointError: (error) => {
+      report(toOpfsqlError(error));
+    },
+  });
+  try {
+    await storage.open();
+  } catch (error) {
+    throw toOpfsqlError(error);
+  }
+  const lockName = options.lockName ?? `opfsql:private:${crypto.randomUUID()}`;
+  const busyTimeout = options.busyTimeout ?? DEFAULT_BUSY_TIMEOUT;
+  return construct({ storage, lockName, busyTimeout });
+}
+
+/** A session with options the public API does not offer: for the worker host. */
+export function connectSession(
+  engine: Engine,
+  options: SessionOptions,
+): Session {
+  return connectWith(engine, options);
+}
+
+/** The engine as the worker host sees it. */
+export function engineContract(engine: Engine): EngineContract {
+  return {
+    connect: (options = {}) => connectSession(engine, options),
+    close: async () => engine.close(),
+  };
+}
+
 async function openFiles(name: string, options: OpenOptions): Promise<Engine> {
   const root = await navigator.storage.getDirectory();
   const lockName = `opfsql:${name}`;
@@ -301,7 +340,7 @@ async function openFiles(name: string, options: OpenOptions): Promise<Engine> {
       marks,
       fileName: `${name}.opfsql-wal`,
     });
-    return await Engine.create(wal, { ...options, lockName });
+    return await createEngine(wal, { ...options, lockName });
   } catch (error) {
     for (const resource of opened.toReversed()) closeQuietly(resource);
     throw error;

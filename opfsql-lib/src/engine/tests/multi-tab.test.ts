@@ -5,7 +5,7 @@ import { MemoryFileHandle } from "../../store/wal/file-handle.js";
 import { writeOrphanMark } from "../../store/tests/helpers.js";
 import { ReadMarks } from "../../store/wal/read-marks.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
-import { Engine } from "../engine.js";
+import { createEngine, type Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { mulberry32 } from "../../../test/support/random.js";
 
@@ -41,7 +41,7 @@ async function openTabs(
       checkpointThreshold: 8,
       marks,
     });
-    const engine = await Engine.create(wal, { lockName });
+    const engine = await createEngine(wal, { lockName });
     tabs.push({ engine, session: engine.connect(), wal });
   }
   return tabs;

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import { MemoryFileHandle } from "../../store/wal/file-handle.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
-import { Engine } from "../engine.js";
+import { createEngine } from "../engine.js";
 import type { Session } from "../session.js";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +33,7 @@ beforeEach(() => {
 async function openDatabase() {
   const name = `efficiency-${seq++}`;
   const wal = new WalStorage(new OPFSSyncStorage(name), new MemoryFileHandle());
-  const engine = await Engine.create(wal);
+  const engine = await createEngine(wal);
   return { name, wal, engine, session: engine.connect() };
 }
 

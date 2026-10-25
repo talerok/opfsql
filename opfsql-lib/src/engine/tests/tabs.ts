@@ -2,7 +2,7 @@ import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import { MemoryFileHandle } from "../../store/wal/file-handle.js";
 import { ReadMarks } from "../../store/wal/read-marks.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
-import { Engine } from "../engine.js";
+import { createEngine, type Engine } from "../engine.js";
 
 export interface Tab {
   readonly engine: Engine;
@@ -33,7 +33,7 @@ export async function openTabs(
       checkpointThreshold: options.checkpointThreshold ?? 8,
       marks,
     });
-    const engine = await Engine.create(wal, {
+    const engine = await createEngine(wal, {
       lockName,
       ...(options.busyTimeout !== undefined && {
         busyTimeout: options.busyTimeout,

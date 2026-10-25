@@ -10,7 +10,7 @@ import {
 import { decodeRow, encodeRow } from "../../store/row-codec.js";
 import type { TableEntry } from "../../store/table-btree.js";
 import type { CatalogData, TableSchema } from "../../types.js";
-import { Engine } from "../engine.js";
+import { createEngine } from "../engine.js";
 
 // Each test builds a healthy database, closes it, damages its file the way a
 // storage bug would, reopens it and expects checkIntegrity() to name the damage.
@@ -29,7 +29,7 @@ function openStorage(): OPFSSyncStorage {
 beforeEach(async () => {
   resetMockOPFS();
   dbName = `integrity-${seq++}`;
-  const engine = await Engine.create(openStorage());
+  const engine = await createEngine(openStorage());
   const s = engine.connect();
   await s.execute(
     "CREATE TABLE t (id INTEGER PRIMARY KEY, tag INTEGER, body TEXT)",
@@ -54,7 +54,7 @@ beforeEach(async () => {
 });
 
 async function check(): Promise<string[]> {
-  const engine = await Engine.create(openStorage());
+  const engine = await createEngine(openStorage());
   try {
     return await engine.checkIntegrity();
   } finally {

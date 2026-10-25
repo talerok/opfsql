@@ -1,7 +1,8 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectGarbage } from "../../../test/support/gc.js";
-import { Engine, Result } from "../../engine/index.js";
+import { Engine, engineContract, Result } from "../../engine/index.js";
+import { createEngine } from "../../engine/engine.js";
 import {
   AbortError,
   BusyError,
@@ -106,7 +107,7 @@ describe("a database served by a worker", () => {
       vi.spyOn(wal, "checkpoint").mockImplementation(() => {
         throw new Error("disk on fire");
       });
-      return Engine.create(wal, options);
+      return createEngine(wal, options);
     });
     const database = await openDatabase(`client-${String(seq++)}`, {
       worker,
@@ -515,10 +516,7 @@ describe("the worker's life cycle", () => {
     const worker = startTestWorker(async (name, options) => {
       const engine = await Engine.open(name, options);
       const never = Promise.withResolvers<undefined>();
-      return {
-        connect: (sessionOptions) => engine.connect(sessionOptions),
-        close: async () => never.promise,
-      };
+      return { ...engineContract(engine), close: async () => never.promise };
     });
     const database = await openDatabase(`client-${String(seq++)}`, {
       worker,

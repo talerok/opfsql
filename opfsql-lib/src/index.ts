@@ -1,6 +1,6 @@
 // opfsql's public API; docs/api.md describes it.
 
-import { Engine } from "./engine/index.js";
+import { Engine, engineContract } from "./engine/index.js";
 import { type HostScope, startHost } from "./worker/index.js";
 
 // --- In the page: the database, served by a worker -------------------------
@@ -55,7 +55,7 @@ export type { JsonValue, SqlType, Value } from "./values/index.js";
  */
 export function serveDatabase(scope?: HostScope): void {
   startHost(scope ?? globalThis, async (name, options) =>
-    Engine.open(name, options),
+    engineContract(await Engine.open(name, options)),
   );
 }
 
@@ -64,7 +64,6 @@ export type { HostScope } from "./worker/index.js";
 // The engine itself, for code that already runs in a worker (advanced).
 export {
   Engine,
-  type EngineOptions,
   type PreparedStatement,
   type Session,
 } from "./engine/index.js";

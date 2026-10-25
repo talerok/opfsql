@@ -1,6 +1,6 @@
 import { inject, vi } from "vitest";
 import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import { Engine } from "../engine.js";
+import { createEngine, Engine } from "../engine.js";
 
 declare module "vitest" {
   export interface ProvidedContext {
@@ -29,7 +29,7 @@ export async function openTestEngine(
           pageSize: 4096,
           checkpointThreshold: 8,
         })
-      : await Engine.create(new OPFSSyncStorage(databaseName), options);
+      : await createEngine(new OPFSSyncStorage(databaseName), options);
 
   const close = engine.close.bind(engine);
   let closing: Promise<void> | null = null;
