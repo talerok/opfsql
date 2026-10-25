@@ -66,6 +66,11 @@ export class SessionStore implements SyncIPageStore {
     this.writePage(this.catalogPageNo, data);
   }
 
+  /** The catalog as of this session's snapshot, with its own writes. */
+  readCatalog(): CatalogData | null {
+    return this.readPage<CatalogData>(this.catalogPageNo);
+  }
+
   // -------------------------------------------------------------------------
   // Read snapshot
   // -------------------------------------------------------------------------

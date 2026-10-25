@@ -607,6 +607,8 @@ export enum TransactionType {
 export interface TransactionStatement {
   type: StatementType.TRANSACTION_STATEMENT;
   transaction_type: TransactionType;
+  /** BEGIN only: when the write lock is taken. Absent means DEFERRED. */
+  mode?: "DEFERRED" | "IMMEDIATE";
 }
 
 export interface ExplainStatement {
