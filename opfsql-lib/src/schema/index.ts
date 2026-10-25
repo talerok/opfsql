@@ -6,3 +6,13 @@ export {
   RESERVED_PREFIX,
 } from "./names.js";
 export { Schema } from "./schema.js";
+export {
+  constraintIndexName,
+  createIndexSql,
+  createTableSql,
+  defaultSql,
+  type IndexShape,
+  literalSql,
+  quoteName,
+  type TableShape,
+} from "./sql.js";
