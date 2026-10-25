@@ -1,20 +1,22 @@
 import { resetMockOPFS } from "opfs-mock";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, EngineError, PreparedStatement, Session } from "../index.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MisuseError } from "../../errors.js";
+import { Binder } from "../../sql/binder/index.js";
+import { Engine, PreparedStatement, Session } from "../index.js";
 import { openTestEngine } from "./test-engine.js";
 
 let engine: Engine;
 let session: Session;
 let seq = 0;
 
-function newDbName(): string {
+function newDatabaseName(): string {
   return `engine-test-${seq++}`;
 }
 
 async function createEngine(name?: string): Promise<Engine> {
-  const dbName = name ?? newDbName();
-  engine = await openTestEngine(dbName);
-  session = engine.createSession();
+  const databaseName = name ?? newDatabaseName();
+  engine = await openTestEngine(databaseName);
+  session = engine.connect();
   return engine;
 }
 
@@ -22,9 +24,9 @@ beforeEach(() => {
   resetMockOPFS();
 });
 
-afterEach(() => {
-  session?.close();
-  engine?.close();
+afterEach(async () => {
+  await session?.close();
+  await engine?.close();
 });
 
 // ---------------------------------------------------------------------------
@@ -33,24 +35,23 @@ afterEach(() => {
 
 describe("initialization", () => {
   it("Engine.create opens storage and returns an engine", async () => {
-    const e = await createEngine();
-    expect(e).toBeInstanceOf(Engine);
+    const opened = await createEngine();
+    expect(opened).toBeInstanceOf(Engine);
   });
 
   it("Engine.create loads catalog from storage", async () => {
-    const name = newDbName();
-    const e = await createEngine(name);
-    const s = e.createSession();
+    const name = newDatabaseName();
+    const opened = await createEngine(name);
+    const s = opened.connect();
     await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await s.execute("INSERT INTO t (id) VALUES (42)");
-    s.close();
-    e.close();
+    await s.close();
+    await opened.close();
 
     engine = await openTestEngine(name);
-    session = engine.createSession();
+    session = engine.connect();
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.type).toBe("rows");
-    expect(result.rows).toEqual([{ id: 42 }]);
+    expect(result.objects()).toEqual([{ id: 42 }]);
   });
 });
 
@@ -65,8 +66,7 @@ describe("autocommit", () => {
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'a')");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.type).toBe("rows");
-    expect(result.rows).toHaveLength(1);
+    expect(result.objects()).toHaveLength(1);
   });
 
   it("INSERT persists immediately in autocommit", async () => {
@@ -75,7 +75,7 @@ describe("autocommit", () => {
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'a')");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toEqual([{ id: 1, name: "a" }]);
+    expect(result.objects()).toEqual([{ id: 1, name: "a" }]);
   });
 
   it("error in INSERT rolls back catalog", async () => {
@@ -87,23 +87,21 @@ describe("autocommit", () => {
     ).rejects.toThrow();
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.type).toBe("rows");
-    expect(result.rows).toHaveLength(0);
+    expect(result.objects()).toHaveLength(0);
   });
 
   it("DDL persists in autocommit", async () => {
-    const name = newDbName();
-    const e = await createEngine(name);
-    const s = e.createSession();
+    const name = newDatabaseName();
+    const opened = await createEngine(name);
+    const s = opened.connect();
     await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    s.close();
-    e.close();
+    await s.close();
+    await opened.close();
 
     engine = await openTestEngine(name);
-    session = engine.createSession();
+    session = engine.connect();
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.type).toBe("rows");
-    expect(result.rows).toHaveLength(0);
+    expect(result.objects()).toHaveLength(0);
   });
 });
 
@@ -121,7 +119,7 @@ describe("explicit transactions", () => {
     await session.execute("COMMIT");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toEqual([{ id: 1, name: "a" }]);
+    expect(result.objects()).toEqual([{ id: 1, name: "a" }]);
   });
 
   it("BEGIN + INSERT + ROLLBACK discards data", async () => {
@@ -133,7 +131,7 @@ describe("explicit transactions", () => {
     await session.execute("ROLLBACK");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(0);
+    expect(result.objects()).toHaveLength(0);
   });
 
   it("BEGIN + CREATE TABLE + ROLLBACK removes table from catalog", async () => {
@@ -155,25 +153,28 @@ describe("explicit transactions", () => {
     await session.execute("COMMIT");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toEqual([{ id: 1, name: "a" }]);
+    expect(result.objects()).toEqual([{ id: 1, name: "a" }]);
   });
 
   it("COMMIT without BEGIN is a no-op", async () => {
     await createEngine();
     const [result] = await session.execute("COMMIT");
-    expect(result.type).toBe("ok");
+    expect(result.columns).toEqual([]);
+    expect(session.inTransaction).toBe(false);
   });
 
   it("ROLLBACK without BEGIN is a no-op", async () => {
     await createEngine();
     const [result] = await session.execute("ROLLBACK");
-    expect(result.type).toBe("ok");
+    expect(result.changes).toBe(0);
   });
 
-  it("nested BEGIN throws EngineError", async () => {
+  it("nested BEGIN fails with MISUSE and leaves the transaction open", async () => {
     await createEngine();
     await session.execute("BEGIN");
-    await expect(session.execute("BEGIN")).rejects.toThrow(EngineError);
+    await expect(session.execute("BEGIN")).rejects.toThrow(MisuseError);
+    expect(session.inTransaction).toBe(true);
+    await session.execute("ROLLBACK");
   });
 });
 
@@ -183,17 +184,17 @@ describe("explicit transactions", () => {
 
 describe("DROP TABLE", () => {
   it("DROP TABLE removes table and persists", async () => {
-    const name = newDbName();
-    const e = await createEngine(name);
-    const s = e.createSession();
+    const name = newDatabaseName();
+    const opened = await createEngine(name);
+    const s = opened.connect();
     await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await s.execute("INSERT INTO t (id) VALUES (1)");
     await s.execute("DROP TABLE t");
-    s.close();
-    e.close();
+    await s.close();
+    await opened.close();
 
     engine = await openTestEngine(name);
-    session = engine.createSession();
+    session = engine.connect();
     await expect(session.execute("SELECT * FROM t")).rejects.toThrow();
   });
 
@@ -207,7 +208,7 @@ describe("DROP TABLE", () => {
     await session.execute("ROLLBACK");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(1);
+    expect(result.objects()).toHaveLength(1);
   });
 });
 
@@ -225,7 +226,7 @@ describe("multiple statements", () => {
     );
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(3);
+    expect(result.objects()).toHaveLength(3);
   });
 
   it("statement execution order is preserved", async () => {
@@ -237,8 +238,11 @@ describe("multiple statements", () => {
     );
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(3);
-    const ids = result.rows!.map((r) => r.id).sort();
+    expect(result.objects()).toHaveLength(3);
+    const ids = result
+      .objects()
+      .map((r) => r.id)
+      .sort();
     expect(ids).toEqual([1, 2, 3]);
   });
 });
@@ -254,10 +258,9 @@ describe("column aliases", () => {
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'alice')");
 
     const [result] = await session.execute("SELECT name AS username FROM t");
-    expect(result.type).toBe("rows");
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0]).toHaveProperty("username");
-    expect(result.rows![0].username).toBe("alice");
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0]).toHaveProperty("username");
+    expect(result.objects()[0].username).toBe("alice");
   });
 
   it("multiple aliases all appear in output", async () => {
@@ -270,7 +273,7 @@ describe("column aliases", () => {
     );
 
     const [result] = await session.execute("SELECT name AS n, age AS a FROM t");
-    expect(result.rows![0]).toEqual({ n: "alice", a: 30 });
+    expect(result.objects()[0]).toEqual({ n: "alice", a: 30 });
   });
 
   it("expression alias on computed column", async () => {
@@ -283,8 +286,8 @@ describe("column aliases", () => {
     const [result] = await session.execute(
       "SELECT price * qty AS total FROM t",
     );
-    expect(result.rows![0]).toHaveProperty("total");
-    expect(result.rows![0].total).toBeCloseTo(31.5);
+    expect(result.objects()[0]).toHaveProperty("total");
+    expect(result.objects()[0].total).toBeCloseTo(31.5);
   });
 });
 
@@ -309,8 +312,11 @@ describe("WHERE + column pruning", () => {
     );
 
     const [result] = await session.execute("SELECT name FROM t WHERE age > 28");
-    expect(result.rows).toHaveLength(2);
-    const names = result.rows!.map((r) => r.name).sort();
+    expect(result.objects()).toHaveLength(2);
+    const names = result
+      .objects()
+      .map((r) => r.name)
+      .sort();
     expect(names).toEqual(["Alice", "Charlie"]);
   });
 });
@@ -334,7 +340,7 @@ describe("DML without WHERE", () => {
 
     await session.execute("UPDATE t SET age = 99");
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows!.every((r: any) => r.age === 99)).toBe(true);
+    expect(result.objects().every((r: any) => r.age === 99)).toBe(true);
   });
 
   it("DELETE all rows without WHERE", async () => {
@@ -345,7 +351,7 @@ describe("DML without WHERE", () => {
 
     await session.execute("DELETE FROM t");
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(0);
+    expect(result.objects()).toHaveLength(0);
   });
 
   it("UPDATE all rows — check actual values", async () => {
@@ -359,9 +365,14 @@ describe("DML without WHERE", () => {
     const [updateResult] = await session.execute("UPDATE t SET age = 99");
     const [after] = await session.execute("SELECT * FROM t");
 
-    expect(updateResult.rowsAffected).toBe(2);
-    expect(after.rows).toHaveLength(2);
-    expect(after.rows!.map((r: any) => r.age).sort()).toEqual([99, 99]);
+    expect(updateResult.changes).toBe(2);
+    expect(after.objects()).toHaveLength(2);
+    expect(
+      after
+        .objects()
+        .map((r: any) => r.age)
+        .sort(),
+    ).toEqual([99, 99]);
   });
 
   it("UPDATE with WHERE on non-updated column", async () => {
@@ -378,9 +389,9 @@ describe("DML without WHERE", () => {
 
     await session.execute("UPDATE t SET name = 'X' WHERE age > 28");
     const [result] = await session.execute("SELECT * FROM t");
-    const alice = result.rows!.find((r: any) => r.id === 1);
+    const alice = result.objects().find((r: any) => r.id === 1);
     expect(alice!.name).toBe("X");
-    const bob = result.rows!.find((r: any) => r.id === 2);
+    const bob = result.objects().find((r: any) => r.id === 2);
     expect(bob!.name).toBe("Bob");
   });
 });
@@ -395,7 +406,7 @@ describe("recursive CTE", () => {
     const [result] = await session.execute(
       "WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums",
     );
-    expect(result.rows!.map((r: any) => r.n)).toEqual([1, 2, 3, 4, 5]);
+    expect(result.objects().map((r: any) => r.n)).toEqual([1, 2, 3, 4, 5]);
   });
 });
 
@@ -417,12 +428,15 @@ describe("error handling", () => {
 
     await expect(
       session.execute("INSERT INTO t (id) VALUES (3)"),
-    ).rejects.toThrow(/transaction is aborted/);
+    ).rejects.toMatchObject({ code: "TRANSACTION_ABORTED" });
 
-    await expect(session.execute("COMMIT")).rejects.toThrow(/ROLLBACK/);
+    const commit = session.execute("COMMIT");
+    await expect(commit).rejects.toMatchObject({ code: "TRANSACTION_ABORTED" });
+    await expect(commit).rejects.toThrow(/rolled it back/);
+    expect(session.inTransaction).toBe(false);
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(0);
+    expect(result.objects()).toHaveLength(0);
   });
 
   it("ROLLBACK after aborted transaction allows new work", async () => {
@@ -439,8 +453,8 @@ describe("error handling", () => {
 
     await session.execute("INSERT INTO t (id) VALUES (10)");
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0].id).toBe(10);
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0].id).toBe(10);
   });
 
   it("error in autocommit rolls back only that statement", async () => {
@@ -453,8 +467,8 @@ describe("error handling", () => {
     ).rejects.toThrow();
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0].id).toBe(1);
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0].id).toBe(1);
   });
 });
 
@@ -471,8 +485,8 @@ describe("auto PK index", () => {
     await session.execute("INSERT INTO t VALUES (3, 'c')");
 
     const [result] = await session.execute("SELECT name FROM t WHERE id = 2");
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0].name).toBe("b");
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0].name).toBe("b");
   });
 
   it("PK index enforces uniqueness", async () => {
@@ -494,7 +508,7 @@ describe("auto PK index", () => {
     await session.execute("DELETE FROM t WHERE id = 1");
     await session.execute("INSERT INTO t VALUES (1, 'reused')");
     const [result] = await session.execute("SELECT name FROM t WHERE id = 1");
-    expect(result.rows![0].name).toBe("reused");
+    expect(result.objects()[0].name).toBe("reused");
   });
 
   it("PK index survives transaction rollback", async () => {
@@ -507,11 +521,11 @@ describe("auto PK index", () => {
     await session.execute("ROLLBACK");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(1);
+    expect(result.objects()).toHaveLength(1);
 
     await session.execute("INSERT INTO t VALUES (2)");
     const [result2] = await session.execute("SELECT * FROM t WHERE id = 2");
-    expect(result2.rows).toHaveLength(1);
+    expect(result2.objects()).toHaveLength(1);
   });
 
   it("DROP TABLE cleans up PK index", async () => {
@@ -523,7 +537,7 @@ describe("auto PK index", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await session.execute("INSERT INTO t VALUES (1)");
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(1);
+    expect(result.objects()).toHaveLength(1);
   });
 });
 
@@ -541,7 +555,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
 
     const [result] = await session.execute("SELECT id, val FROM t ORDER BY id");
-    expect(result.rows).toEqual([
+    expect(result.objects()).toEqual([
       { id: 1, val: 99 },
       { id: 2, val: 99 },
     ]);
@@ -555,7 +569,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("ALTER TABLE t ADD COLUMN val TEXT");
 
     const [result] = await session.execute("SELECT id, val FROM t");
-    expect(result.rows).toEqual([{ id: 1, val: null }]);
+    expect(result.objects()).toEqual([{ id: 1, val: null }]);
   });
 
   it("new rows after ADD COLUMN get explicit value", async () => {
@@ -567,7 +581,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("INSERT INTO t (id, val) VALUES (2, 42)");
 
     const [result] = await session.execute("SELECT id, val FROM t ORDER BY id");
-    expect(result.rows).toEqual([
+    expect(result.objects()).toEqual([
       { id: 1, val: 99 },
       { id: 2, val: 42 },
     ]);
@@ -582,7 +596,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("UPDATE t SET val = 50 WHERE id = 1");
 
     const [result] = await session.execute("SELECT val FROM t");
-    expect(result.rows![0].val).toBe(50);
+    expect(result.objects()[0].val).toBe(50);
   });
 
   it("DELETE works on rows with default-filled column", async () => {
@@ -595,23 +609,23 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("DELETE FROM t WHERE val = 99");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(0);
+    expect(result.objects()).toHaveLength(0);
   });
 
   it("ADD COLUMN defaults persist across reopen", async () => {
-    const name = newDbName();
-    const e = await createEngine(name);
-    const s = e.createSession();
+    const name = newDatabaseName();
+    const opened = await createEngine(name);
+    const s = opened.connect();
     await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await s.execute("INSERT INTO t VALUES (1)");
     await s.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
-    s.close();
-    e.close();
+    await s.close();
+    await opened.close();
 
     engine = await openTestEngine(name);
-    session = engine.createSession();
+    session = engine.connect();
     const [result] = await session.execute("SELECT id, val FROM t");
-    expect(result.rows).toEqual([{ id: 1, val: 99 }]);
+    expect(result.objects()).toEqual([{ id: 1, val: 99 }]);
   });
 });
 
@@ -657,7 +671,7 @@ describe("ALTER TABLE DROP COLUMN — index reference", () => {
     await session.execute("ALTER TABLE t DROP COLUMN name");
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(0);
+    expect(result.objects()).toHaveLength(0);
   });
 });
 
@@ -672,10 +686,10 @@ describe("SUBSTR — negative start", () => {
     await session.execute("INSERT INTO t VALUES (1, 'hello')");
 
     const [r1] = await session.execute("SELECT SUBSTR(s, -1) AS v FROM t");
-    expect(r1.rows![0].v).toBe("o");
+    expect(r1.objects()[0].v).toBe("o");
 
     const [r2] = await session.execute("SELECT SUBSTR(s, -2, 2) AS v FROM t");
-    expect(r2.rows![0].v).toBe("lo");
+    expect(r2.objects()[0].v).toBe("lo");
   });
 });
 
@@ -700,10 +714,10 @@ describe("GROUP BY + aggregates", () => {
     const [result] = await session.execute(
       "SELECT category, COUNT(*) AS cnt FROM products GROUP BY category",
     );
-    expect(result.rows).toHaveLength(2);
-    const sorted = result.rows!.sort((a: any, b: any) =>
-      a.category.localeCompare(b.category),
-    );
+    expect(result.objects()).toHaveLength(2);
+    const sorted = result
+      .objects()
+      .sort((a: any, b: any) => a.category.localeCompare(b.category));
     expect(sorted[0]).toEqual({ category: "Books", cnt: 2 });
     expect(sorted[1]).toEqual({ category: "Toys", cnt: 1 });
   });
@@ -720,8 +734,8 @@ describe("GROUP BY + aggregates", () => {
     const [result] = await session.execute(
       "SELECT COUNT(*) AS cnt, SUM(val) AS total, AVG(val) AS avg_val FROM t",
     );
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0]).toEqual({ cnt: 3, total: 60, avg_val: 20 });
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0]).toEqual({ cnt: 3, total: 60, avg_val: 20 });
   });
 
   it("ORDER BY + LIMIT returns correct top-K rows", async () => {
@@ -736,7 +750,7 @@ describe("GROUP BY + aggregates", () => {
     const [desc] = await session.execute(
       "SELECT * FROM scores ORDER BY val DESC LIMIT 3",
     );
-    expect(desc.rows!.map((r: any) => r.val)).toEqual([90, 80, 70]);
+    expect(desc.objects().map((r: any) => r.val)).toEqual([90, 80, 70]);
   });
 });
 
@@ -748,13 +762,13 @@ describe("parameterized queries", () => {
   it("execute() with $1 in INSERT", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
-    await session.execute("INSERT INTO t (id, name) VALUES ($1, $2)", [
+    await session.query("INSERT INTO t (id, name) VALUES ($1, $2)", [
       1,
       "alice",
     ]);
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toEqual([{ id: 1, name: "alice" }]);
+    expect(result.objects()).toEqual([{ id: 1, name: "alice" }]);
   });
 
   it("execute() with $1 in WHERE", async () => {
@@ -763,30 +777,29 @@ describe("parameterized queries", () => {
     await session.execute("INSERT INTO t VALUES (1, 'alice')");
     await session.execute("INSERT INTO t VALUES (2, 'bob')");
 
-    const [result] = await session.execute(
-      "SELECT * FROM t WHERE id = $1",
-      [1],
-    );
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0]).toEqual({ id: 1, name: "alice" });
+    const result = await session.query("SELECT * FROM t WHERE id = $1", [1]);
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0]).toEqual({ id: 1, name: "alice" });
   });
 
   it("prepare() + run() executes multiple times with different params", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
 
-    const stmt = session.prepare("INSERT INTO t (id, name) VALUES ($1, $2)");
-    expect(stmt).toBeInstanceOf(PreparedStatement);
+    const statement = await session.prepare(
+      "INSERT INTO t (id, name) VALUES ($1, $2)",
+    );
+    expect(statement).toBeInstanceOf(PreparedStatement);
 
-    await stmt.run([1, "alice"]);
-    await stmt.run([2, "bob"]);
-    await stmt.run([3, "charlie"]);
+    await statement.query([1, "alice"]);
+    await statement.query([2, "bob"]);
+    await statement.query([3, "charlie"]);
 
     const [result] = await session.execute("SELECT * FROM t ORDER BY id");
-    expect(result.rows).toHaveLength(3);
-    expect(result.rows![0]).toEqual({ id: 1, name: "alice" });
-    expect(result.rows![1]).toEqual({ id: 2, name: "bob" });
-    expect(result.rows![2]).toEqual({ id: 3, name: "charlie" });
+    expect(result.objects()).toHaveLength(3);
+    expect(result.objects()[0]).toEqual({ id: 1, name: "alice" });
+    expect(result.objects()[1]).toEqual({ id: 2, name: "bob" });
+    expect(result.objects()[2]).toEqual({ id: 3, name: "charlie" });
   });
 
   it("prepare() SELECT with $1 in WHERE returns correct row", async () => {
@@ -798,19 +811,20 @@ describe("parameterized queries", () => {
     await session.execute("INSERT INTO t VALUES (2, 200)");
     await session.execute("INSERT INTO t VALUES (3, 300)");
 
-    const stmt = session.prepare("SELECT val FROM t WHERE id = $1");
-    const r1 = await stmt.run([2]);
-    expect(r1.type).toBe("rows");
-    expect(r1.rows).toHaveLength(1);
-    expect(r1.rows![0].val).toBe(200);
+    const statement = await session.prepare("SELECT val FROM t WHERE id = $1");
+    const r1 = await statement.query([2]);
+    expect(r1.objects()).toHaveLength(1);
+    expect(r1.objects()[0].val).toBe(200);
 
-    const r3 = await stmt.run([3]);
-    expect(r3.rows![0].val).toBe(300);
+    const r3 = await statement.query([3]);
+    expect(r3.objects()[0].val).toBe(300);
   });
 
   it("prepare() requires exactly one statement", async () => {
     await createEngine();
-    expect(() => session.prepare("SELECT 1; SELECT 2")).toThrow(EngineError);
+    await expect(session.prepare("SELECT 1; SELECT 2")).rejects.toThrow(
+      MisuseError,
+    );
   });
 
   it("UPDATE with parameterized SET and WHERE", async () => {
@@ -818,10 +832,10 @@ describe("parameterized queries", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
     await session.execute("INSERT INTO t VALUES (1, 'old')");
 
-    await session.execute("UPDATE t SET name = $1 WHERE id = $2", ["new", 1]);
+    await session.query("UPDATE t SET name = $1 WHERE id = $2", ["new", 1]);
 
     const [result] = await session.execute("SELECT name FROM t WHERE id = 1");
-    expect(result.rows![0].name).toBe("new");
+    expect(result.objects()[0].name).toBe("new");
   });
 
   it("DELETE with parameterized WHERE", async () => {
@@ -830,11 +844,11 @@ describe("parameterized queries", () => {
     await session.execute("INSERT INTO t VALUES (1)");
     await session.execute("INSERT INTO t VALUES (2)");
 
-    await session.execute("DELETE FROM t WHERE id = $1", [1]);
+    await session.query("DELETE FROM t WHERE id = $1", [1]);
 
     const [result] = await session.execute("SELECT * FROM t");
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0].id).toBe(2);
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0].id).toBe(2);
   });
 });
 
@@ -858,76 +872,69 @@ describe("parameters: count and conversion", () => {
       "SELECT id FROM t WHERE false AND m = $1",
       "UPDATE t SET name = $1 WHERE id = 99",
     ]) {
-      await expect(session.execute(sql, [])).rejects.toMatchObject({
+      await expect(session.query(sql, [])).rejects.toMatchObject({
         code: "MISUSE",
       });
     }
     await expect(
-      session.execute(
+      session.query(
         "SELECT id FROM t WHERE id IN (SELECT id FROM t WHERE m = $2)",
         [1],
       ),
     ).rejects.toMatchObject({ code: "MISUSE" });
   });
 
-  it("accepts more parameters than a statement uses", async () => {
+  it("fails with MISUSE for more parameters than a statement uses", async () => {
+    // As in SQLite, where binding past the last parameter is SQLITE_RANGE.
     await parameterTable();
-    const [result] = await session.execute("SELECT id FROM t WHERE m = $1", [
-      9,
-      "unused",
-    ]);
-    expect(result.rows).toEqual([{ id: 1 }]);
+    await expect(
+      session.query("SELECT id FROM t WHERE m = $1", [9, "unused"]),
+    ).rejects.toMatchObject({ code: "MISUSE" });
   });
 
   it("converts a text parameter compared with a number column", async () => {
     await parameterTable();
-    const [byScan] = await session.execute("SELECT id FROM t WHERE m = $1", [
-      "10",
-    ]);
-    expect(byScan.rows).toEqual([{ id: 2 }]);
-    const [byKey] = await session.execute("SELECT id FROM t WHERE id = $1", [
-      "2",
-    ]);
-    expect(byKey.rows).toEqual([{ id: 2 }]);
-    const [none] = await session.execute("SELECT id FROM t WHERE m = $1", [
-      "ten",
-    ]);
-    expect(none.rows).toEqual([]);
+    const byScan = await session.query("SELECT id FROM t WHERE m = $1", ["10"]);
+    expect(byScan.objects()).toEqual([{ id: 2 }]);
+    const byKey = await session.query("SELECT id FROM t WHERE id = $1", ["2"]);
+    expect(byKey.objects()).toEqual([{ id: 2 }]);
+    const none = await session.query("SELECT id FROM t WHERE m = $1", ["ten"]);
+    expect(none.objects()).toEqual([]);
   });
 
   it("answers IN the same way for short and long lists", async () => {
     await parameterTable();
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT $1 IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) AS short, $1 IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) AS long, $1 IN (m, 7) AS columns FROM t WHERE id = 2",
       ["10"],
     );
-    expect(result.rows).toEqual([{ short: true, long: true, columns: true }]);
+    expect(result.objects()).toEqual([
+      { short: true, long: true, columns: true },
+    ]);
   });
 
   it("converts a number parameter compared with a text column", async () => {
     await parameterTable();
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT id FROM t WHERE name = $1",
       [10],
     );
-    expect(result.rows).toEqual([{ id: 2 }]);
+    expect(result.objects()).toEqual([{ id: 2 }]);
   });
 
   it("turns a NaN parameter into NULL", async () => {
     await parameterTable();
-    const [result] = await session.execute("SELECT $1 IS NULL AS missing", [
-      NaN,
-    ]);
-    expect(result.rows).toEqual([{ missing: true }]);
+    const result = await session.query("SELECT $1 IS NULL AS missing", [NaN]);
+    expect(result.objects()).toEqual([{ missing: true }]);
   });
 
   it("divides parameters by their values: integers truncate", async () => {
     await parameterTable();
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT $1 / $2 AS q, $3 / $2 AS r",
       [7, 2, 7.5],
     );
-    expect(result.rows).toEqual([{ q: 3, r: 3.75 }]);
+    expect(result.objects()).toEqual([{ q: 3, r: 3.75 }]);
   });
 });
 
@@ -946,8 +953,8 @@ describe("JSON type", () => {
     const [result] = await session.execute(
       "SELECT id, data.name, data.age FROM t",
     );
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0]).toMatchObject({ id: 1 });
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0]).toMatchObject({ id: 1 });
   });
 
   it("WHERE filter with JSON path range comparison", async () => {
@@ -959,7 +966,7 @@ describe("JSON type", () => {
     const [result] = await session.execute(
       "SELECT id FROM t WHERE data.age > 20 AND data.age < 30",
     );
-    expect(result.rows!.map((r) => r.id)).toEqual([2]);
+    expect(result.objects().map((r) => r.id)).toEqual([2]);
   });
 
   it("WHERE with single JSON path less-than", async () => {
@@ -969,10 +976,15 @@ describe("JSON type", () => {
     await session.execute(`INSERT INTO t (id, data) VALUES (2, '{"age": 25}')`);
 
     const [r1] = await session.execute("SELECT id FROM t WHERE data.age < 30");
-    expect(r1.rows!.map((r) => r.id)).toEqual([2]);
+    expect(r1.objects().map((r) => r.id)).toEqual([2]);
 
     const [r2] = await session.execute("SELECT id FROM t WHERE data.age > 20");
-    expect(r2.rows!.map((r) => r.id).sort()).toEqual([1, 2]);
+    expect(
+      r2
+        .objects()
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual([1, 2]);
   });
 
   it("DELETE with multi-expression filter on JSON path", async () => {
@@ -987,7 +999,7 @@ describe("JSON type", () => {
     );
 
     const [result] = await session.execute("SELECT id FROM t ORDER BY id");
-    expect(result.rows!.map((r) => r.id)).toEqual([1, 3]);
+    expect(result.objects().map((r) => r.id)).toEqual([1, 3]);
   });
 
   it("UPDATE with multi-expression filter on JSON path", async () => {
@@ -1003,8 +1015,8 @@ describe("JSON type", () => {
     const [result] = await session.execute(
       "SELECT id, data.age FROM t ORDER BY id",
     );
-    expect(result.rows![0]).toMatchObject({ id: 1 });
-    expect(result.rows![1]).toMatchObject({ id: 2 });
+    expect(result.objects()[0]).toMatchObject({ id: 1 });
+    expect(result.objects()[1]).toMatchObject({ id: 2 });
   });
 
   it("CONCAT with JSON column produces JSON string", async () => {
@@ -1017,16 +1029,16 @@ describe("JSON type", () => {
     const [result] = await session.execute(
       "SELECT data.name || '!' AS greeting FROM t",
     );
-    expect(result.rows![0].greeting).toBe("Alice!");
+    expect(result.objects()[0].greeting).toBe("Alice!");
   });
 
   it("CAST number/boolean to JSON preserves value", async () => {
     await createEngine();
     const [r1] = await session.execute("SELECT CAST(42 AS JSON) AS v");
-    expect(r1.rows![0].v).toBe(42);
+    expect(r1.objects()[0].v).toBe(42);
 
     const [r2] = await session.execute("SELECT CAST(TRUE AS JSON) AS v");
-    expect(r2.rows![0].v).toBe(true);
+    expect(r2.objects()[0].v).toBe(true);
   });
 });
 
@@ -1041,9 +1053,9 @@ describe("BLOB type", () => {
     await session.execute("INSERT INTO t (id, data) VALUES (1, x'DEADBEEF')");
 
     const [result] = await session.execute("SELECT id, data FROM t");
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows![0].data).toBeInstanceOf(Uint8Array);
-    expect(result.rows![0].data).toEqual(
+    expect(result.objects()).toHaveLength(1);
+    expect(result.objects()[0].data).toBeInstanceOf(Uint8Array);
+    expect(result.objects()[0].data).toEqual(
       new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
     );
   });
@@ -1056,25 +1068,25 @@ describe("BLOB type", () => {
     const [result] = await session.execute(
       "SELECT CAST(data AS TEXT) AS hex FROM t",
     );
-    expect(result.rows![0].hex).toBe("cafe");
+    expect(result.objects()[0].hex).toBe("cafe");
   });
 
   it("CAST text to BLOB", async () => {
     await createEngine();
     const [result] = await session.execute("SELECT CAST('FF00' AS BLOB) AS v");
-    expect(result.rows![0].v).toBeInstanceOf(Uint8Array);
-    expect(result.rows![0].v).toEqual(new Uint8Array([0xff, 0x00]));
+    expect(result.objects()[0].v).toBeInstanceOf(Uint8Array);
+    expect(result.objects()[0].v).toEqual(new Uint8Array([0xff, 0x00]));
   });
 
   it("blob parameter support", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
-    await session.execute("INSERT INTO t VALUES (1, $1)", [
+    await session.query("INSERT INTO t VALUES (1, $1)", [
       new Uint8Array([0xaa, 0xbb]),
     ]);
 
     const [result] = await session.execute("SELECT data FROM t");
-    expect(result.rows![0].data).toEqual(new Uint8Array([0xaa, 0xbb]));
+    expect(result.objects()[0].data).toEqual(new Uint8Array([0xaa, 0xbb]));
   });
 
   it("blob comparison in WHERE", async () => {
@@ -1086,7 +1098,7 @@ describe("BLOB type", () => {
     const [result] = await session.execute(
       "SELECT id FROM t WHERE data = x'BB'",
     );
-    expect(result.rows!.map((r) => r.id)).toEqual([2]);
+    expect(result.objects().map((r) => r.id)).toEqual([2]);
   });
 
   it("ORDER BY blob column", async () => {
@@ -1097,7 +1109,7 @@ describe("BLOB type", () => {
     await session.execute("INSERT INTO t VALUES (3, x'AA')");
 
     const [result] = await session.execute("SELECT id FROM t ORDER BY data");
-    expect(result.rows!.map((r) => r.id)).toEqual([2, 3, 1]);
+    expect(result.objects().map((r) => r.id)).toEqual([2, 3, 1]);
   });
 
   it("UPDATE blob column", async () => {
@@ -1107,7 +1119,7 @@ describe("BLOB type", () => {
     await session.execute("UPDATE t SET data = x'BB' WHERE id = 1");
 
     const [result] = await session.execute("SELECT data FROM t");
-    expect(result.rows![0].data).toEqual(new Uint8Array([0xbb]));
+    expect(result.objects()[0].data).toEqual(new Uint8Array([0xbb]));
   });
 
   it("NULL blob", async () => {
@@ -1116,115 +1128,130 @@ describe("BLOB type", () => {
     await session.execute("INSERT INTO t VALUES (1, NULL)");
 
     const [result] = await session.execute("SELECT data FROM t WHERE id = 1");
-    expect(result.rows![0].data).toBeNull();
+    expect(result.objects()[0].data).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Catalog versioning
+// Schema changes and prepared statements
 // ---------------------------------------------------------------------------
 
-describe("catalog versioning", () => {
-  it("version starts at 0 for a fresh engine", async () => {
-    await createEngine();
-    const schema = session.getSchema();
-    expect(schema.version).toBe(0);
-  });
-
-  it("version increments on DDL commit", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    const schema = session.getSchema();
-    expect(schema.version).toBe(1);
-  });
-
-  it("multiple DDLs in one transaction produce single version bump", async () => {
-    await createEngine();
-    await session.execute("BEGIN");
-    await session.execute("CREATE TABLE a (id INTEGER PRIMARY KEY)");
-    await session.execute("CREATE TABLE b (id INTEGER PRIMARY KEY)");
-    await session.execute("COMMIT");
-
-    const schema = session.getSchema();
-    expect(schema.version).toBe(1);
-  });
-
-  it("DML-only commit does not bump version", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    const v1 = session.getSchema().version;
-
-    await session.execute("INSERT INTO t VALUES (1)");
-    const v2 = session.getSchema().version;
-    expect(v2).toBe(v1);
-  });
-
-  it("version persists across reopen", async () => {
-    const name = newDbName();
-    const e = await createEngine(name);
-    const s = e.createSession();
+describe("schema changes", () => {
+  it("DDL commits persist across reopen, one after another", async () => {
+    const name = newDatabaseName();
+    const opened = await createEngine(name);
+    const s = opened.connect();
     await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await s.execute("CREATE INDEX idx ON t (id)");
-    const v1 = s.getSchema().version;
-    s.close();
-    e.close();
+    await s.execute("BEGIN");
+    await s.execute("CREATE TABLE a (id INTEGER PRIMARY KEY)");
+    await s.execute("CREATE TABLE b (id INTEGER PRIMARY KEY)");
+    await s.execute("COMMIT");
+    await s.close();
+    await opened.close();
 
     engine = await openTestEngine(name);
-    session = engine.createSession();
-    expect(session.getSchema().version).toBe(v1);
+    session = engine.connect();
+    const schema = await session.schema();
+    expect(schema.tables.map((table) => table.name)).toEqual(["t", "a", "b"]);
+    expect(schema.tables[0].indexes.map((index) => index.name)).toEqual([
+      "idx",
+    ]);
   });
 
-  it("DDL rollback does not bump version", async () => {
+  it("DDL rolled back leaves the schema as it was", async () => {
     await createEngine();
-    const v0 = session.getSchema().version;
+    const before = await session.schema();
 
     await session.execute("BEGIN");
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const during = await session.schema();
+    expect(during.tables).toHaveLength(1);
     await session.execute("ROLLBACK");
 
-    expect(session.getSchema().version).toBe(v0);
+    expect(await session.schema()).toEqual(before);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Stale prepared statement
-// ---------------------------------------------------------------------------
-
-describe("stale prepared statement", () => {
-  it("throws when schema changes after prepare()", async () => {
+describe("prepared statements", () => {
+  it("bind again, transparently, when the schema changes", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
     await session.execute("INSERT INTO t VALUES (1, 'alice')");
 
-    const stmt = session.prepare("SELECT * FROM t WHERE id = $1");
+    const statement = await session.prepare("SELECT * FROM t WHERE id = $1");
+    expect(statement.columns).toEqual(["id", "name"]);
 
     await session.execute("ALTER TABLE t ADD COLUMN age INTEGER DEFAULT 0");
 
-    await expect(stmt.run([1])).rejects.toThrow(/stale/);
+    const result = await statement.query([1]);
+    expect(result.objects()).toEqual([{ id: 1, name: "alice", age: 0 }]);
+    expect(statement.columns).toEqual(["id", "name", "age"]);
   });
 
-  it("works when schema has not changed", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
-    await session.execute("INSERT INTO t VALUES (1, 'alice')");
-
-    const stmt = session.prepare("SELECT * FROM t WHERE id = $1");
-    const result = await stmt.run([1]);
-    expect(result.type).toBe("rows");
-    expect(result.rows![0].name).toBe("alice");
-  });
-
-  it("stale across sessions from same engine", async () => {
+  it("bind again after DDL in another session of the engine", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
 
-    const s2 = engine.createSession();
-    const stmt = s2.prepare("SELECT * FROM t");
+    const s2 = engine.connect();
+    const statement = await s2.prepare("SELECT * FROM t");
 
     await session.execute("ALTER TABLE t ADD COLUMN v INTEGER DEFAULT 0");
+    await session.execute("INSERT INTO t (id) VALUES (1)");
 
-    await expect(stmt.run()).rejects.toThrow(/stale/);
-    s2.close();
+    const result = await statement.query();
+    expect(result.objects()).toEqual([{ id: 1, v: 0 }]);
+    await s2.close();
+  });
+
+  it("bind once while the schema stays the same, whatever else commits", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+    await session.execute("CREATE TABLE other (id INTEGER PRIMARY KEY)");
+    const statement = await session.prepare("SELECT v FROM t WHERE id = $1");
+    const binds = vi.spyOn(Binder.prototype, "bindStatement");
+
+    for (let id = 1; id <= 5; id++) {
+      await session.query("INSERT INTO t VALUES ($1, 'x')", [id]);
+      await statement.query([id]);
+    }
+    const insertBinds = 5;
+    expect(binds).toHaveBeenCalledTimes(insertBinds);
+
+    // DDL on an unrelated table changes the schema: one more bind, then none.
+    await session.execute("DROP TABLE other");
+    binds.mockClear();
+    await statement.query([1]);
+    await statement.query([2]);
+    expect(binds).toHaveBeenCalledTimes(1);
+    binds.mockRestore();
+  });
+
+  it("fail with the binding error when the schema change broke them", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const statement = await session.prepare("SELECT * FROM t");
+    await session.execute("DROP TABLE t");
+    await expect(statement.query()).rejects.toMatchObject({
+      code: "SEMANTIC_ERROR",
+    });
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, w TEXT)");
+    const rebound = await statement.query();
+    expect(rebound.columns).toEqual(["id", "w"]);
+  });
+
+  it("fail at prepare on unknown tables", async () => {
+    await createEngine();
+    await expect(session.prepare("SELECT * FROM nope")).rejects.toMatchObject({
+      code: "SEMANTIC_ERROR",
+    });
+  });
+
+  it("fail with MISUSE once closed", async () => {
+    await createEngine();
+    const statement = await session.prepare("SELECT 1");
+    statement.close();
+    await expect(statement.query()).rejects.toThrow(MisuseError);
   });
 });
 
@@ -1236,8 +1263,10 @@ describe("use after close", () => {
   it("execute() throws after session is closed", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    session.close();
+    await session.close();
 
-    await expect(session.execute("SELECT * FROM t")).rejects.toThrow();
+    await expect(session.execute("SELECT * FROM t")).rejects.toThrow(
+      MisuseError,
+    );
   });
 });

@@ -90,7 +90,7 @@ async function openPagerUnguarded(
   const { database, wal } = await whileHolding(openLock, () =>
     openDatabaseAndWal(files, name, pageSize),
   );
-  const marks = await openMarks(files.marks, lockName);
+  const marks = await openMarks(files.marks, lockName, name);
   const checkpointThreshold =
     options.checkpointThreshold ?? DEFAULT_CHECKPOINT_THRESHOLD;
   return new Pager(database, wal, { checkpointThreshold, marks });
@@ -108,19 +108,17 @@ function checkPageSize(pageSize: number): void {
 async function openMarks(
   file: SyncFile | null,
   lockName: string | undefined,
+  database: string,
 ): Promise<ReadMarks | null> {
   if (file === null) return null;
   if (lockName === undefined) {
     throw new MisuseError("a read-mark file needs a lock name");
   }
-  return ReadMarks.open(file, lockName);
+  return ReadMarks.open(file, lockName, database);
 }
 
 function inUse(name: string, cause: unknown): DatabaseInUseError {
-  return new DatabaseInUseError(
-    `database "${name}" is open in another tab, and this browser allows only one tab per database`,
-    { cause },
-  );
+  return new DatabaseInUseError(name, "one-tab-only", { cause });
 }
 
 /** Recovers the WAL, creating the database first if its file is empty. */

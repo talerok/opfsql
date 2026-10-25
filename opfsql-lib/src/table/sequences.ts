@@ -1,7 +1,17 @@
 import { CorruptError } from "../errors.js";
-import { nameKey } from "../schema/index.js";
-import type { PageWriter, SchemaPages, StoredRow } from "../storage/index.js";
-import { SchemaTableWriter, TableWriter } from "../storage/index.js";
+import type { TableShape } from "../schema/index.js";
+import { createTableSql, nameKey } from "../schema/index.js";
+import type {
+  PageReader,
+  PageWriter,
+  SchemaPages,
+  StoredRow,
+} from "../storage/index.js";
+import {
+  SchemaTableWriter,
+  TableReader,
+  TableWriter,
+} from "../storage/index.js";
 
 // ---------------------------------------------------------------------------
 // AUTOINCREMENT counters (docs/file-format.md, System tables): opfsql_sequence
@@ -10,7 +20,16 @@ import { SchemaTableWriter, TableWriter } from "../storage/index.js";
 // ---------------------------------------------------------------------------
 
 export const SEQUENCE_TABLE_NAME = "opfsql_sequence";
-const SEQUENCE_TABLE_SQL = `CREATE TABLE ${SEQUENCE_TABLE_NAME} (name TEXT, seq INTEGER)`;
+
+const SEQUENCE_TABLE: TableShape = {
+  name: SEQUENCE_TABLE_NAME,
+  columns: [
+    { name: "name", type: "TEXT", isNotNull: false, defaultValue: null },
+    { name: "seq", type: "INTEGER", isNotNull: false, defaultValue: null },
+  ],
+  rowidColumn: null,
+  isAutoincrement: false,
+};
 
 const NAME = 0;
 const SEQ = 1;
@@ -36,19 +55,19 @@ export class Sequences {
       name: SEQUENCE_TABLE_NAME,
       tableName: SEQUENCE_TABLE_NAME,
       rootPage: root,
-      sql: SEQUENCE_TABLE_SQL,
+      sql: createTableSql(SEQUENCE_TABLE, []),
     });
     return root;
   }
 
   /** The largest rowid `table` has issued; 0 if none. */
   last(table: string): number {
-    return this.find(table)?.seq ?? 0;
+    return findSequence(this.rows, table)?.seq ?? 0;
   }
 
   /** Records that `table` issued `rowid`, if it is the largest so far. */
   record(table: string, rowid: number): void {
-    const found = this.find(table);
+    const found = findSequence(this.rows, table);
     if (found === undefined) {
       const next = (this.rows.lastRowid() ?? 0) + 1;
       this.rows.insert(next, [table, rowid]);
@@ -59,19 +78,31 @@ export class Sequences {
 
   /** Forgets `table`, when it is dropped. */
   remove(table: string): void {
-    const found = this.find(table);
+    const found = findSequence(this.rows, table);
     if (found !== undefined) this.rows.delete(found.rowid);
   }
+}
 
-  /** The table's row. A scan: there is one row per AUTOINCREMENT table. */
-  private find(table: string): SequenceRow | undefined {
-    const key = nameKey(table);
-    for (const row of this.rows.scan()) {
-      const sequence = sequenceRowOf(row);
-      if (nameKey(sequence.name) === key) return sequence;
-    }
-    return undefined;
+/** The largest rowid `table` has issued, read from opfsql_sequence at `root`. */
+export function lastIssued(
+  pages: PageReader,
+  root: number,
+  table: string,
+): number {
+  return findSequence(new TableReader(pages, root), table)?.seq ?? 0;
+}
+
+/** The table's row. A scan: there is one row per AUTOINCREMENT table. */
+function findSequence(
+  rows: TableReader,
+  table: string,
+): SequenceRow | undefined {
+  const key = nameKey(table);
+  for (const row of rows.scan()) {
+    const sequence = sequenceRowOf(row);
+    if (nameKey(sequence.name) === key) return sequence;
   }
+  return undefined;
 }
 
 function sequenceRowOf(row: StoredRow): SequenceRow {

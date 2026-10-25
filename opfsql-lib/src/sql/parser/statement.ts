@@ -16,6 +16,7 @@ import {
   StatementType,
   TransactionType,
   type Statement,
+  type BeginMode,
   type TransactionStatement,
 } from "./types.js";
 
@@ -85,25 +86,37 @@ function parseStatement(cursor: Cursor): Statement {
 
 // --- Transactions and EXPLAIN ---------------------------------------------------------
 
-function transaction(transactionType: TransactionType): TransactionStatement {
-  return { type: StatementType.TRANSACTION_STATEMENT, transactionType };
-}
+type EndType = TransactionType.COMMIT | TransactionType.ROLLBACK;
 
-/** `BEGIN [TRANSACTION]`; DEFERRED, IMMEDIATE and EXCLUSIVE are not supported. */
+/** `BEGIN [DEFERRED | IMMEDIATE] [TRANSACTION]`. */
 function parseBegin(cursor: Cursor): TransactionStatement {
   cursor.next();
-  for (const mode of ["DEFERRED", "IMMEDIATE", "EXCLUSIVE"]) {
-    if (cursor.isWord(mode)) throw new NotSupportedError(`BEGIN ${mode}`);
-  }
+  const mode = parseBeginMode(cursor);
   parseTransactionKeyword(cursor);
-  return transaction(TransactionType.BEGIN);
+  return {
+    type: StatementType.TRANSACTION_STATEMENT,
+    transactionType: TransactionType.BEGIN,
+    mode,
+  };
+}
+
+/** DEFERRED, the default, or IMMEDIATE; EXCLUSIVE is not supported. */
+function parseBeginMode(cursor: Cursor): BeginMode {
+  if (cursor.isWord("EXCLUSIVE"))
+    throw new NotSupportedError("BEGIN EXCLUSIVE");
+  if (cursor.isWord("IMMEDIATE")) {
+    cursor.next();
+    return "IMMEDIATE";
+  }
+  if (cursor.isWord("DEFERRED")) cursor.next();
+  return "DEFERRED";
 }
 
 /** `COMMIT [TRANSACTION]` or `END [TRANSACTION]`. */
-function parseEnd(cursor: Cursor, type: TransactionType): TransactionStatement {
+function parseEnd(cursor: Cursor, type: EndType): TransactionStatement {
   cursor.next();
   parseTransactionKeyword(cursor);
-  return transaction(type);
+  return { type: StatementType.TRANSACTION_STATEMENT, transactionType: type };
 }
 
 /** `[TRANSACTION]`; SQLite allows a name after it, which it ignores. */

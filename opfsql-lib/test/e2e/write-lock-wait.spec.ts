@@ -1,14 +1,21 @@
 import { test, expect } from "./infra/fixtures";
-import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
+import {
+  openTab,
+  initDatabase,
+  openDatabase,
+  exec,
+  closeDatabase,
+  cleanOpfs,
+} from "./infra/database";
 
 test.describe("Write lock contention", { tag: "@multi-tab" }, () => {
   test("Tab B waits for Tab A lock, then succeeds", async ({ context }) => {
     const tabA = await openTab(context);
-    await initDb(tabA);
+    await initDatabase(tabA);
     await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY)");
 
     const tabB = await openTab(context);
-    await openDb(tabB);
+    await openDatabase(tabB);
 
     // Tab A holds the Web Lock via open transaction
     await exec(tabA, "BEGIN");
@@ -25,10 +32,10 @@ test.describe("Write lock contention", { tag: "@multi-tab" }, () => {
     await tabBWrite;
 
     const results = await exec(tabA, "SELECT * FROM t ORDER BY id");
-    expect(results[0].rows).toHaveLength(2);
+    expect(results[0].objects).toHaveLength(2);
 
-    await closeDb(tabB);
-    await closeDb(tabA);
+    await closeDatabase(tabB);
+    await closeDatabase(tabA);
     await cleanOpfs(tabA);
   });
 });

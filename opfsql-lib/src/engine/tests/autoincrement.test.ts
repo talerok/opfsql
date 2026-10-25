@@ -16,49 +16,50 @@ beforeEach(async () => {
   resetMockOPFS();
   dbName = `autoincrement-${seq++}`;
   engine = await openTestEngine(dbName);
-  session = engine.createSession();
+  session = engine.connect();
   await session.execute(
     "CREATE TABLE a (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
   );
   await session.execute("CREATE TABLE b (id INTEGER PRIMARY KEY, name TEXT)");
 });
 
-afterEach(() => {
-  session.close();
-  engine.close();
+afterEach(async () => {
+  await session.close();
+  await engine.close();
 });
 
 async function ids(table: string): Promise<unknown[]> {
   const [r] = await session.execute(`SELECT id FROM ${table} ORDER BY id`);
-  return r.type === "rows" ? r.rows.map((row) => row.id) : [];
+  return r.objects().map((row) => row.id);
 }
 
 describe("AUTOINCREMENT", () => {
   it("leaves prepared statements valid, including on other tables", async () => {
-    const insert = session.prepare("INSERT INTO a (name) VALUES ($1)");
-    const select = session.prepare("SELECT name FROM b WHERE id = $1");
+    const insert = await session.prepare("INSERT INTO a (name) VALUES ($1)");
+    const select = await session.prepare("SELECT name FROM b WHERE id = $1");
 
-    for (const name of ["x", "y", "z"]) await insert.run([name]);
-    await expect(select.run([1])).resolves.toEqual({ type: "rows", rows: [] });
+    for (const name of ["x", "y", "z"]) await insert.query([name]);
+    const selected = await select.query([1]);
+    expect(selected.rows).toEqual([]);
     expect(await ids("a")).toEqual([1, 2, 3]);
   });
 
-  it("does not change the schema version", async () => {
-    const before = session.getSchema().version;
+  it("does not change the schema", async () => {
+    const before = await session.schema();
     await session.execute("INSERT INTO a (name) VALUES ('x')");
     await session.execute("INSERT INTO a (id, name) VALUES (10, 'y')");
-    expect(session.getSchema().version).toBe(before);
+    expect(await session.schema()).toEqual(before);
   });
 
   it("keeps the sequence across reopening the database", async () => {
     await session.execute("INSERT INTO a (name) VALUES ('x')");
     await session.execute("INSERT INTO a (name) VALUES ('y')");
     await session.execute("DELETE FROM a WHERE id = 2");
-    session.close();
-    engine.close();
+    await session.close();
+    await engine.close();
 
     engine = await openTestEngine(dbName);
-    session = engine.createSession();
+    session = engine.connect();
     await session.execute("INSERT INTO a (name) VALUES ('z')");
     expect(await ids("a")).toEqual([1, 3]);
   });

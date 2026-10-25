@@ -1,21 +1,28 @@
 import { test, expect } from "./infra/fixtures";
-import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
+import {
+  openTab,
+  initDatabase,
+  openDatabase,
+  exec,
+  closeDatabase,
+  cleanOpfs,
+} from "./infra/database";
 
 test.describe("One tab per database", () => {
   test("data survives closing and reopening the database", async ({
     context,
   }) => {
     const tab = await openTab(context);
-    await initDb(tab);
+    await initDatabase(tab);
     await exec(tab, "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)");
     await exec(tab, "INSERT INTO notes VALUES (1, 'first'), (2, 'second')");
-    await closeDb(tab);
+    await closeDatabase(tab);
 
-    await openDb(tab);
+    await openDatabase(tab);
     const [result] = await exec(tab, "SELECT body FROM notes ORDER BY id");
-    expect(result.rows).toEqual([{ body: "first" }, { body: "second" }]);
+    expect(result.objects).toEqual([{ body: "first" }, { body: "second" }]);
 
-    await closeDb(tab);
+    await closeDatabase(tab);
     await cleanOpfs(tab);
   });
 
@@ -29,21 +36,24 @@ test.describe("One tab per database", () => {
     );
 
     const first = await openTab(context);
-    await initDb(first);
+    await initDatabase(first);
 
     const second = await openTab(context);
-    const error = await second.evaluate(() =>
-      (window as any).__opfsql.open("e2e-test").then(
-        () => null,
-        (err: Error) => ({ name: err.name, message: err.message }),
-      ),
+    const outcome = await second.evaluate(async () =>
+      globalThis.opfsql.attemptOpen("e2e-test"),
     );
-    expect(error).toEqual({
-      name: "DatabaseInUseError",
-      message: expect.stringContaining("open in another tab"),
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: {
+        name: "DatabaseInUseError",
+        code: "DATABASE_IN_USE",
+        isItsClass: true,
+        message: expect.stringContaining("open in another tab"),
+        fields: { database: "e2e-test" },
+      },
     });
 
-    await closeDb(first);
+    await closeDatabase(first);
     await cleanOpfs(first);
   });
 });

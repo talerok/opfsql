@@ -1,3 +1,4 @@
+import { OpfsqlError } from "../../errors.js";
 import { BTree, type BTreeLayout } from "../btree.js";
 import { IndexKeyTooLargeError } from "../errors.js";
 import type { RowId, SyncIPageStore } from "../types.js";
@@ -116,6 +117,9 @@ function checkUniqueSorted(
   }
 }
 
-function uniqueViolation(index: string): Error {
-  return new Error(`UNIQUE constraint failed: index "${index}"`);
+function uniqueViolation(index: string): OpfsqlError {
+  return new OpfsqlError(
+    "CONSTRAINT_VIOLATION",
+    `UNIQUE constraint failed: index "${index}"`,
+  );
 }

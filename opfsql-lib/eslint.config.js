@@ -193,10 +193,38 @@ export default config(
               message: "functions depends on nothing but values and errors.",
             },
             {
+              target: "./src/sql/plan",
+              from: "./src",
+              except: [
+                "./sql/plan",
+                "./schema",
+                "./functions",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "sql/plan depends on nothing but schema, functions, values and errors.",
+            },
+            {
               target: "./src/sql/parser",
               from: "./src",
               except: ["./sql/parser", "./values", "./errors.ts"],
               message: "sql/parser depends on nothing but values and errors.",
+            },
+            {
+              target: "./src/engine/api",
+              from: "./src",
+              except: ["./engine/api", "./values", "./errors.ts"],
+              message:
+                "engine/api, the engine's contract, depends only on values and errors.",
+            },
+            {
+              // The worker reaches the engine only through its contract, so
+              // the page's bundle need not carry the engine (tests aside).
+              target: "./src/worker/*.ts",
+              from: "./src",
+              except: ["./worker", "./engine/api", "./values", "./errors.ts"],
+              message: "worker depends only on engine/api, values and errors.",
             },
           ],
         },
@@ -204,6 +232,9 @@ export default config(
 
       // Spreading a Uint8Array gives a number[]: .slice() is the copy.
       "unicorn/prefer-spread": "off",
+      // Plans and expressions are trees: recursing into a child reads as
+      // the structure does, where a loop would hide it.
+      "unicorn/no-useless-recursion": "off",
       // Guard returns read better than ternaries over several lines.
       "unicorn/prefer-ternary": "off",
       // SQL NULL is null; undefined means "absent", never a value.

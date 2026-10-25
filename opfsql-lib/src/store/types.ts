@@ -40,8 +40,11 @@ export interface ICatalog {
   getTableIndexes(tableName: string): IndexDef[];
   addIndex(index: IndexDef): void;
   removeIndex(name: string): void;
-  serialize(): CatalogData;
+  serialize(): CatalogContents;
 }
+
+/** A catalog's tables and indexes, without the version its page stores. */
+export type CatalogContents = Pick<CatalogData, "tables" | "indexes">;
 
 // ---------------------------------------------------------------------------
 // Sync page storage backend (page-based I/O, no string-keyed index)
@@ -67,6 +70,8 @@ export interface SyncIPageStorage {
   isSnapshotSafe?(snapshot: number): boolean;
   /** Releases snapshots held by tabs that no longer exist. */
   releaseAbandonedSnapshots?(): Promise<void>;
+  /** Lowers a stale checkpoint intent to the latest commit (write lock held). */
+  resetCheckpointIntent?(): void;
   /**
    * Persist a batch of pages together with the new nextPageId. Rejects the
    * whole batch with PageOverflowError before writing if any page exceeds

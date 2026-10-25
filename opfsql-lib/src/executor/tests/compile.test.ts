@@ -425,13 +425,14 @@ describe("functions", () => {
       [constant("h%"), colRef(0, 1)],
       "BOOLEAN",
     ) as BoundFunctionExpression;
-    const implement = vi.spyOn(like.function, "implement");
-    expect(evaluate(like)).toBe(true);
+    // Definitions are frozen: spy on a copy.
+    const implement = vi.fn(like.function.implement);
+    const spied = { ...like, function: { ...like.function, implement } };
+    expect(evaluate(spied)).toBe(true);
     expect(implement).toHaveBeenCalledWith({
       argumentTypes: ["TEXT", "INTEGER"],
       constants: ["h%", undefined],
     });
-    implement.mockRestore();
   });
 });
 

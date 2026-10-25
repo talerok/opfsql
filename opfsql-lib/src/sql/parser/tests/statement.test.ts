@@ -11,7 +11,9 @@ import {
   StatementType,
   TableReferenceType,
   TransactionType,
+  type BeginMode,
   type CreateTableStatement,
+  type TransactionStatement,
   type Statement,
   type TableReference,
 } from "../types.js";
@@ -608,17 +610,28 @@ describe("other DDL", () => {
 });
 
 describe("transactions and EXPLAIN", () => {
-  it.each<[string, TransactionType]>([
-    ["BEGIN", TransactionType.BEGIN],
-    ["BEGIN TRANSACTION", TransactionType.BEGIN],
-    ["COMMIT", TransactionType.COMMIT],
-    ["END TRANSACTION", TransactionType.COMMIT],
-    ["ROLLBACK", TransactionType.ROLLBACK],
-  ])("%s", (sql, transactionType) => {
-    expect(only(sql)).toEqual({
-      type: StatementType.TRANSACTION_STATEMENT,
-      transactionType,
-    });
+  const begin = (mode: BeginMode): TransactionStatement => ({
+    type: StatementType.TRANSACTION_STATEMENT,
+    transactionType: TransactionType.BEGIN,
+    mode,
+  });
+  const end = (
+    transactionType: TransactionType.COMMIT | TransactionType.ROLLBACK,
+  ): TransactionStatement => ({
+    type: StatementType.TRANSACTION_STATEMENT,
+    transactionType,
+  });
+
+  it.each<[string, TransactionStatement]>([
+    ["BEGIN", begin("DEFERRED")],
+    ["BEGIN TRANSACTION", begin("DEFERRED")],
+    ["BEGIN DEFERRED", begin("DEFERRED")],
+    ["BEGIN IMMEDIATE TRANSACTION", begin("IMMEDIATE")],
+    ["COMMIT", end(TransactionType.COMMIT)],
+    ["END TRANSACTION", end(TransactionType.COMMIT)],
+    ["ROLLBACK", end(TransactionType.ROLLBACK)],
+  ])("%s", (sql, expected) => {
+    expect(only(sql)).toEqual(expected);
   });
 
   it("wraps a statement in EXPLAIN", () => {
@@ -630,7 +643,7 @@ describe("transactions and EXPLAIN", () => {
   });
 
   it.each([
-    ["BEGIN IMMEDIATE", "BEGIN IMMEDIATE"],
+    ["BEGIN EXCLUSIVE", "BEGIN EXCLUSIVE"],
     ["BEGIN TRANSACTION t1", "a transaction name"],
     ["COMMIT TRANSACTION t1", "a transaction name"],
     ["ROLLBACK TRANSACTION TO s", "ROLLBACK TO"],

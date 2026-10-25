@@ -1,6 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DatabaseInUseError } from "../../store/errors.js";
+import { DatabaseInUseError } from "../../errors.js";
 import { Engine } from "../engine.js";
 
 // opfs-mock allows one sync access handle per file, like Firefox and WebKit,
@@ -21,25 +21,30 @@ describe("Engine.open", () => {
     const second = Engine.open(dbName);
     await expect(second).rejects.toThrow(DatabaseInUseError);
     await expect(second).rejects.toThrow(/open in another tab/);
+    await expect(second).rejects.toMatchObject({
+      code: "DATABASE_IN_USE",
+      database: dbName,
+    });
     await expect(second).rejects.toHaveProperty(
       "cause.name",
       "InvalidStateError",
     );
 
-    first.close();
+    await first.close();
   });
 
   it("opens again once the other engine has closed", async () => {
     const first = await Engine.open(dbName);
     await expect(Engine.open(dbName)).rejects.toThrow(DatabaseInUseError);
-    first.close();
+    await first.close();
 
     const again = await Engine.open(dbName);
-    again.close();
+    await again.close();
   });
 
   it("releases everything it opened when opening fails", async () => {
-    (await Engine.open(dbName)).close();
+    const first = await Engine.open(dbName);
+    await first.close();
 
     // A WAL that cannot be recovered fails the open after every file is open.
     const root = await navigator.storage.getDirectory();
@@ -53,6 +58,6 @@ describe("Engine.open", () => {
     // Nothing is left holding the files: the database opens once repaired.
     await root.removeEntry(`${dbName}.opfsql-wal`);
     const engine = await Engine.open(dbName);
-    engine.close();
+    await engine.close();
   });
 });
