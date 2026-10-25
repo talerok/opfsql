@@ -1,0 +1,338 @@
+# parser.slt — what the SQL text means: statement ends, names, literals,
+# precedence, and SQL that is valid but not supported
+
+statement ok
+CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)
+
+statement ok
+INSERT INTO people VALUES (1, 'Alice', 30), (2, 'Bob', NULL), (3, 'Charlie', 25)
+
+statement ok
+CREATE TABLE pets (id INTEGER PRIMARY KEY, owner INTEGER, pet TEXT)
+
+statement ok
+INSERT INTO pets VALUES (1, 1, 'cat'), (2, 3, 'dog')
+
+# ============================================================================
+# Statement ends: leftovers are an error, never another statement
+# ============================================================================
+
+statement error
+SELECT 1 SELECT 2
+
+statement error
+SELECT name FROM people p q
+
+statement ok
+SELECT 1; SELECT 2;
+
+# EXCEPT is an operator, not an alias of the table before it
+statement error
+SELECT * FROM people EXCEPT SELECT * FROM people
+
+statement error
+SELECT * FROM people INTERSECT SELECT * FROM people
+
+# ============================================================================
+# FROM a, b is a cross join
+# ============================================================================
+
+query TT rowsort
+SELECT name, pet FROM people, pets WHERE people.id = pets.owner
+----
+Alice|cat
+Charlie|dog
+
+query I nosort
+SELECT count(*) FROM people, pets
+----
+6
+
+# ============================================================================
+# A bare alias is never a keyword
+# ============================================================================
+
+query IT nosort
+SELECT id, age ISNULL FROM people ORDER BY id
+----
+1|false
+2|true
+3|false
+
+query IT nosort
+SELECT id, age NOTNULL FROM people ORDER BY id
+----
+1|true
+2|false
+3|true
+
+statement error
+SELECT * FROM people NATURAL JOIN pets
+
+# ============================================================================
+# Numbers are read whole
+# ============================================================================
+
+query R nosort
+SELECT 1e3
+----
+1000
+
+query R nosort
+SELECT 2.5E-1
+----
+0.25
+
+query I nosort
+SELECT 0x10
+----
+16
+
+query I nosort
+SELECT 0xFFFFFFFFFFFFFFFF
+----
+-1
+
+statement error
+SELECT 1_000
+
+statement error
+SELECT 1e3x
+
+# ============================================================================
+# Names: non-reserved keywords and quoted names
+# ============================================================================
+
+statement ok
+CREATE TABLE kw (key TEXT, first TEXT, last TEXT, text TEXT, json JSON, index INTEGER, "default" INTEGER, end INTEGER)
+
+statement ok
+INSERT INTO kw (key, first, last, text, json, index, "default", end) VALUES ('k', 'f', 'l', 't', '{"a":1}', 1, 2, 3)
+
+query TTTTIII nosort
+SELECT key, first, last, text, index, "default", end FROM kw
+----
+k|f|l|t|1|2|3
+
+statement ok
+CREATE TABLE "order" ("key" TEXT, "a""b" INTEGER)
+
+statement ok
+INSERT INTO "order" VALUES ('x', 7)
+
+query TI nosort
+SELECT "key", "a""b" FROM "order"
+----
+x|7
+
+statement error
+SELECT * FROM order
+
+# ============================================================================
+# Precedence: the right side of =, LIKE and BETWEEN takes ||, + and *
+# ============================================================================
+
+query T nosort
+SELECT name FROM people WHERE name LIKE '%' || 'li' || '%' ORDER BY name
+----
+Alice
+Charlie
+
+query T nosort
+SELECT name FROM people WHERE name = 'Al' || 'ice'
+----
+Alice
+
+query I nosort
+SELECT id FROM people WHERE age BETWEEN 20 + 5 AND 10 * 3 ORDER BY id
+----
+1
+3
+
+query T nosort
+SELECT 1 = 2 IS NULL
+----
+false
+
+# ============================================================================
+# Signed literals, and DEFAULT as an expression
+# ============================================================================
+
+query IR nosort
+SELECT -1, - 2.5
+----
+-1|-2.5
+
+statement ok
+CREATE TABLE defaults (id INTEGER PRIMARY KEY, n INTEGER DEFAULT -1 NOT NULL, s TEXT DEFAULT 'x', r REAL DEFAULT -0.5)
+
+statement ok
+INSERT INTO defaults (id) VALUES (1)
+
+query IITR nosort
+SELECT id, n, s, r FROM defaults
+----
+1|-1|x|-0.5
+
+statement error
+CREATE TABLE bad_default (t TEXT DEFAULT CURRENT_TIMESTAMP)
+
+statement error
+CREATE TABLE bad_default (a INTEGER, b INTEGER DEFAULT a)
+
+statement error
+CREATE TABLE bad_default (a INTEGER DEFAULT (1 + 2))
+
+statement error
+SELECT * FROM people LIMIT -1
+
+# ============================================================================
+# CASE with an operand
+# ============================================================================
+
+query T nosort
+SELECT CASE id WHEN 1 THEN 'one' WHEN 2 THEN 'two' ELSE 'many' END FROM people ORDER BY id
+----
+one
+two
+many
+
+# ============================================================================
+# Integer literals are safe integers
+# ============================================================================
+
+query I nosort
+SELECT 9007199254740991
+----
+9007199254740991
+
+query I nosort
+SELECT -9007199254740991
+----
+-9007199254740991
+
+statement error
+SELECT 9007199254740993
+
+statement error
+SELECT 99999999999999999999999999999999999999999999999999
+
+# ============================================================================
+# Nesting is limited: a syntax error, not a stack overflow
+# ============================================================================
+
+statement error
+SELECT ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+# ============================================================================
+# Quantified comparisons
+# ============================================================================
+
+query I nosort
+SELECT id FROM people WHERE id > ALL (SELECT owner FROM pets WHERE owner < 3) ORDER BY id
+----
+2
+3
+
+query I nosort
+SELECT id FROM people WHERE id = ANY (SELECT owner FROM pets) ORDER BY id
+----
+1
+3
+
+query I nosort
+SELECT id FROM people WHERE id < SOME (SELECT owner FROM pets) ORDER BY id
+----
+1
+2
+
+# ============================================================================
+# Declared types keep their text; * only where it belongs
+# ============================================================================
+
+statement ok
+CREATE TABLE sized (s VARCHAR(3))
+
+statement ok
+INSERT INTO sized VALUES ('longer than three')
+
+query T nosort
+SELECT s FROM sized
+----
+longer than three
+
+statement error
+CREATE TABLE unknown_type (a WIDGET)
+
+statement error
+CREATE TABLE fk (a INTEGER REFERENCES people(id))
+
+statement error
+CREATE TABLE fk (a INTEGER, FOREIGN KEY (a) REFERENCES people(id))
+
+statement error
+SELECT * + 1 FROM people
+
+statement error
+SELECT sum(*) FROM people
+
+statement error
+SELECT id FROM people ORDER BY *
+
+# ============================================================================
+# LIMIT offset, count
+# ============================================================================
+
+query I nosort
+SELECT id FROM people ORDER BY id LIMIT 1, 2
+----
+2
+3
+
+# ============================================================================
+# WITH belongs to the whole compound query
+# ============================================================================
+
+query I nosort
+WITH c AS (SELECT 1 AS x) SELECT x FROM c UNION ALL SELECT x + 1 FROM c
+----
+1
+2
+
+query I nosort
+WITH recursive AS (SELECT 5 AS x) SELECT x FROM recursive
+----
+5
+
+query I nosort
+WITH RECURSIVE r(n) AS (WITH s AS (SELECT 1) SELECT * FROM s UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r
+----
+1
+2
+3
+
+# ============================================================================
+# A CROSS join or a comma with ON is an inner join, as in SQLite
+# ============================================================================
+
+query TT rowsort
+SELECT name, pet FROM people CROSS JOIN pets ON people.id = pets.owner
+----
+Alice|cat
+Charlie|dog
+
+query TT rowsort
+SELECT name, pet FROM people, pets ON people.id = pets.owner
+----
+Alice|cat
+Charlie|dog
+
+# ============================================================================
+# ALTER TABLE … ADD COLUMN needs a name after COLUMN
+# ============================================================================
+
+statement error
+ALTER TABLE people ADD COLUMN NOT NULL DEFAULT 0
+
+statement error
+CREATE TABLE bad_default (a INTEGER DEFAULT NOT NULL)

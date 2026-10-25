@@ -239,7 +239,7 @@ export class Session {
   // -------------------------------------------------------------------------
 
   private executeTCL(stmt: TransactionStatement): Result {
-    switch (stmt.transaction_type) {
+    switch (stmt.transactionType) {
       case TransactionType.BEGIN:
         return this.beginTransaction();
       case TransactionType.COMMIT:
@@ -247,7 +247,7 @@ export class Session {
       case TransactionType.ROLLBACK:
         return this.rollbackTransaction();
       default:
-        const unreachable: never = stmt.transaction_type;
+        const unreachable: never = stmt.transactionType;
         throw new EngineError(`Unknown transaction type: ${unreachable}`);
     }
   }

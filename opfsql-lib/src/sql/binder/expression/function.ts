@@ -38,7 +38,7 @@ export function bindFunction(
   expression: FunctionExpression,
   binding: FunctionBinding,
 ): BoundExpression {
-  const name = expression.function_name;
+  const name = expression.functionName;
   const definition = lookupFunction(name);
   if (definition === undefined) {
     throw new SemanticError(`no such function: ${name}`);
@@ -50,7 +50,7 @@ export function bindFunction(
     );
     return match ?? bound;
   }
-  if (expression.distinct || expression.is_star) {
+  if (expression.distinct || expression.isStar) {
     throw new SemanticError(`${name}() is not an aggregate function`);
   }
   const children = expression.children.map((child) => binding.bind(child));

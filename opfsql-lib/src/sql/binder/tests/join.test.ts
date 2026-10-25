@@ -1,8 +1,8 @@
-import { SemanticError } from "../../../errors.js";
+import { SemanticError, NotSupportedError } from "../../../errors.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BindError } from "../core/errors.js";
 import type {
-  BoundColumnRefExpression,
+  BoundColumnRefExpression as BoundColumnReferenceExpression,
   LogicalComparisonJoin,
   LogicalCrossProduct,
   LogicalGet,
@@ -15,9 +15,9 @@ let catalog: ReturnType<typeof createTestContext>["catalog"];
 let bind: ReturnType<typeof createTestContext>["bind"];
 
 beforeEach(() => {
-  const ctx = createTestContext();
-  catalog = ctx.catalog;
-  bind = ctx.bind;
+  const context = createTestContext();
+  catalog = context.catalog;
+  bind = context.bind;
 });
 
 describe("JOIN", () => {
@@ -47,10 +47,10 @@ describe("JOIN", () => {
     );
     const proj = plan as LogicalProjection;
     expect(proj.expressions).toHaveLength(2);
-    const col0 = proj.expressions[0] as BoundColumnRefExpression;
+    const col0 = proj.expressions[0] as BoundColumnReferenceExpression;
     expect(col0.tableName).toBe("users");
     expect(col0.columnName).toBe("name");
-    const col1 = proj.expressions[1] as BoundColumnRefExpression;
+    const col1 = proj.expressions[1] as BoundColumnReferenceExpression;
     expect(col1.tableName).toBe("orders");
     expect(col1.columnName).toBe("amount");
   });
@@ -63,8 +63,8 @@ describe("JOIN", () => {
     const join = proj.children[0] as LogicalComparisonJoin;
     expect(join.conditions).toHaveLength(1);
     expect(join.conditions[0].comparisonType).toBe("EQUAL");
-    const leftCol = join.conditions[0].left as BoundColumnRefExpression;
-    const rightCol = join.conditions[0].right as BoundColumnRefExpression;
+    const leftCol = join.conditions[0].left as BoundColumnReferenceExpression;
+    const rightCol = join.conditions[0].right as BoundColumnReferenceExpression;
     expect(leftCol.tableName).toBe("users");
     expect(rightCol.tableName).toBe("orders");
   });
@@ -85,18 +85,18 @@ describe("JOIN — additional", () => {
     expect(join.type).toBe(LogicalOperatorType.LOGICAL_COMPARISON_JOIN);
     expect(join.conditions).toHaveLength(1);
     expect(join.conditions[0].comparisonType).toBe("EQUAL");
-    const leftCol = join.conditions[0].left as BoundColumnRefExpression;
-    const rightCol = join.conditions[0].right as BoundColumnRefExpression;
+    const leftCol = join.conditions[0].left as BoundColumnReferenceExpression;
+    const rightCol = join.conditions[0].right as BoundColumnReferenceExpression;
     expect(leftCol.tableName).toBe("users");
     expect(rightCol.tableName).toBe("orders");
   });
 
-  it("RIGHT JOIN throws BindError", () => {
+  it("RIGHT JOIN throws NotSupportedError", () => {
     expect(() =>
       bind(
         "SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id",
       ),
-    ).toThrow(BindError);
+    ).toThrow(NotSupportedError);
     expect(() =>
       bind(
         "SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id",
@@ -112,8 +112,8 @@ describe("JOIN — more coverage", () => {
     );
     const proj = plan as LogicalProjection;
     expect(proj.expressions).toHaveLength(2);
-    const col0 = proj.expressions[0] as BoundColumnRefExpression;
-    const col1 = proj.expressions[1] as BoundColumnRefExpression;
+    const col0 = proj.expressions[0] as BoundColumnReferenceExpression;
+    const col1 = proj.expressions[1] as BoundColumnReferenceExpression;
     expect(col0.columnName).toBe("name");
     expect(col1.columnName).toBe("name");
     // Different table indices for the two aliases
@@ -143,8 +143,9 @@ describe("JOIN condition normalization", () => {
     const rightGet = join.children[1] as LogicalGet;
 
     expect(join.conditions).toHaveLength(1);
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
-    const condRight = join.conditions[0].right as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
+    const condRight = join.conditions[0]
+      .right as BoundColumnReferenceExpression;
 
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
     expect(condRight.binding.tableIndex).toBe(rightGet.tableIndex);
@@ -159,8 +160,9 @@ describe("JOIN condition normalization", () => {
     const leftGet = join.children[0] as LogicalGet;
     const rightGet = join.children[1] as LogicalGet;
 
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
-    const condRight = join.conditions[0].right as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
+    const condRight = join.conditions[0]
+      .right as BoundColumnReferenceExpression;
 
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
     expect(condRight.binding.tableIndex).toBe(rightGet.tableIndex);
@@ -175,7 +177,7 @@ describe("JOIN condition normalization", () => {
     const join = proj.children[0] as LogicalComparisonJoin;
     const leftGet = join.children[0] as LogicalGet;
 
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
     expect(join.conditions[0].comparisonType).toBe("LESS");
   });
@@ -190,8 +192,8 @@ describe("JOIN condition normalization", () => {
     const rightGet = join.children[1] as LogicalGet;
 
     for (const cond of join.conditions) {
-      const left = cond.left as BoundColumnRefExpression;
-      const right = cond.right as BoundColumnRefExpression;
+      const left = cond.left as BoundColumnReferenceExpression;
+      const right = cond.right as BoundColumnReferenceExpression;
       expect(left.binding.tableIndex).toBe(leftGet.tableIndex);
       expect(right.binding.tableIndex).toBe(rightGet.tableIndex);
     }
@@ -204,8 +206,9 @@ describe("JOIN condition normalization", () => {
     const leftGet = join.children[0] as LogicalGet;
     const rightGet = join.children[1] as LogicalGet;
 
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
-    const condRight = join.conditions[0].right as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
+    const condRight = join.conditions[0]
+      .right as BoundColumnReferenceExpression;
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
     expect(condRight.binding.tableIndex).toBe(rightGet.tableIndex);
   });
@@ -280,7 +283,7 @@ describe("JOIN — flipComparison LESS_EQUAL / GREATER_EQUAL", () => {
     const proj = plan as LogicalProjection;
     const join = proj.children[0] as LogicalComparisonJoin;
     const leftGet = join.children[0] as LogicalGet;
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
     expect(join.conditions[0].comparisonType).toBe("GREATER_EQUAL");
   });
@@ -292,7 +295,7 @@ describe("JOIN — flipComparison LESS_EQUAL / GREATER_EQUAL", () => {
     const proj = plan as LogicalProjection;
     const join = proj.children[0] as LogicalComparisonJoin;
     const leftGet = join.children[0] as LogicalGet;
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
     expect(join.conditions[0].comparisonType).toBe("LESS_EQUAL");
   });
@@ -304,7 +307,7 @@ describe("JOIN — flipComparison LESS_EQUAL / GREATER_EQUAL", () => {
     const proj = plan as LogicalProjection;
     const join = proj.children[0] as LogicalComparisonJoin;
     const leftGet = join.children[0] as LogicalGet;
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
     expect(join.conditions[0].comparisonType).toBe("GREATER");
   });
@@ -319,7 +322,7 @@ describe("JOIN — gatherTables expression types", () => {
     const join = proj.children[0] as LogicalComparisonJoin;
     const leftGet = join.children[0] as LogicalGet;
     // normalization should still put left-table ref on the left side
-    const condLeft = join.conditions[0].left as BoundColumnRefExpression;
+    const condLeft = join.conditions[0].left as BoundColumnReferenceExpression;
     expect(condLeft.binding.tableIndex).toBe(leftGet.tableIndex);
   });
 

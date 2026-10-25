@@ -4,27 +4,16 @@ import { checkTypeCompatibility, resultType } from "../core/type-check.js";
 import type { BoundCaseExpression, BoundExpression } from "../types.js";
 import { BoundExpressionClass } from "../types.js";
 
-/**
- * A parsed CASE that may carry its operand (`CASE x WHEN v …`). Until the
- * parser keeps the operand, it rewrites each WHEN to `x = v` and this is
- * absent; with it, the operand is bound once and evaluated once per row.
- */
-type CaseWithOperand = CaseExpression & {
-  readonly operand?: ParsedExpression | null;
-};
-
 /** Binds a CASE; `bind` binds a subexpression in the CASE's scope. */
 export function bindCase(
-  expression: CaseWithOperand,
+  expression: CaseExpression,
   bind: (child: ParsedExpression) => BoundExpression,
 ): BoundCaseExpression {
   const operand =
-    expression.operand === undefined || expression.operand === null
-      ? undefined
-      : bind(expression.operand);
-  const caseChecks = expression.case_checks.map((check) => ({
-    when: bind(check.when_expr),
-    result: bind(check.then_expr),
+    expression.operand === null ? undefined : bind(expression.operand);
+  const caseChecks = expression.caseChecks.map((check) => ({
+    when: bind(check.whenExpression),
+    result: bind(check.thenExpression),
   }));
   if (operand !== undefined) {
     // Each WHEN value is compared with the operand as `=` would.
@@ -33,7 +22,7 @@ export function bindCase(
     }
   }
   const elseExpression =
-    expression.else_expr === null ? null : bind(expression.else_expr);
+    expression.elseExpression === null ? null : bind(expression.elseExpression);
   const results = [
     ...caseChecks.map((check) => check.result),
     ...(elseExpression === null ? [] : [elseExpression]),

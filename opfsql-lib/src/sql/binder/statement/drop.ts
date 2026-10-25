@@ -5,9 +5,9 @@ import { LogicalOperatorType } from "../types.js";
 export function bindDrop(stmt: DropStatement): BT.LogicalDrop {
   return {
     type: LogicalOperatorType.LOGICAL_DROP,
-    dropType: stmt.drop_type,
+    dropType: stmt.dropType,
     name: stmt.name,
-    ifExists: stmt.if_exists,
+    ifExists: stmt.ifExists,
     children: [],
     expressions: [],
     types: [],

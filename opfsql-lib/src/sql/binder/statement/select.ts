@@ -1,5 +1,5 @@
 import type {
-  ColumnRefExpression,
+  ColumnReferenceExpression,
   OrderByNode,
   ParsedExpression,
   SelectNode,
@@ -19,6 +19,7 @@ import {
 } from "../core/operators.js";
 import type { BindScope } from "../core/scope.js";
 import { evalConstantInt } from "../core/utils/eval-constant.js";
+import { nullOrderOf } from "../core/utils/null-order.js";
 import {
   checkNoAggregates,
   detectAggregates,
@@ -41,15 +42,15 @@ export function bindSelect(
   node: SelectNode,
   scope: BindScope,
 ): BT.LogicalOperator {
-  const cteEntries = collectCTEs(ctx, node.cte_map, scope);
+  const cteEntries = collectCTEs(ctx, node.cteMap, scope);
 
-  let plan: BT.LogicalOperator = node.from_table
-    ? bindTableRef(ctx, node.from_table, scope)
+  let plan: BT.LogicalOperator = node.fromTable
+    ? bindTableRef(ctx, node.fromTable, scope)
     : makeEmptyGet(ctx);
 
-  if (node.where_clause) {
-    checkNoAggregates(node.where_clause);
-    plan = makeFilter(plan, [bindExpression(ctx, node.where_clause, scope)]);
+  if (node.whereClause) {
+    checkNoAggregates(node.whereClause);
+    plan = makeFilter(plan, [bindExpression(ctx, node.whereClause, scope)]);
   }
 
   const aggCtx = bindAggregation(ctx, node, scope, plan);
@@ -77,25 +78,25 @@ function bindAggregation(
   scope: BindScope,
   plan: BT.LogicalOperator,
 ): AggregationResult {
-  const hasGroupBy = node.groups.group_expressions.length > 0;
+  const hasGroupBy = node.groups.groupExpressions.length > 0;
   const hasAggregates =
-    detectAggregates(node.select_list) ||
+    detectAggregates(node.selectList) ||
     (node.having !== null && detectAggregates([node.having]));
 
   if (!hasGroupBy && !hasAggregates) {
     return { aggregatePlan: null, context: undefined };
   }
 
-  for (const g of node.groups.group_expressions) {
+  for (const g of node.groups.groupExpressions) {
     checkNoAggregates(g, "GROUP BY clause");
   }
 
-  const groups = node.groups.group_expressions.map((g) =>
+  const groups = node.groups.groupExpressions.map((g) =>
     bindExpression(ctx, g, scope),
   );
   const aggregates = collectAllAggregates(
     ctx,
-    node.select_list,
+    node.selectList,
     node.having,
     scope,
   );
@@ -128,7 +129,7 @@ function bindAggregation(
 /** Collect unique aggregates from SELECT list and HAVING clause. */
 function collectAllAggregates(
   ctx: BindContext,
-  selectList: ParsedExpression[],
+  selectList: readonly ParsedExpression[],
   having: ParsedExpression | null,
   scope: BindScope,
 ): BT.BoundAggregateExpression[] {
@@ -166,8 +167,8 @@ function buildProjection(
   const expressions: BT.BoundExpression[] = [];
   const aliases: (string | null)[] = [];
 
-  for (const expr of node.select_list) {
-    if (expr.expression_class === ExpressionClass.STAR) {
+  for (const expr of node.selectList) {
+    if (expr.expressionClass === ExpressionClass.STAR) {
       const expanded = bindStar(expr as StarExpression, scope, aggCtx);
       expressions.push(...expanded);
       for (let i = 0; i < expanded.length; i++) aliases.push(null);
@@ -222,7 +223,7 @@ function applyModifiers(
 
 function applyOrderBy(
   ctx: BindContext,
-  orders: OrderByNode[],
+  orders: readonly OrderByNode[],
   scope: BindScope,
   proj: ProjectionState,
   aggCtx: AggregateContext | undefined,
@@ -279,10 +280,10 @@ function resolveOrderExpression(
 
 /** Check if a column ref with a single name matches a projection alias. */
 function tryMatchAlias(expr: ParsedExpression, proj: ProjectionState): number {
-  if (expr.expression_class !== ExpressionClass.COLUMN_REF) return -1;
-  const ref = expr as ColumnRefExpression;
-  if (ref.column_names.length !== 1) return -1;
-  const name = ref.column_names[0].toLowerCase();
+  if (expr.expressionClass !== ExpressionClass.COLUMN_REF) return -1;
+  const ref = expr as ColumnReferenceExpression;
+  if (ref.columnNames.length !== 1) return -1;
+  const name = ref.columnNames[0].toLowerCase();
   return proj.aliases.findIndex((a) => a !== null && a.toLowerCase() === name);
 }
 
@@ -373,5 +374,5 @@ function makeBoundOrder(
   order: OrderByNode,
   expression: BT.BoundExpression,
 ): BT.BoundOrderByNode {
-  return { expression, orderType: order.type, nullOrder: order.null_order };
+  return { expression, orderType: order.type, nullOrder: nullOrderOf(order) };
 }

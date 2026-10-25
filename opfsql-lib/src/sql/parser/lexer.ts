@@ -1,525 +1,235 @@
-import { Token, TokenType, ParseError } from "./types.js";
+// ---------------------------------------------------------------------------
+// The lexer: SQL text to tokens, as SQLite's tokenizer reads it. Every token
+// keeps its offsets and its text as written. A number that runs into a
+// letter (`1e3x`, `0x1g`, `1_000`) is an error, never two tokens. As in
+// SQLite, a block comment left open runs to the end of the text.
+// ---------------------------------------------------------------------------
 
-const KEYWORDS: Record<string, TokenType> = {
-  select: TokenType.SELECT,
-  from: TokenType.FROM,
-  where: TokenType.WHERE,
-  join: TokenType.JOIN,
-  left: TokenType.LEFT,
-  right: TokenType.RIGHT,
-  inner: TokenType.INNER,
-  outer: TokenType.OUTER,
-  cross: TokenType.CROSS,
-  on: TokenType.ON,
-  using: TokenType.USING,
-  as: TokenType.AS,
-  distinct: TokenType.DISTINCT,
-  all: TokenType.ALL,
-  group: TokenType.GROUP,
-  by: TokenType.BY,
-  having: TokenType.HAVING,
-  order: TokenType.ORDER,
-  asc: TokenType.ASC,
-  desc: TokenType.DESC,
-  nulls: TokenType.NULLS,
-  first: TokenType.FIRST,
-  last: TokenType.LAST,
-  limit: TokenType.LIMIT,
-  offset: TokenType.OFFSET,
-  union: TokenType.UNION,
-  insert: TokenType.INSERT,
-  into: TokenType.INTO,
-  values: TokenType.VALUES,
-  update: TokenType.UPDATE,
-  set: TokenType.SET,
-  delete: TokenType.DELETE,
-  create: TokenType.CREATE,
-  table: TokenType.TABLE,
-  index: TokenType.INDEX,
-  unique: TokenType.UNIQUE,
-  if: TokenType.IF,
-  not: TokenType.NOT,
-  exists: TokenType.EXISTS,
-  alter: TokenType.ALTER,
-  add: TokenType.ADD,
-  drop: TokenType.DROP,
-  column: TokenType.COLUMN,
-  begin: TokenType.BEGIN,
-  commit: TokenType.COMMIT,
-  rollback: TokenType.ROLLBACK,
-  transaction: TokenType.TRANSACTION,
-  with: TokenType.WITH,
-  and: TokenType.AND,
-  or: TokenType.OR,
-  in: TokenType.IN,
-  between: TokenType.BETWEEN,
-  like: TokenType.LIKE,
-  is: TokenType.IS,
-  null: TokenType.NULL_KW,
-  primary: TokenType.PRIMARY,
-  key: TokenType.KEY,
-  foreign: TokenType.FOREIGN,
-  references: TokenType.REFERENCES,
-  default: TokenType.DEFAULT,
-  case: TokenType.CASE,
-  when: TokenType.WHEN,
-  then: TokenType.THEN,
-  else: TokenType.ELSE,
-  end: TokenType.END,
-  cast: TokenType.CAST,
-  true: TokenType.TRUE_KW,
-  false: TokenType.FALSE_KW,
-  conflict: TokenType.CONFLICT,
-  do: TokenType.DO,
-  nothing: TokenType.NOTHING,
-  excluded: TokenType.EXCLUDED,
-  autoincrement: TokenType.AUTOINCREMENT,
-  explain: TokenType.EXPLAIN,
-  // Type keywords
-  integer: TokenType.INTEGER_KW,
-  int: TokenType.INT_KW,
-  bigint: TokenType.BIGINT_KW,
-  smallint: TokenType.SMALLINT_KW,
-  real: TokenType.REAL_KW,
-  float: TokenType.FLOAT_KW,
-  double: TokenType.DOUBLE_KW,
-  text: TokenType.TEXT_KW,
-  varchar: TokenType.VARCHAR_KW,
-  char: TokenType.CHAR_KW,
-  blob: TokenType.BLOB_KW,
-  boolean: TokenType.BOOLEAN_KW,
-  bool: TokenType.BOOL_KW,
-  json: TokenType.JSON_KW,
-};
+import { NotSupportedError, SqlSyntaxError } from "../../errors.js";
+import { keywordOf } from "./keywords.js";
+import type { SymbolText, Token, TokenValue } from "./tokens.js";
 
-// Unsupported keywords that produce clear errors
-const UNSUPPORTED_KEYWORDS = new Set([
-  "window",
-  "over",
-  "partition",
-  "full",
-  "truncate",
-  "grant",
-  "revoke",
-  "procedure",
-  "trigger",
-  "pivot",
-  "unpivot",
-]);
+/** A sticky regular expression, matched at a given offset. */
+class Pattern {
+  constructor(private readonly expression: RegExp) {}
 
-export class Lexer {
-  private source: string;
-  private pos: number = 0;
-  private line: number = 1;
-  private column: number = 1;
-  private tokens: Token[] = [];
-
-  constructor(source: string) {
-    this.source = source;
+  /** The match starting exactly at `offset`, with its groups. */
+  execAt(text: string, offset: number): RegExpExecArray | null {
+    this.expression.lastIndex = offset;
+    return this.expression.exec(text);
   }
 
-  tokenize(): Token[] {
-    this.tokens = [];
-    this.pos = 0;
-    this.line = 1;
-    this.column = 1;
+  at(text: string, offset: number): string | undefined {
+    return this.execAt(text, offset)?.[0];
+  }
+}
 
-    while (this.pos < this.source.length) {
-      this.skipWhitespace();
-      if (this.pos >= this.source.length) break;
+const SPACE = new Pattern(/[\t\n\f\r ]+/y);
+const LINE_COMMENT = new Pattern(/--[^\n]*/y);
+const BLOCK_COMMENT = new Pattern(/\/\*[\s\S]*?(?:\*\/|$)/y);
+const HEX_NUMBER = new Pattern(/0x[\da-f]+/iy);
+const DECIMAL_NUMBER = new Pattern(/(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?/iy);
+const WORD = new Pattern(/[a-z_\u{80}-\u{10FFFF}][\w$\u{80}-\u{10FFFF}]*/iuy);
+const WORD_CHARACTERS = new Pattern(/[\w$\u{80}-\u{10FFFF}]*/uy);
+const STRING = new Pattern(/'(?:[^']|'')*'/y);
+const QUOTED = new Pattern(/"(?:[^"]|"")*"/y);
+const BACKQUOTED = new Pattern(/`(?:[^`]|``)*`/y);
+const BLOB = new Pattern(/x'([^']*)'/iy);
+const PARAMETER = new Pattern(/\$\d+|\?\d*/y);
+const NAMED_PARAMETER = new Pattern(/[$:@][\w$\u{80}-\u{10FFFF}]/uy);
+const HEX_DIGITS = /^(?:[\da-f]{2})*$/i;
 
-      const ch = this.source[this.pos];
+// Longest first, so that `<=` is not read as `<` and `=`.
+const SYMBOLS: readonly SymbolText[] = [
+  "->>",
+  "==",
+  "!=",
+  "<>",
+  "<=",
+  ">=",
+  "||",
+  "<<",
+  ">>",
+  "->",
+  "(",
+  ")",
+  ",",
+  ";",
+  ".",
+  "[",
+  "]",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "=",
+  "<",
+  ">",
+  "|",
+  "&",
+  "~",
+];
 
-      // Single-line comment
-      if (ch === "-" && this.peek(1) === "-") {
-        this.skipLineComment();
-        continue;
-      }
+/** The tokens of `sql`, ending with one of kind "end". */
+export function tokenize(sql: string): readonly Token[] {
+  const lexer = new Lexer(sql);
+  const tokens: Token[] = [];
+  for (;;) {
+    const token = lexer.read();
+    tokens.push(token);
+    if (token.kind === "end") return tokens;
+  }
+}
 
-      // Block comment
-      if (ch === "/" && this.peek(1) === "*") {
-        this.skipBlockComment();
-        continue;
-      }
+class Lexer {
+  private position = 0;
 
-      // String literal
-      if (ch === "'") {
-        this.readString();
-        continue;
-      }
+  constructor(private readonly sql: string) {}
 
-      // Quoted identifier
-      if (ch === '"') {
-        this.readQuotedIdentifier();
-        continue;
-      }
-
-      // Number
-      if (this.isDigit(ch)) {
-        this.readNumber();
-        continue;
-      }
-
-      // Identifier or keyword
-      if (this.isAlpha(ch) || ch === "_") {
-        this.readIdentifierOrKeyword();
-        continue;
-      }
-
-      // Operators and punctuation
-      const startLine = this.line;
-      const startCol = this.column;
-
-      switch (ch) {
-        case "(":
-          this.addToken(TokenType.LEFT_PAREN, "(", startLine, startCol);
-          this.advance();
-          break;
-        case ")":
-          this.addToken(TokenType.RIGHT_PAREN, ")", startLine, startCol);
-          this.advance();
-          break;
-        case ",":
-          this.addToken(TokenType.COMMA, ",", startLine, startCol);
-          this.advance();
-          break;
-        case ";":
-          this.addToken(TokenType.SEMICOLON, ";", startLine, startCol);
-          this.advance();
-          break;
-        case ".":
-          this.addToken(TokenType.DOT, ".", startLine, startCol);
-          this.advance();
-          break;
-        case "[":
-          this.addToken(TokenType.LEFT_BRACKET, "[", startLine, startCol);
-          this.advance();
-          break;
-        case "]":
-          this.addToken(TokenType.RIGHT_BRACKET, "]", startLine, startCol);
-          this.advance();
-          break;
-        case "+":
-          this.addToken(TokenType.PLUS, "+", startLine, startCol);
-          this.advance();
-          break;
-        case "-":
-          this.addToken(TokenType.MINUS, "-", startLine, startCol);
-          this.advance();
-          break;
-        case "*":
-          this.addToken(TokenType.STAR, "*", startLine, startCol);
-          this.advance();
-          break;
-        case "/":
-          this.addToken(TokenType.SLASH, "/", startLine, startCol);
-          this.advance();
-          break;
-        case "%":
-          this.addToken(TokenType.PERCENT, "%", startLine, startCol);
-          this.advance();
-          break;
-        case "=":
-          this.addToken(TokenType.EQUALS, "=", startLine, startCol);
-          this.advance();
-          break;
-        case "<":
-          this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === "=") {
-            this.addToken(TokenType.LESS_THAN_EQUAL, "<=", startLine, startCol);
-            this.advance();
-          } else if (
-            this.pos < this.source.length &&
-            this.source[this.pos] === ">"
-          ) {
-            this.addToken(TokenType.NOT_EQUALS, "<>", startLine, startCol);
-            this.advance();
-          } else {
-            this.addToken(TokenType.LESS_THAN, "<", startLine, startCol);
-          }
-          break;
-        case ">":
-          this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === "=") {
-            this.addToken(
-              TokenType.GREATER_THAN_EQUAL,
-              ">=",
-              startLine,
-              startCol,
-            );
-            this.advance();
-          } else {
-            this.addToken(TokenType.GREATER_THAN, ">", startLine, startCol);
-          }
-          break;
-        case "|":
-          this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === "|") {
-            this.addToken(TokenType.PIPE_PIPE, "||", startLine, startCol);
-            this.advance();
-          } else {
-            this.error(`Unexpected character '|'`, startLine, startCol);
-          }
-          break;
-        case "!":
-          this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === "=") {
-            this.addToken(TokenType.NOT_EQUALS, "!=", startLine, startCol);
-            this.advance();
-          } else {
-            this.error(`Unexpected character '!'`, startLine, startCol);
-          }
-          break;
-        case "$": {
-          this.advance();
-          let digits = "";
-          while (
-            this.pos < this.source.length &&
-            this.isDigit(this.source[this.pos])
-          ) {
-            digits += this.source[this.pos];
-            this.advance();
-          }
-          if (digits.length === 0) {
-            this.error(
-              "Expected parameter index after '$'",
-              startLine,
-              startCol,
-            );
-          }
-          this.addToken(TokenType.PARAMETER, digits, startLine, startCol);
-          break;
-        }
-        default:
-          this.error(`Unexpected character '${ch}'`, startLine, startCol);
-      }
+  /** The next token, after any spaces and comments. */
+  read(): Token {
+    this.skipSpace();
+    if (this.position >= this.sql.length) {
+      return this.token({ kind: "end", value: "" }, this.position);
     }
-
-    this.addToken(TokenType.EOF, "", this.line, this.column);
-    return this.tokens;
-  }
-
-  private advance(): void {
-    if (this.source[this.pos] === "\n") {
-      this.line++;
-      this.column = 1;
-    } else {
-      this.column++;
+    const character = this.sql.charAt(this.position);
+    if (/\d/.test(character) || /^\.\d/.test(this.ahead(2))) {
+      return this.number();
     }
-    this.pos++;
-  }
-
-  private peek(offset: number): string | undefined {
-    return this.source[this.pos + offset];
-  }
-
-  private skipWhitespace(): void {
-    while (this.pos < this.source.length) {
-      const ch = this.source[this.pos];
-      if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
-        this.advance();
-      } else {
-        break;
+    switch (character) {
+      case "'": {
+        return this.string();
+      }
+      case '"': {
+        return this.quoted(QUOTED, '"');
+      }
+      case "`": {
+        return this.quoted(BACKQUOTED, "`");
+      }
+      case "$":
+      case "?":
+      case ":":
+      case "@": {
+        return this.parameter();
+      }
+      default: {
+        return this.blob() ?? this.word() ?? this.symbol();
       }
     }
   }
 
-  private skipLineComment(): void {
-    // Skip --
-    this.advance();
-    this.advance();
-    while (this.pos < this.source.length && this.source[this.pos] !== "\n") {
-      this.advance();
+  private skipSpace(): void {
+    for (;;) {
+      const skipped =
+        this.match(SPACE) ??
+        this.match(LINE_COMMENT) ??
+        this.match(BLOCK_COMMENT);
+      if (skipped === undefined) return;
+      this.position += skipped.length;
     }
   }
 
-  private skipBlockComment(): void {
-    const startLine = this.line;
-    const startCol = this.column;
-    // Skip /*
-    this.advance();
-    this.advance();
-    while (this.pos < this.source.length) {
-      if (this.source[this.pos] === "*" && this.peek(1) === "/") {
-        this.advance();
-        this.advance();
-        return;
-      }
-      this.advance();
+  private number(): Token {
+    const text = this.match(HEX_NUMBER) ?? this.match(DECIMAL_NUMBER) ?? "";
+    const end = this.position + text.length;
+    const trailing = WORD_CHARACTERS.at(this.sql, end) ?? "";
+    if (trailing !== "") {
+      this.fail(`invalid number '${text}${trailing}'`, end + trailing.length);
     }
-    this.error("Unterminated block comment", startLine, startCol);
+    const isReal = !/^0x/i.test(text) && /[.e]/i.test(text);
+    return this.token({ kind: isReal ? "real" : "integer", value: text }, end);
   }
 
-  private readString(): void {
-    const startLine = this.line;
-    const startCol = this.column;
-    this.advance(); // skip opening '
-    let value = "";
-
-    while (this.pos < this.source.length) {
-      const ch = this.source[this.pos];
-      if (ch === "'") {
-        // Check for escaped ''
-        if (this.peek(1) === "'") {
-          value += "'";
-          this.advance();
-          this.advance();
-        } else {
-          this.advance(); // skip closing '
-          this.addToken(TokenType.STRING_LITERAL, value, startLine, startCol);
-          return;
-        }
-      } else {
-        value += ch;
-        this.advance();
-      }
+  private string(): Token {
+    const text = this.match(STRING);
+    if (text === undefined) {
+      this.fail("unterminated string", this.sql.length);
     }
-
-    this.error("Unterminated string literal", startLine, startCol);
+    const value = text.slice(1, -1).replaceAll("''", "'");
+    return this.token({ kind: "string", value }, this.position + text.length);
   }
 
-  private readQuotedIdentifier(): void {
-    const startLine = this.line;
-    const startCol = this.column;
-    this.advance(); // skip opening "
-    let value = "";
-
-    while (this.pos < this.source.length) {
-      const ch = this.source[this.pos];
-      if (ch === '"') {
-        this.advance(); // skip closing "
-        this.addToken(TokenType.QUOTED_IDENTIFIER, value, startLine, startCol);
-        return;
-      }
-      value += ch;
-      this.advance();
+  /** `"name"`, or `` `name` `` as SQLite also allows; doubling escapes. */
+  private quoted(pattern: Pattern, quote: string): Token {
+    const text = this.match(pattern);
+    if (text === undefined) {
+      this.fail("unterminated quoted name", this.sql.length);
     }
-
-    this.error("Unterminated quoted identifier", startLine, startCol);
+    const end = this.position + text.length;
+    if (text.length === 2) this.fail("a quoted name cannot be empty", end);
+    const value = text.slice(1, -1).replaceAll(quote + quote, () => quote);
+    return this.token({ kind: "quoted", value }, end);
   }
 
-  private readNumber(): void {
-    const startLine = this.line;
-    const startCol = this.column;
-    let value = "";
-    let isFloat = false;
-
-    while (
-      this.pos < this.source.length &&
-      this.isDigit(this.source[this.pos])
-    ) {
-      value += this.source[this.pos];
-      this.advance();
+  private blob(): Token | undefined {
+    if (!/^x'/i.test(this.ahead(2))) return undefined;
+    const found = BLOB.execAt(this.sql, this.position);
+    if (found === null) this.fail("unterminated blob literal", this.sql.length);
+    const digits = found[1] ?? "";
+    const end = this.position + found[0].length;
+    if (!HEX_DIGITS.test(digits)) {
+      this.fail("a blob literal needs an even number of hex digits", end);
     }
+    return this.token({ kind: "blob", value: digits }, end);
+  }
 
-    if (
-      this.pos < this.source.length &&
-      this.source[this.pos] === "." &&
-      this.peek(1) !== undefined &&
-      this.isDigit(this.peek(1)!)
-    ) {
-      isFloat = true;
-      value += ".";
-      this.advance();
-      while (
-        this.pos < this.source.length &&
-        this.isDigit(this.source[this.pos])
-      ) {
-        value += this.source[this.pos];
-        this.advance();
-      }
-    }
+  private word(): Token | undefined {
+    const text = this.match(WORD);
+    if (text === undefined) return undefined;
+    const end = this.position + text.length;
+    const keyword = keywordOf(text);
+    return keyword === undefined
+      ? this.token({ kind: "identifier", value: text }, end)
+      : this.token({ kind: "keyword", value: keyword }, end);
+  }
 
-    this.addToken(
-      isFloat ? TokenType.FLOAT_LITERAL : TokenType.INTEGER_LITERAL,
-      value,
-      startLine,
-      startCol,
+  private parameter(): Token {
+    const text = this.match(PARAMETER);
+    const end = this.position + (text?.length ?? 0);
+    // SQLite reads `$1abc`, `$x`, `:1` and `@x` as named parameters.
+    const isNamed =
+      text === undefined
+        ? this.match(NAMED_PARAMETER) !== undefined
+        : text.startsWith("$") && WORD_CHARACTERS.at(this.sql, end) !== "";
+    if (isNamed) throw new NotSupportedError("a named parameter");
+    return text === undefined
+      ? this.symbol()
+      : this.token({ kind: "parameter", value: text.slice(1) }, end);
+  }
+
+  private symbol(): Token {
+    const symbol = SYMBOLS.find((candidate) =>
+      this.sql.startsWith(candidate, this.position),
     );
-  }
-
-  private readIdentifierOrKeyword(): void {
-    const startLine = this.line;
-    const startCol = this.column;
-    let value = "";
-
-    while (
-      this.pos < this.source.length &&
-      this.isAlphaNumeric(this.source[this.pos])
-    ) {
-      value += this.source[this.pos];
-      this.advance();
-    }
-
-    const lower = value.toLowerCase();
-
-    // Blob literal: x'DEADBEEF' or X'DEADBEEF'
-    if (
-      lower === "x" &&
-      this.pos < this.source.length &&
-      this.source[this.pos] === "'"
-    ) {
-      this.advance(); // skip opening '
-      let hex = "";
-      while (this.pos < this.source.length && this.source[this.pos] !== "'") {
-        hex += this.source[this.pos];
-        this.advance();
-      }
-      if (this.pos >= this.source.length) {
-        this.error("Unterminated blob literal", startLine, startCol);
-      }
-      this.advance(); // skip closing '
-      if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(hex)) {
-        this.error(
-          "Invalid blob literal: hex string must have even length and contain only hex digits",
-          startLine,
-          startCol,
-        );
-      }
-      this.addToken(TokenType.BLOB_LITERAL, hex, startLine, startCol);
-      return;
-    }
-
-    // Check unsupported keywords
-    if (UNSUPPORTED_KEYWORDS.has(lower)) {
-      this.error(
-        `Keyword '${value.toUpperCase()}' is not supported`,
-        startLine,
-        startCol,
+    if (symbol === undefined) {
+      const character = String.fromCodePoint(
+        this.sql.codePointAt(this.position) ?? 0,
+      );
+      this.fail(
+        `unexpected character '${character}'`,
+        this.position + character.length,
       );
     }
-
-    const keywordType = KEYWORDS[lower];
-    if (keywordType !== undefined) {
-      this.addToken(keywordType, value, startLine, startCol);
-    } else {
-      this.addToken(TokenType.IDENTIFIER, value, startLine, startCol);
-    }
+    const end = this.position + symbol.length;
+    return this.token({ kind: "symbol", value: symbol }, end);
   }
 
-  private isDigit(ch: string): boolean {
-    return ch >= "0" && ch <= "9";
+  private ahead(length: number): string {
+    return this.sql.slice(this.position, this.position + length);
   }
 
-  private isAlpha(ch: string): boolean {
-    return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
+  private match(pattern: Pattern): string | undefined {
+    return pattern.at(this.sql, this.position);
   }
 
-  private isAlphaNumeric(ch: string): boolean {
-    return this.isAlpha(ch) || this.isDigit(ch);
+  private token(value: TokenValue, end: number): Token {
+    const start = this.position;
+    this.position = end;
+    return { ...value, text: this.sql.slice(start, end), start, end };
   }
 
-  private addToken(
-    type: TokenType,
-    value: string,
-    line: number,
-    column: number,
-  ): void {
-    this.tokens.push({ type, value, line, column });
-  }
-
-  private error(message: string, line: number, column: number): never {
-    const token: Token = { type: TokenType.EOF, value: "", line, column };
-    throw new ParseError(message, line, column, token);
+  private fail(message: string, end: number): never {
+    throw new SqlSyntaxError(message, this.position, end - this.position);
   }
 }

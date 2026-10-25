@@ -17,6 +17,7 @@
     "src/schema",
     "src/storage",
     "src/table",
+    "src/sql/parser",
     "src/executor/evaluate",
     "test/support"
   ]

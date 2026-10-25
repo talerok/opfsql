@@ -1,291 +1,212 @@
-import { describe, it, expect } from "vitest";
-import { Lexer } from "../lexer.js";
-import { TokenType } from "../types.js";
+import { describe, expect, it } from "vitest";
+import { NotSupportedError, SqlSyntaxError } from "../../../errors.js";
+import { tokenize } from "../lexer.js";
 
-describe("Lexer", () => {
-  function tokenTypes(sql: string): TokenType[] {
-    return new Lexer(sql).tokenize().map((t) => t.type);
+/** Each token as `kind:value`, without the final end token. */
+function kinds(sql: string): string[] {
+  return tokenize(sql)
+    .filter((token) => token.kind !== "end")
+    .map((token) => `${token.kind}:${token.value}`);
+}
+
+function lexError(sql: string): SqlSyntaxError {
+  try {
+    tokenize(sql);
+  } catch (error) {
+    if (error instanceof SqlSyntaxError) return error;
+    throw error;
   }
+  throw new Error(`no error from ${sql}`);
+}
 
-  function tokenValues(sql: string): string[] {
-    return new Lexer(sql).tokenize().map((t) => t.value);
-  }
-
-  it("tokenizes keywords case-insensitively", () => {
-    const types = tokenTypes("SELECT select Select");
-    expect(types).toEqual([
-      TokenType.SELECT,
-      TokenType.SELECT,
-      TokenType.SELECT,
-      TokenType.EOF,
+describe("tokens", () => {
+  it("keeps offsets and the text as written", () => {
+    const tokens = tokenize("SELECT  a1,'x''y'");
+    expect(
+      tokens.map(({ kind, text, start, end }) => [kind, text, start, end]),
+    ).toEqual([
+      ["keyword", "SELECT", 0, 6],
+      ["identifier", "a1", 8, 10],
+      ["symbol", ",", 10, 11],
+      ["string", "'x''y'", 11, 17],
+      ["end", "", 17, 17],
     ]);
   });
 
-  it("tokenizes identifiers", () => {
-    const tokens = new Lexer("users age my_table").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.IDENTIFIER,
-      value: "users",
-    });
-    expect(tokens[1]).toMatchObject({
-      type: TokenType.IDENTIFIER,
-      value: "age",
-    });
-    expect(tokens[2]).toMatchObject({
-      type: TokenType.IDENTIFIER,
-      value: "my_table",
-    });
-  });
-
-  it("tokenizes quoted identifiers", () => {
-    const tokens = new Lexer('"my column"').tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.QUOTED_IDENTIFIER,
-      value: "my column",
-    });
-  });
-
-  it("tokenizes string literals", () => {
-    const tokens = new Lexer("'hello'").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.STRING_LITERAL,
-      value: "hello",
-    });
-  });
-
-  it("handles escaped quotes in strings", () => {
-    const tokens = new Lexer("'it''s'").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.STRING_LITERAL,
-      value: "it's",
-    });
-  });
-
-  it("tokenizes integer literals", () => {
-    const tokens = new Lexer("42").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.INTEGER_LITERAL,
-      value: "42",
-    });
-  });
-
-  it("tokenizes float literals", () => {
-    const tokens = new Lexer("3.14").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.FLOAT_LITERAL,
-      value: "3.14",
-    });
-  });
-
-  it("tokenizes boolean literals", () => {
-    const types = tokenTypes("TRUE FALSE true false");
-    expect(types).toEqual([
-      TokenType.TRUE_KW,
-      TokenType.FALSE_KW,
-      TokenType.TRUE_KW,
-      TokenType.FALSE_KW,
-      TokenType.EOF,
+  it("reads keywords in any case, upper-cased, and other words as identifiers", () => {
+    expect(kinds("select From wHeRe foo")).toEqual([
+      "keyword:SELECT",
+      "keyword:FROM",
+      "keyword:WHERE",
+      "identifier:foo",
     ]);
   });
 
-  it("tokenizes NULL", () => {
-    expect(tokenTypes("NULL")).toEqual([TokenType.NULL_KW, TokenType.EOF]);
-  });
-
-  it("tokenizes comparison operators", () => {
-    const types = tokenTypes("= != <> < <= > >=");
-    expect(types).toEqual([
-      TokenType.EQUALS,
-      TokenType.NOT_EQUALS,
-      TokenType.NOT_EQUALS,
-      TokenType.LESS_THAN,
-      TokenType.LESS_THAN_EQUAL,
-      TokenType.GREATER_THAN,
-      TokenType.GREATER_THAN_EQUAL,
-      TokenType.EOF,
+  it("does not take names of Object.prototype for keywords", () => {
+    expect(kinds("constructor __proto__ toString hasOwnProperty")).toEqual([
+      "identifier:constructor",
+      "identifier:__proto__",
+      "identifier:toString",
+      "identifier:hasOwnProperty",
     ]);
   });
 
-  it("tokenizes arithmetic operators", () => {
-    const types = tokenTypes("+ - * / %");
-    expect(types).toEqual([
-      TokenType.PLUS,
-      TokenType.MINUS,
-      TokenType.STAR,
-      TokenType.SLASH,
-      TokenType.PERCENT,
-      TokenType.EOF,
+  it("reads words that used to be rejected as plain words", () => {
+    expect(kinds("partition window full")).toEqual([
+      "identifier:partition",
+      "keyword:WINDOW",
+      "keyword:FULL",
     ]);
   });
 
-  it("tokenizes || as PIPE_PIPE", () => {
-    const types = tokenTypes("'a' || 'b'");
-    expect(types).toEqual([
-      TokenType.STRING_LITERAL,
-      TokenType.PIPE_PIPE,
-      TokenType.STRING_LITERAL,
-      TokenType.EOF,
+  it("reads non-ASCII characters and $ inside identifiers, as SQLite does", () => {
+    expect(kinds("имя a$b _x 😀")).toEqual([
+      "identifier:имя",
+      "identifier:a$b",
+      "identifier:_x",
+      "identifier:😀",
     ]);
   });
 
-  it("single | throws error", () => {
-    expect(() => tokenTypes("a | b")).toThrow();
-  });
-
-  it("tokenizes punctuation", () => {
-    const types = tokenTypes("( ) , ; .");
-    expect(types).toEqual([
-      TokenType.LEFT_PAREN,
-      TokenType.RIGHT_PAREN,
-      TokenType.COMMA,
-      TokenType.SEMICOLON,
-      TokenType.DOT,
-      TokenType.EOF,
-    ]);
-  });
-
-  it("skips single-line comments", () => {
-    const types = tokenTypes("SELECT -- this is a comment\n42");
-    expect(types).toEqual([
-      TokenType.SELECT,
-      TokenType.INTEGER_LITERAL,
-      TokenType.EOF,
-    ]);
-  });
-
-  it("skips block comments", () => {
-    const types = tokenTypes("SELECT /* comment */ 42");
-    expect(types).toEqual([
-      TokenType.SELECT,
-      TokenType.INTEGER_LITERAL,
-      TokenType.EOF,
-    ]);
-  });
-
-  it("skips multi-line block comments", () => {
-    const types = tokenTypes("SELECT /* line1\nline2 */ 42");
-    expect(types).toEqual([
-      TokenType.SELECT,
-      TokenType.INTEGER_LITERAL,
-      TokenType.EOF,
-    ]);
-  });
-
-  it("tracks line and column positions", () => {
-    const tokens = new Lexer("SELECT\n  42").tokenize();
-    expect(tokens[0]).toMatchObject({ line: 1, column: 1 });
-    expect(tokens[1]).toMatchObject({ line: 2, column: 3 });
-  });
-
-  it("reports unterminated string", () => {
-    expect(() => new Lexer("'hello").tokenize()).toThrow(/Unterminated string/);
-  });
-
-  it("reports unterminated block comment", () => {
-    expect(() => new Lexer("/* oops").tokenize()).toThrow(
-      /Unterminated block comment/,
+  it("reads the longest symbol", () => {
+    expect(kinds("<= >= <> != == || << >> -> ->> < > = |")).toEqual(
+      [
+        "<=",
+        ">=",
+        "<>",
+        "!=",
+        "==",
+        "||",
+        "<<",
+        ">>",
+        "->",
+        "->>",
+        "<",
+        ">",
+        "=",
+        "|",
+      ].map((symbol) => `symbol:${symbol}`),
     );
   });
 
-  it("reports unsupported keywords", () => {
-    expect(() => new Lexer("WINDOW").tokenize()).toThrow(/not supported/);
-    expect(() => new Lexer("PARTITION").tokenize()).toThrow(/not supported/);
-    expect(() => new Lexer("OVER").tokenize()).toThrow(/not supported/);
-    expect(() => new Lexer("TRUNCATE").tokenize()).toThrow(/not supported/);
-  });
-
-  it("tokenizes type keywords", () => {
-    const types = tokenTypes("INTEGER TEXT BOOLEAN VARCHAR");
-    expect(types).toEqual([
-      TokenType.INTEGER_KW,
-      TokenType.TEXT_KW,
-      TokenType.BOOLEAN_KW,
-      TokenType.VARCHAR_KW,
-      TokenType.EOF,
+  it("skips comments; an open block comment runs to the end, as in SQLite", () => {
+    expect(kinds("a -- line\n/* block\n */ b")).toEqual([
+      "identifier:a",
+      "identifier:b",
+    ]);
+    expect(kinds("SELECT 1 /* never closed")).toEqual([
+      "keyword:SELECT",
+      "integer:1",
     ]);
   });
 
-  it("tokenizes JSON keyword", () => {
-    const types = tokenTypes("JSON");
-    expect(types).toEqual([TokenType.JSON_KW, TokenType.EOF]);
+  it("reads keywords only from ASCII words", () => {
+    expect(kinds("ſelect ıs ﬁrst SELECT")).toEqual([
+      "identifier:ſelect",
+      "identifier:ıs",
+      "identifier:ﬁrst",
+      "keyword:SELECT",
+    ]);
+  });
+});
+
+describe("numbers", () => {
+  it.each([
+    ["42", "integer:42"],
+    ["0x10", "integer:0x10"],
+    ["0XfF", "integer:0XfF"],
+    ["1.5", "real:1.5"],
+    [".5", "real:.5"],
+    ["5.", "real:5."],
+    ["1e3", "real:1e3"],
+    ["2.5E-1", "real:2.5E-1"],
+    ["1e+2", "real:1e+2"],
+  ])("reads %s whole", (sql, token) => {
+    expect(kinds(sql)).toEqual([token]);
   });
 
-  it("tokenizes brackets", () => {
-    const types = tokenTypes("data[0]");
-    expect(types).toEqual([
-      TokenType.IDENTIFIER,
-      TokenType.LEFT_BRACKET,
-      TokenType.INTEGER_LITERAL,
-      TokenType.RIGHT_BRACKET,
-      TokenType.EOF,
+  it.each(["1e3x", "0x1g", "1_000", "1e", "12abc", "0x"])(
+    "rejects %s, a number running into a letter",
+    (sql) => {
+      const error = lexError(sql);
+      expect(error.message).toMatch(/^invalid number '/);
+      expect(error.offset).toBe(0);
+    },
+  );
+
+  it("reads a dot after a name as a dot, not a number", () => {
+    expect(kinds("t.a")).toEqual(["identifier:t", "symbol:.", "identifier:a"]);
+  });
+});
+
+describe("strings, names and blobs", () => {
+  it("unescapes '' in strings and \"\" in quoted names", () => {
+    expect(kinds(`'it''s' "a""b" ''`)).toEqual([
+      "string:it's",
+      'quoted:a"b',
+      "string:",
     ]);
   });
 
-  it("tokenizes a full SELECT statement", () => {
-    const types = tokenTypes("SELECT id, name FROM users WHERE age > 18");
-    expect(types).toEqual([
-      TokenType.SELECT,
-      TokenType.IDENTIFIER,
-      TokenType.COMMA,
-      TokenType.IDENTIFIER,
-      TokenType.FROM,
-      TokenType.IDENTIFIER,
-      TokenType.WHERE,
-      TokenType.IDENTIFIER,
-      TokenType.GREATER_THAN,
-      TokenType.INTEGER_LITERAL,
-      TokenType.EOF,
+  it("reads `name` as a quoted name, as SQLite does", () => {
+    expect(kinds("`a``b` `x`")).toEqual(["quoted:a`b", "quoted:x"]);
+    expect(lexError("``").message).toBe("a quoted name cannot be empty");
+  });
+
+  it("reads blobs as hex digits", () => {
+    expect(kinds("x'CAFE' X'00' x''")).toEqual([
+      "blob:CAFE",
+      "blob:00",
+      "blob:",
     ]);
   });
 
-  // -------------------------------------------------------------------------
-  // BLOB literals
-  // -------------------------------------------------------------------------
-
-  it("tokenizes blob literal x'DEADBEEF'", () => {
-    const tokens = new Lexer("x'DEADBEEF'").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.BLOB_LITERAL,
-      value: "DEADBEEF",
-    });
-  });
-
-  it("tokenizes blob literal X'00ff' (uppercase X, lowercase hex)", () => {
-    const tokens = new Lexer("X'00ff'").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.BLOB_LITERAL,
-      value: "00ff",
-    });
-  });
-
-  it("tokenizes empty blob literal x''", () => {
-    const tokens = new Lexer("x''").tokenize();
-    expect(tokens[0]).toMatchObject({
-      type: TokenType.BLOB_LITERAL,
-      value: "",
-    });
-  });
-
-  it("blob literal with odd hex length throws", () => {
-    expect(() => new Lexer("x'ABC'").tokenize()).toThrow(
-      "Invalid blob literal",
+  it("rejects malformed blobs", () => {
+    expect(lexError("x'ABC'").message).toBe(
+      "a blob literal needs an even number of hex digits",
     );
+    const error = lexError("x'GG'");
+    expect([error.offset, error.length]).toEqual([0, 5]);
   });
 
-  it("blob literal with invalid hex chars throws", () => {
-    expect(() => new Lexer("x'GHIJ'").tokenize()).toThrow(
-      "Invalid blob literal",
-    );
+  it("rejects an empty quoted name", () => {
+    expect(lexError('SELECT ""').message).toBe("a quoted name cannot be empty");
   });
 
-  it("unterminated blob literal throws", () => {
-    expect(() => new Lexer("x'DEAD").tokenize()).toThrow(
-      "Unterminated blob literal",
-    );
+  it.each([
+    ["SELECT 'abc", "unterminated string", 7, 4],
+    ['SELECT "abc', "unterminated quoted name", 7, 4],
+    ["SELECT x'ab", "unterminated blob literal", 7, 4],
+    ["SELECT #", "unexpected character '#'", 7, 1],
+    ["SELECT !", "unexpected character '!'", 7, 1],
+    ["SELECT ^", "unexpected character '^'", 7, 1],
+  ])("locates the error in %s", (sql, message, offset, length) => {
+    const error = lexError(sql);
+    expect([error.message, error.offset, error.length]).toEqual([
+      message,
+      offset,
+      length,
+    ]);
+  });
+});
+
+describe("parameters", () => {
+  it("reads $n, ?n and ?", () => {
+    expect(kinds("$1 ?2 ? $10")).toEqual([
+      "parameter:1",
+      "parameter:2",
+      "parameter:",
+      "parameter:10",
+    ]);
   });
 
-  it("blob literal in INSERT statement", () => {
-    const types = tokenTypes("INSERT INTO t VALUES (x'FF')");
-    expect(types).toContain(TokenType.BLOB_LITERAL);
+  it("does not support named parameters", () => {
+    for (const sql of [":name", "@name", "$name", ":1", "@1", "$1abc"]) {
+      expect(() => tokenize(sql)).toThrow(NotSupportedError);
+    }
+  });
+
+  it("rejects a lone $", () => {
+    expect(lexError("$").message).toBe("unexpected character '$'");
   });
 });

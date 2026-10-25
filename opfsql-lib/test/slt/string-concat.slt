@@ -62,15 +62,23 @@ SELECT id, fname || ' ' || lname FROM t
 1|John Doe
 2|Jane Smith
 
-# --- Precedence: arithmetic binds tighter than || ---
+# --- Precedence: || binds tighter than arithmetic, as in SQLite ---
+
+# ('result: ' || 2) + 3 is arithmetic on TEXT
+statement error
+SELECT 'result: ' || 2 + 3
+
+# 1 + (2 || ' items') is arithmetic on TEXT
+statement error
+SELECT 1 + 2 || ' items'
 
 query T nosort
-SELECT 'result: ' || 2 + 3
+SELECT 'result: ' || (2 + 3)
 ----
 result: 5
 
 query T nosort
-SELECT 1 + 2 || ' items'
+SELECT (1 + 2) || ' items'
 ----
 3 items
 

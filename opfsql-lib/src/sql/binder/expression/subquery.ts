@@ -17,7 +17,7 @@ export function bindSubquery(
   const subplan = bindQueryNode(ctx, expr.subquery.node, childScope);
 
   let returnType: LogicalType;
-  switch (expr.subquery_type) {
+  switch (expr.subqueryType) {
     case "SCALAR":
       returnType = subplan.types[0] ?? "ANY";
       break;
@@ -33,7 +33,7 @@ export function bindSubquery(
 
   const result: BoundSubqueryExpression = {
     expressionClass: BoundExpressionClass.BOUND_SUBQUERY,
-    subqueryType: expr.subquery_type,
+    subqueryType: expr.subqueryType,
     subplan,
     returnType,
   };
@@ -41,8 +41,8 @@ export function bindSubquery(
   if (expr.child) {
     result.child = bindExpression(ctx, expr.child, scope);
   }
-  if (expr.comparison_type) {
-    result.comparisonType = mapComparisonType(expr.comparison_type);
+  if (expr.comparisonType) {
+    result.comparisonType = mapComparisonType(expr.comparisonType);
   }
 
   return result;

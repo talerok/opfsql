@@ -1,4 +1,4 @@
-import type { SubqueryRef } from "../../parser/types.js";
+import type { SubqueryReference } from "../../parser/types.js";
 import type { ColumnDef, TableSchema } from "../../../store/types.js";
 import type { BindContext } from "../core/context.js";
 import type { BindScope } from "../core/scope.js";
@@ -9,7 +9,7 @@ import { LogicalOperatorType } from "../types.js";
 
 export function bindSubqueryRef(
   ctx: BindContext,
-  ref: SubqueryRef,
+  ref: SubqueryReference,
   scope: BindScope,
 ): BT.LogicalOperator {
   const childScope = scope.createIsolatedScope();
@@ -18,7 +18,7 @@ export function bindSubqueryRef(
   const alias = ref.alias ?? "__subquery";
   const inferredColumns = extractColumnsFromPlan(subplan, subplan.types);
   const columns: ColumnDef[] = subplan.types.map((t, i) => ({
-    name: ref.column_name_alias[i] ?? inferredColumns[i]?.name ?? `column${i}`,
+    name: inferredColumns[i]?.name ?? `column${i}`,
     type: t,
     nullable: true,
     primaryKey: false,

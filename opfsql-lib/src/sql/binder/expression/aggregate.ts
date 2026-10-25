@@ -1,11 +1,6 @@
+import { childExpressions } from "../../parser/index.js";
 import type {
-  BetweenExpression,
-  CaseExpression,
-  CastExpression,
-  ComparisonExpression,
-  ConjunctionExpression,
   FunctionExpression,
-  OperatorExpression,
   ParsedExpression,
 } from "../../parser/types.js";
 import {
@@ -31,49 +26,21 @@ import { sameAggregate } from "./same-expression.js";
 // ---------------------------------------------------------------------------
 
 /** Return all immediate child expressions of a parsed expression. */
-function getChildren(expr: ParsedExpression): ParsedExpression[] {
-  switch (expr.expression_class) {
-    case ExpressionClass.FUNCTION:
-      return (expr as FunctionExpression).children;
-    case ExpressionClass.COMPARISON: {
-      const cmp = expr as ComparisonExpression;
-      return [cmp.left, cmp.right];
-    }
-    case ExpressionClass.CONJUNCTION:
-      return (expr as ConjunctionExpression).children;
-    case ExpressionClass.OPERATOR:
-      return (expr as OperatorExpression).children;
-    case ExpressionClass.CASE: {
-      const cs = expr as CaseExpression;
-      const children: ParsedExpression[] = [];
-      for (const check of cs.case_checks) {
-        children.push(check.when_expr, check.then_expr);
-      }
-      if (cs.else_expr) children.push(cs.else_expr);
-      return children;
-    }
-    case ExpressionClass.BETWEEN: {
-      const bt = expr as BetweenExpression;
-      return [bt.input, bt.lower, bt.upper];
-    }
-    case ExpressionClass.CAST:
-      return [(expr as CastExpression).child];
-    default:
-      return [];
-  }
+function getChildren(expr: ParsedExpression): readonly ParsedExpression[] {
+  return childExpressions(expr);
 }
 
 // ---------------------------------------------------------------------------
 // Detection & validation
 // ---------------------------------------------------------------------------
 
-export function detectAggregates(exprs: ParsedExpression[]): boolean {
+export function detectAggregates(exprs: readonly ParsedExpression[]): boolean {
   return exprs.some(exprContainsAggregate);
 }
 
 export function exprContainsAggregate(expr: ParsedExpression): boolean {
-  if (expr.expression_class === ExpressionClass.FUNCTION) {
-    if (isAggregateFunction((expr as FunctionExpression).function_name)) {
+  if (expr.expressionClass === ExpressionClass.FUNCTION) {
+    if (isAggregateFunction((expr as FunctionExpression).functionName)) {
       return true;
     }
   }
@@ -95,7 +62,7 @@ export function checkNoAggregates(
 
 export function extractAggregates(
   ctx: BindContext,
-  exprs: ParsedExpression[],
+  exprs: readonly ParsedExpression[],
   scope: BindScope,
 ): BoundAggregateExpression[] {
   const result: BoundAggregateExpression[] = [];
@@ -119,9 +86,9 @@ function collectAggregates(
   scope: BindScope,
   result: BoundAggregateExpression[],
 ): void {
-  if (expr.expression_class === ExpressionClass.FUNCTION) {
+  if (expr.expressionClass === ExpressionClass.FUNCTION) {
     const fn = expr as FunctionExpression;
-    if (isAggregateFunction(fn.function_name)) {
+    if (isAggregateFunction(fn.functionName)) {
       const bound = bindAggregate(ctx, fn, scope);
       if (!result.some((a) => sameAggregate(a, bound))) {
         bound.aggregateIndex = result.length;
@@ -144,9 +111,9 @@ export function bindAggregate(
   expr: FunctionExpression,
   scope: BindScope,
 ): BoundAggregateExpression {
-  const name = expr.function_name.toUpperCase() as AggregateFunctionName;
+  const name = expr.functionName.toUpperCase() as AggregateFunctionName;
 
-  if (!expr.is_star) {
+  if (!expr.isStar) {
     for (const child of expr.children) {
       if (exprContainsAggregate(child)) {
         throw new BindError("Nested aggregate functions are not allowed");
@@ -154,7 +121,7 @@ export function bindAggregate(
     }
   }
 
-  const children = expr.is_star
+  const children = expr.isStar
     ? []
     : expr.children.map((c) => bindExpression(ctx, c, scope));
 
@@ -171,7 +138,7 @@ export function bindAggregate(
     function: definition,
     children,
     distinct: expr.distinct,
-    isStar: expr.is_star,
+    isStar: expr.isStar,
     aggregateIndex: 0,
     returnType,
   };
