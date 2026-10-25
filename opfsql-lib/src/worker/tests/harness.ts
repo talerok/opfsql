@@ -20,6 +20,19 @@ const openEngine: EngineOpener = async (name, options) =>
   Engine.open(name, options);
 
 export function startTestWorker(open: EngineOpener = openEngine): TestWorker {
+  return testWorker((scope) => {
+    startHost(scope, open);
+  });
+}
+
+/** A worker whose script never calls serveDatabase(). */
+export function startSilentWorker(): TestWorker {
+  return testWorker(() => {
+    // the script does nothing
+  });
+}
+
+function testWorker(script: (scope: HostScope) => void): TestWorker {
   const { port1: page, port2: worker } = new MessageChannel();
   const scope: HostScope = {
     postMessage: (message) => {
@@ -30,7 +43,7 @@ export function startTestWorker(open: EngineOpener = openEngine): TestWorker {
     },
   };
   worker.start();
-  startHost(scope, open);
+  script(scope);
 
   const events = new EventTarget();
   let isTerminated = false;

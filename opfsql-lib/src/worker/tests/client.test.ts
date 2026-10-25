@@ -16,7 +16,12 @@ import { MemoryFileHandle } from "../../store/wal/file-handle.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
 import { type Database, openDatabase } from "../client.js";
 import { failureOf } from "../../../test/support/failure.js";
-import { startTestWorker, type TestWorker } from "./harness.js";
+import { Channel, CLOSE_TIMEOUT, START_TIMEOUT } from "../channel.js";
+import {
+  startSilentWorker,
+  startTestWorker,
+  type TestWorker,
+} from "./harness.js";
 import { rowsOf } from "../../../test/support/results.js";
 
 // The client and the host together, over a real MessageChannel: what a page
@@ -473,5 +478,86 @@ describe("schema()", () => {
       ],
     });
     expect(JSON.stringify(schema)).not.toMatch(/PageNo|version/);
+  });
+});
+
+describe("the worker's life cycle", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refuses a page of another protocol version", async () => {
+    const worker = startTestWorker();
+    const channel = new Channel(worker, undefined);
+    const opening = channel.request({
+      type: "open",
+      protocol: 99,
+      name: `client-${String(seq++)}`,
+      options: {},
+    });
+    await expect(opening).rejects.toBeInstanceOf(MisuseError);
+    await expect(opening).rejects.toThrow(/protocol 99/);
+    channel.terminate();
+  });
+
+  it("gives up on a worker that never serves a database", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const worker = startSilentWorker();
+    const opening = expect(
+      openDatabase(`client-${String(seq++)}`, { worker }),
+    ).rejects.toThrow(/serveDatabase/);
+    await vi.advanceTimersByTimeAsync(START_TIMEOUT);
+    await opening;
+    expect(worker.isTerminated).toBe(true);
+  });
+
+  it("terminates a worker that does not finish closing in time", async () => {
+    const worker = startTestWorker(async (name, options) => {
+      const engine = await Engine.open(name, options);
+      const never = Promise.withResolvers<undefined>();
+      return {
+        connect: (sessionOptions) => engine.connect(sessionOptions),
+        close: async () => never.promise,
+      };
+    });
+    const database = await openDatabase(`client-${String(seq++)}`, {
+      worker,
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const closing = database.close();
+    await vi.advanceTimersByTimeAsync(CLOSE_TIMEOUT);
+    await closing;
+    expect(worker.isTerminated).toBe(true);
+  });
+});
+
+describe("the database's own calls", () => {
+  it("run concurrently: a read never waits behind a write waiting for the lock", async () => {
+    const { database } = await open({ busyTimeout: Infinity });
+    await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const holder = await database.connect();
+    await holder.query("BEGIN IMMEDIATE");
+    const write = database.query("INSERT INTO t VALUES (1)");
+    expect(await rowsOf(database.query("SELECT count(*) FROM t"))).toEqual([
+      [0],
+    ]);
+    await holder.query("COMMIT");
+    await write;
+    expect(await rowsOf(database.query("SELECT id FROM t"))).toEqual([[1]]);
+  });
+
+  it("prepare a statement on a session of its own, closed with it", async () => {
+    const { database } = await open({ busyTimeout: 0 });
+    await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const statement = await database.prepare("INSERT INTO t VALUES ($1)");
+    expect(statement.connection).toBeNull();
+    await statement.query([1]);
+    await statement.close();
+    await expect(statement.query([2])).rejects.toBeInstanceOf(MisuseError);
+    await database.query("INSERT INTO t VALUES (2)");
+    expect(await rowsOf(database.query("SELECT id FROM t"))).toEqual([
+      [1],
+      [2],
+    ]);
   });
 });

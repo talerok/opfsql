@@ -75,7 +75,10 @@ the worker's global scope, or on `scope` (anything with `postMessage` and
 Opening fails with `DATABASE_IN_USE` when another tab has the database open
 in a browser that lets only one tab hold its files (all but Chromium), with
 `UNSUPPORTED_FORMAT` for files of another format version, and with `INTERNAL`
-when the worker cannot start.
+when the worker cannot start — including when it has not answered within
+10 seconds, as a worker whose script never calls `serveDatabase()` does not.
+The page and the worker must load the same opfsql: the worker refuses a page
+of another protocol version with `MISUSE`.
 
 ## Database
 
@@ -90,12 +93,18 @@ when the worker cannot start.
 | `close()`                       | `Promise<void>`       | closes everything and terminates the worker             |
 | `[Symbol.asyncDispose]()`       | `Promise<void>`       | `close()`, for `await using`                            |
 
-The database's own `query`, `execute` and `prepare` share one connection,
-which anything in the page may be using at the same time. So a call on it
-must end every transaction it begins: `db.execute("BEGIN; …; COMMIT")` works,
-while `db.query("BEGIN")` rolls back and fails with `MISUSE`. Transactions
-that span several calls belong to `transaction()` or to a connection of your
-own.
+Each of the database's own calls — `query`, `execute`, `schema` — runs on a
+session of its own, taken from a small pool in the worker. So they run
+concurrently and never wait for each other: a read is never held up behind a
+write that waits for the lock. It also means they keep no order: when one
+call must see another's effect, await the first, or use a `Connection`,
+whose calls run in order. `db.prepare` gives its statement a session of its
+own, closed with the statement.
+
+A call on the database must end every transaction it begins:
+`db.execute("BEGIN; …; COMMIT")` works, while `db.query("BEGIN")` rolls back
+and fails with `MISUSE`. Transactions that span several calls belong to
+`transaction()` or to a connection of your own.
 
 ## Connections
 
@@ -148,12 +157,13 @@ position of that statement in the script, counting from zero.
 `prepare(sql)` parses and binds the statement once, so an unknown table or
 column fails at `prepare`, not at the first run.
 
-| Member                     | Does                                                |
-| -------------------------- | --------------------------------------------------- |
-| `columns`                  | the names of the result columns (empty for a write) |
-| `query(params?, options?)` | runs the statement and returns its `Result`         |
-| `close()`                  | releases it; later runs fail with `MISUSE`          |
-| `[Symbol.asyncDispose]()`  | `close()`                                           |
+| Member                     | Does                                                          |
+| -------------------------- | ------------------------------------------------------------- |
+| `columns`                  | the names of the result columns (empty for a write)           |
+| `connection`               | the `Connection` it runs on; null if prepared on the database |
+| `query(params?, options?)` | runs the statement and returns its `Result`                   |
+| `close()`                  | releases it; later runs fail with `MISUSE`                    |
+| `[Symbol.asyncDispose]()`  | `close()`                                                     |
 
 A statement runs on the connection it was prepared on, in that connection's
 order. When the schema changes — in this tab or another — the statement binds
@@ -309,8 +319,9 @@ holds the details.
 
 `db.close()` rejects new calls with `MISUSE`, fails calls still waiting with
 `ABORTED`, lets a running call finish, rolls back open transactions, releases
-the locks, closes the files and terminates the worker. Calling it again
-waits for the same close. A tab that disappears without closing loses its
+the locks, closes the files and terminates the worker — after 10 seconds
+even if the worker has not finished closing. Calling it again waits for the
+same close. A tab that disappears without closing loses its
 locks with it, and the next writer recovers whatever was committed.
 
 | Object       | States                                    |

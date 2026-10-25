@@ -12,12 +12,24 @@ import type { WireError } from "./wire-error.js";
 // asks the host to stop waiting on the request it names; events come
 // unasked.
 
+/**
+ * The version of these messages. The page and the worker must load the same
+ * opfsql; the host refuses an open from a client of another version.
+ */
+export const PROTOCOL_VERSION = 1;
+
 /** Open options that can cross the boundary: callbacks stay in the page. */
 export type WireOpenOptions = Omit<OpenOptions, "onCheckpointError">;
 
+// A request without `connection` runs on a session of the database's own:
+// one from a small pool, so calls on the database do not wait for each
+// other. A request with one runs on that connection, in order.
+
 export type Request =
+  | { readonly type: "hello" }
   | {
       readonly type: "open";
+      readonly protocol: number;
       readonly name: string;
       readonly options: WireOpenOptions;
     }
@@ -25,18 +37,18 @@ export type Request =
   | { readonly type: "disconnect"; readonly connection: number }
   | {
       readonly type: "query";
-      readonly connection: number;
+      readonly connection?: number;
       readonly sql: string;
       readonly parameters: readonly Value[];
     }
   | {
       readonly type: "execute";
-      readonly connection: number;
+      readonly connection?: number;
       readonly script: string;
     }
   | {
       readonly type: "prepare";
-      readonly connection: number;
+      readonly connection?: number;
       readonly sql: string;
     }
   | {
@@ -57,12 +69,19 @@ export type Request =
     }
   | { readonly type: "commit"; readonly connection: number }
   | { readonly type: "rollback"; readonly connection: number }
-  | { readonly type: "schema"; readonly connection: number }
+  | { readonly type: "schema"; readonly connection?: number }
   | { readonly type: "close" };
+
+/** One request type's message. */
+export type RequestOf<K extends Request["type"]> = Extract<
+  Request,
+  { type: K }
+> & { readonly id: number };
 
 /** What each request's reply carries. */
 export interface Replies {
-  readonly open: { readonly connection: number };
+  readonly hello: null;
+  readonly open: null;
   readonly connect: { readonly connection: number };
   readonly disconnect: null;
   readonly query: ResultData;
@@ -70,6 +89,8 @@ export interface Replies {
   readonly prepare: {
     readonly statement: number;
     readonly columns: readonly string[];
+    /** The connection the statement runs on; its own, if none was given. */
+    readonly connection: number;
   };
   readonly run: {
     readonly result: ResultData;
@@ -113,6 +134,7 @@ export interface EventMessage {
 export type HostMessage = ReplyMessage | EventMessage;
 
 const REQUEST_TYPES = new Set<string>([
+  "hello",
   "open",
   "connect",
   "disconnect",

@@ -8,7 +8,12 @@ import {
 import { MisuseError } from "../errors.js";
 import type { Value } from "../values/index.js";
 import { Channel, type WorkerHandle } from "./channel.js";
-import type { Replies, Request, WireOpenOptions } from "./protocol.js";
+import {
+  PROTOCOL_VERSION,
+  type Replies,
+  type Request,
+  type WireOpenOptions,
+} from "./protocol.js";
 
 export interface DatabaseOptions extends OpenOptions {
   /**
@@ -40,13 +45,15 @@ export async function openDatabase(
   claimed.add(options.worker);
   const channel = new Channel(options.worker, options.onCheckpointError);
   try {
-    const { connection } = await channel.request({
+    await channel.greet();
+    await channel.request({
       type: "open",
+      protocol: PROTOCOL_VERSION,
       name,
       options: wireOptions(options),
     });
     channel.opened();
-    return new Database(channel, new Connection({ channel, connection }));
+    return new Database(channel);
   } catch (error) {
     channel.terminate();
     throw error;
@@ -70,35 +77,43 @@ interface Link {
 }
 
 /**
- * A database served by a worker. Its own query, execute and prepare share
- * one connection, on which a call must end every transaction it begins.
+ * A database served by a worker. Each of its own calls runs on a session of
+ * its own, so they run concurrently and never wait for each other — await
+ * one before the next, or use a Connection, where order matters. A call on
+ * it must end every transaction it begins.
  */
 export class Database implements AsyncDisposable {
   /** openDatabase() opens databases. */
-  constructor(
-    private readonly channel: Channel,
-    private readonly shared: Connection,
-  ) {}
+  constructor(private readonly channel: Channel) {}
 
   async query(
     sql: string,
-    parameters?: readonly Value[],
-    options?: CallOptions,
+    parameters: readonly Value[] = [],
+    options: CallOptions = {},
   ): Promise<Result> {
-    return this.shared.query(sql, parameters, options);
+    const request = { type: "query", sql, parameters } as const;
+    const data = await this.channel.request(request, options.signal);
+    return new Result(data);
   }
 
-  async execute(script: string, options?: CallOptions): Promise<Result[]> {
-    return this.shared.execute(script, options);
+  async execute(script: string, options: CallOptions = {}): Promise<Result[]> {
+    const request = { type: "execute", script } as const;
+    const results = await this.channel.request(request, options.signal);
+    return results.map((data) => new Result(data));
   }
 
-  async prepare(sql: string, options?: CallOptions): Promise<Statement> {
-    return this.shared.prepare(sql, options);
+  /** Prepares a statement on a session of its own, closed with it. */
+  async prepare(sql: string, options: CallOptions = {}): Promise<Statement> {
+    const request = { type: "prepare", sql } as const;
+    const prepared = await this.channel.request(request, options.signal);
+    const link = { channel: this.channel, connection: prepared.connection };
+    return new Statement(null, link, prepared.statement, prepared.columns);
   }
 
   /**
-   * Runs `work` in a transaction on a connection of its own, which `work` gets
-   * and which is closed afterwards: commits, or rolls back if `work` throws.
+   * Runs `work` in a transaction on a connection of its own, which `work`
+   * gets and which is closed afterwards: commits, or rolls back if `work`
+   * throws.
    */
   async transaction<T>(
     work: (connection: Connection) => Promise<T> | T,
@@ -117,8 +132,8 @@ export class Database implements AsyncDisposable {
     return new Connection({ channel: this.channel, connection });
   }
 
-  async schema(options?: CallOptions): Promise<Schema> {
-    return this.shared.schema(options);
+  async schema(options: CallOptions = {}): Promise<Schema> {
+    return this.channel.request({ type: "schema" }, options.signal);
   }
 
   /** Closes every connection and the files, and terminates the worker. */
@@ -134,8 +149,7 @@ export class Database implements AsyncDisposable {
 /**
  * One session in the worker: its own transaction, its own snapshot. Calls
  * run one at a time in the order they were made. One that is collected
- * without close() is closed for you; its methods await their replies, so a
- * connection is never collected while a call on it runs.
+ * without close() is closed for you.
  */
 export class Connection implements AsyncDisposable {
   private closing: Promise<void> | null = null;
@@ -151,13 +165,12 @@ export class Connection implements AsyncDisposable {
     );
   }
 
-  private async disconnect(): Promise<void> {
-    abandoned.unregister(this);
-    const { channel, connection } = this.link;
-    if (!channel.isOpen) return;
-    await channel.request({ type: "disconnect", connection });
-  }
-
+  /**
+   * Sends `request` and waits for its reply on this connection's behalf.
+   * While the wait is suspended it keeps the connection reachable, so one
+   * nobody else holds is never collected — and closed — under a call still
+   * running on it. Every call goes through here.
+   */
   private async request<R extends Request>(
     request: R,
     options: CallOptions = {},
@@ -165,7 +178,14 @@ export class Connection implements AsyncDisposable {
     if (this.closing !== null) {
       throw new MisuseError("the connection is closed");
     }
-    return this.link.channel.request(request, options.signal);
+    return await this.link.channel.request(request, options.signal);
+  }
+
+  private async disconnect(): Promise<void> {
+    abandoned.unregister(this);
+    const { channel, connection } = this.link;
+    if (!channel.isOpen) return;
+    await channel.request({ type: "disconnect", connection });
   }
 
   private async rollbackQuietly(): Promise<void> {
@@ -203,11 +223,11 @@ export class Connection implements AsyncDisposable {
 
   async prepare(sql: string, options: CallOptions = {}): Promise<Statement> {
     const { connection } = this.link;
-    const { statement, columns } = await this.request(
+    const prepared = await this.request(
       { type: "prepare", connection, sql },
       options,
     );
-    return new Statement(this, this.link, statement, columns);
+    return new Statement(this, this.link, prepared.statement, prepared.columns);
   }
 
   /**
@@ -234,8 +254,7 @@ export class Connection implements AsyncDisposable {
 
   async schema(options: CallOptions = {}): Promise<Schema> {
     const { connection } = this.link;
-    const schema = await this.request({ type: "schema", connection }, options);
-    return schema;
+    return this.request({ type: "schema", connection }, options);
   }
 
   /** Rolls back its transaction and cancels what waits; idempotent. */
@@ -250,15 +269,19 @@ export class Connection implements AsyncDisposable {
 }
 
 /**
- * A statement prepared on a connection: bound once, bound again by itself
- * when the schema changes.
+ * A statement prepared on a connection, or on the database (then with a
+ * session of its own): bound once, bound again by itself when the schema
+ * changes.
  */
 export class Statement implements AsyncDisposable {
   private closing: Promise<void> | null = null;
 
   constructor(
-    /** The connection it runs on; kept alive while the statement is. */
-    readonly connection: Connection,
+    /**
+     * The connection it runs on, kept alive while the statement is; null
+     * when it was prepared on the database.
+     */
+    readonly connection: Connection | null,
     private readonly link: Link,
     private readonly id: number,
     private names: readonly string[],

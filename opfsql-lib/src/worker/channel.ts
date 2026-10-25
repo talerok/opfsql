@@ -32,6 +32,15 @@ interface Pending {
 type State = "opening" | "open" | "closing" | "closed" | "failed";
 
 /**
+ * How long a worker has to answer its first message. One that never does
+ * has a script that does not call serveDatabase(), or failed silently.
+ */
+export const START_TIMEOUT = 10_000;
+
+/** How long a worker has to close its database before it is terminated. */
+export const CLOSE_TIMEOUT = 10_000;
+
+/**
  * Requests and replies over one worker, with the life cycle of the database
  * it serves: opening → open → closing → closed, or failed when the worker
  * breaks. Every pending request settles on every path.
@@ -62,13 +71,22 @@ export class Channel {
     });
   }
 
+  /**
+   * Asks the worker to close, then terminates it — when it answers, or when
+   * it has not within CLOSE_TIMEOUT.
+   */
   private async shutdown(): Promise<void> {
     if (this.state === "open") {
       this.state = "closing";
+      const deadline = setTimeout(() => {
+        this.terminate();
+      }, CLOSE_TIMEOUT);
       try {
         await this.request({ type: "close" });
       } catch {
         // the worker is terminated whatever it answers
+      } finally {
+        clearTimeout(deadline);
       }
     }
     this.state = "closed";
@@ -77,9 +95,10 @@ export class Channel {
 
   private assertAccepts(request: Request): void {
     if (this.state === "failed" && this.failure !== null) throw this.failure;
+    const isOpening = request.type === "hello" || request.type === "open";
     const isAccepted =
       this.state === "open" ||
-      (this.state === "opening" && request.type === "open") ||
+      (this.state === "opening" && isOpening) ||
       (this.state === "closing" && request.type === "close");
     if (!isAccepted) throw new MisuseError("the database is closed");
   }
@@ -149,6 +168,21 @@ export class Channel {
 
   get isOpen(): boolean {
     return this.state === "open";
+  }
+
+  /** Waits for the worker to answer at all, failing after START_TIMEOUT. */
+  async greet(): Promise<void> {
+    const failure = new InternalError(
+      `the database worker did not answer within ${String(START_TIMEOUT)} ms; does its script call serveDatabase()?`,
+    );
+    const deadline = setTimeout(() => {
+      this.fail(failure);
+    }, START_TIMEOUT);
+    try {
+      await this.request({ type: "hello" });
+    } finally {
+      clearTimeout(deadline);
+    }
   }
 
   /** The database opened: requests other than open may go now. */
