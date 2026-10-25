@@ -116,12 +116,12 @@ export function not(operand: Node): Node {
 
 /** `operand IS NULL`. */
 export function nullCheck(operand: Node): Node {
-  return { kind: "is-null", operand, isNegated: false, type: "BOOLEAN" };
+  return { kind: "is-null", operand, type: "BOOLEAN" };
 }
 
 /** `operand IS NOT NULL`. */
 export function notNullCheck(operand: Node): Node {
-  return { kind: "is-null", operand, isNegated: true, type: "BOOLEAN" };
+  return not(nullCheck(operand));
 }
 
 type ArithmeticSymbol = "+" | "-" | "*" | "/" | "%";
@@ -159,11 +159,11 @@ export function concat(left: Node, right: Node): Node {
 }
 
 export function inList(needle: Node, ...list: Node[]): Node {
-  return { kind: "in-list", needle, list, isNegated: false, type: "BOOLEAN" };
+  return { kind: "in-list", needle, list, type: "BOOLEAN" };
 }
 
 export function notInList(needle: Node, ...list: Node[]): Node {
-  return { kind: "in-list", needle, list, isNegated: true, type: "BOOLEAN" };
+  return not(inList(needle, ...list));
 }
 
 export function between(input: Node, lower: Node, upper: Node): Node {
@@ -217,7 +217,7 @@ export function simpleCase(
 }
 
 export function cast(operand: Node, target: SqlType): Node {
-  return { kind: "cast", operand, target, type: target };
+  return { kind: "cast", operand, type: target };
 }
 
 /** `column.key[index]…`: strings are keys, numbers indexes. */
@@ -248,8 +248,7 @@ export function project(
   child: Plan,
   ...expressions: Node[]
 ): physical.Project {
-  const names = expressions.map((_expression, index) => `c${String(index)}`);
-  return { kind: "project", tableIndex, child, expressions, names };
+  return { kind: "project", tableIndex, child, expressions };
 }
 
 /** `child WHERE conditions`. */
@@ -278,7 +277,6 @@ export function exists(
     kind: "exists",
     plan,
     isCorrelated,
-    isNegated: false,
     type: "BOOLEAN",
   };
 }
@@ -286,8 +284,8 @@ export function exists(
 export function notExists(
   plan: Plan,
   correlation: Correlation = "uncorrelated",
-): Exists<Plan> {
-  return { ...exists(plan, correlation), isNegated: true };
+): Node {
+  return not(exists(plan, correlation));
 }
 
 /** `needle <symbol> ANY (plan)`. */

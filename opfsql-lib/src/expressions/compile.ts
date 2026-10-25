@@ -103,6 +103,6 @@ function compileCast(
   compiler: Compiler,
 ): CompiledExpression {
   const operand = compiler.compile(expression.operand);
-  const { target } = expression;
-  return (row) => castValue(operand(row), target);
+  const { type } = expression;
+  return (row) => castValue(operand(row), type);
 }

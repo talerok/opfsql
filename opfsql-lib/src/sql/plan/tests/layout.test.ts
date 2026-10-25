@@ -21,6 +21,8 @@ const get: logical.Get = {
   columns: [1, ROWID_COLUMN],
 };
 
+const TRUE = { kind: "constant", value: true, type: "BOOLEAN" } as const;
+
 function bindings(...pairs: [number, number][]): ColumnBinding[] {
   return pairs.map(([tableIndex, columnIndex]) => ({
     tableIndex,
@@ -38,7 +40,7 @@ describe("layoutOf", () => {
       kind: "limit",
       limit: null,
       offset: null,
-      child: { kind: "filter", conditions: [], child: get },
+      child: { kind: "filter", conditions: [TRUE], child: get },
     };
     expect(logical.layoutOf(limited)).toEqual(logical.layoutOf(get));
   });
@@ -77,7 +79,7 @@ describe("layoutOf", () => {
       joinType: "left",
       left: scan,
       right: { ...scan, tableIndex: 4, columns: [0, 1] },
-      condition: null,
+      conditions: [],
     };
     expect(physical.layoutOf(join)).toEqual(bindings([1, 0], [4, 0], [4, 1]));
   });

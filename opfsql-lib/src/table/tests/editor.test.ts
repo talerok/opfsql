@@ -75,7 +75,7 @@ async function usersTable(isAutoincrement = false): Promise<Users> {
       {
         name: "users_lower_name",
         table: "users",
-        keys: [{ kind: "expression", sql: "lower(name)" }],
+        keys: [{ kind: "expression", sql: "lower(name)", type: "TEXT" }],
         isUnique: false,
         rootPage: IndexWriter.create(transaction),
         origin: "statement",

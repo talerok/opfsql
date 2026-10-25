@@ -14,7 +14,11 @@ export interface Column {
   readonly name: string;
   readonly type: SqlType;
   readonly isNotNull: boolean;
-  /** The value an INSERT that leaves the column out stores. */
+  /**
+   * The value an INSERT that leaves the column out stores, already converted
+   * to `type` (assignValue): rows written before the column was added read it
+   * as it is.
+   */
   readonly defaultValue: Value;
 }
 
@@ -32,10 +36,18 @@ export interface Table {
   readonly isAutoincrement: boolean;
 }
 
-/** One part of an index key: a column of the table, or an expression over its columns. */
+/**
+ * One part of an index key: a column of the table, or an expression over its
+ * columns, as canonical SQL text, with the type the binder gave it (seek
+ * values convert to it as `=` would).
+ */
 export type IndexKey =
   | { readonly kind: "column"; readonly column: number }
-  | { readonly kind: "expression"; readonly sql: string };
+  | {
+      readonly kind: "expression";
+      readonly sql: string;
+      readonly type: SqlType;
+    };
 
 /** Why an index exists. */
 export type IndexOrigin =

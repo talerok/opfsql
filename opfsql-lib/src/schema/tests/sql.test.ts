@@ -78,7 +78,7 @@ describe("schema statements", () => {
       name: "users_lower_email",
       table: "users",
       keys: [
-        { kind: "expression", sql: "lower(email)" },
+        { kind: "expression", sql: "lower(email)", type: "TEXT" },
         { kind: "column", column: 3 },
       ],
       isUnique: true,

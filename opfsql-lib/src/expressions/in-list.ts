@@ -3,7 +3,6 @@ import type { InList, physical } from "../sql/plan/index.js";
 import {
   foldTruth,
   membership,
-  not,
   type Truth,
   type Value,
 } from "../values/index.js";
@@ -33,7 +32,6 @@ export function compileInList(
   const isIn =
     compileFixedList(expression, compiler) ??
     compileItems(expression, compiler);
-  if (expression.isNegated) return (row) => not(isIn(row, needle(row)));
   return (row) => isIn(row, needle(row));
 }
 

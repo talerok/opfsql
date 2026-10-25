@@ -1,5 +1,11 @@
 import type { StaticType } from "../../functions/index.js";
-import type { Column, Index, Table } from "../../schema/index.js";
+import type {
+  Column,
+  Index,
+  IndexShape,
+  Table,
+  TableShape,
+} from "../../schema/index.js";
 import type { Expression } from "./expression.js";
 
 // ---------------------------------------------------------------------------
@@ -28,8 +34,9 @@ export interface Assignment<Plan> {
 
 /**
  * What an INSERT does with a row that breaks a unique constraint: nothing,
- * or update the row in its way. `targetIndex` binds that row's columns and
- * `excludedIndex` the row that was refused (`excluded.x`).
+ * or update the row in its way. `targetIndex` binds that row and
+ * `excludedIndex` the row that was refused (`excluded.x`), each as every
+ * column of the table in column order, column index = position, no rowid.
  */
 export type ConflictAction<Plan> =
   | { readonly kind: "nothing" }
@@ -47,6 +54,10 @@ export interface OnConflict<Plan> {
   readonly action: ConflictAction<Plan>;
 }
 
+/**
+ * When `source` reads the target table, the executor reads all of it before
+ * inserting, so `INSERT INTO t SELECT … FROM t` never reads its own rows.
+ */
 export interface Insert<Plan> {
   readonly kind: "insert";
   readonly table: Table;
@@ -58,8 +69,9 @@ export interface Insert<Plan> {
 }
 
 /**
- * `source` produces the target rows: every column of `table`, then the
- * rowid, bound to `tableIndex`. Assignments are computed from those rows.
+ * `source` produces the target rows: every column of `table` in column
+ * order, then ROWID_COLUMN, bound to `tableIndex`. No pass may prune those
+ * columns: the update needs every value. Assignments are computed from them.
  */
 export interface Update<Plan> {
   readonly kind: "update";
@@ -70,7 +82,7 @@ export interface Update<Plan> {
   readonly parameterCount: number;
 }
 
-/** `source` produces the rows to delete, their rowid last, as for Update. */
+/** `source` produces the rowids to delete: ROWID_COLUMN alone, bound to `tableIndex`. */
 export interface Delete<Plan> {
   readonly kind: "delete";
   readonly table: Table;
@@ -79,21 +91,21 @@ export interface Delete<Plan> {
   readonly parameterCount: number;
 }
 
-/** A table or index as a statement defines it, before it has pages. */
-export type TableDefinition = Omit<Table, "rootPage">;
-export type IndexDefinition = Omit<Index, "rootPage">;
-
 export interface CreateTable {
   readonly kind: "create-table";
-  readonly table: TableDefinition;
-  /** The indexes its PRIMARY KEY and UNIQUE constraints need. */
-  readonly constraints: readonly IndexDefinition[];
+  readonly table: TableShape;
+  /**
+   * The indexes its PRIMARY KEY and UNIQUE constraints need, named
+   * constraintIndexName(table, n) in order: each column's constraints in
+   * column order (PRIMARY KEY before UNIQUE), then a table PRIMARY KEY.
+   */
+  readonly constraints: readonly IndexShape[];
   readonly isIfNotExists: boolean;
 }
 
 export interface CreateIndex {
   readonly kind: "create-index";
-  readonly index: IndexDefinition;
+  readonly index: IndexShape;
   readonly isIfNotExists: boolean;
 }
 
