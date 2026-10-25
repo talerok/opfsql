@@ -105,6 +105,12 @@ export class FilterCombiner {
     const existing = this.constantFilters.get(key) ?? [];
     this.constantFilters.set(key, existing);
     const incoming = { comparisonType, constant };
+    // A value of unknown type is converted to each constant's type before
+    // comparing (comparison affinity): x = 5 and x = '5' can both hold.
+    if (this.keyExpressions.get(key)?.returnType === "ANY") {
+      existing.push(incoming);
+      return;
+    }
     for (let index = existing.length - 1; index >= 0; index--) {
       const result = compareFilters(existing[index], incoming);
       if (result === "UNSATISFIABLE") {

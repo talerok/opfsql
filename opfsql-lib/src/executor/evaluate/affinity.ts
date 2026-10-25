@@ -19,7 +19,7 @@ export type Conversion = (value: Value) => Value;
 const unchanged: Conversion = (value) => value;
 
 /** The affinity a static type gives the other side of a comparison. */
-function affinityOf(type: LogicalType): Affinity | null {
+export function affinityOf(type: LogicalType): Affinity | null {
   switch (type) {
     case "INTEGER":
     case "BIGINT":

@@ -91,13 +91,18 @@ export function firstArgumentType(types: readonly StaticType[]): StaticType {
 
 /**
  * The type of a value that is one of several expressions (COALESCE, CASE):
- * their type if they all share it, NULL if all are NULL, else ANY.
+ * their type if they all share it, REAL for INTEGERs and REALs (a REAL
+ * holding 3.0 must stay REAL: JavaScript cannot tell it from 3), NULL if
+ * all are NULL, else ANY.
  */
 export function commonType(types: readonly StaticType[]): StaticType {
   const typed = new Set(types.filter((type) => type !== "NULL"));
   if (typed.size === 0) return "NULL";
   const [only] = typed;
-  return only !== undefined && typed.size === 1 ? only : "ANY";
+  if (only !== undefined && typed.size === 1) return only;
+  return typed.size === 2 && typed.has("INTEGER") && typed.has("REAL")
+    ? "REAL"
+    : "ANY";
 }
 
 /** -0 is 0: SQL has one zero. */

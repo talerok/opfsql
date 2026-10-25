@@ -87,6 +87,12 @@ describe("the registry", () => {
     expect(resolveCall(scalarFunction("coalesce"), ["INTEGER", "TEXT"])).toBe(
       "ANY",
     );
+    expect(resolveCall(scalarFunction("coalesce"), ["INTEGER", "REAL"])).toBe(
+      "REAL",
+    );
+    expect(resolveCall(scalarFunction("coalesce"), ["INTEGER", "ANY"])).toBe(
+      "ANY",
+    );
     expect(resolveCall(lookupFunction("sum")!, ["INTEGER"])).toBe("INTEGER");
     expect(resolveCall(lookupFunction("sum")!, ["REAL"])).toBe("REAL");
     expect(resolveCall(lookupFunction("avg")!, ["INTEGER"])).toBe("REAL");

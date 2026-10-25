@@ -367,9 +367,8 @@ describe("CASE branch type checking", () => {
     );
     const proj = plan as LogicalProjection;
     const caseExpr = proj.expressions[0] as BoundCaseExpression;
-    // INTEGER or REAL: known only per row, so arithmetic on it decides by
-    // the value (docs/semantics.md, Arithmetic)
-    expect(caseExpr.returnType).toBe("ANY");
+    // INTEGER and REAL promote to REAL
+    expect(caseExpr.returnType).toBe("REAL");
   });
 });
 

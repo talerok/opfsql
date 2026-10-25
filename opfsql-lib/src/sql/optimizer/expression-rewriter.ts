@@ -1,7 +1,6 @@
 import { evaluateConstant } from "../../executor/evaluate/index.js";
-import { arithmetic, type Value } from "../../values/index.js";
+import type { Value } from "../../values/index.js";
 import type {
-  BoundComparisonExpression,
   BoundConjunctionExpression,
   BoundConstantExpression,
   BoundExpression,
@@ -138,7 +137,8 @@ function simplifyArithmetic(expression: BoundExpression): BoundExpression {
       );
     }
     case "DIVIDE": {
-      return divisionByConstant(expression, left, right);
+      // Not x / 0 to NULL: x is still evaluated, and may fail.
+      return identity(expression, left, right, 1) ?? expression;
     }
     case "MOD":
     case "NOT":
@@ -168,17 +168,6 @@ function identity(
     : null;
 }
 
-/** x / 1 is x; x / 0 is NULL (division by zero), for numeric x. */
-function divisionByConstant(
-  expression: BoundOperatorExpression,
-  left: BoundExpression,
-  right: BoundExpression,
-): BoundExpression {
-  return isConstant(right) && right.value === 0 && isNumeric(left.returnType)
-    ? makeNullConstant(expression.returnType)
-    : (identity(expression, left, right, 1) ?? expression);
-}
-
 const NUMERIC_TYPES: ReadonlySet<LogicalType> = new Set<LogicalType>([
   "INTEGER",
   "BIGINT",
@@ -190,68 +179,18 @@ function isNumeric(type: LogicalType): boolean {
 }
 
 // ============================================================================
-// Rule 5: constants to the right — `C op x` is `x op' C`; and for INTEGER x,
-// `(x + C1) op C2` is `x op (C2 - C1)`, so an index on x can serve it.
+// Rule 5: constants to the right — `C op x` is `x op' C`. Not `(x + C1) op
+// C2` to `x op (C2 - C1)`: x + C1 can overflow where x cannot.
 // ============================================================================
 
 function moveConstants(expression: BoundExpression): BoundExpression {
   if (!isComparison(expression)) return expression;
-  if (isConstant(expression.left) && !isConstant(expression.right)) {
-    return {
-      ...expression,
-      left: expression.right,
-      right: expression.left,
-      comparisonType: flipComparison(expression.comparisonType),
-    };
-  }
-  return moveAddedConstant(expression) ?? expression;
-}
-
-function moveAddedConstant(
-  comparison: BoundComparisonExpression,
-): BoundComparisonExpression | null {
-  const { left, right } = comparison;
-  if (!isOperator(left) || !isConstant(right)) return null;
-  const [operand, added] = left.children;
-  const isShift =
-    left.operatorType === "ADD" || left.operatorType === "SUBTRACT";
-  if (
-    !isShift ||
-    !isConstant(added) ||
-    !isInteger(operand.returnType) ||
-    !isSafeInteger(added.value) ||
-    !isSafeInteger(right.value)
-  ) {
-    return null;
-  }
-  const inverse = left.operatorType === "ADD" ? "subtract" : "add";
-  const moved = safeArithmetic(inverse, right.value, added.value);
-  return moved === undefined
-    ? null
-    : {
-        ...comparison,
-        left: operand,
-        right: constant(moved, right.returnType),
-      };
-}
-
-function isInteger(type: LogicalType): boolean {
-  return type === "INTEGER" || type === "BIGINT";
-}
-
-function isSafeInteger(value: Value): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value);
-}
-
-/** The INTEGER result, or undefined if it would overflow. */
-function safeArithmetic(
-  operator: "add" | "subtract",
-  left: number,
-  right: number,
-): Value | undefined {
-  try {
-    return arithmetic(operator, "integer")(left, right);
-  } catch {
-    return undefined;
-  }
+  return isConstant(expression.left) && !isConstant(expression.right)
+    ? {
+        ...expression,
+        left: expression.right,
+        right: expression.left,
+        comparisonType: flipComparison(expression.comparisonType),
+      }
+    : expression;
 }

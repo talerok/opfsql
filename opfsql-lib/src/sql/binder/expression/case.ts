@@ -49,8 +49,8 @@ export function bindCase(
 
 /**
  * Branches must be of compatible kinds (no TEXT next to INTEGER); the
- * result is typed only if they share a type — INTEGER or REAL is ANY, so
- * arithmetic on it decides by the value, as for COALESCE.
+ * result has their common type, as for COALESCE: INTEGER and REAL make a
+ * REAL, other mixes ANY.
  */
 function caseType(types: readonly LogicalType[]): LogicalType {
   let common: LogicalType = "NULL";

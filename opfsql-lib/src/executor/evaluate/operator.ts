@@ -7,14 +7,12 @@ import {
   type ArithmeticOperator,
   arithmetic,
   concatenate,
-  isIn,
   negate,
   not,
   type NumericMode,
   truthOf,
-  type Value,
 } from "../../values/index.js";
-import { comparisonConversion } from "./affinity.js";
+import { compileIn } from "./in.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -25,8 +23,8 @@ export function compileOperator(
   expression: BoundOperatorExpression,
   scope: Scope,
 ): CompiledExpression {
-  const [operand = NULL, right = NULL, ...more] = expression.children.map(
-    (child) => scope.compile(child),
+  const [operand = NULL, right = NULL] = expression.children.map((child) =>
+    scope.compile(child),
   );
   switch (expression.operatorType) {
     case "NOT": {
@@ -43,7 +41,10 @@ export function compileOperator(
     }
     case "IN":
     case "NOT_IN": {
-      return compileIn(expression, operand, [right, ...more]);
+      const found = compileIn(expression, scope);
+      return expression.operatorType === "IN"
+        ? found
+        : (row) => not(truthOf(found(row)));
     }
     case "CONCAT": {
       return (row) => concatenate(operand(row), right(row));
@@ -62,32 +63,6 @@ export function compileOperator(
     }
   }
 }
-
-/**
- * `x IN (items)` as values/logic defines it; items of unknown type take
- * the affinity of `x`, as they would compared with `=`.
- */
-function compileIn(
-  expression: BoundOperatorExpression,
-  needle: CompiledExpression,
-  items: readonly CompiledExpression[],
-): CompiledExpression {
-  const [first, ...listed] = expression.children;
-  const needleType = first?.returnType ?? "ANY";
-  const conversions = listed.map((item) =>
-    comparisonConversion(item.returnType, needleType),
-  );
-  const isNegated = expression.operatorType === "NOT_IN";
-  return (row) => {
-    const values = items.map((item, index) =>
-      (conversions[index] ?? identity)(item(row)),
-    );
-    const found = isIn(needle(row), values);
-    return isNegated ? not(found) : found;
-  };
-}
-
-const identity = (value: Value): Value => value;
 
 /** A missing operand: never, for an expression the binder built. */
 const NULL: CompiledExpression = () => null;

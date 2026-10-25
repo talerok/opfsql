@@ -744,3 +744,13 @@ describe("FilterCombiner — values from values/", () => {
     expect(combiner.generateFilters()).toHaveLength(2);
   });
 });
+
+describe("FilterCombiner — comparison affinity", () => {
+  it("keeps x = 5 and x = '5' for x of unknown type: both can hold", () => {
+    const combiner = new FilterCombiner();
+    const untyped = { ...makeColRef(0, 0), returnType: "ANY" as const };
+    combiner.addFilter(equals(untyped, makeIntConstant(5)));
+    combiner.addFilter(equals(untyped, makeStrConstant("5")));
+    expect(combiner.generateFilters()).toHaveLength(2);
+  });
+});

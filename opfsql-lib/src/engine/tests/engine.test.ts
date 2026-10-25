@@ -895,6 +895,15 @@ describe("parameters: count and conversion", () => {
     expect(none.rows).toEqual([]);
   });
 
+  it("answers IN the same way for short and long lists", async () => {
+    await parameterTable();
+    const [result] = await session.execute(
+      "SELECT $1 IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) AS short, $1 IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) AS long, $1 IN (m, 7) AS columns FROM t WHERE id = 2",
+      ["10"],
+    );
+    expect(result.rows).toEqual([{ short: true, long: true, columns: true }]);
+  });
+
   it("converts a number parameter compared with a text column", async () => {
     await parameterTable();
     const [result] = await session.execute(

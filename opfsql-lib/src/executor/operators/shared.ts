@@ -13,6 +13,7 @@ import {
   comparisonConversion,
   compileExpression,
   type ExecutionContext,
+  parameterValue,
 } from "../evaluate/index.js";
 import type { Resolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
@@ -30,7 +31,7 @@ export function resolveFilterValue(
 ): Value {
   return constant.expressionClass === BoundExpressionClass.BOUND_CONSTANT
     ? constant.value
-    : (context.parameters[constant.index] ?? null);
+    : parameterValue(context, constant.index);
 }
 
 /** `expression <comparison> constant`, true only when it holds. */

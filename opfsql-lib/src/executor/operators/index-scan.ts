@@ -40,13 +40,12 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     private readonly context: ExecutionContext,
   ) {
     this.layout = op.columnBindings;
-    // The filters the index covers are checked again: the index finds
-    // rows by its own key order, and every row returned must satisfy the
-    // filters as compareValues defines them.
-    const covered =
-      op.indexHint?.kind === "scan" ? op.indexHint.coveredFilters : [];
+    // Every filter on the table is checked on the rows the index finds,
+    // those it covers too: the index finds rows by its own key order (and
+    // one chosen for ORDER BY covers none), while each row returned must
+    // satisfy the filters as compareValues defines them.
     this.residuals = compileTableFilters(
-      [...residualFilters, ...covered],
+      [...new Set([...residualFilters, ...op.tableFilters])],
       buildResolver(this.layout),
       context,
     );

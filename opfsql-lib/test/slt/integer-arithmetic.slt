@@ -36,11 +36,12 @@ SELECT i / 2, r / 2 FROM n WHERE id = 1
 ----
 3|3.5
 
-# A CASE of INTEGER and REAL branches divides by the value it holds
+# INTEGER and REAL branches make a REAL, which divides exactly — also when
+# it holds 7.0, which JavaScript cannot tell from 7
 query RR nosort
-SELECT CASE WHEN id = 1 THEN i ELSE r END / 2, CASE WHEN id = 2 THEN i ELSE r END / 2 FROM n WHERE id = 2
+SELECT CASE WHEN id = 2 THEN i ELSE r END / 2, COALESCE(r, 0) / 2 FROM n WHERE id = 1
 ----
-1.25|4503599627370495
+3.5|3.5
 
 statement error
 SELECT i + 1 FROM n WHERE id = 2

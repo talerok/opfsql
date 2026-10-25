@@ -1,5 +1,6 @@
 import { DatatypeMismatchError } from "../errors.js";
 import { describeValue } from "./convert.js";
+import { valueKey } from "./key.js";
 import { compareValues } from "./order.js";
 import type { Value } from "./value.js";
 
@@ -55,4 +56,21 @@ export function isIn(needle: Value, items: readonly Value[]): Truth {
     else if (compareValues(needle, item) === 0) return true;
   }
   return hasNull ? null : false;
+}
+
+/**
+ * `isIn` for a list known in advance: the list is hashed once (by
+ * valueKey, which agrees with compareValues), so each test is one lookup.
+ */
+export function membership(items: readonly Value[]): (needle: Value) => Truth {
+  if (items.length === 0) return () => false;
+  const keys = new Set(
+    items.filter((item) => item !== null).map((item) => valueKey(item)),
+  );
+  const hasNull = items.includes(null);
+  return (needle) => {
+    if (needle === null) return null;
+    if (keys.has(valueKey(needle))) return true;
+    return hasNull ? null : false;
+  };
 }

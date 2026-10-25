@@ -288,7 +288,7 @@ describe("ExpressionRewriter", () => {
       );
     });
 
-    it("moves arithmetic constant: age + 3 < 10 → age < 7", () => {
+    it("keeps age + 3 < 10: moving the 3 would hide an overflow of age + 3", () => {
       const plan = bind("SELECT * FROM users WHERE age + 3 < 10");
       const optimized = rewriteExpressions(plan);
       const filter = findNode(
@@ -297,29 +297,18 @@ describe("ExpressionRewriter", () => {
       ) as LogicalFilter;
       const cmp = filter.expressions[0] as BoundComparisonExpression;
       expect(cmp.left.expressionClass).toBe(
-        BoundExpressionClass.BOUND_COLUMN_REF,
+        BoundExpressionClass.BOUND_OPERATOR,
       );
-      expect(cmp.right.expressionClass).toBe(
-        BoundExpressionClass.BOUND_CONSTANT,
-      );
-      expect((cmp.right as BoundConstantExpression).value).toBe(7);
+      expect((cmp.right as BoundConstantExpression).value).toBe(10);
     });
 
-    it("moves subtract constant: age - 3 < 10 → age < 13", () => {
-      const plan = bind("SELECT * FROM users WHERE age - 3 < 10");
-      const optimized = rewriteExpressions(plan);
-      const filter = findNode(
-        optimized,
-        LogicalOperatorType.LOGICAL_FILTER,
-      ) as LogicalFilter;
-      const cmp = filter.expressions[0] as BoundComparisonExpression;
-      expect(cmp.left.expressionClass).toBe(
-        BoundExpressionClass.BOUND_COLUMN_REF,
+    it("keeps x / 0: x is still evaluated, and may fail", () => {
+      const expression = rewrittenFilter(
+        "SELECT * FROM users WHERE age / 0 = 1",
       );
-      expect(cmp.right.expressionClass).toBe(
-        BoundExpressionClass.BOUND_CONSTANT,
+      expect(expression.expressionClass).toBe(
+        BoundExpressionClass.BOUND_COMPARISON,
       );
-      expect((cmp.right as BoundConstantExpression).value).toBe(13);
     });
   });
 

@@ -2,7 +2,7 @@ import type { LogicalUpdate } from "../../sql/binder/types.js";
 import type { Row } from "../../store/types.js";
 import { compileExpression } from "../evaluate/index.js";
 import type { ExecuteResult } from "../types.js";
-import { coerceJsonIfNeeded } from "./utils/coerce.js";
+import { assignToColumn } from "./utils/coerce.js";
 import {
   maintainIndexesDelete,
   maintainIndexesInsert,
@@ -35,7 +35,7 @@ export function executeUpdate(
     if (!passesFilter(tuple, scan)) continue;
     const newRow = { ...row };
     for (const { columnIndex, name, value } of assignments) {
-      newRow[name] = coerceJsonIfNeeded(value(tuple), schema, columnIndex);
+      newRow[name] = assignToColumn(value(tuple), schema, columnIndex);
     }
     targets.push({ rowId, oldRow: row, newRow });
   }

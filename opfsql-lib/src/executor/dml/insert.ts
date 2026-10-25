@@ -23,7 +23,7 @@ import { drainOperator } from "../operators/shared.js";
 import { createPhysicalPlan } from "../planner/index.js";
 import { buildResolver } from "../resolve.js";
 import type { CTECacheEntry, ExecuteResult, Tuple, Value } from "../types.js";
-import { coerceJsonIfNeeded } from "./utils/coerce.js";
+import { assignToColumn } from "./utils/coerce.js";
 import {
   buildIndexKey,
   maintainIndexesDelete,
@@ -89,7 +89,7 @@ function buildRowsFromValues(ic: InsertCtx): Row[] {
     for (let c = 0; c < colsPerRow; c++) {
       const expr = op.expressions[r * colsPerRow + c];
       const val = compileExpression(expr, emptyResolver, context)([]);
-      row[colNames[c]] = coerceJsonIfNeeded(val, op.schema, op.columns[c]);
+      row[colNames[c]] = assignToColumn(val, op.schema, op.columns[c]);
     }
     rows.push(row);
   }
@@ -112,7 +112,7 @@ function buildRowsFromSelect(ic: InsertCtx): Row[] {
     const row: Row = { ...defaults };
     for (let c = 0; c < op.columns.length; c++) {
       const val = (tuple[c] ?? null) as Value;
-      row[op.schema.columns[op.columns[c]].name] = coerceJsonIfNeeded(
+      row[op.schema.columns[op.columns[c]].name] = assignToColumn(
         val,
         op.schema,
         op.columns[c],
@@ -313,7 +313,7 @@ function executeConflictUpdate(
   const updatedRow: Row = { ...existingRow };
   for (let i = 0; i < oc.updateColumns.length; i++) {
     const colIdx = oc.updateColumns[i];
-    updatedRow[schema.columns[colIdx].name] = coerceJsonIfNeeded(
+    updatedRow[schema.columns[colIdx].name] = assignToColumn(
       update.values[i](combinedTuple),
       schema,
       colIdx,
@@ -379,6 +379,8 @@ function compileConflictUpdate(
 
 function buildDefaults(schema: TableSchema): Row {
   const defaults: Row = {};
-  for (const col of schema.columns) defaults[col.name] = col.defaultValue;
+  for (const [index, col] of schema.columns.entries()) {
+    defaults[col.name] = assignToColumn(col.defaultValue, schema, index);
+  }
   return defaults;
 }

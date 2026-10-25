@@ -49,14 +49,14 @@ const avg: AggregateFunction = {
   signature: { required: ["number"] },
   returnType: returns("REAL"),
   accumulator: () => {
-    let total = 0;
+    const total = compensatedSum();
     let rows = 0;
     return {
       add: ([value]) => {
-        total += number(value);
+        total.add(number(value));
         rows++;
       },
-      result: () => (rows === 0 ? null : total / rows),
+      result: () => (rows === 0 ? null : finite(total.value() / rows)),
     };
   },
 };
@@ -66,19 +66,50 @@ function numericResultType(type: StaticType | undefined): StaticType {
 }
 
 function numericTotal(type: StaticType | undefined): Accumulator {
-  let total = 0;
+  let integers = 0;
+  const reals = compensatedSum();
   let rows = 0;
   let areIntegers = type !== "REAL";
   return {
     add: ([value]) => {
       const operand = number(value);
       areIntegers &&= Number.isSafeInteger(operand);
-      total += operand;
-      if (areIntegers) checkInteger(total);
+      if (areIntegers) integers = checkInteger(integers + operand) ?? 0;
+      reals.add(operand);
       rows++;
     },
-    result: () => (rows === 0 ? null : total),
+    result: () => {
+      if (rows === 0) return null;
+      return areIntegers ? integers : finite(reals.value());
+    },
   };
+}
+
+/**
+ * A sum of numbers with Kahan-Babuska-Neumaier compensation, as SQLite
+ * sums REALs: 0.1 + 0.2 is 0.3, not 0.30000000000000004.
+ */
+function compensatedSum(): { add(value: number): void; value(): number } {
+  let total = 0;
+  let compensation = 0;
+  return {
+    add: (value) => {
+      const next = total + value;
+      if (Number.isFinite(next)) {
+        compensation +=
+          Math.abs(total) >= Math.abs(value)
+            ? total - next + value
+            : value - next + total;
+      }
+      total = next;
+    },
+    value: () => total + compensation,
+  };
+}
+
+/** Infinity - Infinity is NULL, as NaN always is. */
+function finite(value: number): number | null {
+  return Number.isNaN(value) ? null : value;
 }
 
 /** MIN and MAX by the total order of values. */

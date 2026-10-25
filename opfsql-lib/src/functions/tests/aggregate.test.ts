@@ -35,6 +35,19 @@ describe("aggregates", () => {
     expect(aggregate("sum", [[MAX], [1]], { types: ["REAL"] })).toBe(MAX + 1);
   });
 
+  it("SUM and AVG add REALs with compensation, as SQLite does", () => {
+    // sqlite3: ten times 0.1 sums to exactly 1.0 (naively 0.9999999999999999)
+    const tenths = Array.from({ length: 10 }, () => [0.1]);
+    expect(aggregate("sum", tenths, { types: ["REAL"] })).toBe(1);
+    expect(aggregate("avg", tenths, { types: ["REAL"] })).toBeCloseTo(0.1, 15);
+    expect(aggregate("sum", [[Infinity], [1]], { types: ["REAL"] })).toBe(
+      Infinity,
+    );
+    expect(
+      aggregate("sum", [[Infinity], [-Infinity]], { types: ["REAL"] }),
+    ).toBeNull();
+  });
+
   it("SUM and AVG refuse values that are not numbers", () => {
     expect(() => aggregate("sum", [["x"]], { types: ["ANY"] })).toThrow(
       DatatypeMismatchError,

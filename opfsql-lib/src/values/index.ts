@@ -25,6 +25,7 @@ export {
   compareSql,
   isIn,
   isSame,
+  membership,
   not,
   or,
   type Truth,

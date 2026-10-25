@@ -13,7 +13,9 @@ import { compilePredicate, type ExecutionContext } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import {
+  compileTableFilters,
   indexSearchValue,
+  passesFilters,
   type RowFilter,
   rowToTuple,
   SCAN_BATCH,
@@ -25,6 +27,7 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
   private done = false;
   private readonly layout: ColumnBinding[];
   private readonly residual: RowFilter;
+  private readonly filters: readonly RowFilter[];
 
   constructor(
     private readonly op: LogicalGet,
@@ -34,11 +37,10 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
     private readonly context: ExecutionContext,
   ) {
     this.layout = op.columnBindings;
-    this.residual = compilePredicate(
-      hint.originalFilter,
-      buildResolver(this.layout),
-      context,
-    );
+    const resolver = buildResolver(this.layout);
+    this.residual = compilePredicate(hint.originalFilter, resolver, context);
+    // The table's other filters hold for the rows too.
+    this.filters = compileTableFilters(op.tableFilters, resolver, context);
   }
 
   getLayout(): ColumnBinding[] {
@@ -63,7 +65,9 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
 
         // Apply the original OR expression as residual filter
-        if (this.residual(tuple)) batch.push(tuple);
+        if (this.residual(tuple) && passesFilters(tuple, this.filters)) {
+          batch.push(tuple);
+        }
       }
 
       if (batch.length > 0) return batch;
