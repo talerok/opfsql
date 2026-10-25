@@ -136,6 +136,48 @@ CREATE TABLE bad2 (id INTEGER AUTOINCREMENT, name TEXT)
 statement error
 CREATE TABLE bad3 (a INTEGER PRIMARY KEY AUTOINCREMENT, b INTEGER PRIMARY KEY AUTOINCREMENT)
 
+# --- A deleted id is never reissued ---
+
+statement ok
+CREATE TABLE t5 (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)
+
+statement ok
+INSERT INTO t5 (name) VALUES ('a')
+
+statement ok
+INSERT INTO t5 (name) VALUES ('b')
+
+statement ok
+DELETE FROM t5 WHERE id = 2
+
+statement ok
+INSERT INTO t5 (name) VALUES ('c')
+
+query IT nosort
+SELECT * FROM t5
+----
+1|a
+3|c
+
+# --- ROLLBACK restores the sequence ---
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO t5 (name) VALUES ('rolled back')
+
+statement ok
+ROLLBACK
+
+statement ok
+INSERT INTO t5 (name) VALUES ('d')
+
+query IT nosort
+SELECT * FROM t5 WHERE name = 'd'
+----
+4|d
+
 # --- Cleanup ---
 
 statement ok
@@ -152,3 +194,6 @@ DROP TABLE names
 
 statement ok
 DROP TABLE t4
+
+statement ok
+DROP TABLE t5

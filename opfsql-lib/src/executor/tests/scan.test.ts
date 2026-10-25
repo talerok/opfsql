@@ -50,6 +50,8 @@ function mockRowManager(rows: Array<{ rowId: number; row: Record<string, any> }>
     scanTable: vi.fn(() => rows),
     readRow: vi.fn(() => null),
     deleteTableData: vi.fn(),
+    nextAutoIncrement: vi.fn(() => 1),
+    observeAutoIncrement: vi.fn(),
   };
 }
 

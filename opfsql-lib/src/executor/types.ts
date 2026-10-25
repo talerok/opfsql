@@ -19,7 +19,6 @@ export interface ExecuteResult {
   rows: Row[];
   rowsAffected: number;
   catalogChanges: CatalogChange[];
-  catalogDirty?: boolean;
 }
 
 export type CatalogChange =

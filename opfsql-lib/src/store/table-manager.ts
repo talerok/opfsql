@@ -35,6 +35,7 @@ export class SyncTableManager implements SyncIRowManager {
       height: 1,
       nextRowId: 0,
       size: 0,
+      lastAutoIncrement: 0,
     };
     this.ps.writePage(rootPageNo, leaf);
     this.ps.writePage(metaPageNo, meta);
@@ -56,6 +57,12 @@ export class SyncTableManager implements SyncIRowManager {
   }
   readRow(tableId: string, rowId: RowId): Row | null {
     return this.tree(tableId).get(rowId);
+  }
+  nextAutoIncrement(tableId: string): number {
+    return this.tree(tableId).nextAutoIncrement();
+  }
+  observeAutoIncrement(tableId: string, value: number): void {
+    this.tree(tableId).observeAutoIncrement(value);
   }
   deleteTableData(tableId: string): void {
     this.tree(tableId).drop();

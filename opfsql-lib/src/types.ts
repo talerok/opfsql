@@ -36,7 +36,6 @@ export interface ColumnDef {
 export interface TableSchema {
   name: string;
   columns: ColumnDef[];
-  autoIncrementSeq?: number;
   metaPageNo?: number;
 }
 

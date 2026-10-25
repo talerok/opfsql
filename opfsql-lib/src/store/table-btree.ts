@@ -24,6 +24,8 @@ export interface TableBTreeMeta {
   height: number;
   nextRowId: number;
   size: number;
+  /** Highest value the table's AUTOINCREMENT column has used; never reissued. */
+  lastAutoIncrement: number;
 }
 
 export class SyncTableBTree {
@@ -51,6 +53,22 @@ export class SyncTableBTree {
     else this.writeNode(newLeaf);
     this.writeMeta(meta);
     return rowId;
+  }
+
+  /** Reserves and returns the next AUTOINCREMENT value. */
+  nextAutoIncrement(): number {
+    const meta = { ...this.readMeta() };
+    meta.lastAutoIncrement++;
+    this.writeMeta(meta);
+    return meta.lastAutoIncrement;
+  }
+
+  /** Moves the sequence past an explicitly inserted value, so it is never reissued. */
+  observeAutoIncrement(value: number): void {
+    const meta = this.readMeta();
+    if (value > meta.lastAutoIncrement) {
+      this.writeMeta({ ...meta, lastAutoIncrement: value });
+    }
   }
 
   get(rowId: RowId): Row | null {

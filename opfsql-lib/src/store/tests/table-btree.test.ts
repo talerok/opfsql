@@ -21,7 +21,7 @@ function createTree(ps: SyncIPageStore): { tree: SyncTableBTree; metaPageNo: num
   const metaPageNo = ps.allocPage();
   const rootPageNo = ps.allocPage();
   const leaf: TableLeafNode = { kind: 'leaf', nodeId: rootPageNo, keys: [], values: [], nextLeafId: null };
-  const meta: TableBTreeMeta = { rootNodeId: rootPageNo, height: 1, nextRowId: 0, size: 0 };
+  const meta: TableBTreeMeta = { rootNodeId: rootPageNo, height: 1, nextRowId: 0, size: 0, lastAutoIncrement: 0 };
   ps.writePage(rootPageNo, leaf);
   ps.writePage(metaPageNo, meta);
   return { tree: new SyncTableBTree(metaPageNo, ps), metaPageNo };

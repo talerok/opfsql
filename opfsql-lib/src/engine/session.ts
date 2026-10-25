@@ -270,8 +270,6 @@ export class Session {
     }
     if (hasCatalogChanges) {
       this.binder = new Binder(this.catalog);
-    }
-    if (hasCatalogChanges || result.catalogDirty) {
       this.catalogDirty = true;
     }
 

@@ -1,7 +1,7 @@
 import { compareIndexKeys, keyHasNull } from "./index-btree/compare.js";
 import type { BTreeMeta, IndexKey } from "./index-btree/types.js";
 import type { TableBTreeMeta } from "./table-btree.js";
-import type { ICatalog } from "./types.js";
+import type { ICatalog, Row, TableSchema } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Structural integrity check of everything stored in pages.
@@ -44,7 +44,7 @@ class IntegrityChecker {
   run(): string[] {
     const { catalog } = this.store;
     for (const table of catalog.getAllTables()) {
-      const rows = this.checkTable(table.name, table.metaPageNo);
+      const rows = this.checkTable(table);
       for (const index of catalog.getTableIndexes(table.name)) {
         const entries = this.checkIndex(
           index.name,
@@ -66,11 +66,12 @@ class IntegrityChecker {
   // --- Trees ----------------------------------------------------------------
 
   /** Returns the number of rows, or null if the tree could not be read. */
-  private checkTable(name: string, metaPageNo?: number): number | null {
-    const owner = `table "${name}"`;
-    const meta = this.readMeta<TableBTreeMeta>(owner, metaPageNo);
+  private checkTable(table: TableSchema): number | null {
+    const owner = `table "${table.name}"`;
+    const meta = this.readMeta<TableBTreeMeta>(owner, table.metaPageNo);
     if (!meta) return null;
 
+    const autoIncrement = table.columns.find((c) => c.autoIncrement)?.name;
     const leaves = this.checkTree<number>(owner, meta, (a, b) => a - b);
     let rows = 0;
     for (const leaf of leaves) {
@@ -84,6 +85,15 @@ class IntegrityChecker {
         if (rowId >= meta.nextRowId) {
           this.problems.push(
             `${owner}: row ${rowId} is not below nextRowId ${meta.nextRowId}`,
+          );
+        }
+      }
+      if (autoIncrement === undefined) continue;
+      for (const row of (leaf.values ?? []) as Row[]) {
+        const id = row[autoIncrement];
+        if (typeof id === "number" && id > meta.lastAutoIncrement) {
+          this.problems.push(
+            `${owner}: AUTOINCREMENT sequence ${meta.lastAutoIncrement} is behind id ${id}`,
           );
         }
       }

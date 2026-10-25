@@ -33,6 +33,12 @@ beforeEach(async () => {
     ]);
   }
   await s.execute("DELETE FROM t WHERE id % 5 = 0");
+  await s.execute(
+    "CREATE TABLE a (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
+  );
+  for (const name of ["x", "y", "z"]) {
+    await s.execute("INSERT INTO a (name) VALUES ($1)", [name]);
+  }
   s.close();
   engine.close();
 });
@@ -161,6 +167,17 @@ describe("checkIntegrity", () => {
     });
     expect(await check()).toContain(
       'table "t": meta records 241 entries, tree holds 240',
+    );
+  });
+
+  it("detects an AUTOINCREMENT sequence behind the ids in use", async () => {
+    await damage((file) => {
+      const pageNo = file.tableMetaPage("a");
+      const meta = file.read<TableBTreeMeta>(pageNo);
+      file.write(pageNo, { ...meta, lastAutoIncrement: 1 });
+    });
+    expect(await check()).toContain(
+      'table "a": AUTOINCREMENT sequence 1 is behind id 2',
     );
   });
 

@@ -105,51 +105,31 @@ function buildRowsFromSelect(ic: InsertCtx): Row[] {
 
 function insertRows(ic: InsertCtx, rows: Row[]): ExecuteResult {
   let affected = 0;
-  let seqDirty = false;
   for (const row of rows) {
-    if (ic.catalog && fillAutoIncrement(row, ic.op.tableName, ic.catalog)) {
-      seqDirty = true;
-    }
+    if (ic.catalog) fillAutoIncrement(ic, row, ic.catalog);
     if (insertOrUpsertRow(ic, row)) {
       affected++;
     }
   }
-  return {
-    rows: [],
-    rowsAffected: affected,
-    catalogChanges: [],
-    catalogDirty: seqDirty,
-  };
+  return { rows: [], rowsAffected: affected, catalogChanges: [] };
 }
 
 // ---------------------------------------------------------------------------
 // AUTOINCREMENT
 // ---------------------------------------------------------------------------
 
-function fillAutoIncrement(
-  row: Row,
-  tableName: string,
-  catalog: ICatalog,
-): boolean {
+function fillAutoIncrement(ic: InsertCtx, row: Row, catalog: ICatalog): void {
+  const tableName = ic.op.tableName;
   const schema = catalog.getTable(tableName);
-  if (!schema) return false;
-  const col = schema.columns.find((c) => c.autoIncrement);
-  if (!col) return false;
+  const col = schema?.columns.find((c) => c.autoIncrement);
+  if (!col) return;
 
-  const seq = schema.autoIncrementSeq ?? 0;
   const val = row[col.name];
-
   if (val === null || val === undefined) {
-    const next = seq + 1;
-    row[col.name] = next;
-    catalog.updateTable({ ...schema, autoIncrementSeq: next });
-    return true;
+    row[col.name] = ic.rowManager.nextAutoIncrement(tableName);
+  } else if (typeof val === "number") {
+    ic.rowManager.observeAutoIncrement(tableName, val);
   }
-  if (typeof val === "number" && val > seq) {
-    catalog.updateTable({ ...schema, autoIncrementSeq: val });
-    return true;
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------

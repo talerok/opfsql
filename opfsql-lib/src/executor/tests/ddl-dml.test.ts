@@ -284,6 +284,7 @@ describe('DDL executors', () => {
 
 function mockRowManager(
   rows: Array<{ id: number; name: string; age: number | null }> = [],
+  lastAutoIncrement = 0,
 ): SyncIRowManager {
   const stored = rows.map((r, i) => ({
     rowId: i as RowId,
@@ -291,6 +292,7 @@ function mockRowManager(
   }));
 
   let nextId = stored.length;
+  let lastAuto = lastAutoIncrement;
   return {
     scanTable: function* () {
       for (const entry of stored) yield entry;
@@ -301,6 +303,10 @@ function mockRowManager(
     readRow:          vi.fn(() => null),
     deleteTableData:  vi.fn(() => {}),
     createTable:      vi.fn((): number => 42),
+    nextAutoIncrement:    vi.fn(() => ++lastAuto),
+    observeAutoIncrement: vi.fn((_t: string, value: number) => {
+      lastAuto = Math.max(lastAuto, value);
+    }),
   };
 }
 
@@ -836,14 +842,13 @@ describe('PK index via executeCreateTable', () => {
 // AUTOINCREMENT Tests
 // ---------------------------------------------------------------------------
 
-function freshAutoSchema(seq?: number): TableSchema {
+function freshAutoSchema(): TableSchema {
   return {
     name: 'items',
     columns: [
       { name: 'id',   type: 'INTEGER', nullable: false, primaryKey: true,  unique: true,  autoIncrement: true, defaultValue: null },
       { name: 'name', type: 'TEXT',    nullable: false, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
     ],
-    autoIncrementSeq: seq,
   };
 }
 
@@ -870,7 +875,7 @@ describe('AUTOINCREMENT', () => {
       'items',
       expect.objectContaining({ id: 1, name: 'Alice' }),
     );
-    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(1);
+    expect(rm.nextAutoIncrement).toHaveBeenCalledTimes(1);
   });
 
   it('auto-generates sequential ids across multiple inserts', () => {
@@ -903,7 +908,7 @@ describe('AUTOINCREMENT', () => {
       'items',
       expect.objectContaining({ id: 3 }),
     );
-    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(3);
+    expect(rm.nextAutoIncrement).toHaveBeenCalledTimes(3);
   });
 
   it('uses explicit value and updates seq', () => {
@@ -928,12 +933,13 @@ describe('AUTOINCREMENT', () => {
       'items',
       expect.objectContaining({ id: 42, name: 'Alice' }),
     );
-    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(42);
+    expect(rm.observeAutoIncrement).toHaveBeenCalledWith('items', 42);
+    expect(rm.nextAutoIncrement).not.toHaveBeenCalled();
   });
 
   it('next auto value is seq + 1 after explicit insert', () => {
-    const rm = mockRowManager();
-    const schema = freshAutoSchema(10);
+    const rm = mockRowManager([], 10);
+    const schema = freshAutoSchema();
     const catalog = mockCatalog([schema]);
     const op = {
       type: LogicalOperatorType.LOGICAL_INSERT,
@@ -953,7 +959,6 @@ describe('AUTOINCREMENT', () => {
       'items',
       expect.objectContaining({ id: 11, name: 'Dave' }),
     );
-    expect(catalog.getTable('items')!.autoIncrementSeq).toBe(11);
   });
 
   it('NULL explicit value triggers auto-generation', () => {
@@ -980,7 +985,7 @@ describe('AUTOINCREMENT', () => {
     );
   });
 
-  it('sets catalogDirty when autoincrement is used', () => {
+  it('keeps the sequence out of the catalog', () => {
     const rm = mockRowManager();
     const schema = freshAutoSchema();
     const catalog = mockCatalog([schema]);
@@ -997,7 +1002,8 @@ describe('AUTOINCREMENT', () => {
     } as unknown as LogicalInsert;
 
     const result = executeInsert(op, rm, noopCtx, catalog);
-    expect(result.catalogDirty).toBe(true);
+    expect(result.catalogChanges).toEqual([]);
+    expect(catalog.updateTable).not.toHaveBeenCalled();
   });
 });
 

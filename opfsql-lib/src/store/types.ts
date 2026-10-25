@@ -97,6 +97,10 @@ export interface SyncIRowManager {
   scanTable(tableId: string): Iterable<{ rowId: RowId; row: Row }>;
   readRow(tableId: string, rowId: RowId): Row | null;
   deleteTableData(tableId: string): void;
+  /** Reserves and returns the next value for the table's AUTOINCREMENT column. */
+  nextAutoIncrement(tableId: string): number;
+  /** Records an explicitly inserted AUTOINCREMENT value, so it is never reissued. */
+  observeAutoIncrement(tableId: string, value: number): void;
 }
 
 export interface SyncIIndexManager {

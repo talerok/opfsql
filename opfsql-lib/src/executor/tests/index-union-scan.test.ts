@@ -76,6 +76,8 @@ function mockRowManager(): SyncIRowManager {
     scanTable: vi.fn(() => []),
     readRow: vi.fn((_, rowId: number) => rowStore[rowId] ?? null),
     deleteTableData: vi.fn(),
+    nextAutoIncrement: vi.fn(() => 1),
+    observeAutoIncrement: vi.fn(),
   };
 }
 

@@ -108,6 +108,25 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     });
   }
 
+  it("AUTOINCREMENT ids stay unique when tabs take turns inserting", async () => {
+    const tabs = await openTabs("autoincrement", 2);
+    await tabs[0].session.execute(
+      "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v INTEGER)",
+    );
+    for (let i = 0; i < 50; i++) {
+      const { engine, session } = tabs[i % 2];
+      await session.execute("INSERT INTO t (v) VALUES ($1)", [i]);
+      if (i % 7 === 0) engine.checkpoint();
+    }
+
+    const [result] = await tabs[1].session.execute(
+      "SELECT id, v FROM t ORDER BY id",
+    );
+    expect(result.type === "rows" ? result.rows : []).toEqual(
+      Array.from({ length: 50 }, (_, i) => ({ id: i + 1, v: i })),
+    );
+  });
+
   // Known bug, fixed by coordinating readers with checkpoints: a checkpoint
   // overwrites main-file pages in place while another tab's transaction may
   // still be reading their old versions.
