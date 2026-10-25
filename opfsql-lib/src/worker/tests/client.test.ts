@@ -336,6 +336,24 @@ describe("connections", () => {
   });
 });
 
+describe("connections nobody holds", () => {
+  it("stay open while a call on them runs", async () => {
+    const { database } = await open({ busyTimeout: Infinity });
+    await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const holder = await database.connect();
+    await holder.query("BEGIN IMMEDIATE");
+    const pending = (async () => {
+      const connection = await database.connect();
+      return connection.query("INSERT INTO t VALUES (1)");
+    })();
+
+    await tick();
+    await collectGarbage();
+    await holder.query("COMMIT");
+    await expect(pending).resolves.toMatchObject({ changes: 1 });
+  });
+});
+
 describe("transactions", () => {
   it("cannot outlive a call on the database's own connection", async () => {
     const { database } = await open();

@@ -15,6 +15,10 @@ import type { PreparedPlan } from "./statements.js";
  * A connection to the database inside the worker: its own transaction, its
  * own snapshot. Calls run one at a time, in the order they were made. Close
  * it when done; one that is garbage-collected is closed by its engine.
+ *
+ * Every method awaits its call before it returns: the suspended method keeps
+ * the handle reachable, so a session nobody holds is never collected — and
+ * closed — under a call still running on it.
  */
 export class Session implements SessionContract, AsyncDisposable {
   /** Engine.connect() makes sessions. */
@@ -39,12 +43,14 @@ export class Session implements SessionContract, AsyncDisposable {
     parameters?: readonly Value[],
     options: CallOptions = {},
   ): Promise<Result> {
-    return this.core.query(sql, parameters, options);
+    const result = await this.core.query(sql, parameters, options);
+    return result;
   }
 
   /** Runs a script of statements; see docs/api.md for how they commit. */
   async execute(script: string, options: CallOptions = {}): Promise<Result[]> {
-    return this.core.execute(script, options);
+    const results = await this.core.execute(script, options);
+    return results;
   }
 
   /** Parses and binds one statement for repeated runs. */
@@ -91,7 +97,8 @@ export class Session implements SessionContract, AsyncDisposable {
 
   /** The schema this session sees. */
   async schema(options: CallOptions = {}): Promise<Schema> {
-    return this.core.schema(options);
+    const schema = await this.core.schema(options);
+    return schema;
   }
 
   async close(): Promise<void> {
@@ -127,7 +134,8 @@ export class PreparedStatement implements StatementContract, Disposable {
     options: CallOptions = {},
   ): Promise<Result> {
     if (this.isClosed) throw new MisuseError("the statement is closed");
-    return this.core.runPrepared(this.plan, parameters, options);
+    const result = await this.core.runPrepared(this.plan, parameters, options);
+    return result;
   }
 
   close(): void {

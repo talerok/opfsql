@@ -134,7 +134,8 @@ export class Database implements AsyncDisposable {
 /**
  * One session in the worker: its own transaction, its own snapshot. Calls
  * run one at a time in the order they were made. One that is collected
- * without close() is closed for you.
+ * without close() is closed for you; its methods await their replies, so a
+ * connection is never collected while a call on it runs.
  */
 export class Connection implements AsyncDisposable {
   private closing: Promise<void> | null = null;
@@ -233,7 +234,8 @@ export class Connection implements AsyncDisposable {
 
   async schema(options: CallOptions = {}): Promise<Schema> {
     const { connection } = this.link;
-    return this.request({ type: "schema", connection }, options);
+    const schema = await this.request({ type: "schema", connection }, options);
+    return schema;
   }
 
   /** Rolls back its transaction and cancels what waits; idempotent. */

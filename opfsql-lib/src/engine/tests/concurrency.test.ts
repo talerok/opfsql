@@ -241,6 +241,17 @@ describe("abandoned sessions", () => {
     expect(await ids(session)).toEqual([2]);
   });
 
+  it("stay open while a call on them runs, held or not", async () => {
+    await openEngine(Infinity);
+    const holder = engine.connect();
+    await holder.query("BEGIN IMMEDIATE");
+    const pending = engine.connect().query("INSERT INTO t (id) VALUES (1)");
+
+    await collectGarbage();
+    await holder.query("COMMIT");
+    await expect(pending).resolves.toMatchObject({ changes: 1 });
+  });
+
   it("are closed at the end of an await using block", async () => {
     await openEngine(0);
     {
