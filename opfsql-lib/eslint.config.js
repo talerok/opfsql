@@ -146,6 +146,21 @@ export default config(
               except: ["./errors.ts"],
               message: "errors depends on nothing.",
             },
+            {
+              target: "./src/engine/api",
+              from: "./src",
+              except: ["./engine/api", "./values", "./errors.ts"],
+              message:
+                "engine/api, the engine's contract, depends only on values and errors.",
+            },
+            {
+              // The worker reaches the engine only through its contract, so
+              // the page's bundle need not carry the engine (tests aside).
+              target: "./src/worker/*.ts",
+              from: "./src",
+              except: ["./worker", "./engine/api", "./values", "./errors.ts"],
+              message: "worker depends only on engine/api, values and errors.",
+            },
           ],
         },
       ],

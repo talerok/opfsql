@@ -10,5 +10,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src/errors.ts", "src/values"]
+  "include": ["src/errors.ts", "src/values", "src/engine/api", "src/worker"],
+  "exclude": ["src/worker/tests"]
 }
