@@ -3,15 +3,12 @@ import { execute } from "../executor/execute/index.js";
 import { outputColumnNames } from "../executor/execute/result.js";
 import type { CatalogChange } from "../executor/types.js";
 import { Binder } from "../sql/binder/index.js";
-import {
-  BoundExpressionClass,
-  type LogicalOperator,
-} from "../sql/binder/types.js";
+import type { LogicalOperator } from "../sql/binder/types.js";
 import { optimize } from "../sql/optimizer/index.js";
 import {
   Parser,
-  StatementType,
   type Statement,
+  StatementType,
   type TransactionStatement,
 } from "../sql/parser/index.js";
 import type { Catalog } from "../store/catalog.js";
@@ -49,16 +46,36 @@ export function statementKind(statement: Statement): StatementKind {
   }
 }
 
+/** DDL: what the statements after it in a script may bind against. */
+export function changesSchema(statement: Statement): boolean {
+  switch (statement.type) {
+    case StatementType.CREATE_TABLE_STATEMENT:
+    case StatementType.CREATE_INDEX_STATEMENT:
+    case StatementType.ALTER_TABLE_STATEMENT:
+    case StatementType.DROP_STATEMENT: {
+      return true;
+    }
+    case StatementType.SELECT_STATEMENT:
+    case StatementType.EXPLAIN_STATEMENT:
+    case StatementType.INSERT_STATEMENT:
+    case StatementType.UPDATE_STATEMENT:
+    case StatementType.DELETE_STATEMENT:
+    case StatementType.TRANSACTION_STATEMENT: {
+      return false;
+    }
+  }
+}
+
 /** BEGIN's mode: deferred unless it says IMMEDIATE. */
 export function beginMode(statement: TransactionStatement): TransactionMode {
   return statement.mode === "IMMEDIATE" ? "immediate" : "deferred";
 }
 
 /**
- * A statement bound against one schema: what a prepared statement keeps.
- * The plan is never optimized in place — optimizer passes still rewrite the
- * trees they get, so each run optimizes a copy. Once plans are immutable,
- * the optimized plan can be kept here too.
+ * A statement bound against one schema. The plan is never optimized in
+ * place — optimizer passes still rewrite the trees they get, so each run
+ * optimizes a copy. Once plans are immutable, the optimized plan can be
+ * kept here too.
  */
 export interface BoundStatement {
   /** The schema it was bound against; a run on another one binds again. */
@@ -71,63 +88,35 @@ export interface BoundStatement {
   readonly isExplain: boolean;
 }
 
-export function bindStatement(
-  statement: Statement,
-  catalog: Catalog,
-): BoundStatement {
-  if (statement.type === StatementType.EXPLAIN_STATEMENT) {
-    const plan = new Binder(catalog).bindStatement(statement.statement);
-    const parameterCount = countParameters(plan);
-    return {
-      catalog,
-      plan,
-      columns: ["plan"],
-      parameterCount,
-      isExplain: true,
-    };
-  }
-  const plan = new Binder(catalog).bindStatement(statement);
-  const columns =
-    statement.type === StatementType.SELECT_STATEMENT
-      ? outputColumnNames(plan)
-      : [];
-  const parameterCount = countParameters(plan);
-  return { catalog, plan, columns, parameterCount, isExplain: false };
-}
-
-/** The highest parameter number a plan refers to ($3 → 3), 0 for none. */
-function countParameters(plan: LogicalOperator): number {
-  let count = 0;
-  const seen = new Set<object>();
-  const visit = (node: unknown): void => {
-    if (typeof node !== "object" || node === null || seen.has(node)) return;
-    seen.add(node);
-    if (isParameter(node)) count = Math.max(count, node.index + 1);
-    for (const value of Object.values(node)) visit(value);
+function bindStatement(statement: Statement, catalog: Catalog): BoundStatement {
+  const binder = new Binder(catalog);
+  const isExplain = statement.type === StatementType.EXPLAIN_STATEMENT;
+  const subject = isExplain ? statement.statement : statement;
+  const plan = binder.bindStatement(subject);
+  return {
+    catalog,
+    plan,
+    columns: columnsOf(subject, plan, isExplain),
+    parameterCount: binder.parameterCount,
+    isExplain,
   };
-  visit(plan);
-  return count;
 }
 
-function isParameter(node: object): node is { index: number } {
-  return (
-    (node as { expressionClass?: unknown }).expressionClass ===
-    BoundExpressionClass.BOUND_PARAMETER
-  );
+function columnsOf(
+  statement: Statement,
+  plan: LogicalOperator,
+  isExplain: boolean,
+): readonly string[] {
+  if (isExplain) return ["plan"];
+  if (statement.type !== StatementType.SELECT_STATEMENT) return [];
+  return outputColumnNames(plan);
 }
 
-/** A statement to run: it binds itself against the schema it runs on. */
-export interface Step {
-  readonly statement: Statement;
-  bind(catalog: Catalog): BoundStatement;
-}
-
-export function freshStep(statement: Statement): Step {
-  return { statement, bind: (catalog) => bindStatement(statement, catalog) };
-}
-
-/** A prepared statement's insides: bound once, again when the schema changes. */
-export class PreparedPlan implements Step {
+/**
+ * A statement to run, with the bind of its last run: bound again only when
+ * it runs against another schema. A prepared statement keeps one.
+ */
+export class Step {
   private bound: BoundStatement | null = null;
 
   constructor(
@@ -135,6 +124,11 @@ export class PreparedPlan implements Step {
     readonly statement: Statement,
   ) {}
 
+  get kind(): StatementKind {
+    return statementKind(this.statement);
+  }
+
+  /** Result column names as of the last bind; empty for writes. */
   get columns(): readonly string[] {
     return this.bound?.columns ?? [];
   }
@@ -145,6 +139,17 @@ export class PreparedPlan implements Step {
     }
     return this.bound;
   }
+}
+
+/** A statement must get exactly the parameters it uses, never NULL for one it lacks. */
+export function checkParameters(
+  bound: BoundStatement,
+  parameters: readonly Value[] = [],
+): void {
+  if (parameters.length === bound.parameterCount) return;
+  throw new MisuseError(
+    `the statement takes ${String(bound.parameterCount)} parameters, but ${String(parameters.length)} were given`,
+  );
 }
 
 /** Where a statement reads and writes. */
@@ -165,11 +170,7 @@ export function runBound(
   target: Target,
   parameters: readonly Value[] = [],
 ): Outcome {
-  if (parameters.length !== bound.parameterCount) {
-    throw new MisuseError(
-      `the statement takes ${String(bound.parameterCount)} parameters, but ${String(parameters.length)} were given`,
-    );
-  }
+  checkParameters(bound, parameters);
   const plan = optimize(structuredClone(bound.plan), target.catalog);
   if (bound.isExplain) {
     const rows = [[formatPlan(plan)]];

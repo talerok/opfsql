@@ -40,8 +40,11 @@ export interface ICatalog {
   getTableIndexes(tableName: string): IndexDef[];
   addIndex(index: IndexDef): void;
   removeIndex(name: string): void;
-  serialize(): CatalogData;
+  serialize(): CatalogContents;
 }
+
+/** A catalog's tables and indexes, without the version its page stores. */
+export type CatalogContents = Pick<CatalogData, "tables" | "indexes">;
 
 // ---------------------------------------------------------------------------
 // Sync page storage backend (page-based I/O, no string-keyed index)

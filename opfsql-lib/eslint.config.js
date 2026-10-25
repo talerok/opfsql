@@ -165,6 +165,8 @@ export default config(
         },
       ],
 
+      // Guard returns read better than ternaries over several lines.
+      "unicorn/prefer-ternary": "off",
       // SQL NULL is null; undefined means "absent", never a value.
       "unicorn/no-null": "off",
       "unicorn/filename-case": ["error", { case: "kebabCase" }],

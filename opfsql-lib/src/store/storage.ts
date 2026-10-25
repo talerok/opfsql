@@ -1,7 +1,7 @@
 import { checkStoreIntegrity } from "./integrity.js";
 import { encodePage, type EncodedPage } from "./page-codec.js";
 import { SessionStore } from "./session-store.js";
-import type { CatalogData, ICatalog, SyncIPageStorage } from "./types.js";
+import type { ICatalog, SyncIPageStorage } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Page layout (private to storage layer)
@@ -175,14 +175,6 @@ export class Storage {
     }
 
     this.backend.commit(pages, this.nextPageId);
-  }
-
-  // -------------------------------------------------------------------------
-  // Catalog
-  // -------------------------------------------------------------------------
-
-  readCatalog(): CatalogData | null {
-    return this.backend.readPage<CatalogData>(CATALOG_PAGE_NO);
   }
 
   // -------------------------------------------------------------------------

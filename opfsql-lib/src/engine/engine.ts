@@ -18,7 +18,7 @@ import type {
   SessionOptions,
 } from "./api/index.js";
 import { checkIndexConsistency } from "./integrity.js";
-import { latestSchemaVersion, SchemaLoader } from "./schema.js";
+import { SchemaLoader } from "./schema.js";
 import { SessionCore, type SessionHost } from "./session-core.js";
 import { Session } from "./session.js";
 import { linkSignals } from "./signals.js";
@@ -54,9 +54,8 @@ export class Engine implements EngineContract, AsyncDisposable {
     try {
       return await openFiles(name, options);
     } catch (error) {
-      throw isHeldByAnotherTab(error)
-        ? new DatabaseInUseError(name, { cause: error })
-        : toOpfsqlError(error);
+      if (!isHeldByAnotherTab(error)) throw toOpfsqlError(error);
+      throw new DatabaseInUseError(name, { cause: error });
     }
   }
 
@@ -102,14 +101,18 @@ export class Engine implements EngineContract, AsyncDisposable {
     this.lock = new WriteLock(`${lockName}:write`, () => {
       this.storage.catchUp();
     });
-    this.host = {
-      busyTimeout,
+    this.host = this.sessionHost();
+  }
+
+  /** What this engine lends its sessions. */
+  private sessionHost(): SessionHost {
+    return {
+      busyTimeout: this.busyTimeout,
       lock: this.lock,
       schemas: this.schemas,
       createStore: () => this.storage.createSession(),
       pin: async (store, signal) => this.pin(store, signal),
-      latestSchemaVersion: () => latestSchemaVersion(this.storage),
-      maintain: () => {
+      checkpointIfNeeded: () => {
         this.storage.checkpointIfNeeded();
       },
       forget: (core) => {
@@ -180,19 +183,52 @@ export class Engine implements EngineContract, AsyncDisposable {
     }
   }
 
-  private async checkpointNow(signal: AbortSignal): Promise<void> {
-    if (this.lock.isHeld) {
-      this.storage.checkpoint();
-      return;
+  /** Runs engine-level work one at a time, cancelled by close or `options.signal`. */
+  private async inTurn<T>(
+    options: CallOptions,
+    work: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    this.assertOpen();
+    const linked = linkSignals([options.signal, this.lifetime.signal]);
+    try {
+      return await this.tasks.run(
+        async () => work(linked.signal),
+        linked.signal,
+      );
+    } catch (error) {
+      throw toOpfsqlError(error);
+    } finally {
+      linked.dispose();
     }
+  }
+
+  private async underLock<T>(
+    signal: AbortSignal,
+    work: () => Promise<T> | T,
+  ): Promise<T> {
     const lease = await this.lock.acquire({
       signal,
       timeout: this.busyTimeout,
     });
     try {
-      this.storage.checkpoint();
+      return await work();
     } finally {
       lease.release();
+    }
+  }
+
+  /** Checks the latest commit's B-trees, pages and indexes. */
+  private async checkCommitted(signal: AbortSignal): Promise<string[]> {
+    const store = this.storage.createSession();
+    const position = await this.pin(store, signal);
+    try {
+      const { catalog } = this.schemas.load(store, position);
+      const problems = this.storage.checkIntegrity(catalog);
+      // Index lookups walk the trees, so they only mean something on sound ones.
+      if (problems.length > 0) return problems;
+      return checkIndexConsistency(store, catalog);
+    } finally {
+      store.endSnapshot();
     }
   }
 
@@ -211,39 +247,27 @@ export class Engine implements EngineContract, AsyncDisposable {
    * allow, under the write lock, so it cannot race another tab's commit.
    */
   async checkpoint(options: CallOptions = {}): Promise<void> {
-    this.assertOpen();
-    const linked = linkSignals([options.signal, this.lifetime.signal]);
-    try {
-      await this.tasks.run(
-        async () => this.checkpointNow(linked.signal),
-        linked.signal,
-      );
-    } catch (error) {
-      throw toOpfsqlError(error);
-    } finally {
-      linked.dispose();
-    }
+    await this.inTurn(options, async (signal) => {
+      if (this.lock.isHeld) {
+        this.storage.checkpoint();
+        return;
+      }
+      await this.underLock(signal, () => {
+        this.storage.checkpoint();
+      });
+    });
   }
 
   /**
    * Verifies the latest commit: every B-tree is well-formed, every page used
    * once or free, every index matches its table. Returns the problems found;
-   * an empty list means the database is consistent.
+   * an empty list means the database is consistent. Runs under the write
+   * lock, so no writer's uncommitted pages count as leaked.
    */
-  async checkIntegrity(): Promise<string[]> {
-    this.assertOpen();
-    const store = this.storage.createSession();
-    const position = await this.pin(store, this.lifetime.signal);
-    try {
-      const { catalog } = this.schemas.load(store, position);
-      const problems = this.storage.checkIntegrity(catalog);
-      // Index lookups walk the trees, so they only mean something on sound ones.
-      return problems.length > 0
-        ? problems
-        : checkIndexConsistency(store, catalog);
-    } finally {
-      store.endSnapshot();
-    }
+  async checkIntegrity(options: CallOptions = {}): Promise<string[]> {
+    return this.inTurn(options, async (signal) =>
+      this.underLock(signal, async () => this.checkCommitted(signal)),
+    );
   }
 
   /**

@@ -144,9 +144,6 @@
     "unicorn/no-negated-condition": {
       "count": 1
     },
-    "unicorn/prefer-ternary": {
-      "count": 4
-    },
     "unicorn/switch-case-braces": {
       "count": 30
     }
@@ -490,9 +487,6 @@
     "unicorn/prefer-includes": {
       "count": 1
     },
-    "unicorn/prefer-ternary": {
-      "count": 2
-    },
     "unicorn/require-array-sort-compare": {
       "count": 2
     }
@@ -513,9 +507,6 @@
       "count": 1
     },
     "unicorn/prefer-simple-condition-first": {
-      "count": 1
-    },
-    "unicorn/prefer-ternary": {
       "count": 1
     }
   },
@@ -576,9 +567,6 @@
     },
     "unicorn/name-replacements": {
       "count": 2
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/evaluate/case.ts": {
@@ -590,9 +578,6 @@
     },
     "unicorn/name-replacements": {
       "count": 2
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/evaluate/cast.ts": {
@@ -684,9 +669,6 @@
     "unicorn/prefer-string-slice": {
       "count": 2
     },
-    "unicorn/prefer-ternary": {
-      "count": 5
-    },
     "unicorn/switch-case-braces": {
       "count": 20
     }
@@ -769,9 +751,6 @@
     "unicorn/name-replacements": {
       "count": 8
     },
-    "unicorn/prefer-ternary": {
-      "count": 3
-    },
     "unicorn/switch-case-braces": {
       "count": 12
     }
@@ -844,9 +823,6 @@
     "unicorn/prefer-string-slice": {
       "count": 1
     },
-    "unicorn/prefer-ternary": {
-      "count": 1
-    },
     "unicorn/switch-case-braces": {
       "count": 7
     }
@@ -885,9 +861,6 @@
   "src/executor/evaluate/utils/serialize.ts": {
     "@typescript-eslint/restrict-template-expressions": {
       "count": 2
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/execute/index.ts": {
@@ -911,9 +884,6 @@
     },
     "unicorn/name-replacements": {
       "count": 6
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/execute/select.ts": {
@@ -1198,9 +1168,6 @@
     "unicorn/no-negated-condition": {
       "count": 1
     },
-    "unicorn/prefer-ternary": {
-      "count": 1
-    },
     "unicorn/prefer-unicode-code-point-escapes": {
       "count": 1
     }
@@ -1222,9 +1189,6 @@
     },
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 2
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/planner/plan-cte.ts": {
@@ -1249,9 +1213,6 @@
     },
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 2
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/planner/plan-join.ts": {
@@ -1448,9 +1409,6 @@
     },
     "unicorn/name-replacements": {
       "count": 6
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/tests/index-min-max.test.ts": {
@@ -1531,9 +1489,6 @@
     },
     "unicorn/no-unnecessary-parameters": {
       "count": 2
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/executor/tests/planner.test.ts": {
@@ -1615,9 +1570,6 @@
     "unicorn/name-replacements": {
       "count": 3
     },
-    "unicorn/prefer-ternary": {
-      "count": 2
-    },
     "unicorn/switch-case-braces": {
       "count": 8
     }
@@ -1661,9 +1613,6 @@
       "count": 1
     },
     "unicorn/no-useless-recursion": {
-      "count": 1
-    },
-    "unicorn/prefer-ternary": {
       "count": 1
     }
   },
@@ -1828,11 +1777,6 @@
       "count": 5
     }
   },
-  "src/sql/binder/expression/parameter.ts": {
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
   "src/sql/binder/expression/same-expression.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 11
@@ -1854,9 +1798,6 @@
     },
     "unicorn/prefer-combined-guards": {
       "count": 3
-    },
-    "unicorn/prefer-ternary": {
-      "count": 2
     },
     "unicorn/switch-case-braces": {
       "count": 5
@@ -2049,9 +1990,6 @@
     "unicorn/no-array-sort": {
       "count": 2
     },
-    "unicorn/prefer-ternary": {
-      "count": 2
-    },
     "unicorn/require-array-sort-compare": {
       "count": 2
     }
@@ -2061,9 +1999,6 @@
       "count": 2
     },
     "unicorn/name-replacements": {
-      "count": 1
-    },
-    "unicorn/prefer-ternary": {
       "count": 1
     }
   },
@@ -2457,9 +2392,6 @@
     },
     "unicorn/prefer-continue": {
       "count": 2
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/sql/optimizer/expression_rewriter.ts": {
@@ -2517,9 +2449,6 @@
     "unicorn/prefer-includes": {
       "count": 3
     },
-    "unicorn/prefer-ternary": {
-      "count": 17
-    },
     "unicorn/switch-case-braces": {
       "count": 12
     }
@@ -2560,9 +2489,6 @@
     },
     "unicorn/prefer-combined-guards": {
       "count": 1
-    },
-    "unicorn/prefer-ternary": {
-      "count": 6
     },
     "unicorn/switch-case-braces": {
       "count": 12
@@ -2643,9 +2569,6 @@
     "unicorn/prefer-set-methods": {
       "count": 8
     },
-    "unicorn/prefer-ternary": {
-      "count": 1
-    },
     "unicorn/switch-case-braces": {
       "count": 11
     }
@@ -2708,9 +2631,6 @@
     },
     "unicorn/prefer-continue": {
       "count": 1
-    },
-    "unicorn/prefer-ternary": {
-      "count": 2
     }
   },
   "src/sql/optimizer/join_order.ts": {
@@ -2843,9 +2763,6 @@
     "unicorn/numeric-separators-style": {
       "count": 1
     },
-    "unicorn/prefer-ternary": {
-      "count": 1
-    },
     "unicorn/switch-case-braces": {
       "count": 27
     }
@@ -2932,9 +2849,6 @@
     "unicorn/no-array-sort": {
       "count": 1
     },
-    "unicorn/prefer-ternary": {
-      "count": 2
-    },
     "unicorn/require-array-sort-compare": {
       "count": 1
     }
@@ -2989,9 +2903,6 @@
     },
     "unicorn/prefer-early-return": {
       "count": 1
-    },
-    "unicorn/prefer-ternary": {
-      "count": 2
     }
   },
   "src/sql/optimizer/tests/full_pipeline.test.ts": {
@@ -3154,9 +3065,6 @@
       "count": 6
     },
     "unicorn/no-array-callback-reference": {
-      "count": 1
-    },
-    "unicorn/prefer-ternary": {
       "count": 1
     }
   },
@@ -3495,9 +3403,6 @@
     },
     "unicorn/prefer-includes-over-repeated-comparisons": {
       "count": 1
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/sql/parser/parser/ddl.ts": {
@@ -3597,9 +3502,6 @@
     },
     "unicorn/prefer-string-slice": {
       "count": 1
-    },
-    "unicorn/prefer-ternary": {
-      "count": 2
     }
   },
   "src/sql/parser/parser/index.ts": {
@@ -3848,12 +3750,6 @@
     }
   },
   "src/store/catalog.ts": {
-    "@typescript-eslint/naming-convention": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "@typescript-eslint/prefer-readonly": {
       "count": 2
     },
@@ -4088,7 +3984,7 @@
       "count": 3
     },
     "unicorn/consistent-boolean-name": {
-      "count": 4
+      "count": 1
     },
     "unicorn/consistent-class-member-order": {
       "count": 1
@@ -4100,9 +3996,6 @@
       "count": 1
     },
     "unicorn/prefer-simple-condition-first": {
-      "count": 1
-    },
-    "unicorn/prefer-ternary": {
       "count": 1
     }
   },
@@ -4529,9 +4422,6 @@
     },
     "unicorn/prefer-continue": {
       "count": 1
-    },
-    "unicorn/prefer-ternary": {
-      "count": 1
     }
   },
   "src/types.ts": {
@@ -4677,9 +4567,6 @@
       "count": 1
     },
     "unicorn/prefer-split-limit": {
-      "count": 1
-    },
-    "unicorn/prefer-ternary": {
       "count": 1
     },
     "unicorn/require-array-sort-compare": {

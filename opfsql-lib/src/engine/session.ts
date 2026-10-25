@@ -9,20 +9,27 @@ import type {
   TransactionOptions,
 } from "./api/index.js";
 import type { SessionCore } from "./session-core.js";
-import type { PreparedPlan } from "./statements.js";
+import type { Step } from "./statements.js";
 
 /**
  * A connection to the database inside the worker: its own transaction, its
  * own snapshot. Calls run one at a time, in the order they were made. Close
  * it when done; one that is garbage-collected is closed by its engine.
- *
- * Every method awaits its call before it returns: the suspended method keeps
- * the handle reachable, so a session nobody holds is never collected — and
- * closed — under a call still running on it.
  */
 export class Session implements SessionContract, AsyncDisposable {
   /** Engine.connect() makes sessions. */
   constructor(private readonly core: SessionCore) {}
+
+  /**
+   * Waits for `call` on this handle's behalf. While the wait is suspended it
+   * keeps the handle reachable, so a session nobody else holds is never
+   * collected — and closed — under a call still running on it. Every method
+   * that starts a call goes through here; returning the call's promise
+   * directly would drop that guarantee.
+   */
+  private async keptAliveUntil<T>(call: Promise<T>): Promise<T> {
+    return await call;
+  }
 
   private async rollbackQuietly(): Promise<void> {
     try {
@@ -43,14 +50,12 @@ export class Session implements SessionContract, AsyncDisposable {
     parameters?: readonly Value[],
     options: CallOptions = {},
   ): Promise<Result> {
-    const result = await this.core.query(sql, parameters, options);
-    return result;
+    return this.keptAliveUntil(this.core.query(sql, parameters, options));
   }
 
   /** Runs a script of statements; see docs/api.md for how they commit. */
   async execute(script: string, options: CallOptions = {}): Promise<Result[]> {
-    const results = await this.core.execute(script, options);
-    return results;
+    return this.keptAliveUntil(this.core.execute(script, options));
   }
 
   /** Parses and binds one statement for repeated runs. */
@@ -58,21 +63,21 @@ export class Session implements SessionContract, AsyncDisposable {
     sql: string,
     options: CallOptions = {},
   ): Promise<PreparedStatement> {
-    const plan = await this.core.prepare(sql, options);
-    return new PreparedStatement(this, this.core, plan);
+    const step = await this.keptAliveUntil(this.core.prepare(sql, options));
+    return new PreparedStatement(this, this.core, step);
   }
 
   /** BEGIN, deferred unless `options.mode` says otherwise. */
   async begin(options: TransactionOptions = {}): Promise<void> {
-    await this.core.begin(options);
+    await this.keptAliveUntil(this.core.begin(options));
   }
 
   async commit(options: CallOptions = {}): Promise<void> {
-    await this.core.commit(options);
+    await this.keptAliveUntil(this.core.commit(options));
   }
 
   async rollback(options: CallOptions = {}): Promise<void> {
-    await this.core.rollback(options);
+    await this.keptAliveUntil(this.core.rollback(options));
   }
 
   /**
@@ -97,8 +102,7 @@ export class Session implements SessionContract, AsyncDisposable {
 
   /** The schema this session sees. */
   async schema(options: CallOptions = {}): Promise<Schema> {
-    const schema = await this.core.schema(options);
-    return schema;
+    return this.keptAliveUntil(this.core.schema(options));
   }
 
   async close(): Promise<void> {
@@ -121,12 +125,17 @@ export class PreparedStatement implements StatementContract, Disposable {
     /** The session it runs on; kept alive while the statement is. */
     readonly session: Session,
     private readonly core: SessionCore,
-    private readonly plan: PreparedPlan,
+    private readonly step: Step,
   ) {}
+
+  /** See Session.keptAliveUntil: the statement keeps its session alive. */
+  private async keptAliveUntil<T>(call: Promise<T>): Promise<T> {
+    return await call;
+  }
 
   /** Result column names as of the last bind; empty for writes. */
   get columns(): readonly string[] {
-    return this.plan.columns;
+    return this.step.columns;
   }
 
   async query(
@@ -134,8 +143,8 @@ export class PreparedStatement implements StatementContract, Disposable {
     options: CallOptions = {},
   ): Promise<Result> {
     if (this.isClosed) throw new MisuseError("the statement is closed");
-    const result = await this.core.runPrepared(this.plan, parameters, options);
-    return result;
+    const call = this.core.runPrepared(this.step, parameters, options);
+    return this.keptAliveUntil(call);
   }
 
   close(): void {

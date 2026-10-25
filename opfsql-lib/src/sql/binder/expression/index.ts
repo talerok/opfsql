@@ -42,7 +42,7 @@ export function bindExpression(
     case ExpressionClass.CONSTANT:
       return bindConstant(expr as ConstantExpression);
     case ExpressionClass.PARAMETER:
-      return bindParameter(expr as ParameterExpression);
+      return bindParameter(ctx, expr as ParameterExpression);
     case ExpressionClass.COMPARISON:
       return bindComparison(ctx, expr as ComparisonExpression, scope, aggCtx);
     case ExpressionClass.CONJUNCTION:

@@ -7,6 +7,11 @@ export interface BindContext {
   nextTableIndex(): number;
   resetTableIndex(): void;
   createScope(): BindScope;
+  /** Records a bound parameter: $n with 0-based index n - 1. */
+  noteParameter(index: number): void;
+  /** The highest parameter number bound since the reset ($3 → 3). */
+  parameterCount(): number;
+  resetParameters(): void;
 }
 
 export interface AggregateContext {
@@ -17,6 +22,7 @@ export interface AggregateContext {
 
 export function createBindContext(catalog: ICatalog): BindContext {
   let seq = 0;
+  let parameters = 0;
   const nextTableIndex = () => seq++;
   return {
     catalog,
@@ -25,5 +31,12 @@ export function createBindContext(catalog: ICatalog): BindContext {
       seq = 0;
     },
     createScope: () => new BindScope(nextTableIndex),
+    noteParameter: (index) => {
+      parameters = Math.max(parameters, index + 1);
+    },
+    parameterCount: () => parameters,
+    resetParameters: () => {
+      parameters = 0;
+    },
   };
 }

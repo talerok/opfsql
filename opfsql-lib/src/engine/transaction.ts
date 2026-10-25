@@ -1,4 +1,5 @@
-import { SerializationError } from "../errors.js";
+import { InternalError, SerializationError } from "../errors.js";
+import type { CatalogChange } from "../executor/types.js";
 import { SyncIndexManager } from "../store/index-manager.js";
 import type { SessionStore } from "../store/session-store.js";
 import type { Value } from "../values/index.js";
@@ -6,7 +7,7 @@ import type { Result, TransactionMode } from "./api/index.js";
 import { RecordingTableManager } from "./rows.js";
 import {
   type SchemaLoader,
-  stageSchema,
+  stageSchemaChanges,
   type VersionedSchema,
   withChanges,
 } from "./schema.js";
@@ -24,9 +25,8 @@ export interface TransactionHost {
    * with other tabs first unless this engine holds the write lock.
    */
   pin(store: SessionStore, signal: AbortSignal): Promise<number>;
-  latestSchemaVersion(): number;
-  /** Deferred maintenance (checkpoints), run under the lock after a commit. */
-  maintain(): void;
+  /** Copies the WAL into the database file when the WAL asks for it. */
+  checkpointIfNeeded(): void;
 }
 
 /** Where a transaction runs: its session's store and its engine. */
@@ -34,6 +34,12 @@ export interface TransactionContext {
   readonly store: SessionStore;
   readonly host: TransactionHost;
 }
+
+/**
+ * Active until committed or rolled back (ended); aborted by a failed
+ * statement, holding nothing, until rolled back.
+ */
+type TransactionState = "active" | "aborted" | "ended";
 
 /**
  * A unit of work: one pinned snapshot, the schema stored in it, and the write
@@ -65,9 +71,11 @@ export class Transaction {
     }
   }
 
-  private state: "active" | "aborted" = "active";
+  private state: TransactionState = "active";
   /** `base`, or `base` with this transaction's own DDL. */
   private working: VersionedSchema;
+  /** This transaction's DDL in order: what its commit stores. */
+  private readonly changes: CatalogChange[] = [];
 
   private constructor(
     private readonly context: TransactionContext,
@@ -78,31 +86,57 @@ export class Transaction {
     this.working = base;
   }
 
+  private assertActive(): void {
+    if (this.state !== "active") {
+      throw new InternalError(`the transaction is ${this.state}`);
+    }
+  }
+
+  /** The schema version this transaction's commit stores, if it changes it. */
+  private get nextVersion(): number {
+    return this.base.version + 1;
+  }
+
+  /** One commit: the schema changes staged with the pages. */
+  private write(): void {
+    if (this.changes.length > 0) {
+      stageSchemaChanges(this.context.store, this.changes, this.nextVersion);
+    }
+    this.context.store.commit();
+  }
+
+  /** The schema just stored is the working one: keep it for others to reuse. */
+  private rememberSchema(): void {
+    if (this.changes.length === 0) return;
+    const schema = { version: this.nextVersion, catalog: this.working.catalog };
+    this.context.host.schemas.remember(schema);
+  }
+
   private discard(): void {
     try {
       this.context.store.rollback();
     } finally {
-      this.release();
+      this.releaseWithCheckpoint();
     }
   }
 
   /**
-   * Maintenance runs after the snapshot is gone and before the lock is; the
-   * lock goes whatever fails before it, or every writer in every tab would
-   * wait for it until this tab died.
+   * Releases the snapshot, then checkpoints if the WAL asks for it — that
+   * needs the lock, and no snapshot of ours holding it back — then releases
+   * the lock. The lock goes whatever failed before it, or every writer in
+   * every tab would wait for it until this tab died.
    */
-  private release(): void {
+  private releaseWithCheckpoint(): void {
     const lease = this.lease;
     this.lease = null;
     try {
       this.context.store.endSnapshot();
-      if (lease !== null) this.context.host.maintain();
+      if (lease !== null) this.context.host.checkpointIfNeeded();
     } finally {
       lease?.release();
     }
   }
 
-  /** Aborted: its work is discarded, its lock and snapshot released. */
   get isAborted(): boolean {
     return this.state === "aborted";
   }
@@ -117,16 +151,14 @@ export class Transaction {
    * that fails instead.
    */
   async makeWritable(signal: AbortSignal): Promise<void> {
+    this.assertActive();
     if (this.lease !== null) return;
     this.lease = await acquire(this.context, signal);
-    const hasSchemaMoved =
-      this.context.host.latestSchemaVersion() !== this.base.version;
-    if (hasSchemaMoved || this.context.store.isSnapshotStale()) {
-      throw new SerializationError();
-    }
+    if (this.context.store.isSnapshotStale()) throw new SerializationError();
   }
 
   run(step: Step, parameters: readonly Value[] | undefined): Result {
+    this.assertActive();
     const { catalog } = this.working;
     const { store } = this.context;
     const target = {
@@ -136,45 +168,38 @@ export class Transaction {
     };
     const outcome = runBound(step.bind(catalog), target, parameters);
     if (outcome.changes.length > 0) {
-      this.working = {
-        version: this.base.version,
-        catalog: withChanges(catalog, outcome.changes),
-      };
+      this.changes.push(...outcome.changes);
+      const changed = withChanges(catalog, outcome.changes);
+      this.working = { version: this.base.version, catalog: changed };
     }
     return outcome.result;
   }
 
   /** Commits; if that fails, nothing of the transaction remains. */
   commit(): void {
-    const isSchemaChanged = this.working !== this.base;
-    const version = this.base.version + 1;
+    this.assertActive();
+    this.state = "ended";
     try {
-      if (isSchemaChanged) {
-        stageSchema(this.context.store, this.working.catalog, version);
-      }
-      this.context.store.commit();
+      this.write();
     } catch (error) {
       this.discard();
       throw error;
     }
-    if (isSchemaChanged) {
-      this.context.host.schemas.remember({
-        version,
-        catalog: this.working.catalog,
-      });
-    }
-    this.release();
+    this.rememberSchema();
+    this.releaseWithCheckpoint();
   }
 
   rollback(): void {
-    if (this.state === "active") this.discard();
+    const wasActive = this.state === "active";
+    this.state = "ended";
+    if (wasActive) this.discard();
   }
 
   /** A failed statement aborts its transaction and frees what it holds at once. */
   abort(): void {
-    if (this.state === "aborted") return;
-    this.discard();
+    if (this.state !== "active") return;
     this.state = "aborted";
+    this.discard();
   }
 }
 

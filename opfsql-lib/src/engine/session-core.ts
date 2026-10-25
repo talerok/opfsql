@@ -19,14 +19,8 @@ import {
 import { describeSchema } from "./describe-schema.js";
 import type { VersionedSchema } from "./schema.js";
 import { linkSignals } from "./signals.js";
-import {
-  beginMode,
-  freshStep,
-  parseScript,
-  PreparedPlan,
-  statementKind,
-  type Step,
-} from "./statements.js";
+import { bindAhead, eachStep, StepFailure } from "./script.js";
+import { beginMode, checkParameters, parseScript, Step } from "./statements.js";
 import { TaskQueue } from "./task-queue.js";
 import {
   Transaction,
@@ -43,13 +37,6 @@ export interface SessionHost extends TransactionHost {
 }
 
 type ParameterValues = readonly Value[] | undefined;
-
-/** How a failed step's error is reported: located in a script, as is otherwise. */
-type Report = (error: unknown, index: number) => unknown;
-
-const asIs: Report = (error) => error;
-const located: Report = (error, index) =>
-  locateStatement(toOpfsqlError(error), index);
 
 /**
  * A session's state and rules; Session is the handle callers hold. Calls run
@@ -91,11 +78,10 @@ export class SessionCore {
     if (this.state !== "open") throw new MisuseError("the session is closed");
     const linked = linkSignals([options.signal, this.lifetime.signal]);
     try {
-      return await this.queue.run(async () => {
-        const value = await task(linked.signal);
-        this.endCallScope();
-        return value;
-      }, linked.signal);
+      return await this.queue.run(
+        async () => this.inTurn(task, linked.signal),
+        linked.signal,
+      );
     } catch (error) {
       throw toOpfsqlError(error, sql);
     } finally {
@@ -103,12 +89,25 @@ export class SessionCore {
     }
   }
 
-  /** A session shared by unrelated callers keeps no transaction past a call. */
-  private endCallScope(): void {
+  /** One call's turn: its task, then no transaction left where none may stay. */
+  private async inTurn<T>(
+    task: (signal: AbortSignal) => Promise<T> | T,
+    signal: AbortSignal,
+  ): Promise<T> {
+    const value = await task(signal);
+    this.rejectLeftoverTransaction();
+    return value;
+  }
+
+  /**
+   * A session shared by unrelated callers keeps no transaction past a call:
+   * one left open is rolled back, and the call fails with MISUSE.
+   */
+  private rejectLeftoverTransaction(): void {
     const transaction = this.transaction;
-    if (transaction === null || this.options.callScopedTransactions !== true) {
-      return;
-    }
+    const isLeftOver =
+      transaction !== null && this.options.callScopedTransactions === true;
+    if (!isLeftOver) return;
     this.transaction = null;
     transaction.rollback();
     throw new MisuseError(
@@ -116,84 +115,139 @@ export class SessionCore {
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Running statements
+  // -------------------------------------------------------------------------
+
   /**
-   * Outside a transaction, statements that do not control transactions run
-   * as one; otherwise each runs as if sent alone, and a failure rolls back
-   * a transaction begun by these steps, so no call leaves one behind.
+   * A script: outside a transaction, and controlling none, it runs as one
+   * transaction; otherwise its statements run one by one, and a failure
+   * rolls back a transaction the script began. Failures are StepFailures.
    */
-  private async runSteps(
+  private async runScript(
     steps: readonly Step[],
-    parameters: ParameterValues,
     signal: AbortSignal,
-    report: Report,
   ): Promise<Result[]> {
-    const hasControl = steps.some(
-      (step) => statementKind(step.statement) === "transaction",
-    );
-    if (!hasControl && this.transaction === null) {
-      return this.runAtomically(steps, parameters, signal, report);
-    }
-    const before = this.transaction;
-    const results: Result[] = [];
-    for (const [index, step] of steps.entries()) {
-      try {
-        results.push(await this.runOne(step, parameters, signal));
-      } catch (error) {
-        this.endBegunSince(before);
-        throw report(error, index);
-      }
-    }
-    return results;
+    const isOneTransaction =
+      this.transaction === null &&
+      steps.every((step) => step.kind !== "transaction");
+    if (isOneTransaction) return this.runAsOne(steps, signal);
+    return this.runInOrder(steps, signal);
   }
 
-  private async runAtomically(
+  private async runAsOne(
     steps: readonly Step[],
-    parameters: ParameterValues,
     signal: AbortSignal,
-    report: Report,
   ): Promise<Result[]> {
     if (steps.length === 0) return [];
-    const isWriting = steps.some(
-      (step) => statementKind(step.statement) === "write",
-    );
-    const mode = isWriting ? "immediate" : "deferred";
-    const transaction = await Transaction.begin(this.context, mode, signal);
-    const results: Result[] = [];
-    for (const [index, step] of steps.entries()) {
-      try {
-        results.push(transaction.run(step, parameters));
-      } catch (error) {
-        transaction.rollback();
-        throw report(error, index);
-      }
+    const transaction = await this.beginForScript(steps, signal);
+    try {
+      const results = await eachStep(steps, (step) =>
+        transaction.run(step, undefined),
+      );
+      transaction.commit();
+      return results;
+    } catch (error) {
+      transaction.rollback();
+      throw error;
     }
-    transaction.commit();
-    return results;
   }
 
+  private async runInOrder(
+    steps: readonly Step[],
+    signal: AbortSignal,
+  ): Promise<Result[]> {
+    const before = this.transaction;
+    try {
+      return await eachStep(steps, async (step) =>
+        this.runOne(step, undefined, signal),
+      );
+    } catch (error) {
+      this.endBegunSince(before);
+      throw error;
+    }
+  }
+
+  /**
+   * A script that writes takes the lock before its first statement. Its
+   * statements are bound first, against the latest schema, as far as they
+   * can be — up to the first DDL, which may change what later ones bind
+   * against — so one that cannot bind fails without waiting for the lock.
+   */
+  private async beginForScript(
+    steps: readonly Step[],
+    signal: AbortSignal,
+  ): Promise<Transaction> {
+    const isWriting = steps.some((step) => step.kind === "write");
+    if (isWriting) {
+      await this.withLatestSchema(signal, ({ catalog }) => {
+        bindAhead(steps, catalog);
+      });
+    }
+    const mode = isWriting ? "immediate" : "deferred";
+    return Transaction.begin(this.context, mode, signal);
+  }
+
+  /** One statement, as if sent alone: query(), a prepared statement, a script's step. */
   private async runOne(
     step: Step,
     parameters: ParameterValues,
     signal: AbortSignal,
   ): Promise<Result> {
     const statement = step.statement;
-    if (statement.type === StatementType.TRANSACTION_STATEMENT) {
+    if (isControl(statement)) {
       await this.control(statement, signal);
       return emptyResult;
     }
     const transaction = this.transaction;
-    if (transaction === null) {
-      const results = await this.runAtomically(
-        [step],
-        parameters,
-        signal,
-        asIs,
-      );
-      return results.at(0) ?? emptyResult;
+    if (transaction === null) return this.runAlone(step, parameters, signal);
+    return this.runInTransaction(transaction, step, parameters, signal);
+  }
+
+  /**
+   * A statement in a transaction of its own. A write is bound against the
+   * latest schema before it waits for the lock, so one that cannot bind
+   * fails at once; the bind after the lock is the one that counts.
+   */
+  private async runAlone(
+    step: Step,
+    parameters: ParameterValues,
+    signal: AbortSignal,
+  ): Promise<Result> {
+    const isWrite = step.kind === "write";
+    if (isWrite) {
+      await this.withLatestSchema(signal, ({ catalog }) => {
+        checkParameters(step.bind(catalog), parameters);
+      });
     }
+    const mode = isWrite ? "immediate" : "deferred";
+    const transaction = await Transaction.begin(this.context, mode, signal);
+    let result: Result;
+    try {
+      result = transaction.run(step, parameters);
+    } catch (error) {
+      transaction.rollback();
+      throw error;
+    }
+    transaction.commit();
+    return result;
+  }
+
+  /**
+   * A statement in the open transaction. Its first write takes the lock —
+   * after the statement has bound, so a statement that cannot bind never
+   * waits. Any failure aborts the transaction.
+   */
+  private async runInTransaction(
+    transaction: Transaction,
+    step: Step,
+    parameters: ParameterValues,
+    signal: AbortSignal,
+  ): Promise<Result> {
     if (transaction.isAborted) throw new TransactionAbortedError();
     try {
-      if (statementKind(statement) === "write") {
+      if (step.kind === "write") {
+        checkParameters(step.bind(transaction.schema.catalog), parameters);
         await transaction.makeWritable(signal);
       }
       return transaction.run(step, parameters);
@@ -202,6 +256,10 @@ export class SessionCore {
       throw error;
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Transactions
+  // -------------------------------------------------------------------------
 
   private async control(
     statement: TransactionStatement,
@@ -238,6 +296,7 @@ export class SessionCore {
     if (transaction === null) return;
     this.transaction = null;
     if (transaction.isAborted) {
+      transaction.rollback();
       throw new TransactionAbortedError(
         "the transaction was aborted by an earlier error; COMMIT rolled it back",
       );
@@ -266,6 +325,14 @@ export class SessionCore {
     const transaction = this.transaction;
     if (transaction?.isAborted === true) throw new TransactionAbortedError();
     if (transaction !== null) return read(transaction.schema);
+    return this.withLatestSchema(signal, read);
+  }
+
+  /** Runs `read` on the latest committed schema, pinned for the moment. */
+  private async withLatestSchema<T>(
+    signal: AbortSignal,
+    read: (schema: VersionedSchema) => T,
+  ): Promise<T> {
     const { store } = this.context;
     const position = await this.host.pin(store, signal);
     try {
@@ -287,46 +354,44 @@ export class SessionCore {
   ): Promise<Result> {
     return this.call(options, sql, async (signal) => {
       const statement = onlyStatement(parseScript(sql), "query()");
-      const results = await this.runSteps(
-        [freshStep(statement)],
-        parameters,
-        signal,
-        asIs,
-      );
-      return results.at(0) ?? emptyResult;
+      return this.runOne(new Step(sql, statement), parameters, signal);
     });
   }
 
+  /** Runs a script; the error of a failed statement says which it was. */
   async execute(script: string, options: CallOptions): Promise<Result[]> {
     return this.call(options, script, async (signal) => {
-      const steps = parseScript(script).map((statement) =>
-        freshStep(statement),
+      const steps = parseScript(script).map(
+        (statement) => new Step(script, statement),
       );
-      return this.runSteps(steps, undefined, signal, located);
+      try {
+        return await this.runScript(steps, signal);
+      } catch (error) {
+        if (!(error instanceof StepFailure)) throw error;
+        throw locateStatement(toOpfsqlError(error.failure), error.index);
+      }
     });
   }
 
   /** Parses and binds `sql`, so a statement that cannot run fails here. */
-  async prepare(sql: string, options: CallOptions): Promise<PreparedPlan> {
+  async prepare(sql: string, options: CallOptions): Promise<Step> {
     return this.call(options, sql, async (signal) => {
-      const statement = onlyStatement(parseScript(sql), "prepare()");
-      const plan = new PreparedPlan(sql, statement);
-      if (statementKind(statement) !== "transaction") {
-        await this.withSchema(signal, (schema) => plan.bind(schema.catalog));
+      const step = new Step(sql, onlyStatement(parseScript(sql), "prepare()"));
+      if (step.kind !== "transaction") {
+        await this.withSchema(signal, (schema) => step.bind(schema.catalog));
       }
-      return plan;
+      return step;
     });
   }
 
   async runPrepared(
-    plan: PreparedPlan,
+    step: Step,
     parameters: ParameterValues,
     options: CallOptions,
   ): Promise<Result> {
-    return this.call(options, plan.sql, async (signal) => {
-      const results = await this.runSteps([plan], parameters, signal, asIs);
-      return results.at(0) ?? emptyResult;
-    });
+    return this.call(options, step.sql, async (signal) =>
+      this.runOne(step, parameters, signal),
+    );
   }
 
   async begin(options: TransactionOptions): Promise<void> {
@@ -366,6 +431,10 @@ export class SessionCore {
     this.closing ??= this.shutdown();
     return this.closing;
   }
+}
+
+function isControl(statement: Statement): statement is TransactionStatement {
+  return statement.type === StatementType.TRANSACTION_STATEMENT;
 }
 
 function onlyStatement(statements: Statement[], what: string): Statement {

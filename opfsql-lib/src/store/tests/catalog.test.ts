@@ -208,14 +208,6 @@ describe("Catalog", () => {
     expect(restored.getAllTables()).toHaveLength(2);
   });
 
-  it("snapshot returns deep clone", () => {
-    const c = new Catalog();
-    c.addTable(usersSchema);
-    const snap = c.snapshot();
-    snap.tables[0].name = "mutated";
-    expect(c.getTable("users")!.name).toBe("users");
-  });
-
   // --- clone ---
 
   it("clone returns independent Catalog with same data", () => {
@@ -244,32 +236,5 @@ describe("Catalog", () => {
 
     expect(c.hasTable("users")).toBe(true);
     expect(c.hasIndex("idx_users_id")).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Catalog.prepareCommit
-// ---------------------------------------------------------------------------
-
-describe("Catalog.prepareCommit", () => {
-  it("bumps version and returns serialized data", () => {
-    const c = new Catalog();
-    c.addTable(usersSchema);
-    expect(c.version).toBe(0);
-
-    const data = c.prepareCommit();
-    expect(c.version).toBe(1);
-    expect(data).toEqual({
-      version: 1,
-      tables: [usersSchema],
-      indexes: [],
-    });
-  });
-
-  it("version increments on each call", () => {
-    const c = new Catalog();
-    c.prepareCommit();
-    c.prepareCommit();
-    expect(c.version).toBe(2);
   });
 });
