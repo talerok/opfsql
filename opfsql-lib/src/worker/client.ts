@@ -1,6 +1,10 @@
 import type { Result } from "../engine/index.js";
 import type { CatalogData, Value } from "../types.js";
-import type { RequestPayload, ResponseMessage } from "./protocol.js";
+import {
+  fromWireError,
+  type RequestPayload,
+  type ResponseMessage,
+} from "./protocol.js";
 
 // ---------------------------------------------------------------------------
 // RemotePreparedStatement
@@ -103,7 +107,7 @@ export class WorkerEngine {
       if (!entry) return;
       this.pending.delete(data.id);
 
-      if ("error" in data) entry.reject(new Error(data.error));
+      if ("error" in data) entry.reject(fromWireError(data.error));
       else entry.resolve(data);
     };
 

@@ -1,7 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./infra/fixtures";
 import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
 
-test.describe("Checkpoint between tabs", () => {
+test.describe("Checkpoint between tabs", { tag: "@multi-tab" }, () => {
   test("Tab A reopens (WAL replay), Tab B sees all data", async ({
     context,
   }) => {

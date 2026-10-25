@@ -26,6 +26,7 @@ export default defineConfig({
             "src/engine/tests/explain-format.test.ts",
             "src/engine/tests/integrity.test.ts",
             "src/engine/tests/multi-tab.test.ts",
+            "src/engine/tests/open.test.ts",
             "src/engine/tests/snapshot.test.ts",
             "src/engine/tests/storage-efficiency.test.ts",
           ],

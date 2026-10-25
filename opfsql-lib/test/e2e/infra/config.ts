@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
 const e2eDir = new URL("..", import.meta.url).pathname;
 
@@ -11,8 +11,23 @@ export default defineConfig({
 
   use: {
     baseURL: "http://localhost:5176",
-    browserName: "chromium",
   },
+
+  // Several tabs on one database need concurrent OPFS sync access handles,
+  // which only Chromium has; the other browsers run the one-tab tests.
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+      grepInvert: /@multi-tab/,
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+      grepInvert: /@multi-tab/,
+    },
+  ],
 
   webServer: {
     command: "npx vite --config fixture/vite.config.ts",

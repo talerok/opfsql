@@ -1,7 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./infra/fixtures";
 import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
 
-test.describe("Cross-tab read visibility", () => {
+test.describe("Cross-tab read visibility", { tag: "@multi-tab" }, () => {
   test("Tab A writes → Tab B sees data", async ({ context }) => {
     const tabA = await openTab(context);
     await initDb(tabA);

@@ -1,7 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./infra/fixtures";
 import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
 
-test.describe("Tab resilience after close", () => {
+test.describe("Tab resilience after close", { tag: "@multi-tab" }, () => {
   test("Tab B continues after Tab A closes", async ({ context }) => {
     const tabA = await openTab(context);
     await initDb(tabA);

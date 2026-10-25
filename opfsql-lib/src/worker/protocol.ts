@@ -26,4 +26,23 @@ export type ResponseMessage =
   | { id: number; sessionId: string }
   | { id: number; stmtId: number }
   | { id: number; schema: CatalogData }
-  | { id: number; error: string };
+  | { id: number; error: WireError };
+
+/** An error crossing the worker boundary keeps its name, like DOMException. */
+export interface WireError {
+  name: string;
+  message: string;
+}
+
+export function toWireError(err: unknown): WireError {
+  return err instanceof Error
+    ? { name: err.name, message: err.message }
+    : { name: "Error", message: String(err) };
+}
+
+/** Rebuilds an error on the client side; check it by `name`, not instanceof. */
+export function fromWireError({ name, message }: WireError): Error {
+  const err = new Error(message);
+  err.name = name;
+  return err;
+}

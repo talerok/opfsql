@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./infra/fixtures";
 import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
 
 // Enough single-row commits to pass the default checkpoint threshold
@@ -23,7 +23,7 @@ async function count(
   return result.rows[0].n;
 }
 
-test.describe("Snapshots across tabs", () => {
+test.describe("Snapshots across tabs", { tag: "@multi-tab" }, () => {
   test("a transaction keeps its snapshot through another tab's checkpoints", async ({
     context,
   }) => {

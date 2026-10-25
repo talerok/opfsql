@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./infra/fixtures";
 import {
   openTab,
   initDb,
@@ -10,30 +10,32 @@ import {
 } from "./infra/db";
 
 test.describe("Uncommitted data not visible", () => {
-  test("BEGIN without COMMIT — other tab does not see data", async ({
-    context,
-  }) => {
-    const tabA = await openTab(context);
-    await initDb(tabA);
-    await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
-    await exec(tabA, "INSERT INTO t VALUES (1, 'committed')");
+  test(
+    "BEGIN without COMMIT — other tab does not see data",
+    { tag: "@multi-tab" },
+    async ({ context }) => {
+      const tabA = await openTab(context);
+      await initDb(tabA);
+      await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
+      await exec(tabA, "INSERT INTO t VALUES (1, 'committed')");
 
-    // Tab A starts transaction but does not commit
-    await exec(tabA, "BEGIN");
-    await exec(tabA, "INSERT INTO t VALUES (2, 'will-be-lost')");
-    await exec(tabA, "INSERT INTO t VALUES (3, 'also-lost')");
+      // Tab A starts transaction but does not commit
+      await exec(tabA, "BEGIN");
+      await exec(tabA, "INSERT INTO t VALUES (2, 'will-be-lost')");
+      await exec(tabA, "INSERT INTO t VALUES (3, 'also-lost')");
 
-    // Tab B should NOT see uncommitted rows
-    const tabB = await openTab(context);
-    await openDb(tabB);
+      // Tab B should NOT see uncommitted rows
+      const tabB = await openTab(context);
+      await openDb(tabB);
 
-    const results = await exec(tabB, "SELECT * FROM t ORDER BY id");
-    expect(results[0].rows).toEqual([{ id: 1, val: "committed" }]);
+      const results = await exec(tabB, "SELECT * FROM t ORDER BY id");
+      expect(results[0].rows).toEqual([{ id: 1, val: "committed" }]);
 
-    await closeDb(tabB);
-    await closeDb(tabA);
-    await cleanOpfs(tabA);
-  });
+      await closeDb(tabB);
+      await closeDb(tabA);
+      await cleanOpfs(tabA);
+    },
+  );
 
   test("Crash with open transaction — uncommitted data lost", async ({
     context,
@@ -60,7 +62,7 @@ test.describe("Uncommitted data not visible", () => {
     await cleanOpfs(tabB);
   });
 
-  test("ROLLBACK discards data", async ({ context }) => {
+  test("ROLLBACK discards data", { tag: "@multi-tab" }, async ({ context }) => {
     const tabA = await openTab(context);
     await initDb(tabA);
     await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY)");

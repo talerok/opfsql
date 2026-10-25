@@ -20,6 +20,21 @@ export class PageOverflowError extends StorageError {
 }
 
 /**
+ * Another tab already has the database open, and this browser lets only one
+ * tab open its files: only Chromium supports several tabs per database.
+ */
+export class DatabaseInUseError extends StorageError {
+  override readonly name = "DatabaseInUseError";
+
+  constructor(dbName: string, cause: unknown) {
+    super(
+      `database "${dbName}" is open in another tab, and this browser allows only one tab per database`,
+      { cause },
+    );
+  }
+}
+
+/**
  * A failed WAL append could not be undone, so whether that transaction is
  * durable is unknown. The WAL refuses further commits; reopening the database
  * recovers whatever is on disk.

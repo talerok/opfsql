@@ -1,7 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./infra/fixtures";
 import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
 
-test.describe("Concurrent writes", () => {
+test.describe("Concurrent writes", { tag: "@multi-tab" }, () => {
   test("Both tabs write autocommit — all data preserved", async ({
     context,
   }) => {

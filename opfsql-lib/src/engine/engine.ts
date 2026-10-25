@@ -1,6 +1,7 @@
 import { Parser } from "../parser/index.js";
 import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
 import { Catalog } from "../store/catalog.js";
+import { DatabaseInUseError } from "../store/errors.js";
 import { Storage } from "../store/storage.js";
 import type { SyncIPageStorage } from "../store/types.js";
 import { ReadMarks } from "../store/wal/read-marks.js";
@@ -46,31 +47,39 @@ export class Engine {
     private readonly lockName: string | null,
   ) {}
 
-  /** Open a named OPFS database with WAL. Use inside a worker. */
+  /**
+   * Open a named OPFS database with WAL. Use inside a worker. Throws
+   * DatabaseInUseError when another tab has it open in a browser that allows
+   * only one tab per database (all but Chromium).
+   */
   static async open(
     dbName: string,
     options: OpenOptions = {},
   ): Promise<Engine> {
-    const mainStorage = new OPFSSyncStorage(dbName, {
-      pageSize: options.pageSize,
-    });
     const root = await navigator.storage.getDirectory();
-    const openShared = async (file: string) =>
-      (await root.getFileHandle(file, { create: true })).createSyncAccessHandle(
-        { mode: "readwrite-unsafe" },
-      );
     const lockName = `opfsql:${dbName}`;
-
-    const wal = new WalStorage(
-      mainStorage,
-      await openShared(`${dbName}.opfsql-wal`),
-      options.checkpointThreshold,
-      await ReadMarks.open(await openShared(`${dbName}.opfsql-shm`), lockName),
-    );
-    return Engine.create(wal, {
-      onCheckpointError: options.onCheckpointError,
-      lockName,
-    });
+    const main = new OPFSSyncStorage(dbName, { pageSize: options.pageSize });
+    const opened: Array<{ close(): void }> = [main];
+    try {
+      const walHandle = await openShared(root, `${dbName}.opfsql-wal`);
+      opened.push(walHandle);
+      const shmHandle = await openShared(root, `${dbName}.opfsql-shm`);
+      const marks = await ReadMarks.open(shmHandle, lockName);
+      opened.push(marks);
+      const wal = new WalStorage(
+        main,
+        walHandle,
+        options.checkpointThreshold,
+        marks,
+      );
+      return await Engine.create(wal, {
+        onCheckpointError: options.onCheckpointError,
+        lockName,
+      });
+    } catch (err) {
+      for (const resource of opened.reverse()) closeQuietly(resource);
+      throw isHeldByAnotherTab(err) ? new DatabaseInUseError(dbName, err) : err;
+    }
   }
 
   /** Create engine with a custom storage backend. */
@@ -205,5 +214,32 @@ export class Engine {
         });
       });
     });
+  }
+}
+
+/** Opens a file several tabs may hold at once, where the browser allows it. */
+async function openShared(root: FileSystemDirectoryHandle, name: string) {
+  const file = await root.getFileHandle(name, { create: true });
+  return file.createSyncAccessHandle({ mode: "readwrite-unsafe" });
+}
+
+/**
+ * How browsers without concurrent sync handles refuse a second one: Firefox
+ * throws NoModificationAllowedError, WebKit InvalidStateError.
+ */
+function isHeldByAnotherTab(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === "NoModificationAllowedError" ||
+      err.name === "InvalidStateError")
+  );
+}
+
+/** Cleanup after a failed open must not hide the error that caused it. */
+function closeQuietly(resource: { close(): void }): void {
+  try {
+    resource.close();
+  } catch {
+    // the open already failed; its error is the one worth reporting
   }
 }

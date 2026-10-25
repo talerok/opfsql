@@ -96,7 +96,7 @@ export class OPFSSyncStorage implements SyncIPageStorage {
   }
 
   close(): void {
-    this.handle.close();
+    this.handle?.close();
     this.handle = undefined!;
   }
 

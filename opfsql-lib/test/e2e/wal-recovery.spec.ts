@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./infra/fixtures";
 import {
   openTab,
   initDb,

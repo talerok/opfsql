@@ -1,7 +1,11 @@
 import { Engine, PreparedStatement } from "../engine/index.js";
 import type { Session } from "../engine/session.js";
 import type { CatalogData, Value } from "../types.js";
-import type { RequestMessage, ResponseMessage } from "./protocol.js";
+import {
+  toWireError,
+  type RequestMessage,
+  type ResponseMessage,
+} from "./protocol.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -185,10 +189,7 @@ async function handleMessage(
     result.id = data.id;
     reply(result);
   } catch (err) {
-    const id = data.id;
-    const isError = err instanceof Error;
-    const error = isError ? err.message : String(err);
-    reply({ id, error });
+    reply({ id: data.id, error: toWireError(err) });
   }
 }
 

@@ -40,25 +40,34 @@ export class ReadMarks {
     private readonly releaseSlot: () => void,
   ) {}
 
-  /** Opens the shared file (initialising it if needed) and claims a slot. */
+  /**
+   * Opens the shared file (initialising it if needed) and claims a slot.
+   * Takes ownership of `handle`: it is closed with the marks, or right away
+   * if opening fails.
+   */
   static async open(
     handle: ISyncFileHandle,
     lockName: string,
   ): Promise<ReadMarks> {
-    await navigator.locks.request(`${lockName}:shm-init`, () => {
-      if (!isInitialised(handle)) initialise(handle);
-    });
-    for (let slot = 0; slot < SLOT_COUNT; slot++) {
-      const release = await holdIfAvailable(slotLock(lockName, slot));
-      if (!release) continue;
-      const marks = new ReadMarks(handle, lockName, slot, release);
-      marks.publish(null); // whatever a dead previous owner left
-      await marks.reclaimDeadSlots();
-      return marks;
+    try {
+      await navigator.locks.request(`${lockName}:shm-init`, () => {
+        if (!isInitialised(handle)) initialise(handle);
+      });
+      for (let slot = 0; slot < SLOT_COUNT; slot++) {
+        const release = await holdIfAvailable(slotLock(lockName, slot));
+        if (!release) continue;
+        const marks = new ReadMarks(handle, lockName, slot, release);
+        marks.publish(null); // whatever a dead previous owner left
+        await marks.reclaimDeadSlots();
+        return marks;
+      }
+      throw new StorageError(
+        `all ${SLOT_COUNT} read-mark slots are taken: too many tabs have the database open`,
+      );
+    } catch (err) {
+      handle.close();
+      throw err;
     }
-    throw new StorageError(
-      `all ${SLOT_COUNT} read-mark slots are taken: too many tabs have the database open`,
-    );
   }
 
   /** Publishes the oldest snapshot open in this tab (null: none). */
