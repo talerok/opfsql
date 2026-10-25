@@ -1,16 +1,11 @@
-// Node has no Web Locks API. Engine.open() uses it to serialize writers across
-// tabs; tests are single-threaded, so an in-process exclusive queue per lock
-// name is a faithful stand-in.
-type LockGrantedCallback = (lock: {
-  name: string;
-  mode: "exclusive";
-}) => unknown;
-
+// Node has no Web Locks API. Engines use it to serialize writers across tabs;
+// tests are single-threaded, so an in-process exclusive queue per lock name
+// is a faithful stand-in.
 const tails = new Map<string, Promise<unknown>>();
 
 function request(
   name: string,
-  callback: LockGrantedCallback,
+  callback: LockGrantedCallback<unknown>,
 ): Promise<unknown> {
   const previous = tails.get(name) ?? Promise.resolve();
   const held = previous.then(() => callback({ name, mode: "exclusive" }));

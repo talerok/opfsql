@@ -1,3 +1,4 @@
+import type { Value } from "../../../src/index.js";
 import {
   WorkerEngine,
   type Connection,
@@ -22,7 +23,7 @@ const api = {
     conn = await engine.connect();
   },
 
-  async exec(sql: string, params?: unknown[]) {
+  async exec(sql: string, params?: Value[]) {
     if (!conn) throw new Error("Not connected");
     return conn.exec(sql, params);
   },
