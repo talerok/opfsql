@@ -12,16 +12,18 @@ import {
   executeDrop,
 } from "../ddl/index.js";
 import { executeDelete, executeInsert, executeUpdate } from "../dml/index.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import type { ExecuteResult, Value } from "../types.js";
-import { createEvalContext, executeSelect } from "./select.js";
+import { checkParameters } from "./parameters.js";
 
-import type { SyncEvalContext } from "../evaluate/context.js";
+export { checkParameters } from "./parameters.js";
+import { createExecutionContext, executeSelect } from "./select.js";
 
 type ExecuteHandler = (
   plan: LogicalOperator,
   rowManager: SyncIRowManager,
   catalog: ICatalog,
-  ctx: SyncEvalContext,
+  context: ExecutionContext,
   indexManager?: SyncIIndexManager,
 ) => ExecuteResult;
 
@@ -49,11 +51,23 @@ const handlers = new Map<string, ExecuteHandler>([
   ],
   [
     LogicalOperatorType.LOGICAL_UPDATE,
-    (p, rm, _cat, ctx, im) => executeUpdate(p as any, rm, ctx, _cat, im),
+    (p, rm, _cat, ctx, im) =>
+      executeUpdate(p as any, {
+        rowManager: rm,
+        context: ctx,
+        catalog: _cat,
+        indexManager: im,
+      }),
   ],
   [
     LogicalOperatorType.LOGICAL_DELETE,
-    (p, rm, _cat, ctx, im) => executeDelete(p as any, rm, ctx, _cat, im),
+    (p, rm, _cat, ctx, im) =>
+      executeDelete(p as any, {
+        rowManager: rm,
+        context: ctx,
+        catalog: _cat,
+        indexManager: im,
+      }),
   ],
 ]);
 
@@ -65,11 +79,14 @@ export function execute(
   params?: readonly Value[],
 ): ExecuteResult {
   const handler = handlers.get(plan.type);
-  const ctx = createEvalContext(rowManager, catalog, params);
+  const context = createExecutionContext(
+    rowManager,
+    checkParameters(plan, params ?? []),
+  );
 
   if (handler) {
-    return handler(plan, rowManager, catalog, ctx, indexManager);
+    return handler(plan, rowManager, catalog, context, indexManager);
   }
 
-  return executeSelect(plan, rowManager, ctx, indexManager);
+  return executeSelect(plan, rowManager, context, indexManager);
 }

@@ -11,24 +11,24 @@ import type {
   SyncIIndexManager,
   SyncIRowManager,
 } from "../../store/types.js";
-import type { CompiledFilter } from "../evaluate/compile.js";
-import { compileFilter } from "../evaluate/compile.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import {
-  passesCompiledFilters,
-  resolveFilterValue,
+  compileTableFilters,
+  passesFilters,
+  indexSearchValue,
+  type RowFilter,
   rowToTuple,
   SCAN_BATCH,
-} from "./utils.js";
+} from "./shared.js";
 
 export class PhysicalIndexScan implements SyncPhysicalOperator {
   private rowIds: number[] | null = null;
   private cursor = 0;
   private done = false;
   private readonly layout: ColumnBinding[];
-  private readonly compiledResiduals: CompiledFilter[];
+  private readonly residuals: readonly RowFilter[];
 
   constructor(
     private readonly op: LogicalGet,
@@ -37,12 +37,17 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     private readonly indexDef: IndexDef,
     private readonly indexPredicates: IndexSearchPredicate[],
     residualFilters: TableFilter[],
-    private readonly ctx: SyncEvalContext,
+    private readonly context: ExecutionContext,
   ) {
     this.layout = op.columnBindings;
-    const resolver = buildResolver(this.layout);
-    this.compiledResiduals = residualFilters.map((f) =>
-      compileFilter(f, resolver, ctx),
+    // Every filter on the table is checked on the rows the index finds,
+    // those it covers too: the index finds rows by its own key order (and
+    // one chosen for ORDER BY covers none), while each row returned must
+    // satisfy the filters as compareValues defines them.
+    this.residuals = compileTableFilters(
+      [...new Set([...residualFilters, ...op.tableFilters])],
+      buildResolver(this.layout),
+      context,
     );
   }
 
@@ -66,9 +71,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
         if (row === null) continue;
 
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
-        if (
-          passesCompiledFilters(tuple, this.compiledResiduals, this.ctx.params)
-        ) {
+        if (passesFilters(tuple, this.residuals)) {
           batch.push(tuple);
         }
       }
@@ -90,7 +93,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     const predicates: SearchPredicate[] = this.indexPredicates.map((p) => ({
       columnPosition: p.columnPosition,
       comparisonType: p.comparisonType,
-      value: resolveFilterValue(p.value, this.ctx.params) as IndexKeyValue,
+      value: indexSearchValue(p, this.indexDef, this.context) as IndexKeyValue,
     }));
     return this.indexManager.search(this.indexDef.name, predicates);
   }

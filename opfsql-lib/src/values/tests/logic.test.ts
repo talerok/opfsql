@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Truth } from "../logic.js";
-import { and, compareSql, isIn, isSame, not, or } from "../logic.js";
+import {
+  and,
+  compareSql,
+  isIn,
+  isSame,
+  membership,
+  not,
+  or,
+} from "../logic.js";
+import type { Value } from "../value.js";
 
 const TRUTHS: Truth[] = [true, false, null];
 
@@ -59,5 +68,34 @@ describe("IN", () => {
   it("is false for an empty list, whatever the needle", () => {
     expect(isIn(null, [])).toBe(false);
     expect(not(isIn(null, []))).toBe(true);
+  });
+});
+
+describe("membership", () => {
+  const lists: Value[][] = [
+    [],
+    [1, 2],
+    [1, null],
+    [null],
+    ["1", 1, true, new Uint8Array([1]), { a: [1] }],
+  ];
+  const needles: Value[] = [
+    null,
+    1,
+    2,
+    "1",
+    true,
+    new Uint8Array([1]),
+    { a: [1] },
+    3,
+  ];
+
+  it("answers as isIn does, for every list and needle", () => {
+    for (const list of lists) {
+      const test = membership(list);
+      for (const needle of needles) {
+        expect(test(needle)).toBe(isIn(needle, list));
+      }
+    }
   });
 });

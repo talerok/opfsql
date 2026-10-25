@@ -7,7 +7,7 @@ import type {
   BoundParameterExpression,
 } from "../../binder/types.js";
 import { BoundExpressionClass } from "../../binder/types.js";
-import { FilterCombiner } from "../filter_combiner.js";
+import { FilterCombiner } from "../filter-combiner.js";
 import {
   makeColRef,
   makeIntConstant,
@@ -661,5 +661,96 @@ describe("FilterCombiner — boundary conditions", () => {
     expect(filters[0].expressionClass).toBe(
       BoundExpressionClass.BOUND_OPERATOR,
     );
+  });
+});
+
+function constantOf(
+  value: BoundConstantExpression["value"],
+  returnType: BoundConstantExpression["returnType"],
+): BoundConstantExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+    value,
+    returnType,
+  };
+}
+
+function equals(
+  left: BoundExpression,
+  right: BoundExpression,
+): BoundComparisonExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+    comparisonType: "EQUAL",
+    left,
+    right,
+    returnType: "BOOLEAN",
+  };
+}
+
+describe("FilterCombiner — values from values/", () => {
+  it("keeps a user's `flag = false`: it is not the unsatisfiable marker", () => {
+    const combiner = new FilterCombiner();
+    const flag = { ...makeColRef(0, 0), returnType: "BOOLEAN" as const };
+    combiner.addFilter(equals(flag, constantOf(false, "BOOLEAN")));
+    expect(combiner.generateFilters()).toEqual([
+      equals(flag, constantOf(false, "BOOLEAN")),
+    ]);
+    expect(combiner.generateTableFilters(0)).toEqual([
+      {
+        expression: flag,
+        comparisonType: "EQUAL",
+        constant: constantOf(false, "BOOLEAN"),
+      },
+    ]);
+  });
+
+  it("knows flag = true AND flag = false is unsatisfiable", () => {
+    const combiner = new FilterCombiner();
+    const flag = { ...makeColRef(0, 0), returnType: "BOOLEAN" as const };
+    combiner.addFilter(equals(flag, constantOf(true, "BOOLEAN")));
+    combiner.addFilter(equals(flag, constantOf(false, "BOOLEAN")));
+    expect(combiner.generateFilters()).toEqual([constantOf(false, "BOOLEAN")]);
+    expect(combiner.generateTableFilters(0)).toEqual([]);
+  });
+
+  it("compares BLOB constants by their bytes", () => {
+    const combiner = new FilterCombiner();
+    const data = { ...makeColRef(0, 0), returnType: "BLOB" as const };
+    combiner.addFilter(equals(data, constantOf(new Uint8Array([1]), "BLOB")));
+    combiner.addFilter(equals(data, constantOf(new Uint8Array([1]), "BLOB")));
+    expect(combiner.generateFilters()).toHaveLength(1);
+  });
+
+  it("orders text by code point for ranges", () => {
+    const combiner = new FilterCombiner();
+    const name = { ...makeColRef(0, 0), returnType: "TEXT" as const };
+    combiner.addFilter({
+      ...equals(name, makeStrConstant("b")),
+      comparisonType: "GREATER",
+    });
+    combiner.addFilter({
+      ...equals(name, makeStrConstant("a")),
+      comparisonType: "LESS",
+    });
+    expect(combiner.generateFilters()).toEqual([constantOf(false, "BOOLEAN")]);
+  });
+
+  it("does not reason about NULL constants", () => {
+    const combiner = new FilterCombiner();
+    const age = makeColRef(0, 0);
+    combiner.addFilter(equals(age, constantOf(null, "NULL")));
+    combiner.addFilter(equals(age, makeIntConstant(1)));
+    expect(combiner.generateFilters()).toHaveLength(2);
+  });
+});
+
+describe("FilterCombiner — comparison affinity", () => {
+  it("keeps x = 5 and x = '5' for x of unknown type: both can hold", () => {
+    const combiner = new FilterCombiner();
+    const untyped = { ...makeColRef(0, 0), returnType: "ANY" as const };
+    combiner.addFilter(equals(untyped, makeIntConstant(5)));
+    combiner.addFilter(equals(untyped, makeStrConstant("5")));
+    expect(combiner.generateFilters()).toHaveLength(2);
   });
 });

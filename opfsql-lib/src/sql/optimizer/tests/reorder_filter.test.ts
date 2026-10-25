@@ -1,3 +1,4 @@
+import { aggregateFunction, scalarFunction } from "../../../functions/index.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
   BoundCastExpression,
@@ -267,6 +268,7 @@ describe("estimateCost", () => {
       return {
         expressionClass: BoundExpressionClass.BOUND_FUNCTION,
         functionName: name,
+        function: scalarFunction("abs"),
         children,
         returnType: "INTEGER",
       };
@@ -397,6 +399,7 @@ describe("estimateCost", () => {
     const expr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
       functionName: "COUNT",
+      function: aggregateFunction("COUNT"),
       children: [],
       distinct: false,
       isStar: true,
@@ -424,6 +427,7 @@ describe("estimateCost", () => {
     const absFunc: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "ABS",
+      function: scalarFunction("ABS"),
       children: [innerAdd],
       returnType: "INTEGER",
     };
@@ -437,6 +441,7 @@ describe("estimateCost", () => {
     const upperFunc: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "UPPER",
+      function: scalarFunction("UPPER"),
       children: [textCol],
       returnType: "TEXT",
     };
@@ -573,6 +578,7 @@ describe("canThrow", () => {
     const func: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "ABS",
+      function: scalarFunction("ABS"),
       children: [makeColRef(0, 0)],
       returnType: "INTEGER",
     };
@@ -589,6 +595,7 @@ describe("canThrow", () => {
     const func: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "ABS",
+      function: scalarFunction("ABS"),
       children: [div],
       returnType: "INTEGER",
     };
@@ -639,6 +646,7 @@ describe("canThrow", () => {
     const func: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "ABS",
+      function: scalarFunction("ABS"),
       children: [div],
       returnType: "INTEGER",
     };

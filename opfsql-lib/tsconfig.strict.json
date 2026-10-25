@@ -13,9 +13,11 @@
   "include": [
     "src/errors.ts",
     "src/values",
+    "src/functions",
     "src/schema",
     "src/storage",
     "src/table",
+    "src/executor/evaluate",
     "test/support"
   ]
 }

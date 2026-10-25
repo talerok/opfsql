@@ -1,23 +1,29 @@
 import type {
-  LogicalProjection,
   ColumnBinding,
+  LogicalProjection,
 } from "../../sql/binder/types.js";
-import type { SyncPhysicalOperator, Tuple } from "../types.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import {
+  type CompiledExpression,
+  compileExpression,
+  type ExecutionContext,
+} from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
-import { evaluateExpression } from "../evaluate/index.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
 
 export class PhysicalProjection implements SyncPhysicalOperator {
-  private readonly resolver;
   private readonly layout: ColumnBinding[];
+  private readonly columns: readonly CompiledExpression[];
 
   constructor(
     private readonly child: SyncPhysicalOperator,
-    private readonly op: LogicalProjection,
-    private readonly ctx: SyncEvalContext,
+    operator: LogicalProjection,
+    context: ExecutionContext,
   ) {
-    this.resolver = buildResolver(child.getLayout());
-    this.layout = op.columnBindings;
+    const resolver = buildResolver(child.getLayout());
+    this.layout = operator.columnBindings;
+    this.columns = operator.expressions.map((expression) =>
+      compileExpression(expression, resolver, context),
+    );
   }
 
   getLayout(): ColumnBinding[] {
@@ -26,19 +32,9 @@ export class PhysicalProjection implements SyncPhysicalOperator {
 
   next(): Tuple[] | null {
     const batch = this.child.next();
-    if (!batch) return null;
-
-    const result: Tuple[] = [];
-    for (const tuple of batch) {
-      const projected: Tuple = [];
-      for (const expr of this.op.expressions) {
-        projected.push(
-          evaluateExpression(expr, tuple, this.resolver, this.ctx),
-        );
-      }
-      result.push(projected);
-    }
-    return result;
+    return batch === null
+      ? null
+      : batch.map((row) => this.columns.map((column) => column(row)));
   }
 
   reset(): void {

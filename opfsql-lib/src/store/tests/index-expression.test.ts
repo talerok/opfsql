@@ -236,7 +236,7 @@ describe("IndexExpression — case", () => {
             },
             returnType: "BOOLEAN",
           },
-          then: colRef(0),
+          result: colRef(0),
         },
       ],
       elseExpr: colRef(1),
@@ -259,7 +259,7 @@ describe("IndexExpression — case", () => {
   it("handles CASE without ELSE", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
-      caseChecks: [{ when: colRef(0), then: colRef(1) }],
+      caseChecks: [{ when: colRef(0), result: colRef(1) }],
       elseExpr: null,
       returnType: "INTEGER",
     };
@@ -387,7 +387,7 @@ describe("IndexExpression — nested expressions", () => {
             },
             returnType: "BOOLEAN",
           },
-          then: addExpr,
+          result: addExpr,
         },
       ],
       elseExpr: negExpr,

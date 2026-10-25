@@ -1,0 +1,130 @@
+# value-order.slt — one order and one equality for every operator
+# (docs/semantics.md, Order and equality): NULL < BOOLEAN < NUMBER < TEXT <
+# BLOB < JSON; text by code point, never as numbers.
+
+statement ok
+CREATE TABLE j (id INTEGER PRIMARY KEY, data JSON)
+
+statement ok
+INSERT INTO j VALUES (1, '{"v": 9}'), (2, '{"v": "10"}'), (3, '{"v": 10}'), (4, '{"v": "9"}'), (5, '{"v": true}'), (6, '{"v": 1}'), (7, '{"v": null}'), (8, '{"v": 9.0}')
+
+# Numbers before text; '10' before '9' as text (NULLs last: the
+# parser's default order for ASC, for now)
+query IT nosort
+SELECT id, data.v FROM j ORDER BY data.v, id
+----
+5|true
+6|1
+1|9
+8|9
+3|10
+2|10
+4|9
+7|NULL
+
+query T rowsort
+SELECT DISTINCT data.v FROM j
+----
+1
+10
+10
+9
+9
+NULL
+true
+
+query TI rowsort
+WITH x AS (SELECT data.v AS v FROM j) SELECT v, COUNT(*) FROM x GROUP BY v
+----
+1|1
+10|1
+10|1
+9|1
+9|2
+NULL|1
+true|1
+
+query I nosort
+SELECT COUNT(DISTINCT data.v) FROM j
+----
+6
+
+query I rowsort
+SELECT id FROM j WHERE data.v = 9
+----
+1
+8
+
+query I rowsort
+SELECT id FROM j WHERE data.v = '9'
+----
+4
+
+query I rowsort
+SELECT id FROM j WHERE data.v = 1
+----
+6
+
+query I rowsort
+SELECT id FROM j WHERE data.v > 9
+----
+2
+3
+4
+
+# MIN and MAX use the same order
+query TT nosort
+SELECT MIN(data.v), MAX(data.v) FROM j
+----
+true|9
+
+# UNION deduplicates as DISTINCT does
+query T rowsort
+SELECT data.v FROM j WHERE id IN (1, 8) UNION SELECT data.v FROM j WHERE id = 4
+----
+9
+9
+
+# A hash join matches what = matches
+statement ok
+CREATE TABLE s (id INTEGER PRIMARY KEY, name TEXT)
+
+statement ok
+INSERT INTO s VALUES (1, '10'), (2, '9'), (3, 'x')
+
+query II rowsort
+SELECT j.id AS a, s.id AS b FROM j JOIN s ON j.data.v = s.name
+----
+2|1
+4|2
+
+# Text compares by code point, not as numbers
+query T nosort
+SELECT '10' < '9'
+----
+true
+
+query T nosort
+SELECT 'a' < 'B'
+----
+false
+
+statement ok
+CREATE TABLE w (id INTEGER PRIMARY KEY, word TEXT)
+
+statement ok
+INSERT INTO w VALUES (1, 'b'), (2, 'B'), (3, 'a'), (4, '10'), (5, '9')
+
+query T nosort
+SELECT word FROM w ORDER BY word
+----
+10
+9
+B
+a
+b
+
+query T nosort
+SELECT MAX(word) FROM w
+----
+b

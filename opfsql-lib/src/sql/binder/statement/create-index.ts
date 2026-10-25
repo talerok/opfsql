@@ -7,6 +7,7 @@ import { requireTable } from "../core/utils/require-table.js";
 import { bindExpression } from "../expression/index.js";
 import type * as BT from "../types.js";
 import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
+import { caseChildren } from "../expression/case-children.js";
 
 export function bindCreateIndex(
   ctx: BindContext,
@@ -125,11 +126,8 @@ function validateIndexExpression(expr: BT.BoundExpression): void {
     }
     case BoundExpressionClass.BOUND_CASE: {
       const caseExpr = expr as BT.BoundCaseExpression;
-      for (const check of caseExpr.caseChecks) {
-        validateIndexExpression(check.when);
-        validateIndexExpression(check.then);
-      }
-      if (caseExpr.elseExpr) validateIndexExpression(caseExpr.elseExpr);
+      for (const child of caseChildren(caseExpr))
+        validateIndexExpression(child);
       return;
     }
   }

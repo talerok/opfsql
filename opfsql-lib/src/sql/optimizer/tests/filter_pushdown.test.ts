@@ -1,3 +1,4 @@
+import { scalarFunction } from "../../../functions/index.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
   BoundColumnRefExpression,
@@ -794,6 +795,7 @@ describe("FilterPushdown — defensive code paths", () => {
       left: {
         expressionClass: BoundExpressionClass.BOUND_FUNCTION,
         functionName: "add",
+        function: scalarFunction("abs"),
         children: [
           {
             expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,

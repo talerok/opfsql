@@ -152,11 +152,11 @@ SELECT CONCAT(val, '!') FROM strings WHERE id = 1
 ----
 Hello World!
 
-# CONCAT with NULL returns NULL
+# CONCAT skips NULL arguments, as in SQLite
 query T nosort
 SELECT CONCAT(val, '!') FROM strings WHERE id = 4
 ----
-NULL
+!
 
 # ============================================================================
 # Numeric functions setup
@@ -335,12 +335,12 @@ SELECT NULLIF(1, NULL)
 query T nosort
 SELECT TYPEOF(42)
 ----
-number
+integer
 
 query T nosort
 SELECT TYPEOF('hello')
 ----
-string
+text
 
 query T nosort
 SELECT TYPEOF(true)

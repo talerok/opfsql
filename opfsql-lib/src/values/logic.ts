@@ -1,9 +1,23 @@
+import { DatatypeMismatchError } from "../errors.js";
+import { describeValue } from "./convert.js";
+import { valueKey } from "./key.js";
 import { areEqual, compareValues } from "./order.js";
 import type { Value } from "./value.js";
 
 // Three-valued logic: a condition is true, false or unknown (NULL).
 
 export type Truth = boolean | null;
+
+/**
+ * A value used as a condition: a BOOLEAN or NULL. Anything else is a
+ * DATATYPE_MISMATCH — conditions are never judged by truthiness.
+ */
+export function truthOf(value: Value): Truth {
+  if (value === null || typeof value === "boolean") return value;
+  throw new DatatypeMismatchError(
+    `${describeValue(value)} is not a BOOLEAN condition`,
+  );
+}
 
 export function and(a: Truth, b: Truth): Truth {
   if (a === false || b === false) return false;
@@ -44,4 +58,20 @@ export function isIn(needle: Value, items: readonly Value[]): Truth {
   );
   if (isFound) return true;
   return items.includes(null) ? null : false;
+}
+
+/**
+ * `isIn` for a list known in advance: the list is hashed once (by
+ * valueKey, which agrees with compareValues), so each test is one lookup.
+ */
+export function membership(items: readonly Value[]): (needle: Value) => Truth {
+  if (items.length === 0) return () => false;
+  const nonNull = items.filter((item) => item !== null);
+  const keys = new Set(nonNull.map((item) => valueKey(item)));
+  const hasNull = nonNull.length < items.length;
+  return (needle) => {
+    if (needle === null) return null;
+    if (keys.has(valueKey(needle))) return true;
+    return hasNull ? null : false;
+  };
 }

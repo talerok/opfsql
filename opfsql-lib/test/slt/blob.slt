@@ -48,13 +48,13 @@ SELECT id, data FROM t WHERE id = 4
 4|NULL
 
 # ============================================================================
-# CAST blob to text → hex string
+# CAST blob to text → lowercase hex string (docs/semantics.md, Casts)
 # ============================================================================
 
 query T nosort
 SELECT CAST(data AS TEXT) FROM t WHERE id = 1
 ----
-DEADBEEF
+deadbeef
 
 # ============================================================================
 # CAST text hex to blob
@@ -63,7 +63,7 @@ DEADBEEF
 query T nosort
 SELECT CAST(CAST('AABB' AS BLOB) AS TEXT)
 ----
-AABB
+aabb
 
 # ============================================================================
 # BLOB comparison (equality)

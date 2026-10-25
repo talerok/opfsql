@@ -16,8 +16,8 @@ import type {
   IndexDef,
 } from "../../store/types.js";
 import { PhysicalIndexUnionScan } from "../operators/index-union-scan.js";
-import { drainOperator } from "../operators/utils.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import { drainOperator } from "../operators/shared.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import {
   colRef,
   constant,
@@ -444,7 +444,7 @@ describe("PhysicalIndexUnionScan", () => {
       ),
     };
 
-    const ctx: SyncEvalContext = { ...noopCtx, params: [25] };
+    const ctx: ExecutionContext = { ...noopCtx, parameters: [25] };
     const scan = new PhysicalIndexUnionScan(makeGet(), rm, im, hint, ctx);
     const result = drainOperator(scan);
     expect(result).toEqual([[2, "Bob", 25]]);

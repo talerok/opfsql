@@ -8,8 +8,13 @@ import type {
   OperatorExpression,
   ParsedExpression,
 } from "../../parser/types.js";
+import {
+  aggregateFunction,
+  isAggregateFunction,
+  resolveCall,
+  staticType,
+} from "../../../functions/index.js";
 import { ExpressionClass } from "../../parser/types.js";
-import type { LogicalType } from "../../../store/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
 import type { BindScope } from "../core/scope.js";
@@ -20,14 +25,6 @@ import type {
 import { BoundExpressionClass } from "../types.js";
 import { bindExpression } from "./index.js";
 import { sameAggregate } from "./same-expression.js";
-
-export const AGGREGATE_FUNCTIONS = new Set([
-  "COUNT",
-  "SUM",
-  "AVG",
-  "MIN",
-  "MAX",
-]);
 
 // ---------------------------------------------------------------------------
 // Child expression traversal (single source of truth for expression structure)
@@ -76,11 +73,7 @@ export function detectAggregates(exprs: ParsedExpression[]): boolean {
 
 export function exprContainsAggregate(expr: ParsedExpression): boolean {
   if (expr.expression_class === ExpressionClass.FUNCTION) {
-    if (
-      AGGREGATE_FUNCTIONS.has(
-        (expr as FunctionExpression).function_name.toUpperCase(),
-      )
-    ) {
+    if (isAggregateFunction((expr as FunctionExpression).function_name)) {
       return true;
     }
   }
@@ -128,7 +121,7 @@ function collectAggregates(
 ): void {
   if (expr.expression_class === ExpressionClass.FUNCTION) {
     const fn = expr as FunctionExpression;
-    if (AGGREGATE_FUNCTIONS.has(fn.function_name.toUpperCase())) {
+    if (isAggregateFunction(fn.function_name)) {
       const bound = bindAggregate(ctx, fn, scope);
       if (!result.some((a) => sameAggregate(a, bound))) {
         bound.aggregateIndex = result.length;
@@ -165,31 +158,17 @@ export function bindAggregate(
     ? []
     : expr.children.map((c) => bindExpression(ctx, c, scope));
 
-  let returnType: LogicalType;
-  switch (name) {
-    case "COUNT":
-      returnType = "INTEGER";
-      break;
-    case "SUM":
-    case "AVG": {
-      const childType = children.length > 0 ? children[0].returnType : "ANY";
-      if (childType === "BLOB" || childType === "JSON") {
-        throw new BindError(`Cannot apply ${name} to ${childType} type`);
-      }
-      returnType = "REAL";
-      break;
-    }
-    case "MIN":
-    case "MAX":
-      returnType = children.length > 0 ? children[0].returnType : "ANY";
-      break;
-    default:
-      returnType = "ANY";
-  }
+  // The registry checks the arguments: SUM over TEXT is a bind error.
+  const definition = aggregateFunction(name);
+  const returnType = resolveCall(
+    definition,
+    children.map((child) => staticType(child.returnType)),
+  );
 
   return {
     expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
     functionName: name,
+    function: definition,
     children,
     distinct: expr.distinct,
     isStar: expr.is_star,

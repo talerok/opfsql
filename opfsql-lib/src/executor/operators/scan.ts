@@ -1,11 +1,27 @@
 import type { ColumnBinding, LogicalGet } from "../../sql/binder/types.js";
 import type { Row, SyncIRowManager } from "../../store/types.js";
-import type { CompiledFilter } from "../evaluate/compile.js";
-import { compileFilter } from "../evaluate/compile.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
-import { passesCompiledFilters, rowToTuple, SCAN_BATCH } from "./utils.js";
+import {
+  compileTableFilters,
+  passesFilters,
+  type RowFilter,
+  rowToTuple,
+  SCAN_BATCH,
+} from "./shared.js";
+
+/** The table filters of a scan, compiled for its row layout. */
+function scanFilters(
+  operator: LogicalGet,
+  context: ExecutionContext,
+): readonly RowFilter[] {
+  return compileTableFilters(
+    operator.tableFilters,
+    buildResolver(operator.columnBindings),
+    context,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // PhysicalScan — reads rows from storage, applies table filters.
@@ -13,24 +29,21 @@ import { passesCompiledFilters, rowToTuple, SCAN_BATCH } from "./utils.js";
 
 export class PhysicalScan implements SyncPhysicalOperator {
   private iterator: Iterator<{ rowId: number; row: Row }> | null = null;
+
   private done = false;
-  private readonly layout: ColumnBinding[];
-  private readonly compiledFilters: CompiledFilter[];
+
+  private readonly filters: readonly RowFilter[];
 
   constructor(
     private readonly op: LogicalGet,
     private readonly rowManager: SyncIRowManager,
-    private readonly ctx: SyncEvalContext,
+    context: ExecutionContext,
   ) {
-    this.layout = op.columnBindings;
-    const resolver = buildResolver(this.layout);
-    this.compiledFilters = op.tableFilters.map((f) =>
-      compileFilter(f, resolver, ctx),
-    );
+    this.filters = scanFilters(op, context);
   }
 
   getLayout(): ColumnBinding[] {
-    return this.layout;
+    return this.op.columnBindings;
   }
 
   next(): Tuple[] | null {
@@ -40,38 +53,38 @@ export class PhysicalScan implements SyncPhysicalOperator {
       return [[]];
     }
 
-    if (!this.iterator) {
-      this.iterator = this.rowManager
-        .scanTable(this.op.tableName)
-        [Symbol.iterator]();
-    }
+    this.iterator ??= this.rowManager
+      .scanTable(this.op.tableName)
+      [Symbol.iterator]();
 
     while (!this.done) {
-      const batch: Tuple[] = [];
-      for (let i = 0; i < SCAN_BATCH; i++) {
-        const { value, done } = this.iterator.next();
-        if (done) {
-          this.done = true;
-          break;
-        }
-
-        const tuple = rowToTuple(value.row, this.op.columnIds, this.op.schema);
-        if (
-          passesCompiledFilters(tuple, this.compiledFilters, this.ctx.params)
-        ) {
-          batch.push(tuple);
-        }
-      }
-
+      const batch = this.readBatch(this.iterator);
       if (batch.length > 0) return batch;
     }
-
     return null;
   }
 
   reset(): void {
     this.iterator = null;
     this.done = false;
+  }
+
+  private readBatch(iterator: Iterator<{ rowId: number; row: Row }>): Tuple[] {
+    const batch: Tuple[] = [];
+    for (let count = 0; count < SCAN_BATCH; count++) {
+      const next = iterator.next();
+      if (next.done === true) {
+        this.done = true;
+        break;
+      }
+      const tuple = rowToTuple(
+        next.value.row,
+        this.op.columnIds,
+        this.op.schema,
+      );
+      if (passesFilters(tuple, this.filters)) batch.push(tuple);
+    }
+    return batch;
   }
 }
 
@@ -83,44 +96,32 @@ export class PhysicalScan implements SyncPhysicalOperator {
 
 export class PhysicalChildScan implements SyncPhysicalOperator {
   private done = false;
-  private readonly layout: ColumnBinding[];
-  private readonly compiledFilters: CompiledFilter[];
+  private readonly filters: readonly RowFilter[];
 
   constructor(
     private readonly op: LogicalGet,
     private readonly childOp: SyncPhysicalOperator,
-    private readonly ctx: SyncEvalContext,
+    context: ExecutionContext,
   ) {
-    this.layout = op.columnBindings;
-    const resolver = buildResolver(this.layout);
-    this.compiledFilters = op.tableFilters.map((f) =>
-      compileFilter(f, resolver, ctx),
-    );
+    this.filters = scanFilters(op, context);
   }
 
   getLayout(): ColumnBinding[] {
-    return this.layout;
+    return this.op.columnBindings;
   }
 
   next(): Tuple[] | null {
     while (!this.done) {
       const batch = this.childOp.next();
-      if (!batch) {
+      if (batch === null) {
         this.done = true;
         return null;
       }
-
-      const result: Tuple[] = [];
-      for (const childTuple of batch) {
-        const tuple: Tuple = this.op.columnIds.map(
-          (colId) => childTuple[colId] ?? null,
-        );
-        if (
-          passesCompiledFilters(tuple, this.compiledFilters, this.ctx.params)
-        ) {
-          result.push(tuple);
-        }
-      }
+      const result = batch
+        .map((childTuple) =>
+          this.op.columnIds.map((columnId) => childTuple[columnId] ?? null),
+        )
+        .filter((tuple) => passesFilters(tuple, this.filters));
       if (result.length > 0) return result;
     }
     return null;

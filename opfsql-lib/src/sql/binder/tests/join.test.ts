@@ -1,3 +1,4 @@
+import { SemanticError } from "../../../errors.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BindError } from "../core/errors.js";
 import type {
@@ -219,10 +220,10 @@ describe("JOIN ON type checking", () => {
     expect(proj.expressions.length).toBeGreaterThan(0);
   });
 
-  it("JOIN ON with incompatible types throws BindError", () => {
+  it("JOIN ON with incompatible types throws SemanticError", () => {
     expect(() =>
       bind("SELECT * FROM users u JOIN orders o ON u.name = o.amount"),
-    ).toThrow(BindError);
+    ).toThrow(SemanticError);
     expect(() =>
       bind("SELECT * FROM users u JOIN orders o ON u.name = o.amount"),
     ).toThrow("Type mismatch");
@@ -235,10 +236,10 @@ describe("JOIN ON type checking", () => {
     expect(proj.expressions.length).toBeGreaterThan(0);
   });
 
-  it("LEFT JOIN ON with incompatible types throws BindError", () => {
+  it("LEFT JOIN ON with incompatible types throws SemanticError", () => {
     expect(() =>
       bind("SELECT * FROM users u LEFT JOIN orders o ON u.name = o.amount"),
-    ).toThrow(BindError);
+    ).toThrow(SemanticError);
   });
 });
 

@@ -34,7 +34,7 @@ export function assignValue(value: Value, type: SqlType): Value {
   const assigned = assignmentOf(normalized, type);
   if (assigned !== undefined) return assigned;
   throw new DatatypeMismatchError(
-    `cannot store ${describe(normalized)} as ${type}`,
+    `cannot store ${describeValue(normalized)} as ${type}`,
   );
 }
 
@@ -45,8 +45,24 @@ export function castValue(value: Value, type: SqlType): Value {
   const cast = castOf(normalized, type);
   if (cast !== undefined) return cast;
   throw new DatatypeMismatchError(
-    `cannot cast ${describe(normalized)} to ${type}`,
+    `cannot cast ${describeValue(normalized)} to ${type}`,
   );
+}
+
+/**
+ * How a comparison converts an operand of unknown type to the type of the
+ * other side (docs/semantics.md, Comparisons): `numeric` turns text that
+ * is exactly a number into that number, `text` turns a number into text.
+ */
+export type Affinity = "numeric" | "text";
+
+/** `value` converted for comparison with a side of `affinity`, if lossless. */
+export function applyAffinity(value: Value, affinity: Affinity): Value {
+  if (affinity === "numeric" && typeof value === "string") {
+    return numberFromText(value) ?? value;
+  }
+  if (affinity === "text" && typeof value === "number") return String(value);
+  return value;
 }
 
 /** The number text writes exactly, or null if it is not a number. */
@@ -138,7 +154,7 @@ function parseJson(text: string): JsonValue {
   try {
     return JSON.parse(text) as JsonValue;
   } catch {
-    throw new DatatypeMismatchError(`${describe(text)} is not valid JSON`);
+    throw new DatatypeMismatchError(`${describeValue(text)} is not valid JSON`);
   }
 }
 
@@ -215,7 +231,7 @@ export function bytesToHex(bytes: Uint8Array): string {
 
 export function hexToBytes(hex: string): Uint8Array {
   if (!HEX_TEXT.test(hex)) {
-    throw new DatatypeMismatchError(`${describe(hex)} is not hexadecimal`);
+    throw new DatatypeMismatchError(`${describeValue(hex)} is not hexadecimal`);
   }
   const bytes = new Uint8Array(hex.length / 2);
   for (let index = 0; index < bytes.length; index++) {
@@ -226,7 +242,8 @@ export function hexToBytes(hex: string): Uint8Array {
 
 // --- Errors ------------------------------------------------------------------
 
-function describe(value: Value): string {
+/** A short description of a value for error messages. */
+export function describeValue(value: Value): string {
   if (value === null) return "NULL";
   if (typeof value === "boolean" || typeof value === "number") {
     return String(value);

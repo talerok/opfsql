@@ -18,19 +18,6 @@ export class SyncIndexManager implements SyncIIndexManager {
     private readonly getCatalog: () => ICatalog,
   ) {}
 
-  private tree(indexName: string): SyncBTree | RowidIndex {
-    const catalog = this.getCatalog();
-    const indexDef = catalog.getIndex(indexName.toLowerCase());
-    if (!indexDef) throw new Error(`Index "${indexName}" not found in catalog`);
-    if (!indexDef.rowid) {
-      return new SyncBTree(this.ps, indexDef.rootPageNo!, indexDef);
-    }
-    const table = catalog.getTable(indexDef.tableName)!;
-    return new RowidIndex(
-      new SyncTableBTree(this.ps, table.rootPageNo!, table.name),
-    );
-  }
-
   insert(indexName: string, key: IndexKey, rowId: RowId): void {
     this.tree(indexName).insert(key, rowId);
   }
@@ -45,7 +32,7 @@ export class SyncIndexManager implements SyncIIndexManager {
 
   bulkLoad(
     indexName: string,
-    entries: Array<{ key: IndexKey; rowId: RowId }>,
+    entries: { key: IndexKey; rowId: RowId }[],
     unique: boolean,
   ): number {
     const rootPageNo = BTree.create(this.ps);
@@ -65,5 +52,18 @@ export class SyncIndexManager implements SyncIIndexManager {
 
   last(indexName: string) {
     return this.tree(indexName).last();
+  }
+
+  private tree(indexName: string): SyncBTree | RowidIndex {
+    const catalog = this.getCatalog();
+    const indexDef = catalog.getIndex(indexName.toLowerCase());
+    if (!indexDef) throw new Error(`Index "${indexName}" not found in catalog`);
+    if (!indexDef.rowid) {
+      return new SyncBTree(this.ps, indexDef.rootPageNo!, indexDef);
+    }
+    const table = catalog.getTable(indexDef.tableName)!;
+    return new RowidIndex(
+      new SyncTableBTree(this.ps, table.rootPageNo!, table.name),
+    );
   }
 }

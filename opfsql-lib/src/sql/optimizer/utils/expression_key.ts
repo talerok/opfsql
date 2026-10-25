@@ -49,12 +49,7 @@ export function expressionKey(expr: BoundExpression): string {
       return `A:${c.conjunctionType}(${c.children.map(expressionKey).join(",")})`;
     }
     case BoundExpressionClass.BOUND_CASE: {
-      const cs = expr as BoundCaseExpression;
-      const checks = cs.caseChecks
-        .map((ch) => `${expressionKey(ch.when)}:${expressionKey(ch.then)}`)
-        .join(",");
-      const el = cs.elseExpr ? expressionKey(cs.elseExpr) : "_";
-      return `K:(${checks}|${el})`;
+      return caseKey(expr as BoundCaseExpression);
     }
     case BoundExpressionClass.BOUND_CONSTANT: {
       const ct = expr as BoundConstantExpression;
@@ -67,4 +62,16 @@ export function expressionKey(expr: BoundExpression): string {
     default:
       return `R:${JSON.stringify(expr)}`;
   }
+}
+
+function optionalKey(child: BoundExpression | null | undefined): string {
+  return child === null || child === undefined ? "_" : expressionKey(child);
+}
+
+function caseKey(expression: BoundCaseExpression): string {
+  const key = optionalKey;
+  const checks = expression.caseChecks
+    .map((check) => `${key(check.when)}:${key(check.result)}`)
+    .join(",");
+  return `K:${key(expression.operand)}(${checks}|${key(expression.elseExpr)})`;
 }

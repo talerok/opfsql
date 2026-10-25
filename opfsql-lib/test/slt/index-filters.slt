@@ -1,0 +1,49 @@
+# index-filters.slt — every filter on a table holds for the rows an index
+# scan returns, whichever index the optimizer picks and why
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT, x INTEGER, a INTEGER, b INTEGER, c INTEGER, d JSON)
+
+statement ok
+CREATE INDEX ts ON t (s)
+
+statement ok
+CREATE INDEX ta ON t (a)
+
+statement ok
+CREATE INDEX tb ON t (b)
+
+statement ok
+INSERT INTO t VALUES (1, 'b', 10, 1, 0, 5, '{"v": 10}'), (2, 'a', 20, 1, 0, 6, '{"v": "10"}'), (3, 'c', 10, 0, 2, 7, '{"v": 9}'), (4, 'd', 10, 0, 2, 5, '{"v": "9"}')
+
+# An index chosen for ORDER BY still applies the WHERE
+query I nosort
+SELECT id FROM t WHERE x = 10 ORDER BY s
+----
+1
+3
+4
+
+# Indexes combined for OR still apply the other conditions
+query I rowsort
+SELECT id FROM t WHERE (a = 1 OR b = 2) AND c = 5
+----
+1
+4
+
+# Mixed JSON values compare by kind: 10 is not '10'. (Not indexed: the
+# index B-tree's comparator still equates them; it changes with format 5.)
+query I rowsort
+SELECT id FROM t WHERE d.v = 10
+----
+1
+
+query I rowsort
+SELECT id FROM t WHERE d.v = '10'
+----
+2
+
+query I rowsort
+SELECT id FROM t WHERE d.v < 10
+----
+3

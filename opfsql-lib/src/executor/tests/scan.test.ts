@@ -6,8 +6,8 @@ import {
 } from "../../sql/binder/types.js";
 import type { SyncIRowManager, TableSchema } from "../../store/types.js";
 import { PhysicalScan, PhysicalChildScan } from "../operators/scan.js";
-import { drainOperator } from "../operators/utils.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import { drainOperator } from "../operators/shared.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import { MockOperator, colRef, constant, layout, noopCtx } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ describe("PhysicalScan", () => {
       },
     };
     const get = makeGet({ tableFilters: [filter] });
-    const ctx: SyncEvalContext = { ...noopCtx, params: [2] };
+    const ctx: ExecutionContext = { ...noopCtx, parameters: [2] };
     const scan = new PhysicalScan(get, rm, ctx);
     const result = drainOperator(scan);
     expect(result).toEqual([[2, "Bob", 25]]);

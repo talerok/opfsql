@@ -2,7 +2,7 @@ import { type LogicalOperator, LogicalOperatorType } from "../binder/types.js";
 import type { ICatalog } from "../../store/types.js";
 import { optimizeBuildProbeSide } from "./build_probe_side.js";
 import { decorrelateExists } from "./decorrelate_exists.js";
-import { rewriteExpressions } from "./expression_rewriter.js";
+import { rewriteExpressions } from "./expression-rewriter.js";
 import { pullupFilters } from "./filter_pullup.js";
 import { pushdownFilters } from "./filter_pushdown.js";
 import { rewriteInClauses } from "./in_clause_rewriter.js";
@@ -88,8 +88,8 @@ export function optimize(
 // Re-export individual passes for fine-grained usage
 export { optimizeBuildProbeSide } from "./build_probe_side.js";
 export { decorrelateExists } from "./decorrelate_exists.js";
-export { rewriteExpressions } from "./expression_rewriter.js";
-export { FilterCombiner } from "./filter_combiner.js";
+export { rewriteExpressions } from "./expression-rewriter.js";
+export { FilterCombiner } from "./filter-combiner.js";
 export { pullupFilters } from "./filter_pullup.js";
 export { pushdownFilters } from "./filter_pushdown.js";
 export { rewriteInClauses } from "./in_clause_rewriter.js";

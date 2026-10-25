@@ -1,14 +1,37 @@
 export {
+  type ArithmeticOperator,
+  arithmetic,
+  checkInteger,
+  concatenate,
+  negate,
+  numberOperand,
+  type NumericMode,
+  textOperand,
+} from "./arithmetic.js";
+export {
+  type Affinity,
+  applyAffinity,
   assignValue,
   bytesToHex,
   castValue,
+  describeValue,
   hexToBytes,
   normalizeValue,
   numberFromText,
   withoutNegativeZero,
 } from "./convert.js";
 export { rowKey, valueKey } from "./key.js";
-export { and, compareSql, isIn, isSame, not, or, type Truth } from "./logic.js";
+export {
+  and,
+  compareSql,
+  isIn,
+  isSame,
+  membership,
+  not,
+  or,
+  type Truth,
+  truthOf,
+} from "./logic.js";
 export {
   canonicalJson,
   compareBytes,
@@ -19,6 +42,7 @@ export {
 export { isNumericType, type SqlType, typeFromName } from "./types.js";
 export {
   type JsonComposite,
+  type JsonObject,
   type JsonValue,
   kindOf,
   type Value,

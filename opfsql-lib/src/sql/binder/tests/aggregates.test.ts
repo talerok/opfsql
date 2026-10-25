@@ -19,11 +19,11 @@ beforeEach(() => {
 });
 
 describe("Aggregates", () => {
-  it("SUM returns REAL", () => {
+  it("SUM of INTEGERs is an INTEGER, as in SQLite", () => {
     const plan = bind("SELECT SUM(age) FROM users");
     const proj = plan as LogicalProjection;
     const agg = proj.children[0] as LogicalAggregate;
-    expect(agg.expressions[0].returnType).toBe("REAL");
+    expect(agg.expressions[0].returnType).toBe("INTEGER");
     expect(agg.expressions[0].functionName).toBe("SUM");
   });
 

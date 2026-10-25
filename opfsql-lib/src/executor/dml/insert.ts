@@ -12,14 +12,18 @@ import type {
   TableSchema,
 } from "../../store/types.js";
 import { getIndexColumns } from "../../store/index-expression.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
-import { evaluateExpression } from "../evaluate/index.js";
-import { isTruthy } from "../evaluate/utils/compare.js";
-import { drainOperator } from "../operators/utils.js";
+import { compareSql } from "../../values/index.js";
+import {
+  type CompiledExpression,
+  compileExpression,
+  compilePredicate,
+  type ExecutionContext,
+} from "../evaluate/index.js";
+import { drainOperator } from "../operators/shared.js";
 import { createPhysicalPlan } from "../planner/index.js";
 import { buildResolver } from "../resolve.js";
 import type { CTECacheEntry, ExecuteResult, Tuple, Value } from "../types.js";
-import { coerceJsonIfNeeded } from "./utils/coerce.js";
+import { assignToColumn } from "./utils/coerce.js";
 import {
   buildIndexKey,
   maintainIndexesDelete,
@@ -30,9 +34,17 @@ import {
 interface InsertCtx {
   op: LogicalInsert;
   rowManager: SyncIRowManager;
-  ctx: SyncEvalContext;
+  context: ExecutionContext;
   catalog?: ICatalog;
   indexManager?: SyncIIndexManager;
+  /** ON CONFLICT DO UPDATE, compiled once for the statement. */
+  conflictUpdate: ConflictUpdate | null;
+}
+
+/** DO UPDATE's WHERE and SET, over rows of [existing..., excluded...]. */
+interface ConflictUpdate {
+  where: ((row: Tuple) => boolean) | null;
+  values: CompiledExpression[];
 }
 
 // ---------------------------------------------------------------------------
@@ -42,11 +54,18 @@ interface InsertCtx {
 export function executeInsert(
   op: LogicalInsert,
   rowManager: SyncIRowManager,
-  ctx: SyncEvalContext,
+  context: ExecutionContext,
   catalog?: ICatalog,
   indexManager?: SyncIIndexManager,
 ): ExecuteResult {
-  const ic: InsertCtx = { op, rowManager, ctx, catalog, indexManager };
+  const ic: InsertCtx = {
+    op,
+    rowManager,
+    context,
+    catalog,
+    indexManager,
+    conflictUpdate: compileConflictUpdate(op, context),
+  };
   const rows =
     op.children.length > 0 ? buildRowsFromSelect(ic) : buildRowsFromValues(ic);
   return insertRows(ic, rows);
@@ -57,10 +76,9 @@ export function executeInsert(
 // ---------------------------------------------------------------------------
 
 function buildRowsFromValues(ic: InsertCtx): Row[] {
-  const { op, ctx } = ic;
+  const { op, context } = ic;
   const colsPerRow = op.columns.length;
   const rowCount = op.expressions.length / colsPerRow;
-  const emptyTuple: Tuple = [];
   const emptyResolver = buildResolver([]);
   const colNames = op.columns.map((i) => op.schema.columns[i].name);
   const defaults = buildDefaults(op.schema);
@@ -70,8 +88,8 @@ function buildRowsFromValues(ic: InsertCtx): Row[] {
     const row: Row = { ...defaults };
     for (let c = 0; c < colsPerRow; c++) {
       const expr = op.expressions[r * colsPerRow + c];
-      const val = evaluateExpression(expr, emptyTuple, emptyResolver, ctx);
-      row[colNames[c]] = coerceJsonIfNeeded(val, op.schema, op.columns[c]);
+      const val = compileExpression(expr, emptyResolver, context)([]);
+      row[colNames[c]] = assignToColumn(val, op.schema, op.columns[c]);
     }
     rows.push(row);
   }
@@ -79,9 +97,14 @@ function buildRowsFromValues(ic: InsertCtx): Row[] {
 }
 
 function buildRowsFromSelect(ic: InsertCtx): Row[] {
-  const { op, rowManager, ctx } = ic;
+  const { op, rowManager, context } = ic;
   const cteCache = new Map<number, CTECacheEntry>();
-  const plan = createPhysicalPlan(op.children[0], rowManager, cteCache, ctx);
+  const plan = createPhysicalPlan(
+    op.children[0],
+    rowManager,
+    cteCache,
+    context,
+  );
   const tuples = drainOperator(plan);
   const defaults = buildDefaults(op.schema);
 
@@ -89,7 +112,7 @@ function buildRowsFromSelect(ic: InsertCtx): Row[] {
     const row: Row = { ...defaults };
     for (let c = 0; c < op.columns.length; c++) {
       const val = (tuple[c] ?? null) as Value;
-      row[op.schema.columns[op.columns[c]].name] = coerceJsonIfNeeded(
+      row[op.schema.columns[op.columns[c]].name] = assignToColumn(
         val,
         op.schema,
         op.columns[c],
@@ -257,8 +280,8 @@ function findConflictViaScan(
     const matches = conflictColNames.every((col) => {
       const existingVal = row[col] ?? null;
       const newVal = newRow[col] ?? null;
-      if (existingVal === null || newVal === null) return false;
-      return existingVal === newVal;
+      // Equal as `=` compares: NULLs never conflict.
+      return compareSql(existingVal, newVal) === 0;
     });
     if (matches) return { rowId, row };
   }
@@ -277,46 +300,21 @@ function executeConflictUpdate(
   excludedRow: Row,
 ): boolean {
   const schema = ic.op.schema;
-  const colCount = schema.columns.length;
+  const update = ic.conflictUpdate;
+  if (update === null) return false;
 
-  // Build combined tuple: [existing cols..., excluded cols...]
-  const combinedTuple: Tuple = new Array(colCount * 2);
-  for (let i = 0; i < colCount; i++) {
-    const colName = schema.columns[i].name;
-    combinedTuple[i] = existingRow[colName] ?? null;
-    combinedTuple[colCount + i] = excludedRow[colName] ?? null;
-  }
-
-  const layout: ColumnBinding[] = [];
-  for (let i = 0; i < colCount; i++) {
-    layout.push({ tableIndex: oc.targetTableIndex, columnIndex: i });
-  }
-  for (let i = 0; i < colCount; i++) {
-    layout.push({ tableIndex: oc.excludedTableIndex, columnIndex: i });
-  }
-  const resolver = buildResolver(layout);
-
-  if (oc.whereExpression) {
-    const val = evaluateExpression(
-      oc.whereExpression,
-      combinedTuple,
-      resolver,
-      ic.ctx,
-    );
-    if (!isTruthy(val)) return false;
-  }
+  // The row the expressions see: [existing columns..., excluded columns...]
+  const combinedTuple: Tuple = [
+    ...schema.columns.map((column) => existingRow[column.name] ?? null),
+    ...schema.columns.map((column) => excludedRow[column.name] ?? null),
+  ];
+  if (update.where !== null && !update.where(combinedTuple)) return false;
 
   const updatedRow: Row = { ...existingRow };
   for (let i = 0; i < oc.updateColumns.length; i++) {
     const colIdx = oc.updateColumns[i];
-    const val = evaluateExpression(
-      oc.updateExpressions[i],
-      combinedTuple,
-      resolver,
-      ic.ctx,
-    );
-    updatedRow[schema.columns[colIdx].name] = coerceJsonIfNeeded(
-      val,
+    updatedRow[schema.columns[colIdx].name] = assignToColumn(
+      update.values[i](combinedTuple),
       schema,
       colIdx,
     );
@@ -345,12 +343,44 @@ function executeConflictUpdate(
   return true;
 }
 
+/** Compiles DO UPDATE once: its row layout is fixed by the table. */
+function compileConflictUpdate(
+  op: LogicalInsert,
+  context: ExecutionContext,
+): ConflictUpdate | null {
+  const oc = op.onConflict;
+  if (oc?.action !== "UPDATE") return null;
+  const columns = op.schema.columns.map((_column, columnIndex) => columnIndex);
+  const layout: ColumnBinding[] = [
+    ...columns.map((columnIndex) => ({
+      tableIndex: oc.targetTableIndex,
+      columnIndex,
+    })),
+    ...columns.map((columnIndex) => ({
+      tableIndex: oc.excludedTableIndex,
+      columnIndex,
+    })),
+  ];
+  const resolver = buildResolver(layout);
+  return {
+    where:
+      oc.whereExpression === null
+        ? null
+        : compilePredicate(oc.whereExpression, resolver, context),
+    values: oc.updateExpressions.map((expression) =>
+      compileExpression(expression, resolver, context),
+    ),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function buildDefaults(schema: TableSchema): Row {
   const defaults: Row = {};
-  for (const col of schema.columns) defaults[col.name] = col.defaultValue;
+  for (const [index, col] of schema.columns.entries()) {
+    defaults[col.name] = assignToColumn(col.defaultValue, schema, index);
+  }
   return defaults;
 }

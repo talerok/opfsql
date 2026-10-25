@@ -1,0 +1,27 @@
+# case-operand.slt — CASE x WHEN v: x compared with each value as `=`
+
+statement ok
+CREATE TABLE c (id INTEGER PRIMARY KEY, x INTEGER)
+
+statement ok
+INSERT INTO c VALUES (1, 1), (2, 2), (3, NULL)
+
+query T nosort
+SELECT CASE x WHEN 1 THEN 'one' WHEN 2 THEN 'two' ELSE 'other' END FROM c ORDER BY id
+----
+one
+two
+other
+
+# A NULL operand matches no WHEN, not even WHEN NULL
+query T nosort
+SELECT CASE x WHEN NULL THEN 'null' ELSE 'else' END FROM c WHERE id = 3
+----
+else
+
+query T nosort
+SELECT CASE x + 1 WHEN 2 THEN 'two' WHEN 3 THEN 'three' END FROM c ORDER BY id
+----
+two
+three
+NULL

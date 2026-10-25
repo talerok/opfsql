@@ -1,5 +1,5 @@
 import { Binder } from "../sql/binder/index.js";
-import { execute } from "../executor/execute/index.js";
+import { checkParameters, execute } from "../executor/execute/index.js";
 import type { CatalogChange } from "../executor/types.js";
 import { optimize } from "../sql/optimizer/index.js";
 import { Parser } from "../sql/parser/index.js";
@@ -305,13 +305,15 @@ export class Session {
 
   private runPipeline(stmt: Statement, params?: readonly Value[]): Result {
     const bound = this.binder.bindStatement(stmt);
+    // Before optimizing, which may fold a parameter away.
+    const parameters = checkParameters(bound, params ?? []);
     const optimized = optimize(bound, this.catalog);
     const result = execute(
       optimized,
       this.rowManager,
       this.catalog,
       this.indexManager,
-      params,
+      parameters,
     );
 
     const hasCatalogChanges = result.catalogChanges.length > 0;

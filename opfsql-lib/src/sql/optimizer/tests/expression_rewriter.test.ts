@@ -19,6 +19,14 @@ beforeEach(() => {
   bind = ctx.bind;
 });
 
+function rewrittenFilter(sql: string) {
+  const filter = findNode(
+    rewriteExpressions(bind(sql)),
+    LogicalOperatorType.LOGICAL_FILTER,
+  ) as LogicalFilter;
+  return filter.expressions[0];
+}
+
 describe("ExpressionRewriter", () => {
   describe("constant folding", () => {
     it("folds 1 + 1 = 2 to true", () => {
@@ -79,6 +87,72 @@ describe("ExpressionRewriter", () => {
       );
       expect((filter.expressions[0] as BoundConstantExpression).value).toBe(
         null,
+      );
+    });
+  });
+
+  describe("three-valued logic", () => {
+    it("keeps x = x: it is NULL, not TRUE, for a NULL x", () => {
+      const expression = rewrittenFilter("SELECT * FROM users WHERE age = age");
+      expect(expression.expressionClass).toBe(
+        BoundExpressionClass.BOUND_COMPARISON,
+      );
+    });
+
+    it("keeps x = x + 0", () => {
+      const expression = rewrittenFilter(
+        "SELECT * FROM users WHERE age = age + 0",
+      );
+      expect(expression.expressionClass).toBe(
+        BoundExpressionClass.BOUND_COMPARISON,
+      );
+    });
+
+    it("folds NULL AND TRUE to NULL, not FALSE", () => {
+      const expression = rewrittenFilter(
+        "SELECT * FROM users WHERE NULL AND TRUE",
+      );
+      expect(expression).toMatchObject({
+        expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+        value: null,
+      });
+    });
+
+    it("keeps a NULL operand of AND: NOT (x AND NULL) is not NOT x", () => {
+      const expression = rewrittenFilter(
+        "SELECT * FROM users WHERE NOT (age > 2 AND NULL)",
+      );
+      expect(expression.expressionClass).toBe(
+        BoundExpressionClass.BOUND_OPERATOR,
+      );
+      const [conjunction] = (expression as { children: unknown[] }).children;
+      expect(conjunction).toMatchObject({
+        conjunctionType: "AND",
+        children: [
+          { expressionClass: BoundExpressionClass.BOUND_COMPARISON },
+          { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: null },
+        ],
+      });
+    });
+
+    it("folds BLOB equality by bytes", () => {
+      const expression = rewrittenFilter(
+        "SELECT * FROM users WHERE x'01' = x'01'",
+      );
+      expect(expression).toMatchObject({ value: true });
+    });
+
+    it("folds INTEGER division as the executor does", () => {
+      const expression = rewrittenFilter("SELECT * FROM users WHERE 7 / 2 = 3");
+      expect(expression).toMatchObject({ value: true });
+    });
+
+    it("leaves a failing constant to run time", () => {
+      const expression = rewrittenFilter(
+        "SELECT * FROM users WHERE CAST('x' AS INTEGER) = 1",
+      );
+      expect(expression.expressionClass).toBe(
+        BoundExpressionClass.BOUND_COMPARISON,
       );
     });
   });
@@ -167,7 +241,7 @@ describe("ExpressionRewriter", () => {
       );
     });
 
-    it("simplifies x * 0 to CASE WHEN x IS NOT NULL THEN 0 ELSE NULL (NULL-safe)", () => {
+    it("keeps x * 0: for x = Infinity it is NULL, not 0", () => {
       const plan = bind("SELECT * FROM users WHERE age * 0 = 0");
       const optimized = rewriteExpressions(plan);
       const filter = findNode(
@@ -175,7 +249,9 @@ describe("ExpressionRewriter", () => {
         LogicalOperatorType.LOGICAL_FILTER,
       ) as LogicalFilter;
       const cmp = filter.expressions[0] as BoundComparisonExpression;
-      expect(cmp.left.expressionClass).toBe(BoundExpressionClass.BOUND_CASE);
+      expect(cmp.left.expressionClass).toBe(
+        BoundExpressionClass.BOUND_OPERATOR,
+      );
     });
 
     it("folds constant * 0 to 0 directly", () => {
@@ -212,7 +288,7 @@ describe("ExpressionRewriter", () => {
       );
     });
 
-    it("moves arithmetic constant: age + 3 < 10 → age < 7", () => {
+    it("keeps age + 3 < 10: moving the 3 would hide an overflow of age + 3", () => {
       const plan = bind("SELECT * FROM users WHERE age + 3 < 10");
       const optimized = rewriteExpressions(plan);
       const filter = findNode(
@@ -221,29 +297,18 @@ describe("ExpressionRewriter", () => {
       ) as LogicalFilter;
       const cmp = filter.expressions[0] as BoundComparisonExpression;
       expect(cmp.left.expressionClass).toBe(
-        BoundExpressionClass.BOUND_COLUMN_REF,
+        BoundExpressionClass.BOUND_OPERATOR,
       );
-      expect(cmp.right.expressionClass).toBe(
-        BoundExpressionClass.BOUND_CONSTANT,
-      );
-      expect((cmp.right as BoundConstantExpression).value).toBe(7);
+      expect((cmp.right as BoundConstantExpression).value).toBe(10);
     });
 
-    it("moves subtract constant: age - 3 < 10 → age < 13", () => {
-      const plan = bind("SELECT * FROM users WHERE age - 3 < 10");
-      const optimized = rewriteExpressions(plan);
-      const filter = findNode(
-        optimized,
-        LogicalOperatorType.LOGICAL_FILTER,
-      ) as LogicalFilter;
-      const cmp = filter.expressions[0] as BoundComparisonExpression;
-      expect(cmp.left.expressionClass).toBe(
-        BoundExpressionClass.BOUND_COLUMN_REF,
+    it("keeps x / 0: x is still evaluated, and may fail", () => {
+      const expression = rewrittenFilter(
+        "SELECT * FROM users WHERE age / 0 = 1",
       );
-      expect(cmp.right.expressionClass).toBe(
-        BoundExpressionClass.BOUND_CONSTANT,
+      expect(expression.expressionClass).toBe(
+        BoundExpressionClass.BOUND_COMPARISON,
       );
-      expect((cmp.right as BoundConstantExpression).value).toBe(13);
     });
   });
 

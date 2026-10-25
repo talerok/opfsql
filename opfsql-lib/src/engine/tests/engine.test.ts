@@ -838,6 +838,99 @@ describe("parameterized queries", () => {
   });
 });
 
+async function parameterTable(): Promise<void> {
+  await createEngine();
+  await session.execute(
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, m INTEGER, name TEXT)",
+  );
+  await session.execute(
+    "INSERT INTO t VALUES (1, 9, 'nine'), (2, 10, '10'), (3, NULL, NULL)",
+  );
+}
+
+describe("parameters: count and conversion", () => {
+  it("fails with MISUSE for a missing parameter, wherever it is used", async () => {
+    await parameterTable();
+    for (const sql of [
+      "SELECT id FROM t WHERE m = $1",
+      "SELECT id FROM t WHERE m = $1 OR id = $1",
+      "SELECT id FROM t WHERE id IN (SELECT id FROM t WHERE m = $2)",
+      "SELECT id FROM t WHERE false AND m = $1",
+      "UPDATE t SET name = $1 WHERE id = 99",
+    ]) {
+      await expect(session.execute(sql, [])).rejects.toMatchObject({
+        code: "MISUSE",
+      });
+    }
+    await expect(
+      session.execute(
+        "SELECT id FROM t WHERE id IN (SELECT id FROM t WHERE m = $2)",
+        [1],
+      ),
+    ).rejects.toMatchObject({ code: "MISUSE" });
+  });
+
+  it("accepts more parameters than a statement uses", async () => {
+    await parameterTable();
+    const [result] = await session.execute("SELECT id FROM t WHERE m = $1", [
+      9,
+      "unused",
+    ]);
+    expect(result.rows).toEqual([{ id: 1 }]);
+  });
+
+  it("converts a text parameter compared with a number column", async () => {
+    await parameterTable();
+    const [byScan] = await session.execute("SELECT id FROM t WHERE m = $1", [
+      "10",
+    ]);
+    expect(byScan.rows).toEqual([{ id: 2 }]);
+    const [byKey] = await session.execute("SELECT id FROM t WHERE id = $1", [
+      "2",
+    ]);
+    expect(byKey.rows).toEqual([{ id: 2 }]);
+    const [none] = await session.execute("SELECT id FROM t WHERE m = $1", [
+      "ten",
+    ]);
+    expect(none.rows).toEqual([]);
+  });
+
+  it("answers IN the same way for short and long lists", async () => {
+    await parameterTable();
+    const [result] = await session.execute(
+      "SELECT $1 IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) AS short, $1 IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) AS long, $1 IN (m, 7) AS columns FROM t WHERE id = 2",
+      ["10"],
+    );
+    expect(result.rows).toEqual([{ short: true, long: true, columns: true }]);
+  });
+
+  it("converts a number parameter compared with a text column", async () => {
+    await parameterTable();
+    const [result] = await session.execute(
+      "SELECT id FROM t WHERE name = $1",
+      [10],
+    );
+    expect(result.rows).toEqual([{ id: 2 }]);
+  });
+
+  it("turns a NaN parameter into NULL", async () => {
+    await parameterTable();
+    const [result] = await session.execute("SELECT $1 IS NULL AS missing", [
+      NaN,
+    ]);
+    expect(result.rows).toEqual([{ missing: true }]);
+  });
+
+  it("divides parameters by their values: integers truncate", async () => {
+    await parameterTable();
+    const [result] = await session.execute(
+      "SELECT $1 / $2 AS q, $3 / $2 AS r",
+      [7, 2, 7.5],
+    );
+    expect(result.rows).toEqual([{ q: 3, r: 3.75 }]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // JSON type
 // ---------------------------------------------------------------------------
@@ -955,7 +1048,7 @@ describe("BLOB type", () => {
     );
   });
 
-  it("CAST blob to TEXT returns hex", async () => {
+  it("CAST blob to TEXT returns lowercase hex", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
     await session.execute("INSERT INTO t VALUES (1, x'CAFE')");
@@ -963,7 +1056,7 @@ describe("BLOB type", () => {
     const [result] = await session.execute(
       "SELECT CAST(data AS TEXT) AS hex FROM t",
     );
-    expect(result.rows![0].hex).toBe("CAFE");
+    expect(result.rows![0].hex).toBe("cafe");
   });
 
   it("CAST text to BLOB", async () => {

@@ -131,15 +131,16 @@ INSERT INTO calc VALUES (3, 0, 5)
 statement ok
 INSERT INTO calc VALUES (4, 10, 0)
 
-query RI nosort
+# INTEGER / INTEGER truncates toward zero (docs/semantics.md, Arithmetic)
+query II nosort
 SELECT a / b, a % b FROM calc WHERE id = 1
 ----
-14.285714285714286|2
+14|2
 
-query RI nosort
+query II nosort
 SELECT a / b, a % b FROM calc WHERE id = 2
 ----
--3.75|-3
+-3|-3
 
 query II nosort
 SELECT a / b, a % b FROM calc WHERE id = 3

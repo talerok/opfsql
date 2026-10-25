@@ -1,0 +1,44 @@
+# assignment.slt — values stored in a column are converted to its type when
+# lossless, and rejected otherwise (docs/semantics.md, Assignment)
+
+statement ok
+CREATE TABLE a (id INTEGER PRIMARY KEY, i INTEGER, r REAL, t TEXT, f BOOLEAN)
+
+statement ok
+INSERT INTO a VALUES (1, '7', '1.5', 5, 1)
+
+query TTTT nosort
+SELECT TYPEOF(i), TYPEOF(r), TYPEOF(t), TYPEOF(f) FROM a
+----
+integer|real|text|boolean
+
+query IRTT nosort
+SELECT i, r, t, f FROM a
+----
+7|1.5|5|true
+
+statement error
+INSERT INTO a (id, i) VALUES (2, 1.5)
+
+statement error
+INSERT INTO a (id, i) VALUES (2, 'seven')
+
+statement error
+INSERT INTO a (id, f) VALUES (2, 2)
+
+statement error
+UPDATE a SET i = 'x'
+
+statement ok
+UPDATE a SET i = '8', t = 9
+
+query IT nosort
+SELECT i, t FROM a
+----
+8|9
+
+# Stored as INTEGERs, they compare and compute as INTEGERs
+query II nosort
+SELECT i / 3, i % 3 FROM a WHERE i = 8
+----
+2|2

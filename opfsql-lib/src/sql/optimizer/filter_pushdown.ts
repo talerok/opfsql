@@ -15,7 +15,7 @@ import type {
   LogicalUnion,
 } from "../binder/types.js";
 import { BoundExpressionClass, LogicalOperatorType } from "../binder/types.js";
-import { FilterCombiner } from "./filter_combiner.js";
+import { FilterCombiner } from "./filter-combiner.js";
 import {
   collectColumnRefs,
   flattenConjunction,

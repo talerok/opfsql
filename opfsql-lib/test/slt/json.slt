@@ -181,11 +181,12 @@ CREATE INDEX idx ON t(data)
 # ORDER BY JSON column (lexicographic via JSON.stringify)
 # ============================================================================
 
+# JSON objects order by their canonical text (keys sorted): "age" first
 query IT nosort
 SELECT id, data.name FROM t WHERE id IN (1, 2) ORDER BY data
 ----
-1|Alice
 2|Bob
+1|Alice
 
 # ============================================================================
 # GROUP BY JSON column

@@ -1,15 +1,20 @@
 import type { TableSchema } from "../../../store/types.js";
-import { castJson } from "../../evaluate/utils/cast.js";
-import type { Value } from "../../types.js";
+import {
+  assignValue,
+  typeFromName,
+  type Value,
+} from "../../../values/index.js";
 
-export function coerceJsonIfNeeded(
+/**
+ * `value` converted for storage in column `columnIndex`, as Assignment in
+ * docs/semantics.md defines it: lossless conversions only, else
+ * DATATYPE_MISMATCH.
+ */
+export function assignToColumn(
   value: Value,
   schema: TableSchema,
-  colIndex: number,
+  columnIndex: number,
 ): Value {
-  const col = schema.columns[colIndex];
-  if (col.type === "JSON" && typeof value === "string") {
-    return castJson(value);
-  }
-  return value;
+  const column = schema.columns[columnIndex];
+  return assignValue(value, typeFromName(column.type) ?? "ANY");
 }

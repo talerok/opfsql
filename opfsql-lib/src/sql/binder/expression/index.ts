@@ -7,9 +7,7 @@ import type {
   ConjunctionExpression,
   OperatorExpression,
   BetweenExpression,
-  FunctionExpression,
   SubqueryExpression,
-  CaseExpression,
   CastExpression,
   StarExpression,
 } from "../../parser/types.js";
@@ -25,6 +23,7 @@ import { bindComparison } from "./comparison.js";
 import { bindConjunction } from "./conjunction.js";
 import { bindOperator } from "./operator.js";
 import { bindBetween } from "./between.js";
+import { bindAggregate } from "./aggregate.js";
 import { bindFunction } from "./function.js";
 import { bindSubquery } from "./subquery.js";
 import { bindCase } from "./case.js";
@@ -52,11 +51,17 @@ export function bindExpression(
     case ExpressionClass.BETWEEN:
       return bindBetween(ctx, expr as BetweenExpression, scope, aggCtx);
     case ExpressionClass.FUNCTION:
-      return bindFunction(ctx, expr as FunctionExpression, scope, aggCtx);
+      return bindFunction(expr, {
+        bind: (child) => bindExpression(ctx, child, scope, aggCtx),
+        bindAggregate: () => bindAggregate(ctx, expr, scope),
+        aggregateContext: aggCtx,
+      });
     case ExpressionClass.SUBQUERY:
       return bindSubquery(ctx, expr as SubqueryExpression, scope);
     case ExpressionClass.CASE:
-      return bindCase(ctx, expr as CaseExpression, scope, aggCtx);
+      return bindCase(expr, (child) =>
+        bindExpression(ctx, child, scope, aggCtx),
+      );
     case ExpressionClass.CAST:
       return bindCast(ctx, expr as CastExpression, scope, aggCtx);
     case ExpressionClass.STAR:

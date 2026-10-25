@@ -1,5 +1,6 @@
+import { scalarFunction } from "../../../functions/index.js";
+import { SemanticError } from "../../../errors.js";
 import { beforeEach, describe, expect, it } from "vitest";
-import { BindError } from "../core/errors.js";
 import { sameExpression } from "../expression/same-expression.js";
 import type {
   BoundBetweenExpression,
@@ -38,12 +39,19 @@ describe("Expressions", () => {
     expect(expr.returnType).toBe("BOOLEAN");
   });
 
-  it("NOT LIKE produces BoundFunctionExpression", () => {
+  it("NOT LIKE is NOT applied to LIKE", () => {
     const plan = bind("SELECT * FROM users WHERE name NOT LIKE '%bob%'");
     const proj = plan as LogicalProjection;
     const filter = proj.children[0] as LogicalFilter;
-    const expr = filter.expressions[0] as BoundFunctionExpression;
-    expect(expr.functionName).toBe("NOT_LIKE");
+    const expr = filter.expressions[0] as BoundOperatorExpression;
+    expect(expr.operatorType).toBe("NOT");
+    const like = expr.children[0] as BoundFunctionExpression;
+    expect(like.functionName).toBe("LIKE");
+    // SQLite's like(pattern, text)
+    expect(like.children.map((child) => child.expressionClass)).toEqual([
+      BoundExpressionClass.BOUND_CONSTANT,
+      BoundExpressionClass.BOUND_COLUMN_REF,
+    ]);
   });
 
   it("IS NULL produces BoundOperatorExpression", () => {
@@ -262,7 +270,7 @@ describe("Expression edge cases", () => {
       BoundExpressionClass.BOUND_CASE,
     );
     const outerCase = proj.expressions[0] as BoundCaseExpression;
-    expect(outerCase.caseChecks[0].then.expressionClass).toBe(
+    expect(outerCase.caseChecks[0].result.expressionClass).toBe(
       BoundExpressionClass.BOUND_CASE,
     );
   });
@@ -309,19 +317,19 @@ describe("BETWEEN type checking", () => {
     expect(filter.expressions[0].returnType).toBe("BOOLEAN");
   });
 
-  it("BETWEEN with incompatible lower bound throws BindError", () => {
+  it("BETWEEN with incompatible lower bound throws SemanticError", () => {
     expect(() =>
       bind("SELECT * FROM users WHERE age BETWEEN 'young' AND 65"),
-    ).toThrow(BindError);
+    ).toThrow(SemanticError);
     expect(() =>
       bind("SELECT * FROM users WHERE age BETWEEN 'young' AND 65"),
     ).toThrow("Type mismatch");
   });
 
-  it("BETWEEN with incompatible upper bound throws BindError", () => {
+  it("BETWEEN with incompatible upper bound throws SemanticError", () => {
     expect(() =>
       bind("SELECT * FROM users WHERE age BETWEEN 18 AND 'old'"),
-    ).toThrow(BindError);
+    ).toThrow(SemanticError);
     expect(() =>
       bind("SELECT * FROM users WHERE age BETWEEN 18 AND 'old'"),
     ).toThrow("Type mismatch");
@@ -336,21 +344,21 @@ describe("CASE branch type checking", () => {
     expect(caseExpr.returnType).toBe("INTEGER");
   });
 
-  it("CASE with incompatible THEN branches throws BindError", () => {
+  it("CASE with incompatible THEN branches throws SemanticError", () => {
     expect(() =>
       bind("SELECT CASE WHEN age > 18 THEN 'adult' ELSE 42 END FROM users"),
-    ).toThrow(BindError);
+    ).toThrow(SemanticError);
     expect(() =>
       bind("SELECT CASE WHEN age > 18 THEN 'adult' ELSE 42 END FROM users"),
     ).toThrow("Type mismatch");
   });
 
-  it("CASE with multiple incompatible WHEN branches throws BindError", () => {
+  it("CASE with multiple incompatible WHEN branches throws SemanticError", () => {
     expect(() =>
       bind(
         "SELECT CASE WHEN age < 13 THEN 'child' WHEN age < 18 THEN 42 ELSE 'adult' END FROM users",
       ),
-    ).toThrow(BindError);
+    ).toThrow(SemanticError);
   });
 
   it("CASE with numeric type promotion succeeds", () => {
@@ -359,7 +367,7 @@ describe("CASE branch type checking", () => {
     );
     const proj = plan as LogicalProjection;
     const caseExpr = proj.expressions[0] as BoundCaseExpression;
-    // INTEGER and REAL should promote to REAL
+    // INTEGER and REAL promote to REAL
     expect(caseExpr.returnType).toBe("REAL");
   });
 });
@@ -675,6 +683,7 @@ describe("sameExpression — additional expression types", () => {
     const a: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "UPPER",
+      function: scalarFunction("UPPER"),
       children: [colB],
       returnType: "TEXT",
     };
@@ -686,6 +695,7 @@ describe("sameExpression — additional expression types", () => {
     const a: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "UPPER",
+      function: scalarFunction("UPPER"),
       children: [colB],
       returnType: "TEXT",
     };
@@ -754,7 +764,7 @@ describe("sameExpression — additional expression types", () => {
   it("identical CASE expressions are equal", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
-      caseChecks: [{ when: colA, then: constOne }],
+      caseChecks: [{ when: colA, result: constOne }],
       elseExpr: colB,
       returnType: "INTEGER",
     };
@@ -765,13 +775,13 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with different when returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
-      caseChecks: [{ when: colA, then: constOne }],
+      caseChecks: [{ when: colA, result: constOne }],
       elseExpr: null,
       returnType: "INTEGER",
     };
     const b: BoundCaseExpression = {
       ...a,
-      caseChecks: [{ when: colB, then: constOne }],
+      caseChecks: [{ when: colB, result: constOne }],
     };
     expect(sameExpression(a, b)).toBe(false);
   });
@@ -779,7 +789,7 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with different else returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
-      caseChecks: [{ when: colA, then: constOne }],
+      caseChecks: [{ when: colA, result: constOne }],
       elseExpr: colA,
       returnType: "INTEGER",
     };
@@ -790,7 +800,7 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with null vs non-null else returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
-      caseChecks: [{ when: colA, then: constOne }],
+      caseChecks: [{ when: colA, result: constOne }],
       elseExpr: null,
       returnType: "INTEGER",
     };
@@ -801,15 +811,15 @@ describe("sameExpression — additional expression types", () => {
   it("CASE with different number of checks returns false", () => {
     const a: BoundCaseExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
-      caseChecks: [{ when: colA, then: constOne }],
+      caseChecks: [{ when: colA, result: constOne }],
       elseExpr: null,
       returnType: "INTEGER",
     };
     const b: BoundCaseExpression = {
       ...a,
       caseChecks: [
-        { when: colA, then: constOne },
-        { when: colB, then: constOne },
+        { when: colA, result: constOne },
+        { when: colB, result: constOne },
       ],
     };
     expect(sameExpression(a, b)).toBe(false);

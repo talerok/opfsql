@@ -1,4 +1,8 @@
 import type {
+  AggregateFunction,
+  ScalarFunction,
+} from "../../functions/index.js";
+import type {
   ColumnDef,
   IndexDef,
   IndexExpression,
@@ -151,7 +155,10 @@ export interface BoundBetweenExpression {
 
 export interface BoundFunctionExpression {
   expressionClass: BoundExpressionClass.BOUND_FUNCTION;
+  /** The function's name, uppercase, for plans and stored index keys. */
   functionName: string;
+  /** The function the name resolved to at bind time. */
+  function: ScalarFunction;
   children: BoundExpression[];
   returnType: LogicalType;
 }
@@ -161,6 +168,8 @@ export type AggregateFunctionName = "COUNT" | "SUM" | "AVG" | "MIN" | "MAX";
 export interface BoundAggregateExpression {
   expressionClass: BoundExpressionClass.BOUND_AGGREGATE;
   functionName: AggregateFunctionName;
+  /** The aggregate the name resolved to at bind time. */
+  function: AggregateFunction;
   children: BoundExpression[];
   distinct: boolean;
   isStar: boolean;
@@ -180,7 +189,13 @@ export interface BoundSubqueryExpression {
 
 export interface BoundCaseExpression {
   expressionClass: BoundExpressionClass.BOUND_CASE;
-  caseChecks: Array<{ when: BoundExpression; then: BoundExpression }>;
+  /**
+   * `CASE operand WHEN value THEN …`: the operand, evaluated once per row
+   * and compared with each WHEN value by `=`. Without it, each WHEN is a
+   * condition.
+   */
+  operand?: BoundExpression;
+  caseChecks: Array<{ when: BoundExpression; result: BoundExpression }>;
   elseExpr: BoundExpression | null;
   returnType: LogicalType;
 }

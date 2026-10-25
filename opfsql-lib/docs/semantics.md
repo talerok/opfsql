@@ -137,7 +137,8 @@ other type is a bind error. NULL is "unknown":
 - INTEGER `/` INTEGER truncates toward zero (`7 / 2` is `3`); with a REAL
   operand, division is exact. Operands without a static type (ANY, JSON)
   divide as integers when both hold integral values.
-- `%` takes the sign of the dividend.
+- `%` takes the sign of the dividend; as in SQLite, REAL operands are
+  truncated to integers first (`5.5 % 2` is `1`).
 - Division or remainder by zero is NULL.
 - A result that should be an INTEGER but is not a safe integer fails with
   `INTEGER_OVERFLOW`; so does SUM over integers.
@@ -164,6 +165,71 @@ SQLite.
 Anything else fails with `DATATYPE_MISMATCH`. Unlike SQLite, a cast never
 invents a value: `CAST('12abc' AS INTEGER)` is an error, not `12`.
 
+## Functions
+
+Functions are resolved when a statement is bound, through one registry
+(`src/functions`) that holds each function's arguments, result type and
+implementation. An unknown name, a wrong number of arguments, or an
+argument whose static type the function does not take fails with
+`SEMANTIC_ERROR` before anything runs: `nosuchfn(1)`, `UPPER()`,
+`SUBSTR('abc')`, `ABS(text_column)` and `SUM(text_column)` are all bind
+errors.
+
+Unless stated otherwise a function returns NULL when an argument is NULL.
+Text arguments may be TEXT, numbers (printed as JavaScript prints them)
+or booleans (`true` / `false`); numeric arguments INTEGER or REAL. A value
+whose type is only known at run time (a parameter) that does not fit fails
+with `DATATYPE_MISMATCH` — except text that is exactly a number, which
+numeric arguments accept. Lengths and positions count characters (code
+points) in text and bytes in BLOBs.
+
+| Function                                     | Result                                                                                                                                                                                          |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upper(x)`, `lower(x)`                       | `x` in upper / lower case                                                                                                                                                                       |
+| `length(x)`                                  | characters of text, bytes of a BLOB                                                                                                                                                             |
+| `trim(x [, chars])`, `ltrim`, `rtrim`        | `x` without the characters of `chars` (spaces by default) at both ends / the start / the end                                                                                                    |
+| `substr(x, start [, count])`, `substring`    | `count` characters from `start`: 1-based; negative counts from the end; 0 is just before the first, so `substr('hello', 0, 2)` is `'h'`; a negative `count` takes the characters before `start` |
+| `replace(x, from, to)`                       | every `from` in `x` replaced by `to`; an empty `from` changes nothing                                                                                                                           |
+| `instr(x, y)`                                | 1-based position of the first `y` in `x`, or 0                                                                                                                                                  |
+| `concat(x, …)`, `concat_ws(separator, x, …)` | the arguments' text joined; NULL arguments are skipped (a NULL separator gives NULL)                                                                                                            |
+| `hex(x)`                                     | uppercase hex of a BLOB's bytes, or of the UTF-8 of `x`'s text; `hex(NULL)` is `''`                                                                                                             |
+| `abs(x)`, `sign(x)`                          | absolute value (same type as `x`); -1, 0 or 1                                                                                                                                                   |
+| `round(x [, digits])`                        | REAL, rounded half away from zero at `digits` (0 to 30) decimals                                                                                                                                |
+| `floor(x)`, `ceil(x)`, `ceiling(x)`          | rounded down / up; an INTEGER stays INTEGER                                                                                                                                                     |
+| `coalesce(x, y, …)`, `ifnull(x, y)`          | the first non-NULL argument; later arguments are not evaluated                                                                                                                                  |
+| `nullif(x, y)`                               | NULL if `x = y`, else `x`                                                                                                                                                                       |
+| `iif(condition, x [, y])`                    | `CASE WHEN condition THEN x ELSE y END`                                                                                                                                                         |
+| `typeof(x)`                                  | `'null'`, `'integer'`, `'real'`, `'text'`, `'blob'`, `'boolean'` or `'json'`                                                                                                                    |
+| `md5(x)`                                     | lowercase hex MD5 of a BLOB's bytes, or of the UTF-8 of `x`'s text (canonical text for JSON)                                                                                                    |
+| `json_extract(json, path, …)`                | the value at a SQLite JSON path (`$`, `.key`, `."key"`, `[n]`, `[#-n]`); JSON null and a missing value are NULL; several paths give an array                                                    |
+| `json_type(json [, path])`                   | `'object'`, `'array'`, `'integer'`, `'real'`, `'text'`, `'true'`, `'false'` or `'null'`; NULL if the path finds nothing                                                                         |
+| `json_array_length(json [, path])`           | the length of an array, 0 for anything else                                                                                                                                                     |
+| `json_valid(x)`                              | whether `x` is JSON (TEXT is parsed)                                                                                                                                                            |
+| `like(pattern, x [, escape])`                | `x LIKE pattern` (see Text matching)                                                                                                                                                            |
+
+The result of `coalesce`, `ifnull`, `iif` (and of CASE) has the type its
+arguments share; INTEGER with REAL is REAL; any other mix has no static
+type, and arithmetic on it decides by the value.
+
+A JSON argument is a JSON value when its static type is JSON, and JSON
+text to parse when it is TEXT; malformed text fails with
+`DATATYPE_MISMATCH`, a malformed path with `SEMANTIC_ERROR`.
+
+### Aggregates
+
+`count(*)` counts rows. `count(x)`, `sum`, `avg`, `min` and `max` skip
+NULL arguments; with `DISTINCT` they see each value once, equality being
+that of [Order and equality](#order-and-equality).
+
+- `sum` over INTEGERs is an INTEGER, failing with `INTEGER_OVERFLOW` when
+  the total leaves the safe range; over REALs it is a REAL, summed with
+  Kahan-Babuska-Neumaier compensation as SQLite does. Over no rows it is
+  NULL.
+- `avg` is a REAL; over no rows, NULL.
+- `min` and `max` follow the total order, so they work on any type.
+- `sum` and `avg` take numbers only: over TEXT, BOOLEAN, BLOB or JSON they
+  are a bind error.
+
 ## Departures from SQLite
 
 | opfsql                                                   | SQLite                            | Why                                                                       |
@@ -175,3 +241,8 @@ invents a value: `CAST('12abc' AS INTEGER)` is an error, not `12`.
 | numbers print as JavaScript prints them (`1`, not `1.0`) | `%!.15g`                          | round-trips through JavaScript exactly                                    |
 | invalid casts fail                                       | invalid casts give 0 or a prefix  | a guessed value hides a bug                                               |
 | WHERE requires a BOOLEAN                                 | any value, by truthiness          | as in PostgreSQL; catches mistakes at bind time                           |
+| `upper` / `lower` convert all of Unicode                 | ASCII letters only (without ICU)  | JavaScript's case mapping is complete and free                            |
+| `typeof` also answers `'boolean'` and `'json'`           | no such types                     | they are types here                                                       |
+| JSON functions return JSON values                        | JSON text                         | as JSON columns do                                                        |
+| `md5` exists                                             | no `md5`                          | kept from earlier opfsql versions                                         |
+| a scalar subquery with several rows fails                | the first row is used             | a guessed value hides a bug                                               |

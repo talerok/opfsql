@@ -1,5 +1,4 @@
 import type {
-  BoundExpression,
   ColumnBinding,
   IndexUnionHint,
   LogicalGet,
@@ -10,31 +9,38 @@ import type {
   SyncIIndexManager,
   SyncIRowManager,
 } from "../../store/types.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
-import { evaluateExpression } from "../evaluate/index.js";
-import { isTruthy } from "../evaluate/utils/compare.js";
+import { compilePredicate, type ExecutionContext } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
-import { resolveFilterValue, rowToTuple, SCAN_BATCH } from "./utils.js";
+import {
+  compileTableFilters,
+  indexSearchValue,
+  passesFilters,
+  type RowFilter,
+  rowToTuple,
+  SCAN_BATCH,
+} from "./shared.js";
 
 export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
   private rowIds: number[] | null = null;
   private cursor = 0;
   private done = false;
   private readonly layout: ColumnBinding[];
-  private readonly resolver;
-  private readonly residualExpr: BoundExpression;
+  private readonly residual: RowFilter;
+  private readonly filters: readonly RowFilter[];
 
   constructor(
     private readonly op: LogicalGet,
     private readonly rowManager: SyncIRowManager,
     private readonly indexManager: SyncIIndexManager,
     private readonly hint: IndexUnionHint,
-    private readonly ctx: SyncEvalContext,
+    private readonly context: ExecutionContext,
   ) {
     this.layout = op.columnBindings;
-    this.resolver = buildResolver(this.layout);
-    this.residualExpr = hint.originalFilter;
+    const resolver = buildResolver(this.layout);
+    this.residual = compilePredicate(hint.originalFilter, resolver, context);
+    // The table's other filters hold for the rows too.
+    this.filters = compileTableFilters(op.tableFilters, resolver, context);
   }
 
   getLayout(): ColumnBinding[] {
@@ -59,13 +65,7 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
 
         // Apply the original OR expression as residual filter
-        const val = evaluateExpression(
-          this.residualExpr,
-          tuple,
-          this.resolver,
-          this.ctx,
-        );
-        if (isTruthy(val)) {
+        if (this.residual(tuple) && passesFilters(tuple, this.filters)) {
           batch.push(tuple);
         }
       }
@@ -90,7 +90,11 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
       const predicates: SearchPredicate[] = branch.predicates.map((p) => ({
         columnPosition: p.columnPosition,
         comparisonType: p.comparisonType,
-        value: resolveFilterValue(p.value, this.ctx.params) as IndexKeyValue,
+        value: indexSearchValue(
+          p,
+          branch.indexDef,
+          this.context,
+        ) as IndexKeyValue,
       }));
       const ids = this.indexManager.search(branch.indexDef.name, predicates);
       for (const id of ids) {
