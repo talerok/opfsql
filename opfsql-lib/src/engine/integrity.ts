@@ -1,4 +1,4 @@
-import { buildIndexKey } from "../executor/dml/utils/index-maintenance.js";
+import { buildIndexKey } from "../legacy/executor/dml/utils/index-maintenance.js";
 import { SyncBTree } from "../store/index-btree/index-btree.js";
 import { SyncTableManager } from "../store/table-manager.js";
 import type { ICatalog, SyncIPageStore } from "../store/types.js";

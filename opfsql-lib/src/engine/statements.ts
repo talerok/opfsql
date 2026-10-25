@@ -1,10 +1,10 @@
 import { MisuseError } from "../errors.js";
-import { execute } from "../executor/execute/index.js";
-import { outputColumnNames } from "../executor/execute/result.js";
-import type { CatalogChange } from "../executor/types.js";
-import { Binder } from "../sql/binder/index.js";
-import type { LogicalOperator } from "../sql/binder/types.js";
-import { optimize } from "../sql/optimizer/index.js";
+import { execute } from "../legacy/executor/execute/index.js";
+import { outputColumnNames } from "../legacy/executor/execute/result.js";
+import type { CatalogChange } from "../legacy/executor/types.js";
+import { Binder } from "../legacy/binder/index.js";
+import type { LogicalOperator } from "../legacy/binder/types.js";
+import { optimize } from "../legacy/optimizer/index.js";
 import {
   Parser,
   type Statement,

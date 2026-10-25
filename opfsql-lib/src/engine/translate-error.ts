@@ -4,8 +4,8 @@ import {
   OpfsqlError,
   SemanticError,
 } from "../errors.js";
-import { ExecutorError } from "../executor/errors.js";
-import { BindError } from "../sql/binder/index.js";
+import { ExecutorError } from "../legacy/executor/errors.js";
+import { BindError } from "../legacy/binder/index.js";
 import {
   IndexKeyTooLargeError,
   PageOverflowError,

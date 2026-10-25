@@ -1,0 +1,34 @@
+import type { DeleteStatement } from "../../../sql/parser/types.js";
+import type { BindContext } from "../core/context.js";
+import { makeFilter, makeGet } from "../core/operators.js";
+import { requireTable } from "../core/utils/require-table.js";
+import { bindExpression } from "../expression/index.js";
+import type * as BT from "../types.js";
+import { LogicalOperatorType } from "../types.js";
+
+export function bindDelete(
+  ctx: BindContext,
+  stmt: DeleteStatement,
+): BT.LogicalDelete {
+  const schema = requireTable(ctx, stmt.table);
+  const scope = ctx.createScope();
+  const entry = scope.addTable(stmt.table, stmt.table, schema);
+
+  let scan: BT.LogicalOperator = makeGet(entry, schema);
+
+  if (stmt.where) {
+    const filter = bindExpression(ctx, stmt.where, scope);
+    scan = makeFilter(scan, [filter]);
+  }
+
+  return {
+    type: LogicalOperatorType.LOGICAL_DELETE,
+    tableName: schema.name,
+    schema,
+    children: [scan],
+    expressions: [],
+    types: [],
+    estimatedCardinality: 0,
+    columnBindings: [],
+  };
+}

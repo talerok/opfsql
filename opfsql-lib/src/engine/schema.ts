@@ -1,4 +1,4 @@
-import type { CatalogChange } from "../executor/types.js";
+import type { CatalogChange } from "../legacy/executor/types.js";
 import { Catalog } from "../store/catalog.js";
 import type { SessionStore } from "../store/session-store.js";
 

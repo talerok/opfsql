@@ -1,7 +1,7 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MisuseError } from "../../errors.js";
-import { Binder } from "../../sql/binder/index.js";
+import { Binder } from "../../legacy/binder/index.js";
 import { Engine, PreparedStatement, Session } from "../index.js";
 import { openTestEngine } from "./test-engine.js";
 

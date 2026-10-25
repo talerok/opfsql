@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { IndexExpression, TableSchema } from "../../types.js";
-import type { BoundExpression } from "../../sql/binder/types.js";
-import { BoundExpressionClass } from "../../sql/binder/types.js";
+import type { BoundExpression } from "../../legacy/binder/types.js";
+import { BoundExpressionClass } from "../../legacy/binder/types.js";
 import {
   boundToIndexExpression,
   bindIndexExpression,

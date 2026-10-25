@@ -1,5 +1,5 @@
 import { InternalError, SerializationError } from "../errors.js";
-import type { CatalogChange } from "../executor/types.js";
+import type { CatalogChange } from "../legacy/executor/types.js";
 import { SyncIndexManager } from "../store/index-manager.js";
 import type { SessionStore } from "../store/session-store.js";
 import type { Value } from "../values/index.js";

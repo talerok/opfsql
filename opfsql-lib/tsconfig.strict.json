@@ -19,7 +19,7 @@
     "src/table",
     "src/sql/parser",
     "src/sql/plan",
-    "src/executor/evaluate",
+    "src/legacy/executor/evaluate",
     "src/engine/api",
     "src/worker",
     "test/support"

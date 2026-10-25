@@ -1,0 +1,72 @@
+import type {
+  ParsedExpression,
+  ColumnReferenceExpression,
+  ConstantExpression,
+  ParameterExpression,
+  ComparisonExpression,
+  ConjunctionExpression,
+  OperatorExpression,
+  BetweenExpression,
+  SubqueryExpression,
+  CastExpression,
+  StarExpression,
+} from "../../../sql/parser/types.js";
+import { ExpressionClass } from "../../../sql/parser/types.js";
+import type { BoundExpression } from "../types.js";
+import type { BindContext, AggregateContext } from "../core/context.js";
+import type { BindScope } from "../core/scope.js";
+import { BindError } from "../core/errors.js";
+import { bindColumnRef } from "./column-ref.js";
+import { bindConstant } from "./constant.js";
+import { bindParameter } from "./parameter.js";
+import { bindComparison } from "./comparison.js";
+import { bindConjunction } from "./conjunction.js";
+import { bindOperator } from "./operator.js";
+import { bindBetween } from "./between.js";
+import { bindAggregate } from "./aggregate.js";
+import { bindFunction } from "./function.js";
+import { bindSubquery } from "./subquery.js";
+import { bindCase } from "./case.js";
+import { bindCast } from "./cast.js";
+
+export function bindExpression(
+  ctx: BindContext,
+  expr: ParsedExpression,
+  scope: BindScope,
+  aggCtx?: AggregateContext,
+): BoundExpression {
+  switch (expr.expressionClass) {
+    case ExpressionClass.COLUMN_REF:
+      return bindColumnRef(expr as ColumnReferenceExpression, scope, aggCtx);
+    case ExpressionClass.CONSTANT:
+      return bindConstant(expr as ConstantExpression);
+    case ExpressionClass.PARAMETER:
+      return bindParameter(ctx, expr as ParameterExpression);
+    case ExpressionClass.COMPARISON:
+      return bindComparison(ctx, expr as ComparisonExpression, scope, aggCtx);
+    case ExpressionClass.CONJUNCTION:
+      return bindConjunction(ctx, expr as ConjunctionExpression, scope, aggCtx);
+    case ExpressionClass.OPERATOR:
+      return bindOperator(ctx, expr as OperatorExpression, scope, aggCtx);
+    case ExpressionClass.BETWEEN:
+      return bindBetween(ctx, expr as BetweenExpression, scope, aggCtx);
+    case ExpressionClass.FUNCTION:
+      return bindFunction(expr, {
+        bind: (child) => bindExpression(ctx, child, scope, aggCtx),
+        bindAggregate: () => bindAggregate(ctx, expr, scope),
+        aggregateContext: aggCtx,
+      });
+    case ExpressionClass.SUBQUERY:
+      return bindSubquery(ctx, expr as SubqueryExpression, scope);
+    case ExpressionClass.CASE:
+      return bindCase(expr, (child) =>
+        bindExpression(ctx, child, scope, aggCtx),
+      );
+    case ExpressionClass.CAST:
+      return bindCast(ctx, expr as CastExpression, scope, aggCtx);
+    case ExpressionClass.STAR:
+      throw new BindError("Star expression must be handled in SELECT list");
+    default:
+      throw new BindError("Unknown expression class");
+  }
+}

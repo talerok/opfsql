@@ -1,0 +1,231 @@
+import type {
+  BoundExpression,
+  BoundColumnRefExpression,
+  ColumnBinding,
+} from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
+import type { LogicalType } from "../../../store/types.js";
+import { scalarFunction } from "../../../functions/index.js";
+import type { ExecutionContext } from "../evaluate/index.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
+
+// ---------------------------------------------------------------------------
+// Mock physical operator — returns predefined batches (sync)
+// ---------------------------------------------------------------------------
+
+export class MockOperator implements SyncPhysicalOperator {
+  private index = 0;
+
+  constructor(
+    private readonly batches: Tuple[][],
+    private readonly layout: ColumnBinding[],
+  ) {}
+
+  getLayout(): ColumnBinding[] {
+    return this.layout;
+  }
+
+  next(): Tuple[] | null {
+    if (this.index >= this.batches.length) return null;
+    return this.batches[this.index++];
+  }
+
+  reset(): void {
+    this.index = 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Expression builders
+// ---------------------------------------------------------------------------
+
+export function colRef(
+  tableIndex: number,
+  columnIndex: number,
+  columnName = `col${columnIndex}`,
+  returnType: LogicalType = "INTEGER",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+    binding: { tableIndex, columnIndex },
+    tableName: `t${tableIndex}`,
+    columnName,
+    returnType,
+  };
+}
+
+export function constant(
+  value: string | number | boolean | null,
+  returnType?: LogicalType,
+): BoundExpression {
+  const rt: LogicalType =
+    returnType ??
+    (typeof value === "string"
+      ? "TEXT"
+      : typeof value === "number"
+        ? "INTEGER"
+        : typeof value === "boolean"
+          ? "BOOLEAN"
+          : "NULL");
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+    value,
+    returnType: rt,
+  };
+}
+
+export function comparison(
+  left: BoundExpression,
+  right: BoundExpression,
+  comparisonType:
+    | "EQUAL"
+    | "NOT_EQUAL"
+    | "LESS"
+    | "GREATER"
+    | "LESS_EQUAL"
+    | "GREATER_EQUAL" = "EQUAL",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+    comparisonType,
+    left,
+    right,
+    returnType: "BOOLEAN",
+  };
+}
+
+export function conjunction(
+  type: "AND" | "OR",
+  ...children: BoundExpression[]
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
+    conjunctionType: type,
+    children,
+    returnType: "BOOLEAN",
+  };
+}
+
+export function operator(
+  operatorType: string,
+  children: BoundExpression[],
+  returnType: LogicalType = "INTEGER",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_OPERATOR,
+    operatorType: operatorType as any,
+    children,
+    returnType,
+  };
+}
+
+export function between(
+  input: BoundExpression,
+  lower: BoundExpression,
+  upper: BoundExpression,
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_BETWEEN,
+    input,
+    lower,
+    upper,
+    returnType: "BOOLEAN",
+  };
+}
+
+export function fnCall(
+  functionName: string,
+  children: BoundExpression[],
+  returnType: LogicalType = "TEXT",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_FUNCTION,
+    functionName,
+    function: scalarFunction(functionName),
+    children,
+    returnType,
+  };
+}
+
+export function cast(
+  child: BoundExpression,
+  castType: LogicalType,
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CAST,
+    child,
+    castType,
+    returnType: castType,
+  };
+}
+
+export function caseExpr(
+  checks: Array<{ when: BoundExpression; result: BoundExpression }>,
+  elseExpr: BoundExpression | null = null,
+  returnType: LogicalType = "INTEGER",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CASE,
+    operand: null,
+    caseChecks: checks,
+    elseExpr,
+    returnType,
+  };
+}
+
+/** `CASE operand WHEN … THEN … [ELSE …] END`. */
+export function simpleCase(
+  operand: BoundExpression,
+  checks: { when: BoundExpression; result: BoundExpression }[],
+  otherwise: BoundExpression | null = null,
+  returnType: LogicalType = "INTEGER",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CASE,
+    operand,
+    caseChecks: checks,
+    elseExpr: otherwise,
+    returnType,
+  };
+}
+
+export function jsonAccess(
+  child: BoundExpression,
+  path: Array<
+    { type: "field"; name: string } | { type: "index"; value: number }
+  >,
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
+    child: child as BoundColumnRefExpression,
+    path,
+    returnType: "JSON",
+  };
+}
+
+export function layout(
+  ...bindings: Array<[tableIndex: number, columnIndex: number]>
+): ColumnBinding[] {
+  return bindings.map(([tableIndex, columnIndex]) => ({
+    tableIndex,
+    columnIndex,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Noop eval context (sync)
+// ---------------------------------------------------------------------------
+
+export const noopCtx: ExecutionContext = {
+  parameters: [],
+  outer: null,
+  runSubquery: () => [],
+};
+
+/** A context with statement parameters. */
+export function withParameters(parameters: unknown[]): ExecutionContext {
+  return {
+    ...noopCtx,
+    parameters: parameters as ExecutionContext["parameters"],
+  };
+}
