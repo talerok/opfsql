@@ -198,6 +198,10 @@ points) in text and bytes in BLOBs.
 | `json_valid(x)`                              | whether `x` is JSON (TEXT is parsed)                                                                                                                                                            |
 | `like(pattern, x [, escape])`                | `x LIKE pattern` (see Text matching)                                                                                                                                                            |
 
+The result of `coalesce`, `ifnull`, `iif` (and of CASE) has the type its
+arguments share; INTEGER with REAL is REAL; any other mix has no static
+type, and arithmetic on it decides by the value.
+
 A JSON argument is a JSON value when its static type is JSON, and JSON
 text to parse when it is TEXT; malformed text fails with
 `DATATYPE_MISMATCH`, a malformed path with `SEMANTIC_ERROR`.
@@ -209,8 +213,9 @@ NULL arguments; with `DISTINCT` they see each value once, equality being
 that of [Order and equality](#order-and-equality).
 
 - `sum` over INTEGERs is an INTEGER, failing with `INTEGER_OVERFLOW` when
-  the total leaves the safe range; over REALs it is a REAL. Over no rows
-  it is NULL.
+  the total leaves the safe range; over REALs it is a REAL, summed with
+  Kahan-Babuska-Neumaier compensation as SQLite does. Over no rows it is
+  NULL.
 - `avg` is a REAL; over no rows, NULL.
 - `min` and `max` follow the total order, so they work on any type.
 - `sum` and `avg` take numbers only: over TEXT, BOOLEAN, BLOB or JSON they
