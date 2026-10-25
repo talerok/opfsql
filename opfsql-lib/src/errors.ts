@@ -57,6 +57,46 @@ export class OpfsqlError extends Error {
   }
 }
 
+/** The SQL text does not parse; `offset` and `length` locate the problem. */
+export class SqlSyntaxError extends OpfsqlError {
+  override readonly name = "SqlSyntaxError";
+
+  constructor(
+    message: string,
+    readonly offset: number,
+    readonly length: number,
+  ) {
+    super("SYNTAX_ERROR", message);
+  }
+}
+
+/** The SQL parses, but its names, types or clauses do not make sense. */
+export class SemanticError extends OpfsqlError {
+  override readonly name = "SemanticError";
+
+  constructor(message: string) {
+    super("SEMANTIC_ERROR", message);
+  }
+}
+
+/** Valid SQL that opfsql does not implement. */
+export class NotSupportedError extends OpfsqlError {
+  override readonly name = "NotSupportedError";
+
+  constructor(readonly feature: string) {
+    super("NOT_SUPPORTED", `${feature} is not supported`);
+  }
+}
+
+/** The API was used wrongly. */
+export class MisuseError extends OpfsqlError {
+  override readonly name = "MisuseError";
+
+  constructor(message: string) {
+    super("MISUSE", message);
+  }
+}
+
 /** A value does not fit the type it is stored as or cast to. */
 export class DatatypeMismatchError extends OpfsqlError {
   override readonly name = "DatatypeMismatchError";
