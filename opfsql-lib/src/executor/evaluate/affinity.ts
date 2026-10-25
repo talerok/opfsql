@@ -45,7 +45,6 @@ export function comparisonConversion(
   other: LogicalType,
 ): Conversion {
   const affinity = type === "ANY" ? affinityOf(other) : null;
-  return affinity === null
-    ? unchanged
-    : (value) => applyAffinity(value, affinity);
+  if (affinity === null) return unchanged;
+  return (value) => applyAffinity(value, affinity);
 }

@@ -1,7 +1,8 @@
 import {
   checkInteger,
   compareValues,
-  rowKey,
+  firstSighting,
+  normalizeNumber,
   type Value,
 } from "../values/index.js";
 import { firstArgumentType, number, returns } from "./arguments.js";
@@ -56,7 +57,7 @@ const avg: AggregateFunction = {
         total.add(number(value));
         rows++;
       },
-      result: () => (rows === 0 ? null : finite(total.value() / rows)),
+      result: () => (rows === 0 ? null : normalizeNumber(total.value() / rows)),
     };
   },
 };
@@ -74,20 +75,20 @@ function numericTotal(type: StaticType | undefined): Accumulator {
     add: ([value]) => {
       const operand = number(value);
       areIntegers &&= Number.isSafeInteger(operand);
-      if (areIntegers) integers = checkInteger(integers + operand) ?? 0;
+      if (areIntegers) integers = checkInteger(integers + operand);
       reals.add(operand);
       rows++;
     },
     result: () => {
       if (rows === 0) return null;
-      return areIntegers ? integers : finite(reals.value());
+      return areIntegers ? integers : normalizeNumber(reals.value());
     },
   };
 }
 
 /**
  * A sum of numbers with Kahan-Babuska-Neumaier compensation, as SQLite
- * sums REALs: 0.1 + 0.2 is 0.3, not 0.30000000000000004.
+ * sums REALs: ten times 0.1 is 1, not 0.9999999999999999.
  */
 function compensatedSum(): { add(value: number): void; value(): number } {
   let total = 0;
@@ -95,21 +96,18 @@ function compensatedSum(): { add(value: number): void; value(): number } {
   return {
     add: (value) => {
       const next = total + value;
-      if (Number.isFinite(next)) {
-        compensation +=
-          Math.abs(total) >= Math.abs(value)
-            ? total - next + value
-            : value - next + total;
-      }
+      // An infinite total has nothing left to compensate.
+      if (Number.isFinite(next)) compensation += lostPart(total, value, next);
       total = next;
     },
     value: () => total + compensation,
   };
 }
 
-/** Infinity - Infinity is NULL, as NaN always is. */
-function finite(value: number): number | null {
-  return Number.isNaN(value) ? null : value;
+/** What rounding dropped from `a + b`, which came out as `rounded`. */
+function lostPart(a: number, b: number, rounded: number): number {
+  if (Math.abs(a) >= Math.abs(b)) return a - rounded + b;
+  return b - rounded + a;
 }
 
 /** MIN and MAX by the total order of values. */
@@ -151,15 +149,10 @@ export function startAggregate(
   isDistinct: boolean,
 ): Accumulator {
   const inner = aggregate.accumulator(argumentTypes);
-  const seen = isDistinct ? new Set<string>() : null;
+  const isFirstSighting = isDistinct ? firstSighting() : () => true;
   return {
     add: (operands) => {
-      if (operands.includes(null)) return;
-      if (seen !== null) {
-        const key = rowKey(operands);
-        if (seen.has(key)) return;
-        seen.add(key);
-      }
+      if (operands.includes(null) || !isFirstSighting(operands)) return;
       inner.add(operands);
     },
     result: () => inner.result(),

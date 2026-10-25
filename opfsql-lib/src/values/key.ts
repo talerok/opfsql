@@ -23,6 +23,20 @@ export function rowKey(values: readonly Value[]): string {
   return values.map((value) => lengthPrefixed(valueKey(value))).join("");
 }
 
+/**
+ * A test that is true the first time it sees a list of values and false
+ * for every equal list after — DISTINCT, UNION, DISTINCT aggregates.
+ */
+export function firstSighting(): (values: readonly Value[]) => boolean {
+  const seen = new Set<string>();
+  return (values) => {
+    const key = rowKey(values);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  };
+}
+
 /** Length prefixes keep ["ab", "c"] apart from ["a", "bc"]. */
 function lengthPrefixed(key: string): string {
   return `${String(key.length)}:${key}`;

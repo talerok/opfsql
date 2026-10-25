@@ -1,12 +1,6 @@
-import { staticType } from "../../functions/index.js";
-import {
-  type BoundExpression,
-  BoundExpressionClass,
-  type BoundFunctionExpression,
-} from "../../sql/binder/types.js";
-import type { Value } from "../../values/index.js";
-import type { ExecutionContext } from "./context.js";
-import { parameterValue } from "./parameter.js";
+import { argumentTypes } from "../../functions/index.js";
+import type { BoundFunctionExpression } from "../../sql/binder/types.js";
+import { fixedValue } from "./parameter.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -19,11 +13,9 @@ export function compileFunction(
   scope: Scope,
 ): CompiledExpression {
   const implementation = expression.function.implement({
-    argumentTypes: expression.children.map((child) =>
-      staticType(child.returnType),
-    ),
+    argumentTypes: argumentTypes(expression.children),
     constants: expression.children.map((child) =>
-      constantValue(child, scope.context),
+      fixedValue(child, scope.context),
     ),
   });
   const operands = expression.children.map((child) => scope.compile(child));
@@ -37,17 +29,4 @@ export function compileFunction(
       return (row) => call(operands, row);
     }
   }
-}
-
-/** The value of an argument that is the same for every row, if it is. */
-function constantValue(
-  expression: BoundExpression,
-  context: ExecutionContext,
-): Value | undefined {
-  if (expression.expressionClass === BoundExpressionClass.BOUND_CONSTANT) {
-    return expression.value;
-  }
-  return expression.expressionClass === BoundExpressionClass.BOUND_PARAMETER
-    ? parameterValue(context, expression.index)
-    : undefined;
 }

@@ -90,13 +90,9 @@ export function mapExpression(
         result: mapExpression(cc.result, fn),
       }));
       const elseExpr = cs.elseExpr ? mapExpression(cs.elseExpr, fn) : null;
-      const { operand } = cs;
-      return fn({
-        ...cs,
-        ...(operand !== undefined && { operand: mapExpression(operand, fn) }),
-        caseChecks,
-        elseExpr,
-      });
+      const operand =
+        cs.operand === null ? null : mapExpression(cs.operand, fn);
+      return fn({ ...cs, operand, caseChecks, elseExpr });
     }
 
     case BoundExpressionClass.BOUND_CAST: {

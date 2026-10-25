@@ -43,7 +43,7 @@ export function isFoldable(expr: BoundExpression): boolean {
     case BoundExpressionClass.BOUND_CASE: {
       const cs = expr as BoundCaseExpression;
       return (
-        (cs.operand === undefined || isFoldable(cs.operand)) &&
+        (cs.operand === null || isFoldable(cs.operand)) &&
         cs.caseChecks.every(
           (cc) => isFoldable(cc.when) && isFoldable(cc.result),
         ) &&

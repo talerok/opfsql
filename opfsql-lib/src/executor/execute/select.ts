@@ -2,7 +2,7 @@ import type { LogicalOperator } from "../../sql/binder/types.js";
 import type { SyncIIndexManager, SyncIRowManager } from "../../store/types.js";
 import type { Value } from "../../values/index.js";
 import type { ExecutionContext, OuterRow } from "../evaluate/index.js";
-import { drainOperator } from "../operators/shared.js";
+import { drainOperator, rowsOf, takeBatch } from "../operators/shared.js";
 import { createPhysicalPlan } from "../planner/index.js";
 import type { CTECacheEntry, ExecuteResult, Tuple } from "../types.js";
 import { extractColumnNames, tuplesToRows } from "./result.js";
@@ -59,14 +59,5 @@ function runSubplan(
 ): Tuple[] {
   const physical = createPhysicalPlan(plan, rowManager, new Map(), context);
   if (limit === undefined) return drainOperator(physical);
-
-  const result: Tuple[] = [];
-  for (
-    let batch = physical.next();
-    batch !== null && result.length < limit;
-    batch = physical.next()
-  ) {
-    result.push(...batch.slice(0, limit - result.length));
-  }
-  return result;
+  return takeBatch(rowsOf(physical), limit) ?? [];
 }

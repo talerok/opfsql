@@ -191,10 +191,10 @@ export interface BoundCaseExpression {
   expressionClass: BoundExpressionClass.BOUND_CASE;
   /**
    * `CASE operand WHEN value THEN …`: the operand, evaluated once per row
-   * and compared with each WHEN value by `=`. Without it, each WHEN is a
-   * condition.
+   * and compared with each WHEN value by `=`. Null for a searched CASE,
+   * whose WHENs are conditions.
    */
-  operand?: BoundExpression;
+  operand: BoundExpression | null;
   caseChecks: Array<{ when: BoundExpression; result: BoundExpression }>;
   elseExpr: BoundExpression | null;
   returnType: LogicalType;

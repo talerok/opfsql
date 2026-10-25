@@ -1,11 +1,8 @@
-import {
-  type BoundConstantExpression,
-  BoundExpressionClass,
-  type BoundParameterExpression,
-  type IndexScanHint,
-  type IndexSearchPredicate,
-  type TableFilter,
-  type TableSchema,
+import type {
+  IndexScanHint,
+  IndexSearchPredicate,
+  TableFilter,
+  TableSchema,
 } from "../../sql/binder/types.js";
 import type { Value } from "../../values/index.js";
 import {
@@ -13,7 +10,8 @@ import {
   comparisonConversion,
   compileExpression,
   type ExecutionContext,
-  parameterValue,
+  fixedValue,
+  required,
 } from "../evaluate/index.js";
 import type { Resolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
@@ -24,16 +22,6 @@ export const JOIN_BATCH = 2000;
 /** A row test compiled once per plan node. */
 export type RowFilter = (row: Tuple) => boolean;
 
-/** The value a table filter or index predicate compares with. */
-export function resolveFilterValue(
-  constant: BoundConstantExpression | BoundParameterExpression,
-  context: ExecutionContext,
-): Value {
-  return constant.expressionClass === BoundExpressionClass.BOUND_CONSTANT
-    ? constant.value
-    : parameterValue(context, constant.index);
-}
-
 /** `expression <comparison> constant`, true only when it holds. */
 export function compileTableFilter(
   filter: TableFilter,
@@ -41,7 +29,10 @@ export function compileTableFilter(
   context: ExecutionContext,
 ): RowFilter {
   const value = compileExpression(filter.expression, resolver, context);
-  const constant = resolveFilterValue(filter.constant, context);
+  const constant = required(
+    fixedValue(filter.constant, context),
+    "the constant of a table filter",
+  );
   const holds = compareTyped(
     filter.comparisonType,
     filter.expression.returnType,
@@ -61,10 +52,10 @@ export function indexSearchValue(
 ): Value {
   const columnType =
     index.expressions[predicate.columnPosition]?.returnType ?? "ANY";
-  return comparisonConversion(
-    predicate.value.returnType,
-    columnType,
-  )(resolveFilterValue(predicate.value, context));
+  const convert = comparisonConversion(predicate.value.returnType, columnType);
+  return convert(
+    required(fixedValue(predicate.value, context), "an index search value"),
+  );
 }
 
 export function compileTableFilters(
@@ -96,10 +87,38 @@ export function rowToTuple(
   });
 }
 
-export function drainOperator(operator: SyncPhysicalOperator): Tuple[] {
-  const result: Tuple[] = [];
+/** Every row an operator produces, pulled batch by batch as they are read. */
+export function* rowsOf(operator: SyncPhysicalOperator): Generator<Tuple> {
   for (let batch = operator.next(); batch !== null; batch = operator.next()) {
-    for (const tuple of batch) result.push(tuple);
+    yield* batch;
   }
-  return result;
+}
+
+export function drainOperator(operator: SyncPhysicalOperator): Tuple[] {
+  return [...rowsOf(operator)];
+}
+
+/** The next batch of up to `size` rows from `rows`; null when they end. */
+export function takeBatch(rows: Iterator<Tuple>, size: number): Tuple[] | null {
+  const batch: Tuple[] = [];
+  for (let next = rows.next(); next.done !== true; next = rows.next()) {
+    batch.push(next.value);
+    if (batch.length === size) break;
+  }
+  return batch.length > 0 ? batch : null;
+}
+
+/**
+ * The child's next batch that `transform` leaves rows in — an operator
+ * never returns an empty batch — or null when the child is done.
+ */
+export function nextNonEmpty(
+  child: SyncPhysicalOperator,
+  transform: (batch: Tuple[]) => Tuple[],
+): Tuple[] | null {
+  for (let batch = child.next(); batch !== null; batch = child.next()) {
+    const result = transform(batch);
+    if (result.length > 0) return result;
+  }
+  return null;
 }

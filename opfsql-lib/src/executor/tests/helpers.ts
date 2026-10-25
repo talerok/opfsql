@@ -166,6 +166,7 @@ export function caseExpr(
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_CASE,
+    operand: null,
     caseChecks: checks,
     elseExpr,
     returnType,

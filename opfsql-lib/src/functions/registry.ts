@@ -38,6 +38,13 @@ export function lookupFunction(name: string): SqlFunction | undefined {
   return FUNCTIONS.get(name.toLowerCase());
 }
 
+/** The function called `name`; a SemanticError if there is none. */
+export function sqlFunction(name: string): SqlFunction {
+  const definition = lookupFunction(name);
+  if (definition === undefined) throw noSuchFunction(name);
+  return definition;
+}
+
 /** True if `name` is an aggregate function. */
 export function isAggregateFunction(name: string): boolean {
   return lookupFunction(name)?.kind === "aggregate";
@@ -83,11 +90,8 @@ export function resolveCall(
 }
 
 function fitsArity(signature: Signature, count: number): boolean {
-  const optional = signature.optional?.length ?? 0;
-  const maximum =
-    signature.rest === undefined
-      ? signature.required.length + optional
-      : Infinity;
+  const fixed = signature.required.length + (signature.optional?.length ?? 0);
+  const maximum = signature.rest === undefined ? fixed : Infinity;
   return count >= signature.required.length && count <= maximum;
 }
 

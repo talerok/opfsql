@@ -5,6 +5,7 @@ import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import {
   compileTableFilters,
+  nextNonEmpty,
   passesFilters,
   type RowFilter,
   rowToTuple,
@@ -111,20 +112,16 @@ export class PhysicalChildScan implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    while (!this.done) {
-      const batch = this.childOp.next();
-      if (batch === null) {
-        this.done = true;
-        return null;
-      }
-      const result = batch
+    if (this.done) return null;
+    const batch = nextNonEmpty(this.childOp, (childBatch) =>
+      childBatch
         .map((childTuple) =>
           this.op.columnIds.map((columnId) => childTuple[columnId] ?? null),
         )
-        .filter((tuple) => passesFilters(tuple, this.filters));
-      if (result.length > 0) return result;
-    }
-    return null;
+        .filter((tuple) => passesFilters(tuple, this.filters)),
+    );
+    this.done = batch === null;
+    return batch;
   }
 
   reset(): void {

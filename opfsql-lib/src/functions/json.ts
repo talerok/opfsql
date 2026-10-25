@@ -5,8 +5,13 @@ import {
   normalizeValue,
   type Value,
 } from "../values/index.js";
-import { returns, strict, text } from "./arguments.js";
-import type { CallSite, ScalarFunction, StaticType } from "./types.js";
+import { firstArgumentType, returns, strict, text } from "./arguments.js";
+import type {
+  CallSite,
+  Implementation,
+  ScalarFunction,
+  StaticType,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // JSON functions with SQLite's path syntax: `$`, then `.key`, `."key"`,
@@ -14,7 +19,7 @@ import type { CallSite, ScalarFunction, StaticType } from "./types.js";
 // its static type is JSON, and JSON text otherwise.
 // ---------------------------------------------------------------------------
 
-type PathStep =
+export type PathStep =
   | { readonly type: "key"; readonly key: string }
   | {
       readonly type: "index";
@@ -22,7 +27,11 @@ type PathStep =
       readonly fromEnd: boolean;
     };
 
-type Path = readonly PathStep[];
+/** A parsed JSON path: the steps after `$`. */
+export type Path = readonly PathStep[];
+
+/** `$`: the whole document. */
+const ROOT: Path = [];
 
 const STEP = /^(?:\.(?:"((?:[^"\\]|\\.)*)"|([^.[]+))|\[(#-)?(\d+)\])/u;
 
@@ -99,22 +108,45 @@ function documentOf(value: Value, type: StaticType): JsonValue {
 }
 
 /**
- * Builds the per-row function of (document, path) for a JSON function,
- * parsing a constant path once.
+ * The paths of a call — its arguments after the document — for a row's
+ * argument values; a path that is the same for every row is parsed once.
+ */
+function pathArguments(call: CallSite): (values: readonly Value[]) => Path[] {
+  const fixed = call.constants
+    .slice(1)
+    .map((constant) =>
+      typeof constant === "string" ? parsePath(constant) : undefined,
+    );
+  return (values) =>
+    fixed.map((path, index) => path ?? parsePath(text(values[index + 1])));
+}
+
+/**
+ * The implementation of a JSON function of (document [, path]): `apply`
+ * gets the document as a JSON value and the path, `$` when there is none.
  */
 function withPath(
   call: CallSite,
   apply: (document: JsonValue, path: Path) => Value,
-): ReturnType<typeof strict> {
-  const documentType = call.argumentTypes[0] ?? "ANY";
-  const constant = call.constants[1];
-  const fixed = typeof constant === "string" ? parsePath(constant) : null;
-  return strict(([document = null, path]) =>
-    apply(
-      documentOf(document, documentType),
-      fixed ?? (path === undefined ? [] : parsePath(text(path))),
-    ),
-  );
+): Implementation {
+  const documentType = firstArgumentType(call.argumentTypes);
+  const pathsOf = pathArguments(call);
+  return strict((values) => {
+    const [document = null] = values;
+    const [path = ROOT] = pathsOf(values);
+    return apply(documentOf(document, documentType), path);
+  });
+}
+
+/** Several paths: a JSON array of the values found, null where none. */
+function extractEach(call: CallSite): Implementation {
+  const documentType = firstArgumentType(call.argumentTypes);
+  const pathsOf = pathArguments(call);
+  return strict((values) => {
+    const [document = null] = values;
+    const json = documentOf(document, documentType);
+    return pathsOf(values).map((path) => followPath(json, path) ?? null);
+  });
 }
 
 const jsonExtract: ScalarFunction = {
@@ -123,16 +155,8 @@ const jsonExtract: ScalarFunction = {
   signature: { required: ["json", "text"], rest: "text" },
   returnType: returns("JSON"),
   implement: (call) => {
-    if (call.constants.length > 2) {
-      // Several paths: a JSON array of the values found, null where none.
-      const documentType = call.argumentTypes[0] ?? "ANY";
-      return strict(([document = null, ...paths]) => {
-        const json = documentOf(document, documentType);
-        return paths.map(
-          (path) => followPath(json, parsePath(text(path))) ?? null,
-        );
-      });
-    }
+    const hasSeveralPaths = call.argumentTypes.length > 2;
+    if (hasSeveralPaths) return extractEach(call);
     // JSON null is SQL NULL.
     return withPath(call, (json, path) => followPath(json, path) ?? null);
   },
@@ -178,8 +202,10 @@ const jsonValid: ScalarFunction = {
   name: "json_valid",
   signature: { required: ["any"] },
   returnType: returns("BOOLEAN"),
-  implement: ({ argumentTypes }) =>
-    strict(([value = null]) => isValidJson(value, argumentTypes[0] ?? "ANY")),
+  implement: ({ argumentTypes }) => {
+    const type = firstArgumentType(argumentTypes);
+    return strict(([value = null]) => isValidJson(value, type));
+  },
 };
 
 function isValidJson(value: Value, type: StaticType): boolean {

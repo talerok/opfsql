@@ -1,5 +1,12 @@
 import { DatatypeMismatchError, IntegerOverflowError } from "../errors.js";
-import { castValue, describeValue, numberFromText } from "./convert.js";
+import {
+  castValue,
+  describeValue,
+  normalizeNumber,
+  numberFromText,
+  truncate,
+  withoutNegativeZero,
+} from "./convert.js";
 import type { Value } from "./value.js";
 
 // ---------------------------------------------------------------------------
@@ -19,28 +26,54 @@ export type NumericMode = "integer" | "real" | "dynamic";
 
 type Operation = (left: number, right: number) => number | null;
 
+const add: Operation = (a, b) => a + b;
+const subtract: Operation = (a, b) => a - b;
+const multiply: Operation = (a, b) => a * b;
+
+/** `a % b` with the sign of the dividend; NULL for a zero divisor. */
+const remainder: Operation = (a, b) => (b === 0 ? null : a % b);
+
+/** Each operator on two INTEGERs and on numbers that are not. */
+const OPERATIONS: Record<
+  ArithmeticOperator,
+  { readonly integer: Operation; readonly real: Operation }
+> = {
+  add: { integer: add, real: add },
+  subtract: { integer: subtract, real: subtract },
+  multiply: { integer: multiply, real: multiply },
+  divide: {
+    integer: (a, b) => (b === 0 ? null : truncate(a / b)),
+    real: (a, b) => (b === 0 ? null : a / b),
+  },
+  remainder: {
+    integer: remainder,
+    // As in SQLite, both operands are truncated to integers first.
+    real: (a, b) => remainder(truncate(a), truncate(b)),
+  },
+};
+
 /** The binary operator for `mode`, chosen once and applied per row. */
 export function arithmetic(
   operator: ArithmeticOperator,
   mode: NumericMode,
 ): (left: Value, right: Value) => Value {
-  const onIntegers = integerOperation(operator);
-  const onReals = realOperation(operator);
+  const { integer, real } = OPERATIONS[operator];
   return (left, right) => {
     if (left === null || right === null) return null;
     const a = numberOperand(left);
     const b = numberOperand(right);
-    return areIntegers(mode, a, b)
-      ? checkInteger(finite(onIntegers(a, b)))
-      : finite(onReals(a, b));
+    const isInteger = areIntegers(mode, a, b);
+    const result = isInteger ? integer(a, b) : real(a, b);
+    if (result === null) return null;
+    if (isInteger) return checkInteger(withoutNegativeZero(result));
+    return normalizeNumber(result);
   };
 }
 
 /** Unary minus. */
 export function negate(value: Value): Value {
   if (value === null) return null;
-  const number = numberOperand(value);
-  return number === 0 ? 0 : -number;
+  return withoutNegativeZero(-numberOperand(value));
 }
 
 /** `left || right`: text of both sides, NULL if either is NULL. */
@@ -78,8 +111,8 @@ export function textOperand(value: Exclude<Value, null>): string {
 }
 
 /** Fails with INTEGER_OVERFLOW unless `value` is a safe integer. */
-export function checkInteger(value: number | null): number | null {
-  if (value === null || Number.isSafeInteger(value)) return value;
+export function checkInteger(value: number): number {
+  if (Number.isSafeInteger(value)) return value;
   throw new IntegerOverflowError();
 }
 
@@ -95,58 +128,4 @@ function areIntegers(mode: NumericMode, a: number, b: number): boolean {
       return Number.isSafeInteger(a) && Number.isSafeInteger(b);
     }
   }
-}
-
-function integerOperation(operator: ArithmeticOperator): Operation {
-  switch (operator) {
-    case "add": {
-      return (a, b) => a + b;
-    }
-    case "subtract": {
-      return (a, b) => a - b;
-    }
-    case "multiply": {
-      return (a, b) => a * b;
-    }
-    case "divide": {
-      return (a, b) => (b === 0 ? null : truncate(a / b));
-    }
-    case "remainder": {
-      return remainder;
-    }
-  }
-}
-
-function realOperation(operator: ArithmeticOperator): Operation {
-  switch (operator) {
-    case "divide": {
-      return (a, b) => (b === 0 ? null : a / b);
-    }
-    case "remainder": {
-      // As in SQLite, both operands are truncated to integers first.
-      return (a, b) => remainder(truncate(a), truncate(b));
-    }
-    case "add":
-    case "subtract":
-    case "multiply": {
-      return integerOperation(operator);
-    }
-  }
-}
-
-/** `a % b` with the sign of the dividend; NULL for a zero divisor. */
-function remainder(a: number, b: number): number | null {
-  return b === 0 ? null : a % b;
-}
-
-/** Rounds toward zero, never to -0. */
-function truncate(number: number): number {
-  const truncated = Math.trunc(number);
-  return truncated === 0 ? 0 : truncated;
-}
-
-/** NaN (Infinity - Infinity) is NULL, as in SQLite; -0 is 0. */
-function finite(value: number | null): number | null {
-  if (value === null || Number.isNaN(value)) return null;
-  return value === 0 ? 0 : value;
 }

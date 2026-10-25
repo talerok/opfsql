@@ -26,7 +26,7 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
   private cursor = 0;
   private done = false;
   private readonly layout: ColumnBinding[];
-  private readonly residual: RowFilter;
+  private readonly condition: RowFilter;
   private readonly filters: readonly RowFilter[];
 
   constructor(
@@ -38,7 +38,7 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
   ) {
     this.layout = op.columnBindings;
     const resolver = buildResolver(this.layout);
-    this.residual = compilePredicate(hint.originalFilter, resolver, context);
+    this.condition = compilePredicate(hint.originalFilter, resolver, context);
     // The table's other filters hold for the rows too.
     this.filters = compileTableFilters(op.tableFilters, resolver, context);
   }
@@ -64,8 +64,8 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
 
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
 
-        // Apply the original OR expression as residual filter
-        if (this.residual(tuple) && passesFilters(tuple, this.filters)) {
+        // The OR the indexes answer, then the table's other filters
+        if (this.condition(tuple) && passesFilters(tuple, this.filters)) {
           batch.push(tuple);
         }
       }
