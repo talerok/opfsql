@@ -52,8 +52,17 @@ export interface SyncIPageStorage {
   close(): void;
   /** Largest encoded page payload, in bytes. Valid after open(). */
   readonly pageCapacity: number;
-  readPage<T>(pageNo: number): T | null;
+  /**
+   * Committed contents of a page as of `snapshot`, a commit position from
+   * latestCommit() (default: the latest). Backends without page versions
+   * ignore it.
+   */
+  readPage<T>(pageNo: number, snapshot?: number): T | null;
   getNextPageId(): number;
+  /** Position of the latest commit, for backends that keep page versions. */
+  latestCommit?(): number;
+  /** Drops page versions no snapshot at or after `oldestSnapshot` can see. */
+  prune?(oldestSnapshot: number): void;
   /**
    * Persist a batch of pages together with the new nextPageId. Rejects the
    * whole batch with PageOverflowError before writing if any page exceeds
@@ -66,8 +75,8 @@ export interface SyncIPageStorage {
   truncateToSize?(): void;
   /** Catch up with changes made by other writers. Returns set of changed page numbers, or null if nothing changed. */
   catchUp?(): Set<number> | null;
-  /** Merge WAL into main DB and reset WAL. */
-  checkpoint?(): void;
+  /** Bring the main file up to `upTo`, no newer than the oldest open snapshot. */
+  checkpoint?(upTo: number): void;
   /** True when the backend wants checkpoint() to be called. */
   needsCheckpoint?(): boolean;
 }

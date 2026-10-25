@@ -21,7 +21,12 @@ import type {
 } from "../store/types.js";
 import type { Value } from "../types.js";
 import { formatPlan } from "./explain.js";
-import { EngineError, PreparedStatement, type Result } from "./types.js";
+import {
+  EngineError,
+  PreparedStatement,
+  SerializationError,
+  type Result,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,8 +46,28 @@ function isWriteStatement(type: StatementType): boolean {
   return WRITE_STATEMENTS.has(type);
 }
 
+/** What a session needs from its engine. */
+export interface SessionHost {
+  acquireWriteLock(): Promise<void> | void;
+  releaseWriteLock(): void;
+  /** Picks up commits made by other engines (tabs) on the same database. */
+  catchUp(): void;
+  getCatalog(): Catalog;
+  onCatalogCommit(data: CatalogData): void;
+  /**
+   * Deferred storage maintenance (checkpoints). Called by a writer once its
+   * snapshot is released and while it still holds the write lock.
+   */
+  maintain(): void;
+}
+
 // ---------------------------------------------------------------------------
 // Session — per-connection SQL execution
+//
+// Every statement outside a transaction reads one snapshot: the latest commit
+// when it starts. A transaction reads the snapshot taken at BEGIN throughout,
+// so it never sees commits made after it began; if it writes after such a
+// commit, it fails with SerializationError instead of writing on stale reads.
 // ---------------------------------------------------------------------------
 
 export class Session {
@@ -61,11 +86,7 @@ export class Session {
   constructor(
     private sessionStore: SessionStore,
     private parser: Parser,
-    private readonly acquireWriteLock: () => Promise<void> | void,
-    private readonly releaseWriteLock: () => void,
-    private readonly catchUp: () => void,
-    private readonly getCatalog: () => Catalog,
-    private readonly onCatalogCommit: (data: CatalogData) => void,
+    private readonly host: SessionHost,
   ) {
     this.refreshCatalog();
     this.rowManager = new SyncTableManager(sessionStore, () => this.catalog);
@@ -77,10 +98,6 @@ export class Session {
   // -------------------------------------------------------------------------
 
   async execute(sql: string, params?: Value[]): Promise<Result[]> {
-    if (!this.inTransaction) {
-      this.catchUp();
-      this.refreshCatalog();
-    }
     const statements = this.parser.parse(sql);
     const results: Result[] = [];
     for (const stmt of statements) {
@@ -96,20 +113,14 @@ export class Session {
     }
 
     const stmt = stmts[0];
-    const preparedVersion = this.getCatalog().version;
-    return new PreparedStatement((params) => {
-      if (this.getCatalog().version === preparedVersion) {
-        return this.executeOne(stmt, params);
-      }
-
-      throw new EngineError(
-        "prepared statement is stale: schema has changed since prepare()",
-      );
-    });
+    const preparedVersion = this.host.getCatalog().version;
+    return new PreparedStatement((params) =>
+      this.executeOne(stmt, params, preparedVersion),
+    );
   }
 
   getSchema(): CatalogData {
-    this.catchUp();
+    this.host.catchUp();
     this.refreshCatalog();
     return this.catalog.snapshot();
   }
@@ -127,7 +138,24 @@ export class Session {
   // Statement dispatch
   // -------------------------------------------------------------------------
 
-  private async executeOne(stmt: Statement, params?: Value[]): Promise<Result> {
+  private async executeOne(
+    stmt: Statement,
+    params?: Value[],
+    preparedVersion?: number,
+  ): Promise<Result> {
+    if (!this.inTransaction) {
+      this.host.catchUp();
+      this.refreshCatalog();
+    }
+    if (
+      preparedVersion !== undefined &&
+      this.host.getCatalog().version !== preparedVersion
+    ) {
+      throw new EngineError(
+        "prepared statement is stale: schema has changed since prepare()",
+      );
+    }
+
     if (stmt.type === StatementType.TRANSACTION_STATEMENT) {
       return this.executeTCL(stmt);
     }
@@ -142,24 +170,27 @@ export class Session {
       );
     }
 
-    if (isWriteStatement(stmt.type) && !this.holdingWriteLock) {
-      await this.acquireWriteLock();
+    const writes = isWriteStatement(stmt.type);
+    if (writes && !this.holdingWriteLock) {
+      await this.host.acquireWriteLock();
       this.holdingWriteLock = true;
     }
 
     const autocommit = !this.inTransaction;
     if (autocommit) {
       this.catalogSnapshot = this.catalog.serialize();
+      this.sessionStore.beginSnapshot();
     }
 
     try {
+      if (writes && this.sessionStore.isSnapshotStale()) {
+        throw new SerializationError();
+      }
       const result = this.runPipeline(stmt, params);
 
       if (autocommit) {
         this.commitWrites();
-        this.catalogSnapshot = null;
-        this.catalogDirty = false;
-        this.tryReleaseWriteLock();
+        this.endStatement();
       }
 
       return result;
@@ -169,13 +200,19 @@ export class Session {
       this.catalogDirty = false;
 
       if (autocommit) {
-        this.catalogSnapshot = null;
-        this.tryReleaseWriteLock();
+        this.endStatement();
       } else {
         this.transactionAborted = true;
       }
       throw err;
     }
+  }
+
+  private endStatement(): void {
+    this.catalogSnapshot = null;
+    this.catalogDirty = false;
+    this.sessionStore.endSnapshot();
+    this.tryReleaseWriteLock();
   }
 
   private executeExplain(stmt: ExplainStatement): Result {
@@ -208,6 +245,7 @@ export class Session {
       throw new EngineError("already in a transaction");
     }
     this.catalogSnapshot = this.catalog.serialize();
+    this.sessionStore.beginSnapshot();
     this.inTransaction = true;
     return { type: "ok", rowsAffected: 0 };
   }
@@ -284,7 +322,7 @@ export class Session {
   // -------------------------------------------------------------------------
 
   private refreshCatalog(): void {
-    const engine = this.getCatalog();
+    const engine = this.host.getCatalog();
     if (engine.version === this.lastCatalogVersion) return;
     this.catalog = engine.clone();
     this.lastCatalogVersion = engine.version;
@@ -298,9 +336,11 @@ export class Session {
     }
   }
 
+  /** Maintenance runs first: after this session's snapshot is gone, under the lock. */
   private tryReleaseWriteLock(): void {
     if (this.holdingWriteLock) {
-      this.releaseWriteLock();
+      this.host.maintain();
+      this.host.releaseWriteLock();
       this.holdingWriteLock = false;
     }
   }
@@ -310,6 +350,7 @@ export class Session {
     this.catalogDirty = false;
     this.inTransaction = false;
     this.transactionAborted = false;
+    this.sessionStore.endSnapshot();
     this.tryReleaseWriteLock();
   }
 
@@ -342,7 +383,7 @@ export class Session {
     const catalogData = this.catalogDirty ? this.writeCatalog() : null;
     this.sessionStore.commit();
     if (catalogData) {
-      this.onCatalogCommit(catalogData);
+      this.host.onCatalogCommit(catalogData);
     }
   }
 

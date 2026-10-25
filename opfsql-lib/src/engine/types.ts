@@ -11,6 +11,19 @@ export class EngineError extends Error {
   }
 }
 
+/**
+ * A transaction tried to write after another session committed since it
+ * began, so its reads may be stale. Roll it back and run it again.
+ */
+export class SerializationError extends EngineError {
+  constructor() {
+    super(
+      "could not serialize: the database changed since this transaction began; roll back and retry",
+    );
+    this.name = "SerializationError";
+  }
+}
+
 export type ExecuteFn = (params: Value[]) => Promise<Result> | Result;
 
 export class PreparedStatement {

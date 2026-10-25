@@ -477,6 +477,98 @@ describe('WalStorage', () => {
     });
   });
 
+  describe('page versions', () => {
+    it('latestCommit counts committed transactions', async () => {
+      const { wal } = await opened();
+      expect(wal.latestCommit()).toBe(0);
+      commitBatch(wal, { 3: 'a' }, 4);
+      commitBatch(wal, { 3: 'b' }, 4);
+      expect(wal.latestCommit()).toBe(2);
+    });
+
+    it('a snapshot reads the versions committed up to it', async () => {
+      const { wal } = await opened();
+      commitBatch(wal, { 3: 'v1' }, 4);
+      wal.prune(1); // a snapshot at transaction 1 is open
+      commitBatch(wal, { 3: 'v2', 4: 'new' }, 5);
+
+      expect(wal.readPage(3, 1)).toBe('v1');
+      expect(wal.readPage(4, 1)).toBeNull();
+      expect(wal.readPage(3)).toBe('v2');
+    });
+
+    it('pruning drops versions no open snapshot can see', async () => {
+      const { wal } = await opened();
+      commitBatch(wal, { 3: 'v1' }, 4);
+      wal.prune(1);
+      commitBatch(wal, { 3: 'v2' }, 4);
+      commitBatch(wal, { 3: 'v3' }, 4);
+      expect(wal.readPage(3, 2)).toBe('v2');
+
+      wal.prune(3); // every open snapshot now sees transaction 3
+      expect(wal.readPage(3)).toBe('v3');
+      // v1 and v2 are gone: a read at an older position would fall through to
+      // the main file, which is why prune() only ever gets the oldest snapshot.
+      expect(wal.readPage(3, 2)).toBeNull();
+    });
+
+    it('a checkpoint up to an open snapshot leaves later versions in the WAL', async () => {
+      const main = await createMain();
+      const { wal } = await opened(main);
+      commitBatch(wal, { 3: 'v1' }, 4);
+      wal.prune(1);
+      commitBatch(wal, { 3: 'v2' }, 4);
+
+      wal.checkpoint(1);
+      expect(main.readPage(3)).toBe('v1');
+      expect(wal.readPage(3, 1)).toBe('v1');
+      expect(wal.readPage(3)).toBe('v2');
+      expect(wal.getEpoch()).toBe(0);
+
+      wal.prune(2);
+      wal.checkpoint(2);
+      expect(main.readPage(3)).toBe('v2');
+      expect(wal.getEpoch()).toBe(1);
+    });
+
+    it('transaction ids continue across WAL restarts and reopening', async () => {
+      const main = await createMain();
+      const walHandle = new MemoryFileHandle();
+      const { wal } = await opened(main, walHandle);
+      commitBatch(wal, { 3: 'a' }, 4);
+      commitBatch(wal, { 3: 'b' }, 4);
+      wal.checkpoint();
+      commitBatch(wal, { 3: 'c' }, 4);
+      expect(wal.latestCommit()).toBe(3);
+
+      const reopened = new WalStorage(main, walHandle);
+      await reopened.open();
+      expect(reopened.latestCommit()).toBe(3);
+      expect(reopened.readPage(3)).toBe('c');
+
+      reopened.checkpoint();
+      const afterRestart = new WalStorage(main, walHandle);
+      await afterRestart.open();
+      expect(afterRestart.latestCommit()).toBe(3);
+    });
+
+    it('a reader picks up the base transaction id after another writer restarts the WAL', async () => {
+      const main = await createMain();
+      const walHandle = new MemoryFileHandle();
+      const writer = new WalStorage(main, walHandle);
+      await writer.open();
+      const reader = new WalStorage(main, walHandle);
+      await reader.open();
+
+      commitBatch(writer, { 3: 'a' }, 4);
+      commitBatch(writer, { 3: 'b' }, 4);
+      writer.checkpoint();
+      reader.catchUp();
+      expect(reader.latestCommit()).toBe(2);
+      expect(reader.readPage(3)).toBe('b');
+    });
+  });
+
   describe('empty WAL', () => {
     it('empty commit is a no-op', async () => {
       const { wal, walHandle } = await opened();
@@ -651,7 +743,7 @@ describe('WalStorage', () => {
       walStorage.close();
     });
 
-    it('Storage checkpoints after a commit once the WAL asks for it', async () => {
+    it('checkpointIfNeeded checkpoints once the WAL asks for it', async () => {
       const { Storage } = await import('../storage.js');
       const main = await createMain();
       // Each commit below writes 2 frames: the data page + the freelist page.
@@ -663,16 +755,18 @@ describe('WalStorage', () => {
       const p1 = ss.allocPage();
       ss.writePage(p1, 'first');
       ss.commit();
+      storage.checkpointIfNeeded();
       expect(main.readPage(p1)).toBeNull();
 
       const p2 = ss.allocPage();
       ss.writePage(p2, 'second');
       ss.commit();
+      storage.checkpointIfNeeded();
       expect(main.readPage(p1)).toBe('first');
       expect(main.readPage(p2)).toBe('second');
     });
 
-    it('a failing checkpoint is reported and never fails the commit', async () => {
+    it('a failing checkpoint is reported, never thrown', async () => {
       const { Storage } = await import('../storage.js');
       const main = new FlakyMain(`wal-main-${seq++}`);
       await main.open();
@@ -685,7 +779,8 @@ describe('WalStorage', () => {
       main.failCommits = 1;
       const p1 = ss.allocPage();
       ss.writePage(p1, 'committed');
-      expect(() => ss.commit()).not.toThrow();
+      ss.commit();
+      expect(() => storage.checkpointIfNeeded()).not.toThrow();
       expect(errors).toHaveLength(1);
       expect(ss.readPage(p1)).toBe('committed');
       expect(main.readPage(p1)).toBeNull();
@@ -694,12 +789,13 @@ describe('WalStorage', () => {
       const p2 = ss.allocPage();
       ss.writePage(p2, 'next');
       ss.commit();
+      storage.checkpointIfNeeded();
       expect(errors).toHaveLength(1);
       expect(main.readPage(p1)).toBe('committed');
       expect(main.readPage(p2)).toBe('next');
     });
 
-    it('a throwing onCheckpointError still never fails the commit', async () => {
+    it('a throwing onCheckpointError is contained too', async () => {
       const { Storage } = await import('../storage.js');
       const main = new FlakyMain(`wal-main-${seq++}`);
       await main.open();
@@ -714,7 +810,8 @@ describe('WalStorage', () => {
       main.failCommits = 1;
       const p = ss.allocPage();
       ss.writePage(p, 'committed');
-      expect(() => ss.commit()).not.toThrow();
+      ss.commit();
+      expect(() => storage.checkpointIfNeeded()).not.toThrow();
       expect(ss.readPage(p)).toBe('committed');
       expect(consoleError).toHaveBeenCalledOnce();
       consoleError.mockRestore();

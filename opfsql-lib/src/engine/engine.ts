@@ -2,7 +2,7 @@ import { Parser } from "../parser/index.js";
 import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
 import { Catalog } from "../store/catalog.js";
 import { Storage } from "../store/storage.js";
-import type { CatalogData, SyncIPageStorage } from "../store/types.js";
+import type { SyncIPageStorage } from "../store/types.js";
 import { WalStorage } from "../store/wal/wal-storage.js";
 import { checkIndexConsistency } from "./integrity.js";
 import { Session } from "./session.js";
@@ -91,31 +91,26 @@ export class Engine {
   // -------------------------------------------------------------------------
 
   createSession(): Session {
-    const sessionStore = this.storage.createSession();
-
-    const acquireLock = async () => {
-      if (this.lockName) await this.acquireWebLock();
-      this.acquireWriteLock(session);
-    };
-
-    const releaseLock = () => {
-      this.webLockRelease?.();
-      this.webLockRelease = null;
-      this.releaseWriteLock(session);
-    };
-
-    const onCommit = (data: CatalogData) => {
-      this.catalog = Catalog.deserialize(data);
-    };
-
     const session: Session = new Session(
-      sessionStore,
+      this.storage.createSession(),
       this.parser,
-      () => acquireLock(),
-      () => releaseLock(),
-      () => this.catchUp(),
-      () => this.catalog,
-      (d) => onCommit(d),
+      {
+        acquireWriteLock: async () => {
+          if (this.lockName) await this.acquireWebLock();
+          this.acquireWriteLock(session);
+        },
+        releaseWriteLock: () => {
+          this.webLockRelease?.();
+          this.webLockRelease = null;
+          this.releaseWriteLock(session);
+        },
+        catchUp: () => this.catchUp(),
+        getCatalog: () => this.catalog,
+        onCatalogCommit: (data) => {
+          this.catalog = Catalog.deserialize(data);
+        },
+        maintain: () => this.storage.checkpointIfNeeded(),
+      },
     );
     return session;
   }

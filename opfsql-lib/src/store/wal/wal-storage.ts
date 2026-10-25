@@ -10,8 +10,9 @@ import type { ISyncFileHandle } from "./file-handle.js";
 //
 // Header (16 bytes):
 //   [0..7]    magic "OPFSWAL2"
-//   [8..11]   epoch    u32 BE  (incremented on each checkpoint)
-//   [12..15]  reserved (zeros)
+//   [8..11]   epoch    u32 BE  (incremented on each WAL restart)
+//   [12..15]  baseTxId u32 BE  (last transaction before this WAL generation;
+//                               transaction ids continue from it)
 //
 // Data frame (16 + payloadLen bytes):
 //   [0..3]    pageNo       u32 BE
@@ -26,6 +27,15 @@ import type { ISyncFileHandle } from "./file-handle.js";
 //   [8..11]   txId         u32 BE
 //   [12..15]  checksum     u32 BE
 //   [16..19]  nextPageId   u32 BE
+//
+// Snapshots
+//
+// Transaction ids increase monotonically across WAL generations, so a txId is
+// a position in the database's history. A snapshot is the latest txId it can
+// see. The WAL index keeps every page version a live snapshot may still need;
+// a read returns the newest version not after the snapshot, else the main
+// file. The main file is only ever brought up to a txId no live snapshot is
+// older than, so whatever a snapshot reads from it is still what it saw.
 // ---------------------------------------------------------------------------
 
 const WAL_MAGIC = new Uint8Array([
@@ -43,9 +53,39 @@ const FRAME_HEADER_SIZE = 16;
 const COMMIT_SENTINEL = 0xffffffff;
 const COMMIT_PAYLOAD_SIZE = 4;
 
+interface PageVersion {
+  readonly txId: number;
+  readonly page: EncodedPage;
+}
+
+interface CommitRecord {
+  readonly txId: number;
+  readonly nextPageId: number;
+}
+
+/** Newest version a snapshot at `txId` can see, or undefined. */
+function visibleVersion(
+  versions: readonly PageVersion[],
+  txId: number,
+): PageVersion | undefined {
+  for (let i = versions.length - 1; i >= 0; i--) {
+    if (versions[i].txId <= txId) return versions[i];
+  }
+  return undefined;
+}
+
 export class WalStorage implements SyncIPageStorage {
-  /** Committed WAL pages: pageNo → page (decoded value for reads, bytes for checkpoint). */
-  private walIndex = new Map<number, EncodedPage>();
+  /** Committed WAL pages: pageNo → versions, oldest first. */
+  private walIndex = new Map<number, PageVersion[]>();
+
+  /** Pages holding more than one version — the only ones pruning visits. */
+  private readonly layeredPages = new Set<number>();
+
+  /** Commits in this WAL generation, in order — for nextPageId at any txId. */
+  private commits: CommitRecord[] = [];
+
+  /** No snapshot older than this is open; older page versions can go. */
+  private pruneBound = Infinity;
 
   /** Set when a failed append could not be undone: the WAL tail is unknown until reopen. */
   private unknownState: WalUnknownStateError | null = null;
@@ -53,8 +93,14 @@ export class WalStorage implements SyncIPageStorage {
   /** Current write position in WAL file. */
   private walOffset = WAL_HEADER_SIZE;
 
+  /** Last transaction before this WAL generation. */
+  private baseTxId = 0;
+
   /** Next transaction id to assign. */
   private currentTxId = 1;
+
+  /** The main file reflects every transaction up to this one. */
+  private backfilledTxId = 0;
 
   /** Committed nextPageId (from the latest commit record or main DB). */
   private nextPageId = 3;
@@ -62,7 +108,7 @@ export class WalStorage implements SyncIPageStorage {
   /** Number of committed data frames in the WAL (for auto-checkpoint). */
   private walFrameCount = 0;
 
-  /** WAL epoch — incremented on each checkpoint. */
+  /** WAL epoch — incremented on each WAL restart. */
   private epoch = 0;
 
   constructor(
@@ -94,15 +140,20 @@ export class WalStorage implements SyncIPageStorage {
     this.main.close();
   }
 
-  /** Returns committed data only. */
-  readPage<T>(pageNo: number): T | null {
-    const page = this.walIndex.get(pageNo);
-    if (page !== undefined) return page.value as T;
+  /** Committed data only, as of `snapshot` (default: the latest commit). */
+  readPage<T>(pageNo: number, snapshot = this.latestCommit()): T | null {
+    const versions = this.walIndex.get(pageNo);
+    const version = versions && visibleVersion(versions, snapshot);
+    if (version) return version.page.value as T;
     return this.main.readPage<T>(pageNo);
   }
 
   getNextPageId(): number {
     return this.nextPageId;
+  }
+
+  latestCommit(): number {
+    return this.currentTxId - 1;
   }
 
   /**
@@ -118,7 +169,8 @@ export class WalStorage implements SyncIPageStorage {
     // Never let the WAL hold a page that checkpoint could not write to main.
     assertPagesFit(pages, this.pageCapacity);
 
-    const buf = this.buildCommitBuffer(pages, this.currentTxId, nextPageId);
+    const txId = this.currentTxId;
+    const buf = this.buildCommitBuffer(pages, txId, nextPageId);
     try {
       this.walHandle.write(buf, { at: this.walOffset });
       this.walHandle.flush();
@@ -128,10 +180,19 @@ export class WalStorage implements SyncIPageStorage {
     }
 
     this.walOffset += buf.length;
-    for (const [pageNo, page] of pages) this.walIndex.set(pageNo, page);
+    for (const [pageNo, page] of pages) this.addVersion(pageNo, { txId, page });
+    this.commits.push({ txId, nextPageId });
     this.walFrameCount += pages.size;
     this.nextPageId = nextPageId;
     this.currentTxId++;
+  }
+
+  /** Drops page versions that no snapshot at or after `oldestSnapshot` can see. */
+  prune(oldestSnapshot: number): void {
+    this.pruneBound = oldestSnapshot;
+    for (const pageNo of this.layeredPages) {
+      this.dropInvisible(pageNo, this.walIndex.get(pageNo)!);
+    }
   }
 
   needsCheckpoint(): boolean {
@@ -150,24 +211,50 @@ export class WalStorage implements SyncIPageStorage {
   // Checkpoint
   // -------------------------------------------------------------------------
 
-  checkpoint(): void {
-    if (this.walIndex.size === 0) return;
+  /**
+   * Brings the main file up to `upTo` — which must be no newer than the
+   * oldest open snapshot — and restarts the WAL once everything in it is in
+   * the main file. If writing the main file throws, the WAL is untouched and
+   * still authoritative, so a later checkpoint can retry.
+   */
+  checkpoint(upTo = this.latestCommit()): void {
+    const target = Math.min(upTo, this.latestCommit());
+    if (target > this.backfilledTxId) {
+      const pages = new Map<number, EncodedPage>();
+      for (const [pageNo, versions] of this.walIndex) {
+        const version = visibleVersion(versions, target);
+        if (version && version.txId > this.backfilledTxId) {
+          pages.set(pageNo, version.page);
+        }
+      }
+      this.main.commit(pages, this.nextPageIdAt(target));
+      this.main.truncateToSize?.();
+      this.backfilledTxId = target;
+    }
+    if (this.backfilledTxId === this.latestCommit() && this.commits.length) {
+      this.restart();
+    }
+  }
 
-    // 1. Apply all committed WAL pages to main DB. If this throws, the WAL is
-    //    untouched and still authoritative, so a later checkpoint can retry.
-    this.main.commit(this.walIndex, this.nextPageId);
-
-    // 2. Shrink main DB file (safe — data already on disk after commit)
-    this.main.truncateToSize?.();
-
-    // 3. Reset WAL file with incremented epoch
+  /** Every commit is in the main file: start an empty WAL generation. */
+  private restart(): void {
+    this.baseTxId = this.latestCommit();
     this.epoch++;
     this.walHandle.truncate(0);
     this.initWalHeader();
     this.walHandle.flush();
 
     this.walIndex.clear();
+    this.layeredPages.clear();
+    this.commits = [];
     this.walFrameCount = 0;
+  }
+
+  private nextPageIdAt(txId: number): number {
+    for (let i = this.commits.length - 1; i >= 0; i--) {
+      if (this.commits[i].txId <= txId) return this.commits[i].nextPageId;
+    }
+    return this.main.getNextPageId();
   }
 
   // -------------------------------------------------------------------------
@@ -180,7 +267,7 @@ export class WalStorage implements SyncIPageStorage {
     const epochChanged = fileEpoch !== this.epoch;
 
     if (epochChanged) {
-      this.resetAfterCheckpoint(fileEpoch);
+      this.resetAfterRestart();
     }
 
     const walSize = this.walHandle.getSize();
@@ -193,11 +280,16 @@ export class WalStorage implements SyncIPageStorage {
       : new Set<number>();
   }
 
-  private resetAfterCheckpoint(newEpoch: number): void {
+  /** Another writer restarted the WAL: everything so far is in the main file. */
+  private resetAfterRestart(): void {
     this.walIndex.clear();
+    this.layeredPages.clear();
+    this.commits = [];
     this.walOffset = WAL_HEADER_SIZE;
     this.walFrameCount = 0;
-    this.epoch = newEpoch;
+    this.readHeader();
+    this.currentTxId = this.baseTxId + 1;
+    this.backfilledTxId = this.baseTxId;
     this.nextPageId = this.main.getNextPageId();
   }
 
@@ -206,12 +298,14 @@ export class WalStorage implements SyncIPageStorage {
   // -------------------------------------------------------------------------
 
   private recover(): void {
-    this.readAndVerifyHeader();
+    this.readHeader();
+    this.currentTxId = this.baseTxId + 1;
+    this.backfilledTxId = this.baseTxId;
     const fileSize = this.walHandle.getSize();
     this.readFramesFrom(WAL_HEADER_SIZE, fileSize); // return value unused during recovery
   }
 
-  private readAndVerifyHeader(): void {
+  private readHeader(): void {
     const headerBuf = new Uint8Array(WAL_HEADER_SIZE);
     this.walHandle.read(headerBuf, { at: 0 });
     for (let i = 0; i < WAL_MAGIC.length; i++) {
@@ -221,6 +315,7 @@ export class WalStorage implements SyncIPageStorage {
     }
     const hv = new DataView(headerBuf.buffer);
     this.epoch = hv.getUint32(8, false);
+    this.baseTxId = hv.getUint32(12, false);
   }
 
   /** Read epoch directly from WAL file header (for catch-up checks). */
@@ -233,21 +328,20 @@ export class WalStorage implements SyncIPageStorage {
   /**
    * Read frames from startOffset to endOffset.
    * Only advances walOffset to the end of the last valid commit record.
-   * Updates walIndex, nextPageId, currentTxId, walFrameCount.
+   * Updates walIndex, commits, nextPageId, currentTxId, walFrameCount.
    * Returns set of committed page numbers.
    */
   private readFramesFrom(startOffset: number, endOffset: number): Set<number> {
     let offset = startOffset;
 
     // Two-pass: first collect all frames, then filter by committed txIds
-    const committedTxIds = new Set<number>();
+    const committed = new Map<number, number>(); // txId → nextPageId
     const allFrames: Array<{
       pageNo: number;
       txId: number;
       payload: Uint8Array;
     }> = [];
 
-    let lastCommittedNextPageId = this.nextPageId;
     let lastCommitEnd = startOffset;
 
     while (offset + FRAME_HEADER_SIZE <= endOffset) {
@@ -284,8 +378,7 @@ export class WalStorage implements SyncIPageStorage {
           payload.byteOffset,
           payload.byteLength,
         );
-        lastCommittedNextPageId = pv.getUint32(0, false);
-        committedTxIds.add(txId);
+        committed.set(txId, pv.getUint32(0, false));
         lastCommitEnd = frameEnd;
       } else {
         allFrames.push({ pageNo, txId, payload });
@@ -294,26 +387,55 @@ export class WalStorage implements SyncIPageStorage {
       offset = frameEnd;
     }
 
-    // Build walIndex from committed frames only (in order, latest wins)
+    // Add versions from committed frames only, in commit order
     const changedPages = new Set<number>();
     for (const frame of allFrames) {
-      if (committedTxIds.has(frame.txId)) {
-        this.walIndex.set(frame.pageNo, {
-          value: decodePage(frame.payload),
-          bytes: frame.payload,
+      if (committed.has(frame.txId)) {
+        this.addVersion(frame.pageNo, {
+          txId: frame.txId,
+          page: { value: decodePage(frame.payload), bytes: frame.payload },
         });
         this.walFrameCount++;
         changedPages.add(frame.pageNo);
       }
     }
 
-    this.nextPageId = lastCommittedNextPageId;
-    if (committedTxIds.size > 0) {
-      this.currentTxId = Math.max(...committedTxIds) + 1;
+    for (const [txId, nextPageId] of committed) {
+      this.commits.push({ txId, nextPageId });
+      this.nextPageId = nextPageId;
+      this.currentTxId = txId + 1;
     }
     // Only advance offset to end of last valid commit record
     this.walOffset = lastCommitEnd;
     return changedPages;
+  }
+
+  // -------------------------------------------------------------------------
+  // Page versions
+  // -------------------------------------------------------------------------
+
+  private addVersion(pageNo: number, version: PageVersion): void {
+    const versions = this.walIndex.get(pageNo);
+    if (!versions) {
+      this.walIndex.set(pageNo, [version]);
+      return;
+    }
+    versions.push(version);
+    this.dropInvisible(pageNo, versions);
+  }
+
+  /** Keeps the newest version the oldest snapshot can see, and all newer ones. */
+  private dropInvisible(pageNo: number, versions: PageVersion[]): void {
+    let keepFrom = 0;
+    for (let i = versions.length - 1; i > 0; i--) {
+      if (versions[i].txId <= this.pruneBound) {
+        keepFrom = i;
+        break;
+      }
+    }
+    if (keepFrom > 0) versions.splice(0, keepFrom);
+    if (versions.length > 1) this.layeredPages.add(pageNo);
+    else this.layeredPages.delete(pageNo);
   }
 
   // -------------------------------------------------------------------------
@@ -385,7 +507,9 @@ export class WalStorage implements SyncIPageStorage {
   private initWalHeader(): void {
     const hdr = new Uint8Array(WAL_HEADER_SIZE);
     hdr.set(WAL_MAGIC, 0);
-    new DataView(hdr.buffer).setUint32(8, this.epoch, false);
+    const view = new DataView(hdr.buffer);
+    view.setUint32(8, this.epoch, false);
+    view.setUint32(12, this.baseTxId, false);
     this.walHandle.write(hdr, { at: 0 });
     this.walOffset = WAL_HEADER_SIZE;
   }

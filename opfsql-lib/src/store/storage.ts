@@ -39,6 +39,9 @@ export class Storage {
   private freeList!: number[];
   private readonly onCheckpointError: (err: unknown) => void;
 
+  /** Open snapshots: commit position → number of sessions reading at it. */
+  private readonly pins = new Map<number, number>();
+
   constructor(
     private readonly backend: SyncIPageStorage,
     options: StorageOptions = {},
@@ -64,8 +67,41 @@ export class Storage {
   // Page I/O (direct backend access)
   // -------------------------------------------------------------------------
 
-  readPage<T>(pageNo: number): T | null {
-    return this.backend.readPage<T>(pageNo);
+  /** Committed data as of `snapshot` (default: the latest commit). */
+  readPage<T>(pageNo: number, snapshot?: number): T | null {
+    return this.backend.readPage<T>(pageNo, snapshot);
+  }
+
+  // -------------------------------------------------------------------------
+  // Snapshots
+  // -------------------------------------------------------------------------
+
+  /** Position of the latest commit; 0 for backends without page versions. */
+  latestCommit(): number {
+    return this.backend.latestCommit?.() ?? 0;
+  }
+
+  /** Pins the latest commit: its pages stay readable until released. */
+  pinSnapshot(): number {
+    const snapshot = this.latestCommit();
+    this.pins.set(snapshot, (this.pins.get(snapshot) ?? 0) + 1);
+    this.backend.prune?.(this.oldestSnapshot());
+    return snapshot;
+  }
+
+  releaseSnapshot(snapshot: number): void {
+    const count = this.pins.get(snapshot) ?? 0;
+    if (count <= 1) this.pins.delete(snapshot);
+    else this.pins.set(snapshot, count - 1);
+    this.backend.prune?.(this.oldestSnapshot());
+  }
+
+  /** Oldest pinned snapshot, or the latest commit when nothing is pinned. */
+  private oldestSnapshot(): number {
+    let oldest = this.latestCommit();
+    for (const snapshot of this.pins.keys())
+      oldest = Math.min(oldest, snapshot);
+    return oldest;
   }
 
   // -------------------------------------------------------------------------
@@ -118,7 +154,6 @@ export class Storage {
     }
 
     this.backend.commit(pages, this.nextPageId);
-    this.checkpointIfNeeded();
   }
 
   // -------------------------------------------------------------------------
@@ -169,8 +204,22 @@ export class Storage {
   // Lifecycle
   // -------------------------------------------------------------------------
 
+  /** Brings the main file as far forward as open snapshots allow. */
   checkpoint(): void {
-    this.backend.checkpoint?.();
+    this.backend.checkpoint?.(this.oldestSnapshot());
+  }
+
+  /**
+   * Checkpoints when the backend asks for it. Runs after a commit, so it
+   * never throws: a failure is reported and the checkpoint retried later.
+   */
+  checkpointIfNeeded(): void {
+    if (!this.backend.needsCheckpoint?.()) return;
+    try {
+      this.checkpoint();
+    } catch (err) {
+      this.reportCheckpointError(err);
+    }
   }
 
   close(): void {
@@ -180,16 +229,6 @@ export class Storage {
   // -------------------------------------------------------------------------
   // Internal
   // -------------------------------------------------------------------------
-
-  /** Runs after the commit point, so nothing in here may throw. */
-  private checkpointIfNeeded(): void {
-    if (!this.backend.needsCheckpoint?.()) return;
-    try {
-      this.backend.checkpoint?.();
-    } catch (err) {
-      this.reportCheckpointError(err);
-    }
-  }
 
   private reportCheckpointError(err: unknown): void {
     try {
