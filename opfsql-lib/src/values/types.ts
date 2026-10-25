@@ -29,10 +29,15 @@ const TYPES_BY_NAME: ReadonlyMap<string, SqlType> = new Map<string, SqlType>([
 export function typeFromName(name: string): SqlType | null {
   const parameters = name.indexOf("(");
   const base = parameters === -1 ? name : name.slice(0, parameters);
-  return TYPES_BY_NAME.get(base.trim().toUpperCase()) ?? null;
+  return TYPES_BY_NAME.get(asciiUpperCase(base.trim())) ?? null;
 }
 
 /** True for INTEGER and REAL, which compare and convert as numbers. */
 export function isNumericType(type: SqlType): boolean {
   return type === "INTEGER" || type === "REAL";
+}
+
+/** Type names are keywords: only ASCII letters change case, as in SQLite. */
+function asciiUpperCase(name: string): string {
+  return name.replaceAll(/[a-z]/gu, (letter) => letter.toUpperCase());
 }

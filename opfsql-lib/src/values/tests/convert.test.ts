@@ -151,6 +151,11 @@ describe("typeFromName", () => {
     ).toEqual(["INTEGER", "INTEGER", "TEXT", "REAL", "BOOLEAN", "JSON"]);
     expect(typeFromName("DECIMAL")).toBeNull();
   });
+
+  it("changes the case of ASCII letters only", () => {
+    // Unicode upper-casing turns the dotless ı into I.
+    expect(typeFromName("\u{131}nteger")).toBeNull();
+  });
 });
 
 describe("comparison affinity", () => {
