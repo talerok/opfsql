@@ -43,12 +43,16 @@ export class ReadMarks {
    * Takes ownership of `handle`: it is closed with the marks, or right away
    * if opening fails.
    */
-  static async open(handle: SyncFile, lockName: string): Promise<ReadMarks> {
+  static async open(
+    handle: SyncFile,
+    lockName: string,
+    database: string,
+  ): Promise<ReadMarks> {
     try {
       await navigator.locks.request(`${lockName}:shm-init`, () => {
         if (!isInitialized(handle)) initialize(handle);
       });
-      const { slot, release } = await claimSlot(lockName);
+      const { slot, release } = await claimSlot(lockName, database);
       const marks = new ReadMarks(handle, lockName, slot, release);
       // Clears a mark that a dead previous owner of the slot left.
       marks.publish(null);
@@ -146,14 +150,13 @@ function initialize(handle: SyncFile): void {
 /** The first free slot, held until `release` is called. */
 async function claimSlot(
   lockName: string,
+  database: string,
 ): Promise<{ slot: number; release: () => void }> {
   for (let slot = 0; slot < SLOT_COUNT; slot++) {
     const release = await holdIfAvailable(slotLock(lockName, slot));
     if (release !== null) return { slot, release };
   }
-  throw new DatabaseInUseError(
-    `all ${String(SLOT_COUNT)} read-mark slots are taken: too many tabs have the database open`,
-  );
+  throw new DatabaseInUseError(database, "too-many-tabs");
 }
 
 /** Takes the lock if it is free and holds it until the returned function is called. */

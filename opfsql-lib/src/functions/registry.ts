@@ -30,7 +30,8 @@ const FUNCTIONS: ReadonlyMap<string, SqlFunction> = new Map(
     ...jsonFunctions,
     ...hashFunctions,
     ...aggregateFunctions,
-  ].map((definition) => [definition.name, definition]),
+    // Frozen: definitions are shared by every plan that resolves to them.
+  ].map((definition) => [definition.name, Object.freeze(definition)]),
 );
 
 /** The function called `name` (any case), or undefined if there is none. */

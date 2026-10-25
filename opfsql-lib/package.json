@@ -7,8 +7,12 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker-entry.d.ts",
+      "import": "./dist/worker.js"
     }
   },
   "files": [
@@ -27,7 +31,7 @@
     "test:e2e": "npx playwright test --config test/e2e/infra/config.ts",
     "bench": "node --expose-gc ./node_modules/vite-node/vite-node.mjs bench/node.ts --",
     "bench:browser": "vite-node bench/browser.ts --",
-    "build": "cp ../README.md ./README.md && cp ../LICENSE ./LICENSE && esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:cbor-x --minify && tsc --emitDeclarationOnly --outDir dist"
+    "build": "cp ../README.md ./README.md && cp ../LICENSE ./LICENSE && esbuild index=src/index.ts worker=src/worker-entry.ts --bundle --splitting --format=esm --outdir=dist --external:cbor-x --minify && tsc --emitDeclarationOnly --outDir dist"
   },
   "keywords": [
     "sql",

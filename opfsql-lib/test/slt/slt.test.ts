@@ -18,7 +18,7 @@ describe("SLT", () => {
       const source = readFileSync(join(sltDir, file), "utf-8");
       const blocks = parseSlt(source);
       const engine = await openTestEngine(`slt-${file}`);
-      const session = engine.createSession();
+      const session = engine.connect();
       try {
         const result = await runSlt(session, blocks);
         if (result.failed > 0) {
@@ -30,8 +30,8 @@ describe("SLT", () => {
           );
         }
       } finally {
-        session.close();
-        engine.close();
+        await session.close();
+        await engine.close();
       }
     });
   }

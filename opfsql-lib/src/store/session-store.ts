@@ -66,6 +66,11 @@ export class SessionStore implements SyncIPageStore {
     this.writePage(this.catalogPageNo, data);
   }
 
+  /** The catalog as of this session's snapshot, with its own writes. */
+  readCatalog(): CatalogData | null {
+    return this.readPage<CatalogData>(this.catalogPageNo);
+  }
+
   // -------------------------------------------------------------------------
   // Read snapshot
   // -------------------------------------------------------------------------
@@ -80,10 +85,12 @@ export class SessionStore implements SyncIPageStore {
     return this.readSnapshot !== null;
   }
 
+  /** The session lets go of its snapshot even if publishing that fails. */
   endSnapshot(): void {
-    if (this.readSnapshot === null) return;
-    this.storage.releaseSnapshot(this.readSnapshot);
+    const snapshot = this.readSnapshot;
+    if (snapshot === null) return;
     this.readSnapshot = null;
+    this.storage.releaseSnapshot(snapshot);
   }
 
   /** True when something has committed since this session's snapshot. */

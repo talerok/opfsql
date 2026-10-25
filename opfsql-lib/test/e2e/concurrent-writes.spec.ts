@@ -1,16 +1,23 @@
 import { test, expect } from "./infra/fixtures";
-import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
+import {
+  openTab,
+  initDatabase,
+  openDatabase,
+  exec,
+  closeDatabase,
+  cleanOpfs,
+} from "./infra/database";
 
 test.describe("Concurrent writes", { tag: "@multi-tab" }, () => {
   test("Both tabs write autocommit — all data preserved", async ({
     context,
   }) => {
     const tabA = await openTab(context);
-    await initDb(tabA);
+    await initDatabase(tabA);
     await exec(tabA, "CREATE TABLE nums (id INTEGER PRIMARY KEY, source TEXT)");
 
     const tabB = await openTab(context);
-    await openDb(tabB);
+    await openDatabase(tabB);
 
     // Both tabs write concurrently (autocommit)
     await Promise.all([
@@ -32,21 +39,21 @@ test.describe("Concurrent writes", { tag: "@multi-tab" }, () => {
     const resultsA = await exec(tabA, "SELECT * FROM nums ORDER BY id");
     const resultsB = await exec(tabB, "SELECT * FROM nums ORDER BY id");
 
-    expect(resultsA[0].rows).toEqual(expected);
-    expect(resultsB[0].rows).toEqual(expected);
+    expect(resultsA[0].objects).toEqual(expected);
+    expect(resultsB[0].objects).toEqual(expected);
 
-    await closeDb(tabB);
-    await closeDb(tabA);
+    await closeDatabase(tabB);
+    await closeDatabase(tabA);
     await cleanOpfs(tabA);
   });
 
   test("Sequential transactions both commit", async ({ context }) => {
     const tabA = await openTab(context);
-    await initDb(tabA);
+    await initDatabase(tabA);
     await exec(tabA, "CREATE TABLE kv (k TEXT PRIMARY KEY, v INTEGER)");
 
     const tabB = await openTab(context);
-    await openDb(tabB);
+    await openDatabase(tabB);
 
     await exec(tabA, "BEGIN");
     await exec(tabA, "INSERT INTO kv VALUES ('a', 1)");
@@ -57,13 +64,13 @@ test.describe("Concurrent writes", { tag: "@multi-tab" }, () => {
     await exec(tabB, "COMMIT");
 
     const results = await exec(tabA, "SELECT * FROM kv ORDER BY k");
-    expect(results[0].rows).toEqual([
+    expect(results[0].objects).toEqual([
       { k: "a", v: 1 },
       { k: "b", v: 2 },
     ]);
 
-    await closeDb(tabB);
-    await closeDb(tabA);
+    await closeDatabase(tabB);
+    await closeDatabase(tabA);
     await cleanOpfs(tabA);
   });
 });

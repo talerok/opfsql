@@ -230,6 +230,15 @@ export class WalStorage implements SyncIPageStorage {
     return !this.marks || this.marks.checkpointIntent() <= snapshot;
   }
 
+  /**
+   * An intent beyond the latest commit belongs to no running checkpoint:
+   * the files it was set for are gone (the database was deleted, the read
+   * marks kept). No snapshot could satisfy it, so lower it.
+   */
+  resetCheckpointIntent(): void {
+    this.marks?.setCheckpointIntent(this.latestCommit());
+  }
+
   /** Clears read marks of tabs that died with a snapshot open. */
   async releaseAbandonedSnapshots(): Promise<void> {
     await this.marks?.reclaimDeadSlots();

@@ -463,10 +463,25 @@ export enum TransactionType {
   ROLLBACK = "ROLLBACK",
 }
 
-export interface TransactionStatement {
-  readonly type: StatementType.TRANSACTION_STATEMENT;
-  readonly transactionType: TransactionType;
-}
+/** When BEGIN takes the write lock: DEFERRED at the first write, IMMEDIATE at once. */
+export type BeginMode = "DEFERRED" | "IMMEDIATE";
+
+export type TransactionStatement =
+  | {
+      readonly type: StatementType.TRANSACTION_STATEMENT;
+      readonly transactionType: TransactionType.BEGIN;
+      readonly mode: BeginMode;
+    }
+  | {
+      readonly type: StatementType.TRANSACTION_STATEMENT;
+      readonly transactionType:
+        TransactionType.COMMIT | TransactionType.ROLLBACK;
+    };
+
+export type BeginStatement = Extract<
+  TransactionStatement,
+  { transactionType: TransactionType.BEGIN }
+>;
 
 export interface ExplainStatement {
   readonly type: StatementType.EXPLAIN_STATEMENT;

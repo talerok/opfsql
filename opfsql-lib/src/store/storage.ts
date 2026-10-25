@@ -1,7 +1,7 @@
 import { checkStoreIntegrity } from "./integrity.js";
 import { encodePage, type EncodedPage } from "./page-codec.js";
 import { SessionStore } from "./session-store.js";
-import type { CatalogData, ICatalog, SyncIPageStorage } from "./types.js";
+import type { ICatalog, SyncIPageStorage } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Page layout (private to storage layer)
@@ -9,11 +9,6 @@ import type { CatalogData, ICatalog, SyncIPageStorage } from "./types.js";
 
 const CATALOG_PAGE_NO = 1;
 const FREELIST_PAGE_NO = 2;
-
-export interface CatchUpResult {
-  catalog: boolean;
-  data: boolean;
-}
 
 export interface StorageOptions {
   /**
@@ -40,7 +35,7 @@ export class Storage {
   private readonly onCheckpointError: (err: unknown) => void;
 
   /** Open snapshots: commit position → number of sessions reading at it. */
-  private readonly pins = new Map<number, number>();
+  private pins: ReadonlyMap<number, number> = new Map();
 
   constructor(
     private readonly backend: SyncIPageStorage,
@@ -92,29 +87,37 @@ export class Storage {
    */
   tryPinSnapshot(): number | null {
     const snapshot = this.latestCommit();
-    this.addPin(snapshot, 1);
-    if (this.backend.isSnapshotSafe?.(snapshot) ?? true) return snapshot;
-    this.addPin(snapshot, -1);
+    this.pin(snapshot);
+    let isSafe: boolean;
+    try {
+      isSafe = this.backend.isSnapshotSafe?.(snapshot) ?? true;
+    } catch (error) {
+      this.releaseSnapshot(snapshot);
+      throw error;
+    }
+    if (isSafe) return snapshot;
+    this.releaseSnapshot(snapshot);
     return null;
   }
 
-  releaseSnapshot(snapshot: number): void {
-    this.addPin(snapshot, -1);
+  /**
+   * Counts the pin only once the backend has published it, so a failed
+   * publish leaves no pin behind to hold checkpoints back.
+   */
+  private pin(snapshot: number): void {
+    const pins = withCount(this.pins, snapshot, 1);
+    this.backend.setOldestSnapshot?.(oldestOf(pins));
+    this.pins = pins;
   }
 
-  private addPin(snapshot: number, delta: 1 | -1): void {
-    const count = (this.pins.get(snapshot) ?? 0) + delta;
-    if (count > 0) this.pins.set(snapshot, count);
-    else this.pins.delete(snapshot);
-    this.backend.setOldestSnapshot?.(this.oldestPin());
+  /** Forgets the pin before publishing, so a failed publish cannot keep it. */
+  releaseSnapshot(snapshot: number): void {
+    this.pins = withCount(this.pins, snapshot, -1);
+    this.backend.setOldestSnapshot?.(oldestOf(this.pins));
   }
 
   private oldestPin(): number | null {
-    let oldest: number | null = null;
-    for (const snapshot of this.pins.keys()) {
-      if (oldest === null || snapshot < oldest) oldest = snapshot;
-    }
-    return oldest;
+    return oldestOf(this.pins);
   }
 
   /** Oldest pinned snapshot, or the latest commit when nothing is pinned. */
@@ -175,33 +178,24 @@ export class Storage {
   }
 
   // -------------------------------------------------------------------------
-  // Catalog
-  // -------------------------------------------------------------------------
-
-  readCatalog(): CatalogData | null {
-    return this.backend.readPage<CatalogData>(CATALOG_PAGE_NO);
-  }
-
-  // -------------------------------------------------------------------------
   // Catch-up
   // -------------------------------------------------------------------------
 
-  catchUp(): CatchUpResult | null {
+  /** Picks up other tabs' commits; true when there were any. */
+  catchUp(): boolean {
     const changes = this.backend.catchUp?.();
-
-    if (!changes) {
-      return null;
-    }
-
+    if (!changes) return false;
     this.refreshFromStorage();
-    const array = [...changes];
+    return true;
+  }
 
-    // Empty set = epoch change (full invalidation) → both true
-    const empty = array.length === 0;
-
-    const catalog = empty || changes.has(CATALOG_PAGE_NO);
-    const data = empty || array.some((p) => p !== CATALOG_PAGE_NO);
-    return { catalog, data };
+  /**
+   * Lowers the checkpoint intent to the latest commit. Only for an intent
+   * no snapshot can satisfy because no checkpoint is going on — call it
+   * holding the write lock, caught up.
+   */
+  resetCheckpointIntent(): void {
+    this.backend.resetCheckpointIntent?.();
   }
 
   // -------------------------------------------------------------------------
@@ -268,4 +262,25 @@ export class Storage {
     this.nextPageId = this.backend.getNextPageId();
     this.freeList = this.backend.readPage<number[]>(FREELIST_PAGE_NO) ?? [];
   }
+}
+
+/** `pins` with the count of `snapshot` moved by `delta`. */
+function withCount(
+  pins: ReadonlyMap<number, number>,
+  snapshot: number,
+  delta: 1 | -1,
+): ReadonlyMap<number, number> {
+  const next = new Map(pins);
+  const count = (next.get(snapshot) ?? 0) + delta;
+  if (count > 0) next.set(snapshot, count);
+  else next.delete(snapshot);
+  return next;
+}
+
+function oldestOf(pins: ReadonlyMap<number, number>): number | null {
+  let oldest: number | null = null;
+  for (const snapshot of pins.keys()) {
+    if (oldest === null || snapshot < oldest) oldest = snapshot;
+  }
+  return oldest;
 }

@@ -10,7 +10,7 @@ import {
 import { decodeRow, encodeRow } from "../../store/row-codec.js";
 import type { TableEntry } from "../../store/table-btree.js";
 import type { CatalogData, TableSchema } from "../../types.js";
-import { Engine } from "../engine.js";
+import { createEngine } from "../engine.js";
 
 // Each test builds a healthy database, closes it, damages its file the way a
 // storage bug would, reopens it and expects checkIntegrity() to name the damage.
@@ -29,14 +29,14 @@ function openStorage(): OPFSSyncStorage {
 beforeEach(async () => {
   resetMockOPFS();
   dbName = `integrity-${seq++}`;
-  const engine = await Engine.create(openStorage());
-  const s = engine.createSession();
+  const engine = await createEngine(openStorage());
+  const s = engine.connect();
   await s.execute(
     "CREATE TABLE t (id INTEGER PRIMARY KEY, tag INTEGER, body TEXT)",
   );
   await s.execute("CREATE INDEX t_tag ON t (tag)");
   for (let id = 1; id <= 300; id++) {
-    await s.execute("INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)", [
+    await s.query("INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)", [
       id,
       id % 7,
       `row ${id}`.padEnd(40, "."),
@@ -47,18 +47,18 @@ beforeEach(async () => {
     "CREATE TABLE a (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
   );
   for (const name of ["x", "y", "z"]) {
-    await s.execute("INSERT INTO a (name) VALUES ($1)", [name]);
+    await s.query("INSERT INTO a (name) VALUES ($1)", [name]);
   }
-  s.close();
-  engine.close();
+  await s.close();
+  await engine.close();
 });
 
 async function check(): Promise<string[]> {
-  const engine = await Engine.create(openStorage());
+  const engine = await createEngine(openStorage());
   try {
-    return engine.checkIntegrity();
+    return await engine.checkIntegrity();
   } finally {
-    engine.close();
+    await engine.close();
   }
 }
 
