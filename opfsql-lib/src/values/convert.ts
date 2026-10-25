@@ -87,6 +87,21 @@ export function castValue(value: Value, type: SqlType): Value {
   }
 }
 
+/**
+ * How a comparison converts an operand of unknown type to the type of the
+ * other side (docs/semantics.md, Comparisons): `numeric` turns text that
+ * is exactly a number into that number, `text` turns a number into text.
+ */
+export type Affinity = "numeric" | "text";
+
+/** `value` converted for comparison with a side of `affinity`, if lossless. */
+export function applyAffinity(value: Value, affinity: Affinity): Value {
+  if (affinity === "numeric") {
+    return typeof value === "string" ? (numberFromText(value) ?? value) : value;
+  }
+  return typeof value === "number" ? String(value) : value;
+}
+
 /** The number text writes exactly, or null if it is not a number. */
 export function numberFromText(text: string): number | null {
   return NUMERIC_TEXT.test(text) ? Number(text) : null;

@@ -1,9 +1,11 @@
 import type {
+  BoundExpression,
   ColumnBinding,
   LogicalComparisonJoin,
 } from "../../sql/binder/types.js";
 import { rowKey } from "../../values/index.js";
 import {
+  comparisonConversion,
   type CompiledExpression,
   compileExpression,
   type ExecutionContext,
@@ -41,11 +43,20 @@ export class PhysicalHashJoin implements SyncPhysicalOperator {
       : [...probe.getLayout(), ...build.getLayout()];
     const probeResolver = buildResolver(probe.getLayout());
     const buildSideResolver = buildResolver(build.getLayout());
+    // A key of unknown type takes the other side's affinity, as `=` does.
     this.probeKeys = operator.conditions.map((condition) =>
-      compileExpression(condition.left, probeResolver, context),
+      joinKeyPart(
+        condition.left,
+        condition.right,
+        compileExpression(condition.left, probeResolver, context),
+      ),
     );
     this.buildKeys = operator.conditions.map((condition) =>
-      compileExpression(condition.right, buildSideResolver, context),
+      joinKeyPart(
+        condition.right,
+        condition.left,
+        compileExpression(condition.right, buildSideResolver, context),
+      ),
     );
     this.buildNullTuple = Array.from(build.getLayout(), () => null);
   }
@@ -119,6 +130,15 @@ export class PhysicalHashJoin implements SyncPhysicalOperator {
     this.probe.reset();
     this.build.reset();
   }
+}
+
+function joinKeyPart(
+  side: BoundExpression,
+  other: BoundExpression,
+  value: CompiledExpression,
+): CompiledExpression {
+  const convert = comparisonConversion(side.returnType, other.returnType);
+  return (row) => convert(value(row));
 }
 
 /** The hash key of a row's join values; null if one is NULL. */

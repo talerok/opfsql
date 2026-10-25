@@ -12,7 +12,9 @@ import {
   not,
   type NumericMode,
   truthOf,
+  type Value,
 } from "../../values/index.js";
+import { comparisonConversion } from "./affinity.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -41,15 +43,7 @@ export function compileOperator(
     }
     case "IN":
     case "NOT_IN": {
-      const items = [right, ...more];
-      const isNegated = expression.operatorType === "NOT_IN";
-      return (row) => {
-        const found = isIn(
-          operand(row),
-          items.map((item) => item(row)),
-        );
-        return isNegated ? not(found) : found;
-      };
+      return compileIn(expression, operand, [right, ...more]);
     }
     case "CONCAT": {
       return (row) => concatenate(operand(row), right(row));
@@ -68,6 +62,32 @@ export function compileOperator(
     }
   }
 }
+
+/**
+ * `x IN (items)` as values/logic defines it; items of unknown type take
+ * the affinity of `x`, as they would compared with `=`.
+ */
+function compileIn(
+  expression: BoundOperatorExpression,
+  needle: CompiledExpression,
+  items: readonly CompiledExpression[],
+): CompiledExpression {
+  const [first, ...listed] = expression.children;
+  const needleType = first?.returnType ?? "ANY";
+  const conversions = listed.map((item) =>
+    comparisonConversion(item.returnType, needleType),
+  );
+  const isNegated = expression.operatorType === "NOT_IN";
+  return (row) => {
+    const values = items.map((item, index) =>
+      (conversions[index] ?? identity)(item(row)),
+    );
+    const found = isIn(needle(row), values);
+    return isNegated ? not(found) : found;
+  };
+}
+
+const identity = (value: Value): Value => value;
 
 /** A missing operand: never, for an expression the binder built. */
 const NULL: CompiledExpression = () => null;

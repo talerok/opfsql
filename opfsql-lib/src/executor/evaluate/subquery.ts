@@ -2,7 +2,7 @@ import type { BoundSubqueryExpression } from "../../sql/binder/types.js";
 import { and, or, type Truth, type Value } from "../../values/index.js";
 import { ExecutorError } from "../errors.js";
 import type { Tuple } from "../types.js";
-import { compare } from "./logic.js";
+import { compareTyped } from "./logic.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +55,11 @@ function compileQuantified(
 ): CompiledExpression {
   const input =
     expression.child === undefined ? null : scope.compile(expression.child);
-  const test = compare(expression.comparisonType ?? "EQUAL");
+  const test = compareTyped(
+    expression.comparisonType ?? "EQUAL",
+    expression.child?.returnType ?? "ANY",
+    expression.subplan.types[0] ?? "ANY",
+  );
   const isAll = expression.subqueryType === "ALL";
   const [combine, decisive] = isAll ? [and, false] : [or, true];
   return (row) => {

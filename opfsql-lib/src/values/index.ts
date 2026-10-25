@@ -9,6 +9,8 @@ export {
   textOperand,
 } from "./arithmetic.js";
 export {
+  type Affinity,
+  applyAffinity,
   assignValue,
   bytesToHex,
   castValue,

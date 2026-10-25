@@ -13,7 +13,7 @@ import { compilePredicate, type ExecutionContext } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import {
-  resolveFilterValue,
+  indexSearchValue,
   type RowFilter,
   rowToTuple,
   SCAN_BATCH,
@@ -86,7 +86,11 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
       const predicates: SearchPredicate[] = branch.predicates.map((p) => ({
         columnPosition: p.columnPosition,
         comparisonType: p.comparisonType,
-        value: resolveFilterValue(p.value, this.context) as IndexKeyValue,
+        value: indexSearchValue(
+          p,
+          branch.indexDef,
+          this.context,
+        ) as IndexKeyValue,
       }));
       const ids = this.indexManager.search(branch.indexDef.name, predicates);
       for (const id of ids) {

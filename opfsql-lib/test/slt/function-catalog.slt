@@ -1,0 +1,210 @@
+# function-catalog.slt — functions resolve at bind time through one
+# registry and behave as in SQLite (docs/semantics.md, Functions)
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT, n INTEGER, r REAL, b BLOB, flag BOOLEAN)
+
+statement ok
+INSERT INTO t VALUES (1, 'hello', 5, 2.5, x'CAFE', true), (2, NULL, NULL, NULL, NULL, NULL)
+
+# ============================================================================
+# Unknown functions, wrong arity and wrong argument types fail to bind
+# ============================================================================
+
+statement error
+SELECT nosuchfn(1)
+
+statement error
+SELECT UPPER()
+
+statement error
+SELECT SUBSTR('abc')
+
+statement error
+SELECT SUBSTR('abc', 1, 2, 3)
+
+statement error
+SELECT COALESCE(1)
+
+statement error
+SELECT ABS(s) FROM t
+
+statement error
+SELECT UPPER(b) FROM t
+
+statement error
+SELECT SUM(s) FROM t
+
+statement error
+SELECT AVG(flag) FROM t
+
+statement error
+SELECT SUM(b) FROM t
+
+statement error
+SELECT COUNT(1, 2)
+
+statement error
+SELECT UPPER(DISTINCT s) FROM t
+
+# ============================================================================
+# NULL handling
+# ============================================================================
+
+query TTTT nosort
+SELECT IFNULL(NULL, 2), IFNULL(1, 2), COALESCE(NULL, NULL, 'c'), NULLIF(1, 1)
+----
+2|1|c|NULL
+
+query TTT nosort
+SELECT NULLIF(1, 2), NULLIF(NULL, 1), NULLIF(1, NULL)
+----
+1|NULL|1
+
+query TT nosort
+SELECT IIF(1 < 2, 'yes', 'no'), IIF(NULL, 'yes', 'no')
+----
+yes|no
+
+# COALESCE stops at the first non-NULL argument: the cast is not evaluated
+query I nosort
+SELECT COALESCE(1, CAST('x' AS INTEGER))
+----
+1
+
+# ============================================================================
+# Text
+# ============================================================================
+
+query TTT nosort
+SELECT INSTR('hello', 'l'), INSTR('hello', 'z'), INSTR('héllo', 'l')
+----
+3|0|3
+
+query TTT nosort
+SELECT HEX('a'), HEX(x'CAFE'), HEX(12)
+----
+61|CAFE|3132
+
+query TTTT nosort
+SELECT SUBSTR('hello', 0, 2), SUBSTR('hello', -3), SUBSTR('hello', -3, 2), SUBSTR('hello', 3, -2)
+----
+h|llo|ll|he
+
+query T nosort
+SELECT SUBSTR(b, 2, 1) FROM t WHERE id = 1
+----
+FE
+
+query TTT nosort
+SELECT LENGTH('héllo'), LENGTH(b), LENGTH(n) FROM t WHERE id = 1
+----
+5|2|1
+
+query TT nosort
+SELECT TRIM('  x  '), TRIM('xxhixx', 'x')
+----
+x|hi
+
+query TT nosort
+SELECT REPLACE('a-b-c', '-', '+'), REPLACE('abc', '', 'x')
+----
+a+b+c|abc
+
+query TT nosort
+SELECT CONCAT('a', NULL, 'b'), CONCAT_WS('-', 'a', NULL, 'b')
+----
+ab|a-b
+
+query TTTTTTT nosort
+SELECT TYPEOF(1), TYPEOF(1.5), TYPEOF('a'), TYPEOF(x'00'), TYPEOF(NULL), TYPEOF(true), TYPEOF(r) FROM t WHERE id = 1
+----
+integer|real|text|blob|null|boolean|real
+
+# ============================================================================
+# Numbers
+# ============================================================================
+
+query TTTT nosort
+SELECT ROUND(2.5), ROUND(-2.5), ROUND(0.5), ROUND(-0.4)
+----
+3|-3|1|0
+
+query TT nosort
+SELECT ROUND(1.2345, 2), ROUND(-1.2355, 3)
+----
+1.23|-1.236
+
+query TTT nosort
+SELECT ABS(-5), ABS(n), ABS(-r) FROM t WHERE id = 1
+----
+5|5|2.5
+
+query TTT nosort
+SELECT FLOOR(-1.5), CEIL(-1.5), SIGN(-3)
+----
+-2|-1|-1
+
+# ============================================================================
+# LIKE: % and _, case-insensitive for ASCII letters only, ESCAPE
+# ============================================================================
+
+query TTT nosort
+SELECT 'Hello' LIKE 'h%', 'Héllo' LIKE 'H_llo', 'É' LIKE 'é'
+----
+true|true|false
+
+query TT nosort
+SELECT 'a.c' LIKE 'a.c', 'abc' LIKE 'a.c'
+----
+true|false
+
+query T nosort
+SELECT s FROM t WHERE s NOT LIKE 'x%'
+----
+hello
+
+query T nosort
+SELECT NULL LIKE 'a'
+----
+NULL
+
+# ============================================================================
+# Aggregates
+# ============================================================================
+
+statement ok
+CREATE TABLE big (id INTEGER PRIMARY KEY, v INTEGER)
+
+statement ok
+INSERT INTO big VALUES (1, 9007199254740991), (2, 1)
+
+statement error
+SELECT SUM(v) FROM big
+
+query TT nosort
+SELECT TYPEOF(SUM(n)), TYPEOF(AVG(n)) FROM t
+----
+integer|real
+
+query T nosort
+SELECT SUM(n) FROM t WHERE id = 2
+----
+NULL
+
+# ============================================================================
+# JSON
+# ============================================================================
+
+query TTT nosort
+SELECT JSON_EXTRACT('{"a": {"b": [1, 2]}}', '$.a.b[1]'), JSON_TYPE('{"a": 1}', '$.a'), JSON_ARRAY_LENGTH('[1, 2, 3]')
+----
+2|integer|3
+
+query TT nosort
+SELECT JSON_EXTRACT('{"a": 1}', '$.missing'), JSON_VALID('{oops')
+----
+NULL|false
+
+statement error
+SELECT JSON_EXTRACT('{"a": 1}', 'a')

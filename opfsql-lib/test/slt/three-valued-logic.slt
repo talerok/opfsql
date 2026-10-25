@@ -1,0 +1,199 @@
+# three-valued-logic.slt — NULL as "unknown" everywhere: WHERE, NOT,
+# BETWEEN, IN, constant folding (docs/semantics.md, Logic)
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, x INTEGER, flag BOOLEAN)
+
+statement ok
+INSERT INTO t VALUES (1, 1, true), (2, 7, false), (3, 8, NULL), (4, NULL, false)
+
+# ============================================================================
+# BETWEEN is x >= a AND x <= b
+# ============================================================================
+
+# x <= 5 is false for 7 and 8, so the AND is false and NOT makes it true
+query I rowsort
+SELECT id FROM t WHERE NOT (x BETWEEN NULL AND 5)
+----
+2
+3
+
+query I rowsort
+SELECT id FROM t WHERE x NOT BETWEEN 2 AND NULL
+----
+1
+
+query T nosort
+SELECT 3 BETWEEN 1 AND NULL
+----
+NULL
+
+query T nosort
+SELECT 3 BETWEEN 5 AND NULL
+----
+false
+
+# ============================================================================
+# NOT of an unknown stays unknown
+# ============================================================================
+
+query I rowsort
+SELECT id FROM t WHERE NOT (x > 2 AND NULL)
+----
+1
+
+query I rowsort
+SELECT id FROM t WHERE NOT (x > 2 OR NULL)
+----
+
+query T nosort
+SELECT NOT NULL
+----
+NULL
+
+# ============================================================================
+# Constant folding keeps NULL logic
+# ============================================================================
+
+query T nosort
+SELECT NULL AND TRUE
+----
+NULL
+
+query T nosort
+SELECT NULL AND FALSE
+----
+false
+
+query T nosort
+SELECT NULL OR TRUE
+----
+true
+
+query T nosort
+SELECT NULL OR FALSE
+----
+NULL
+
+# x = x is NULL, not true, when x is NULL
+query I rowsort
+SELECT id FROM t WHERE x = x
+----
+1
+2
+3
+
+query I rowsort
+SELECT id FROM t WHERE x = x + 0
+----
+1
+2
+3
+
+query I rowsort
+SELECT id FROM t WHERE x <> x
+----
+
+# ============================================================================
+# IN and NOT IN
+# ============================================================================
+
+query T nosort
+SELECT NULL IN (SELECT x FROM t WHERE id > 100)
+----
+false
+
+query T nosort
+SELECT NULL NOT IN (SELECT x FROM t WHERE id > 100)
+----
+true
+
+query T nosort
+SELECT 1 IN (SELECT x FROM t)
+----
+true
+
+query T nosort
+SELECT 2 IN (SELECT x FROM t)
+----
+NULL
+
+query T nosort
+SELECT 2 NOT IN (SELECT x FROM t)
+----
+NULL
+
+query T nosort
+SELECT 2 IN (1, NULL)
+----
+NULL
+
+query T nosort
+SELECT 1 IN (1, NULL)
+----
+true
+
+query I rowsort
+SELECT id FROM t WHERE x NOT IN (1, 7)
+----
+3
+
+query I rowsort
+SELECT id FROM t WHERE x NOT IN (SELECT x FROM t WHERE id = 4)
+----
+
+# ============================================================================
+# Comparing with false is not "unsatisfiable"
+# ============================================================================
+
+query I rowsort
+SELECT id FROM t WHERE flag = false
+----
+2
+4
+
+query I rowsort
+SELECT id FROM t WHERE flag = false AND x > 5
+----
+2
+
+query I rowsort
+SELECT id FROM t WHERE flag = true AND flag = false
+----
+
+# ============================================================================
+# BLOBs are equal when their bytes are
+# ============================================================================
+
+query T nosort
+SELECT x'01' = x'01'
+----
+true
+
+query T nosort
+SELECT x'0102' > x'01'
+----
+true
+
+statement ok
+CREATE TABLE b (id INTEGER PRIMARY KEY, data BLOB)
+
+statement ok
+INSERT INTO b VALUES (1, x'CAFE'), (2, x'BEEF'), (3, x'CAFE')
+
+query I rowsort
+SELECT id FROM b WHERE data = x'CAFE'
+----
+1
+3
+
+query I nosort
+SELECT COUNT(DISTINCT data) FROM b
+----
+2
+
+query I rowsort
+SELECT id FROM b WHERE data = x'CAFE' AND data = x'CAFE'
+----
+1
+3

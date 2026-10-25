@@ -1,0 +1,70 @@
+# integer-arithmetic.slt — docs/semantics.md, Arithmetic
+
+query IIII nosort
+SELECT 7 / 2, -7 / 2, 7 % 3, -7 % 3
+----
+3|-3|1|-1
+
+query I nosort
+SELECT 7 % -3
+----
+1
+
+query RR nosort
+SELECT 7.0 / 2, 7 / 2.5
+----
+3.5|2.8
+
+query TT nosort
+SELECT 1 / 0, 1 % 0
+----
+NULL|NULL
+
+query R nosort
+SELECT 5.5 % 2
+----
+1
+
+statement ok
+CREATE TABLE n (id INTEGER PRIMARY KEY, i INTEGER, r REAL)
+
+statement ok
+INSERT INTO n VALUES (1, 7, 7.0), (2, 9007199254740991, 2.5)
+
+query IR nosort
+SELECT i / 2, r / 2 FROM n WHERE id = 1
+----
+3|3.5
+
+# A CASE of INTEGER and REAL branches divides by the value it holds
+query RR nosort
+SELECT CASE WHEN id = 1 THEN i ELSE r END / 2, CASE WHEN id = 2 THEN i ELSE r END / 2 FROM n WHERE id = 2
+----
+1.25|4503599627370495
+
+statement error
+SELECT i + 1 FROM n WHERE id = 2
+
+statement error
+SELECT i * 2 FROM n WHERE id = 2
+
+query R nosort
+SELECT r + i FROM n WHERE id = 2
+----
+9007199254740994
+
+query T nosort
+SELECT 'a' || 1 || 1.5 || true || NULL
+----
+NULL
+
+query T nosort
+SELECT 'a' || 1 || 1.5 || true
+----
+a11.5true
+
+# SUM of integers is an integer; integer division follows
+query I nosort
+SELECT SUM(i) / 2 FROM n WHERE id = 1
+----
+3

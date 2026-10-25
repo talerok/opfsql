@@ -15,6 +15,8 @@ import { executeDelete, executeInsert, executeUpdate } from "../dml/index.js";
 import type { ExecutionContext } from "../evaluate/index.js";
 import type { ExecuteResult, Value } from "../types.js";
 import { checkParameters } from "./parameters.js";
+
+export { checkParameters } from "./parameters.js";
 import { createExecutionContext, executeSelect } from "./select.js";
 
 type ExecuteHandler = (

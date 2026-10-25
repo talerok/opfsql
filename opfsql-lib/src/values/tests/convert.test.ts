@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DatatypeMismatchError } from "../../errors.js";
 import {
+  applyAffinity,
   assignValue,
   bytesToHex,
   castValue,
@@ -140,5 +141,22 @@ describe("typeFromName", () => {
       ),
     ).toEqual(["INTEGER", "INTEGER", "TEXT", "REAL", "BOOLEAN", "JSON"]);
     expect(typeFromName("DECIMAL")).toBeNull();
+  });
+});
+
+describe("comparison affinity", () => {
+  it("numeric affinity takes text that is exactly a number", () => {
+    expect(applyAffinity("5", "numeric")).toBe(5);
+    expect(applyAffinity("1.5e1", "numeric")).toBe(15);
+    expect(applyAffinity("five", "numeric")).toBe("five");
+    expect(applyAffinity(" 5", "numeric")).toBe(" 5");
+    expect(applyAffinity(true, "numeric")).toBe(true);
+  });
+
+  it("text affinity prints numbers", () => {
+    expect(applyAffinity(5, "text")).toBe("5");
+    expect(applyAffinity(1.5, "text")).toBe("1.5");
+    expect(applyAffinity(false, "text")).toBe(false);
+    expect(applyAffinity(null, "text")).toBeNull();
   });
 });

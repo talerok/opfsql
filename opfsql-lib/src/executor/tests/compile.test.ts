@@ -168,6 +168,68 @@ describe("comparisons", () => {
   });
 });
 
+describe("comparison affinity", () => {
+  it("converts a value of unknown type to the other side's type", () => {
+    const text = withParameters(["10"]);
+    expect(evaluate(comparison(colRef(0, 0), parameter(0)), row, text)).toBe(
+      true,
+    );
+    const name = colRef(0, 1, "name", "TEXT");
+    expect(
+      evaluate(comparison(name, parameter(0)), row, withParameters([5])),
+    ).toBe(false);
+    expect(
+      evaluate(
+        comparison(name, parameter(0)),
+        [1, "5", null, true],
+        withParameters([5]),
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves text that is not exactly a number alone", () => {
+    expect(
+      evaluate(
+        comparison(colRef(0, 0), parameter(0), "LESS"),
+        row,
+        withParameters(["ten"]),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not convert typed operands", () => {
+    // A JSON value "10" is text, not the number 10.
+    expect(evaluate(comparison(json("10"), constant(10)))).toBe(false);
+  });
+
+  it("applies to IN items, BETWEEN bounds and CASE operands", () => {
+    const parameters = withParameters(["10", "5", "20"]);
+    expect(
+      evaluate(
+        operator("IN", [colRef(0, 0), parameter(1), parameter(0)], "BOOLEAN"),
+        row,
+        parameters,
+      ),
+    ).toBe(true);
+    expect(
+      evaluate(
+        between(colRef(0, 0), parameter(1), parameter(2)),
+        row,
+        parameters,
+      ),
+    ).toBe(true);
+    const simple = {
+      ...caseExpr(
+        [{ when: parameter(0), result: constant("ten") }],
+        NULL,
+        "TEXT",
+      ),
+      operand: colRef(0, 0),
+    } as BoundExpression;
+    expect(evaluate(simple, row, parameters)).toBe("ten");
+  });
+});
+
 describe("three-valued logic", () => {
   it("AND and OR follow the truth tables", () => {
     expect(evaluate(conjunction("AND", NULL, TRUE))).toBeNull();
@@ -408,7 +470,7 @@ describe("casts and JSON access", () => {
   });
 });
 
-const plan = {} as LogicalOperator;
+const plan = { types: ["INTEGER"] } as unknown as LogicalOperator;
 
 function subquery(
   subqueryType: BoundSubqueryExpression["subqueryType"],

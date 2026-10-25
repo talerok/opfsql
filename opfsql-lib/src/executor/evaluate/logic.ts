@@ -3,6 +3,7 @@ import type {
   BoundComparisonExpression,
   BoundConjunctionExpression,
   ComparisonType,
+  LogicalType,
 } from "../../sql/binder/types.js";
 import {
   and,
@@ -12,6 +13,7 @@ import {
   truthOf,
   type Value,
 } from "../../values/index.js";
+import { comparisonConversion } from "./affinity.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -62,8 +64,27 @@ export function compileComparison(
 ): CompiledExpression {
   const left = scope.compile(expression.left);
   const right = scope.compile(expression.right);
-  const test = compare(expression.comparisonType);
+  const test = compareTyped(
+    expression.comparisonType,
+    expression.left.returnType,
+    expression.right.returnType,
+  );
   return (row) => test(left(row), right(row));
+}
+
+/**
+ * `compare`, with comparison affinity for operands of types `left` and
+ * `right`: a side of unknown type is converted to the other side's type.
+ */
+export function compareTyped(
+  comparison: ComparisonType,
+  left: LogicalType,
+  right: LogicalType,
+): (left: Value, right: Value) => Truth {
+  const test = compare(comparison);
+  const convertLeft = comparisonConversion(left, right);
+  const convertRight = comparisonConversion(right, left);
+  return (a, b) => test(convertLeft(a), convertRight(b));
 }
 
 export function compileConjunction(
@@ -93,8 +114,13 @@ export function compileBetween(
   const input = scope.compile(expression.input);
   const lower = scope.compile(expression.lower);
   const upper = scope.compile(expression.upper);
-  const atLeast = compare("GREATER_EQUAL");
-  const atMost = compare("LESS_EQUAL");
+  const type = expression.input.returnType;
+  const atLeast = compareTyped(
+    "GREATER_EQUAL",
+    type,
+    expression.lower.returnType,
+  );
+  const atMost = compareTyped("LESS_EQUAL", type, expression.upper.returnType);
   return (row) => {
     const value = input(row);
     return and(atLeast(value, lower(row)), atMost(value, upper(row)));

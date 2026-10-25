@@ -2,12 +2,15 @@ import {
   type BoundConstantExpression,
   BoundExpressionClass,
   type BoundParameterExpression,
+  type IndexScanHint,
+  type IndexSearchPredicate,
   type TableFilter,
   type TableSchema,
 } from "../../sql/binder/types.js";
 import type { Value } from "../../values/index.js";
 import {
-  compare,
+  compareTyped,
+  comparisonConversion,
   compileExpression,
   type ExecutionContext,
 } from "../evaluate/index.js";
@@ -38,8 +41,29 @@ export function compileTableFilter(
 ): RowFilter {
   const value = compileExpression(filter.expression, resolver, context);
   const constant = resolveFilterValue(filter.constant, context);
-  const holds = compare(filter.comparisonType);
+  const holds = compareTyped(
+    filter.comparisonType,
+    filter.expression.returnType,
+    filter.constant.returnType,
+  );
   return (row) => holds(value(row), constant) === true;
+}
+
+/**
+ * The value an index predicate searches for, converted as a comparison
+ * with the index column would convert it (comparison affinity).
+ */
+export function indexSearchValue(
+  predicate: IndexSearchPredicate,
+  index: IndexScanHint["indexDef"],
+  context: ExecutionContext,
+): Value {
+  const columnType =
+    index.expressions[predicate.columnPosition]?.returnType ?? "ANY";
+  return comparisonConversion(
+    predicate.value.returnType,
+    columnType,
+  )(resolveFilterValue(predicate.value, context));
 }
 
 export function compileTableFilters(

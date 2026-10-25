@@ -17,7 +17,7 @@ import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import {
   compileTableFilters,
   passesFilters,
-  resolveFilterValue,
+  indexSearchValue,
   type RowFilter,
   rowToTuple,
   SCAN_BATCH,
@@ -40,8 +40,13 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     private readonly context: ExecutionContext,
   ) {
     this.layout = op.columnBindings;
+    // The filters the index covers are checked again: the index finds
+    // rows by its own key order, and every row returned must satisfy the
+    // filters as compareValues defines them.
+    const covered =
+      op.indexHint?.kind === "scan" ? op.indexHint.coveredFilters : [];
     this.residuals = compileTableFilters(
-      residualFilters,
+      [...residualFilters, ...covered],
       buildResolver(this.layout),
       context,
     );
@@ -89,7 +94,7 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
     const predicates: SearchPredicate[] = this.indexPredicates.map((p) => ({
       columnPosition: p.columnPosition,
       comparisonType: p.comparisonType,
-      value: resolveFilterValue(p.value, this.context) as IndexKeyValue,
+      value: indexSearchValue(p, this.indexDef, this.context) as IndexKeyValue,
     }));
     return this.indexManager.search(this.indexDef.name, predicates);
   }

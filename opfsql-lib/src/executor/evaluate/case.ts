@@ -1,5 +1,6 @@
 import type { BoundCaseExpression } from "../../sql/binder/types.js";
-import { compareSql, truthOf, type Value } from "../../values/index.js";
+import { truthOf } from "../../values/index.js";
+import { compareTyped } from "./logic.js";
 import type { CompiledExpression, Scope } from "./scope.js";
 
 /**
@@ -17,16 +18,26 @@ export function compileCase(
   }));
   const otherwise =
     expression.elseExpr === null ? null : scope.compile(expression.elseExpr);
-  const operand =
-    expression.operand === undefined ? null : scope.compile(expression.operand);
-  const holds =
-    operand === null
-      ? (when: Value) => truthOf(when) === true
-      : (when: Value, value: Value) => compareSql(value, when) === 0;
+  if (expression.operand === undefined) {
+    return (row) => {
+      for (const check of checks) {
+        if (truthOf(check.when(row)) === true) return check.result(row);
+      }
+      return otherwise === null ? null : otherwise(row);
+    };
+  }
+  const operand = scope.compile(expression.operand);
+  // `CASE x WHEN v` compares as `x = v`, affinity included.
+  const { returnType } = expression.operand;
+  const equals = expression.caseChecks.map((check) =>
+    compareTyped("EQUAL", returnType, check.when.returnType),
+  );
   return (row) => {
-    const value = operand === null ? null : operand(row);
-    for (const check of checks) {
-      if (holds(check.when(row), value)) return check.result(row);
+    const value = operand(row);
+    for (const [index, check] of checks.entries()) {
+      if (equals[index]?.(value, check.when(row)) === true) {
+        return check.result(row);
+      }
     }
     return otherwise === null ? null : otherwise(row);
   };
