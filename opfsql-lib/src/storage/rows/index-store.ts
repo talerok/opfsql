@@ -1,7 +1,9 @@
 import { IndexKeyTooLargeError } from "../../errors.js";
 import { BTree, BTreeWriter } from "../btree/btree.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
+import { compareBytes } from "../../values/index.js";
 import { indexLeafCell, maxIndexKeySize } from "../format/btree-page.js";
+import { prefixEnd } from "../format/key.js";
 
 // ---------------------------------------------------------------------------
 // The entries of an index: encoded keys (format/key.ts), each ending with the
@@ -27,6 +29,15 @@ export class IndexReader {
   *keysBefore(before?: Uint8Array): Generator<Uint8Array> {
     for (const { page, index } of this.tree.descending(before)) {
       yield page.key(index).slice();
+    }
+  }
+
+  /** Keys that start with `prefix`: entries whose first values are those `prefix` encodes. */
+  *keysWithPrefix(prefix: Uint8Array): Generator<Uint8Array> {
+    const end = prefixEnd(prefix);
+    for (const key of this.keysFrom(prefix)) {
+      if (compareBytes(key, end) >= 0) return;
+      yield key;
     }
   }
 

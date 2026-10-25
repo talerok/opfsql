@@ -15,6 +15,7 @@
     "src/values",
     "src/schema",
     "src/storage",
+    "src/table",
     "test/support"
   ]
 }

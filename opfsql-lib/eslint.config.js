@@ -167,6 +167,20 @@ export default config(
               message: "schema depends on nothing but values and errors.",
             },
             {
+              target: "./src/table",
+              from: "./src",
+              except: [
+                "./table",
+                "./storage",
+                "./schema",
+                "./functions",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "table depends on nothing but storage, schema, functions, values and errors.",
+            },
+            {
               target: "./src/errors.ts",
               from: "./src",
               except: ["./errors.ts"],

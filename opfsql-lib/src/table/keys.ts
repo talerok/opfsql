@@ -1,0 +1,56 @@
+import type { Index, IndexKey, Table } from "../schema/index.js";
+import { encodeKey } from "../storage/index.js";
+import type { Value } from "../values/index.js";
+
+// ---------------------------------------------------------------------------
+// Index keys of rows. A key part is a column or an expression; expressions
+// are SQL text in the schema, and running one takes the parser and binder,
+// which sit above this layer. So whoever opens a table passes a compiler.
+// ---------------------------------------------------------------------------
+
+/** An expression over a row of a table, ready to run. */
+export type RowExpression = (row: readonly Value[]) => Value;
+
+/** Compiles an index key expression of `table` from its SQL text. */
+export type CompileExpression = (sql: string, table: Table) => RowExpression;
+
+/** An index, and how to compute a row's key in it. */
+export interface KeyedIndex {
+  readonly index: Index;
+  /** The key's values for a row, in key order, without the rowid. */
+  readonly keyOf: (row: readonly Value[]) => Value[];
+}
+
+export function keyedIndex(
+  index: Index,
+  table: Table,
+  compile: CompileExpression,
+): KeyedIndex {
+  const parts = index.keys.map((key) => keyPart(key, table, compile));
+  return { index, keyOf: (row) => parts.map((part) => part(row)) };
+}
+
+/** The entry a row has in the index: its key, then its rowid. */
+export function entryOf(
+  keyed: KeyedIndex,
+  row: readonly Value[],
+  rowid: number,
+): Uint8Array {
+  return encodeKey([...keyed.keyOf(row), rowid]);
+}
+
+function keyPart(
+  key: IndexKey,
+  table: Table,
+  compile: CompileExpression,
+): RowExpression {
+  switch (key.kind) {
+    case "column": {
+      const { column } = key;
+      return (row) => row[column] ?? null;
+    }
+    case "expression": {
+      return compile(key.sql, table);
+    }
+  }
+}

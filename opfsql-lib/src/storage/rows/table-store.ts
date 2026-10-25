@@ -64,6 +64,10 @@ export class TableReader {
     protected readonly tree: BTree = new BTree(pages, root, "table"),
   ) {}
 
+  has(rowid: number): boolean {
+    return this.tree.find(rowid) !== null;
+  }
+
   get(rowid: number): StoredRow | null {
     const found = this.tree.find(rowid);
     if (found === null) return null;

@@ -115,6 +115,48 @@ export class IntegerOverflowError extends OpfsqlError {
   }
 }
 
+export type ConstraintKind = "not-null" | "unique" | "primary-key";
+
+/**
+ * A row would break a constraint. `columns` names the columns it covers;
+ * a unique index over expressions has none, and `index` names it instead.
+ */
+export class ConstraintError extends OpfsqlError {
+  override readonly name = "ConstraintError";
+
+  constructor(
+    readonly constraint: ConstraintKind,
+    readonly table: string,
+    readonly columns: readonly string[],
+    readonly index?: string,
+  ) {
+    super(
+      "CONSTRAINT_VIOLATION",
+      constraintMessage(constraint, table, columns, index),
+    );
+  }
+}
+
+/** As SQLite words it: "UNIQUE constraint failed: users.email". */
+function constraintMessage(
+  constraint: ConstraintKind,
+  table: string,
+  columns: readonly string[],
+  index: string | undefined,
+): string {
+  const kind = constraint === "not-null" ? "NOT NULL" : "UNIQUE";
+  return `${kind} constraint failed: ${constrained(table, columns, index)}`;
+}
+
+function constrained(
+  table: string,
+  columns: readonly string[],
+  index: string | undefined,
+): string {
+  if (columns.length === 0) return `index ${index ?? table}`;
+  return columns.map((column) => `${table}.${column}`).join(", ");
+}
+
 /** A row is larger than a page can hold, even with its values in overflow pages. */
 export class RowTooLargeError extends OpfsqlError {
   override readonly name = "RowTooLargeError";
