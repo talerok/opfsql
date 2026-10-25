@@ -206,6 +206,19 @@ export default config(
                 "sql/plan depends on nothing but schema, functions, values and errors.",
             },
             {
+              target: "./src/expressions",
+              from: "./src",
+              except: [
+                "./expressions",
+                "./sql/plan",
+                "./functions",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "expressions depends on nothing but sql/plan, functions, values and errors.",
+            },
+            {
               target: "./src/sql/parser",
               from: "./src",
               except: ["./sql/parser", "./values", "./errors.ts"],

@@ -162,7 +162,7 @@ holds the lock until this promise settles".
 | `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries                                    |
 | `sql/parser`       | rebuilt and reviewed for readability: Pratt expressions, one name rule, unions for every state                          |
 | `functions`        | built: one registry for the binder and the compiler                                                                     |
-| `expressions`      | being built on `sql/plan` (the old compiler serves `src/legacy`)                                                        |
+| `expressions`      | built on `sql/plan`; the old compiler stays in `src/legacy/executor/evaluate` until the switch                          |
 | `sql/plan`         | contract written; binder, optimizer and executor move to it                                                             |
 | `sql/binder`       | to build on `sql/plan`: grouping model, scopes, DDL to the schema model; the old one is in `src/legacy`                 |
 | `sql/optimizer`    | to build on `sql/plan`: pure passes, access paths with residuals, physical plan; the old one is in `src/legacy`         |
