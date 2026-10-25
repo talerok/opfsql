@@ -64,9 +64,11 @@ ESLint enforces the table for every module already rebuilt
 (`import-x/no-restricted-paths` in `eslint.config.js`); the rest join as they
 are rebuilt.
 
-Everything below `engine` is synchronous and deterministic: given the same
-files and statements, it does the same thing. Waiting — for a lock, for a
-message — happens only in `engine` and `worker`.
+Everything a statement does below `engine` is synchronous and
+deterministic: given the same files and statements, it does the same thing.
+Waiting — for a lock, for a message — happens only in `engine` and `worker`.
+Opening and closing a database are the exception, since the browser's file
+and lock APIs are asynchronous.
 
 ## Rules for the code
 

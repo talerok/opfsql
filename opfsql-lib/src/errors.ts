@@ -147,6 +147,27 @@ export class IndexKeyTooLargeError extends OpfsqlError {
   }
 }
 
+/**
+ * Another tab has the database open and this browser allows only one, or
+ * too many tabs have it open.
+ */
+export class DatabaseInUseError extends OpfsqlError {
+  override readonly name = "DatabaseInUseError";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super("DATABASE_IN_USE", message, options);
+  }
+}
+
+/** Reading or writing the database files failed. */
+export class IoError extends OpfsqlError {
+  override readonly name = "IoError";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super("IO_ERROR", message, options);
+  }
+}
+
 /** The database files are damaged. */
 export class CorruptError extends OpfsqlError {
   override readonly name = "CorruptError";
