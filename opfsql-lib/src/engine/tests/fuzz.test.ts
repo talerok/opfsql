@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { PageOverflowError } from "../../store/errors.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
+import { mulberry32 } from "./random.js";
 import { openTestEngine } from "./test-engine.js";
 
 // ---------------------------------------------------------------------------
@@ -10,9 +11,10 @@ import { openTestEngine } from "./test-engine.js";
 //
 // Random INSERT / UPDATE / DELETE with realistic value sizes (bytes to hundreds
 // of KB), plus checkpoints and reopens at random points, checked against a
-// plain Map after every step. A statement must either succeed and be reflected
-// in the model, or fail with PageOverflowError and leave the database exactly
-// as it was. Seeds are fixed so any failure reproduces.
+// plain Map and engine.checkIntegrity() after every step. A statement must
+// either succeed and be reflected in the model, or fail with PageOverflowError
+// and leave the database exactly as it was. Seeds are fixed so any failure
+// reproduces.
 // ---------------------------------------------------------------------------
 
 interface Row {
@@ -30,17 +32,6 @@ const BODY_SIZES: Array<[number, number, number]> = [
   [0.1, 4_000, 40_000],
   [0.05, 40_000, 300_000],
 ];
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 class Fuzzer {
   private readonly model = new Map<number, Row>();
@@ -144,6 +135,8 @@ class Fuzzer {
   }
 
   private async verify(): Promise<void> {
+    expect(this.engine.checkIntegrity()).toEqual([]);
+
     const [all] = await this.session.execute(
       "SELECT id, tag, body FROM t ORDER BY id",
     );
@@ -192,7 +185,9 @@ class Fuzzer {
   }
 }
 
-describe("fuzz: storage against a model", () => {
+// Every step re-reads and integrity-checks the whole database, so the run takes
+// seconds rather than the default 5 s budget under a loaded parallel run.
+describe("fuzz: storage against a model", { timeout: 30_000 }, () => {
   beforeEach(() => {
     resetMockOPFS();
   });

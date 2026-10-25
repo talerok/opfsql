@@ -1,6 +1,7 @@
+import { checkStoreIntegrity } from "./integrity.js";
 import { encodePage, type EncodedPage } from "./page-codec.js";
 import { SessionStore } from "./session-store.js";
-import type { CatalogData, SyncIPageStorage } from "./types.js";
+import type { CatalogData, ICatalog, SyncIPageStorage } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Page layout (private to storage layer)
@@ -148,6 +149,20 @@ export class Storage {
     const catalog = empty || changes.has(CATALOG_PAGE_NO);
     const data = empty || array.some((p) => p !== CATALOG_PAGE_NO);
     return { catalog, data };
+  }
+
+  // -------------------------------------------------------------------------
+  // Integrity
+  // -------------------------------------------------------------------------
+
+  /** Structural check of committed pages against `catalog`; empty means consistent. */
+  checkIntegrity(catalog: ICatalog): string[] {
+    return checkStoreIntegrity({
+      readPage: (pageNo) => this.backend.readPage(pageNo),
+      catalog,
+      nextPageId: this.nextPageId,
+      freeList: this.freeList,
+    });
   }
 
   // -------------------------------------------------------------------------
