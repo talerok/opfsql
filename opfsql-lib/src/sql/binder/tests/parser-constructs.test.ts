@@ -160,6 +160,17 @@ describe("CREATE TABLE", () => {
     );
   });
 
+  it.each([
+    "CREATE TABLE t (a INT PRIMARY KEY, b INT PRIMARY KEY)",
+    "CREATE TABLE t (a INT PRIMARY KEY, b INT, PRIMARY KEY (b))",
+    "CREATE TABLE t (a INT PRIMARY KEY PRIMARY KEY)",
+    "CREATE TABLE t (a INT, b INT, PRIMARY KEY (a), PRIMARY KEY (b))",
+  ])("refuses a second primary key, as SQLite does: %s", (sql) => {
+    expect(() => bind(sql)).toThrow(
+      new SemanticError('table "t" has more than one primary key'),
+    );
+  });
+
   it("takes one primary key over several columns", () => {
     expect(
       columns(

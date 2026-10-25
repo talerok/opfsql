@@ -1,3 +1,4 @@
+import { SemanticError } from "../../../errors.js";
 import type { CreateTableStatement } from "../../parser/types.js";
 import type { ColumnDef, TableSchema } from "../../../store/types.js";
 import type { BindContext } from "../core/context.js";
@@ -12,6 +13,7 @@ export function bindCreateTable(
   _ctx: BindContext,
   stmt: CreateTableStatement,
 ): BT.LogicalCreateTable {
+  checkOnePrimaryKey(stmt);
   const columns: ColumnDef[] = stmt.columns.map((col) => {
     const constraints = columnConstraints(col);
     const isPk =
@@ -72,4 +74,17 @@ export function bindCreateTable(
     estimatedCardinality: 0,
     columnBindings: [],
   };
+}
+
+/** A table has at most one primary key, however it is written. */
+function checkOnePrimaryKey(statement: CreateTableStatement): void {
+  const columnKeys = statement.columns.reduce(
+    (count, column) => count + columnConstraints(column).primaryKeyCount,
+    0,
+  );
+  if (columnKeys + statement.primaryKeys.length > 1) {
+    throw new SemanticError(
+      `table "${statement.table}" has more than one primary key`,
+    );
+  }
 }

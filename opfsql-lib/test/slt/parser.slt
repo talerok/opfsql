@@ -359,3 +359,29 @@ ALTER TABLE people ADD COLUMN NOT NULL DEFAULT 0
 # syntax error: DEFAULT needs a value before NOT NULL
 statement error
 CREATE TABLE bad_default (a INTEGER DEFAULT NOT NULL)
+
+# ============================================================================
+# A table has one primary key, however it is written
+# ============================================================================
+
+# parses; the binder refuses a second primary key, as SQLite does
+statement error
+CREATE TABLE two_keys (a INTEGER PRIMARY KEY, b INTEGER PRIMARY KEY)
+
+# parses; the binder refuses a second primary key, as SQLite does
+statement error
+CREATE TABLE two_keys (a INTEGER PRIMARY KEY, b INTEGER, PRIMARY KEY (b))
+
+# parses; the binder refuses a second primary key, as SQLite does
+statement error
+CREATE TABLE two_keys (a INTEGER PRIMARY KEY PRIMARY KEY)
+
+statement ok
+CREATE TABLE one_key (a INTEGER, b TEXT, c INTEGER, PRIMARY KEY (a, b))
+
+statement ok
+INSERT INTO one_key VALUES (1, 'x', 10), (1, 'y', 20)
+
+# parses; the composite key refuses a duplicate
+statement error
+INSERT INTO one_key VALUES (1, 'x', 30)
