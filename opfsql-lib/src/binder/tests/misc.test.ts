@@ -408,31 +408,20 @@ describe("type-check — scalar function type restrictions", () => {
   });
 });
 
-describe("ALTER TABLE ADD COLUMN — AUTOINCREMENT validation", () => {
+describe("ALTER TABLE ADD COLUMN — key validation", () => {
+  it("a PRIMARY KEY column cannot be added", () => {
+    expect(() =>
+      bind("ALTER TABLE users ADD COLUMN seq INTEGER PRIMARY KEY"),
+    ).toThrow(/Cannot add a PRIMARY KEY column/);
+    expect(() =>
+      bind("ALTER TABLE users ADD COLUMN seq INTEGER PRIMARY KEY AUTOINCREMENT"),
+    ).toThrow(/Cannot add a PRIMARY KEY column/);
+  });
+
   it("AUTOINCREMENT on non-PRIMARY KEY column throws", () => {
     expect(() =>
       bind("ALTER TABLE users ADD COLUMN seq INTEGER AUTOINCREMENT"),
     ).toThrow(/PRIMARY KEY/);
-  });
-
-  it("AUTOINCREMENT on non-INTEGER PRIMARY KEY throws", () => {
-    expect(() =>
-      bind("ALTER TABLE users ADD COLUMN seq TEXT PRIMARY KEY AUTOINCREMENT"),
-    ).toThrow(/INTEGER/);
-  });
-
-  it("AUTOINCREMENT when table already has one throws", () => {
-    const autoSchema: TableSchema = {
-      name: "auto_tbl",
-      columns: [
-        { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: true, defaultValue: null },
-        { name: "val", type: "TEXT", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
-      ],
-    };
-    catalog.addTable(autoSchema);
-    expect(() =>
-      bind("ALTER TABLE auto_tbl ADD COLUMN seq INTEGER PRIMARY KEY AUTOINCREMENT"),
-    ).toThrow(/already has an AUTOINCREMENT/);
   });
 });
 

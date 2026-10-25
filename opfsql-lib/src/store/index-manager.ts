@@ -1,6 +1,8 @@
 import { BTree } from "./btree.js";
 import { SyncBTree } from "./index-btree/index-btree.js";
 import { computeBounds } from "./index-btree/search-bounds.js";
+import { RowidIndex } from "./rowid-index.js";
+import { SyncTableBTree } from "./table-btree.js";
 import type {
   ICatalog,
   IndexKey,
@@ -16,10 +18,17 @@ export class SyncIndexManager implements SyncIIndexManager {
     private readonly getCatalog: () => ICatalog,
   ) {}
 
-  private tree(indexName: string): SyncBTree {
-    const indexDef = this.getCatalog().getIndex(indexName.toLowerCase());
+  private tree(indexName: string): SyncBTree | RowidIndex {
+    const catalog = this.getCatalog();
+    const indexDef = catalog.getIndex(indexName.toLowerCase());
     if (!indexDef) throw new Error(`Index "${indexName}" not found in catalog`);
-    return new SyncBTree(this.ps, indexDef.rootPageNo!, indexDef);
+    if (!indexDef.rowid) {
+      return new SyncBTree(this.ps, indexDef.rootPageNo!, indexDef);
+    }
+    const table = catalog.getTable(indexDef.tableName)!;
+    return new RowidIndex(
+      new SyncTableBTree(this.ps, table.rootPageNo!, table.name),
+    );
   }
 
   insert(indexName: string, key: IndexKey, rowId: RowId): void {

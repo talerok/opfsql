@@ -41,6 +41,7 @@ class IntegrityChecker {
     for (const table of catalog.getAllTables()) {
       const rows = this.checkTable(table);
       for (const index of catalog.getTableIndexes(table.name)) {
+        if (index.rowid) continue; // the table's own tree
         const entries = this.checkIndex(index);
         if (rows !== null && entries !== null && rows !== entries) {
           this.problems.push(
@@ -96,8 +97,8 @@ class IntegrityChecker {
     if (column === undefined) return;
 
     let maxId = -Infinity;
-    for (const [, cell] of rows) {
-      const id = decodeRow(table, cell)[column];
+    for (const [rowId, cell] of rows) {
+      const id = decodeRow(table, rowId, cell)[column];
       if (typeof id === "number" && id > maxId) maxId = id;
     }
     if (maxId > last) {

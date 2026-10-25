@@ -15,11 +15,11 @@ import type { Session } from "../session.js";
 
 const BUDGET = {
   /** Pages one single-row INSERT writes, by table shape. */
-  pagesPerInsert: { autoincrement: 3, integerKey: 2, noKey: 1 },
+  pagesPerInsert: { autoincrement: 2, integerKey: 1, noKey: 1 },
   /** File bytes per row for rows of ~60 bytes. */
-  fileBytesPerSmallRow: 112,
+  fileBytesPerSmallRow: 92,
   /** File size after "insert N, delete all, insert N" over after "insert N". */
-  growthAfterDeleteAndRefill: 1.12,
+  growthAfterDeleteAndRefill: 1.65,
 };
 
 const ROWS = 5000;

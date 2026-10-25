@@ -15,7 +15,7 @@ export function bindAlterTable(
   const table = requireTable(ctx, stmt.table);
   const action =
     stmt.alter_type === "ADD_COLUMN" && stmt.column_def
-      ? bindAddColumn(stmt.column_def, table)
+      ? bindAddColumn(stmt.column_def)
       : bindDropColumn(ctx, stmt.table, stmt.column_name!);
 
   return {
@@ -32,33 +32,25 @@ export function bindAlterTable(
 
 function bindAddColumn(
   def: NonNullable<AlterTableStatement["column_def"]>,
-  table: BT.TableSchema,
 ): BT.LogicalAlterTable["action"] {
-  const colType = mapParserType(def.type);
-
+  // A table's primary key, and with it how its rows are keyed, is fixed
+  // when the table is created.
+  if (def.is_primary_key) {
+    throw new BindError(`Cannot add a PRIMARY KEY column`);
+  }
   if (def.is_autoincrement) {
-    if (!def.is_primary_key) {
-      throw new BindError(
-        `AUTOINCREMENT is only allowed on PRIMARY KEY columns`,
-      );
-    }
-    if (colType !== "INTEGER") {
-      throw new BindError(`AUTOINCREMENT is only allowed on INTEGER columns`);
-    }
-    if (table.columns.some((c) => c.autoIncrement)) {
-      throw new BindError(`Table already has an AUTOINCREMENT column`);
-    }
+    throw new BindError(`AUTOINCREMENT is only allowed on PRIMARY KEY columns`);
   }
 
   return {
     type: "ADD_COLUMN",
     column: {
       name: def.name,
-      type: colType,
+      type: mapParserType(def.type),
       nullable: !def.is_not_null,
-      primaryKey: def.is_primary_key,
+      primaryKey: false,
       unique: def.is_unique,
-      autoIncrement: def.is_autoincrement,
+      autoIncrement: false,
       defaultValue: def.default_value
         ? evalConstantValue(def.default_value)
         : null,

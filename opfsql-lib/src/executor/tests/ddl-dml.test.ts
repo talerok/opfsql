@@ -782,6 +782,35 @@ describe('PK index via executeCreateTable', () => {
     expect(idxChange.index.name).toBe('__pk_users');
     expect(idxChange.index.unique).toBe(true);
     expect(idxChange.index.expressions).toEqual([{ type: 'column', name: 'id', returnType: 'INTEGER' }]);
+    // An INTEGER PRIMARY KEY keys the table itself: the index has no tree.
+    expect(idxChange.index.rowid).toBe(true);
+    expect(idxChange.index.rootPageNo).toBeUndefined();
+    expect(im.bulkLoad).not.toHaveBeenCalled();
+  });
+
+  it('CREATE TABLE with a non-INTEGER PK builds a __pk_ index tree', () => {
+    const textPkSchema: TableSchema = {
+      name: 'codes',
+      columns: [
+        { name: 'code', type: 'TEXT', nullable: false, primaryKey: true, unique: false, autoIncrement: false, defaultValue: null },
+      ],
+    };
+    const im = mockIndexManager();
+    const op = {
+      type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
+      schema: textPkSchema,
+      ifNotExists: false,
+      children: [],
+      expressions: [],
+      types: [],
+      estimatedCardinality: 0,
+      columnBindings: [],
+    } as unknown as LogicalCreateTable;
+
+    const result = executeCreateTable(op, mockCatalog([]), mockRowManager(), im);
+    const idxChange = result.catalogChanges[1] as any;
+    expect(idxChange.index.name).toBe('__pk_codes');
+    expect(idxChange.index.rowid).toBeUndefined();
     expect(idxChange.index.rootPageNo).toBe(100);
   });
 

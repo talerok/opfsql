@@ -4,8 +4,10 @@ import type {
 } from "../../binder/types.js";
 import { compareIndexKeys } from "../../store/index-btree/compare.js";
 import type { IndexKey } from "../../store/index-btree/types.js";
+import { rowidColumn } from "../../store/row-codec.js";
 import type {
   ICatalog,
+  IndexDef,
   SyncIIndexManager,
   SyncIRowManager,
 } from "../../store/types.js";
@@ -38,8 +40,7 @@ export function executeCreateTable(
     if (catalog.hasIndex(pkIdxName)) {
       throw new ExecutorError(`Internal index "${pkIdxName}" already exists`);
     }
-    const idxRootPageNo = indexManager.bulkLoad(pkIdxName, [], true);
-    const indexDef = {
+    const indexDef: IndexDef = {
       name: pkIdxName,
       tableName: op.schema.name,
       expressions: pkColumns.map((c) => ({
@@ -48,8 +49,10 @@ export function executeCreateTable(
         returnType: c.type,
       })),
       unique: true,
-      rootPageNo: idxRootPageNo,
     };
+    // A sole INTEGER PRIMARY KEY keys the table's own tree.
+    if (rowidColumn(op.schema)) indexDef.rowid = true;
+    else indexDef.rootPageNo = indexManager.bulkLoad(pkIdxName, [], true);
     changes.push({ type: "CREATE_INDEX", index: indexDef });
   }
 

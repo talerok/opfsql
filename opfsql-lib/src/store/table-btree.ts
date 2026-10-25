@@ -21,12 +21,17 @@ export class SyncTableBTree {
     this.tree = new BTree(pages, rootPageNo, tableLayout(table));
   }
 
-  /** Stores a new row under the rowid after the largest in use. */
-  insert(cell: Uint8Array): RowId {
+  /** The rowid after the largest in use. */
+  nextRowId(): RowId {
     const last = this.tree.last();
     const rowId = last ? last[0] + 1 : 1;
-    this.tree.insert([rowId, cell]);
+    if (!Number.isSafeInteger(rowId)) throw new Error("table is out of rowids");
     return rowId;
+  }
+
+  /** Stores a row under `rowId`. False, changing nothing, if it is taken. */
+  insert(rowId: RowId, cell: Uint8Array): boolean {
+    return this.tree.insert([rowId, cell]);
   }
 
   get(rowId: RowId): Uint8Array | null {
@@ -43,9 +48,14 @@ export class SyncTableBTree {
     this.tree.delete(rowId);
   }
 
-  /** Rows in rowid order. */
-  scan(): Iterable<TableEntry> {
-    return this.tree.ascending();
+  /** Rows in rowid order, from the first at or after `from`. */
+  scan(from?: RowId): Iterable<TableEntry> {
+    return this.tree.ascending(from);
+  }
+
+  /** The row with the largest rowid, or null if the table is empty. */
+  last(): TableEntry | null {
+    return this.tree.last();
   }
 
   drop(): void {

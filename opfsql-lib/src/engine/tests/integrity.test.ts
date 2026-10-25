@@ -224,7 +224,7 @@ describe("checkIntegrity", () => {
       const [id, cell] = leaf.entries[0];
       rowId = id;
       const schema = file.table("t");
-      const row = decodeRow(schema, cell);
+      const row = decodeRow(schema, id, cell);
       file.write(
         pageNo,
         withEntry(leaf, 0, [id, encodeRow(schema, { ...row, tag: 99 })]),

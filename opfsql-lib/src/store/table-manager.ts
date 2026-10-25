@@ -1,5 +1,5 @@
 import { BTree } from "./btree.js";
-import { decodeRow, encodeRow } from "./row-codec.js";
+import { decodeRow, encodeRow, rowidColumn } from "./row-codec.js";
 import { SyncTableBTree } from "./table-btree.js";
 import type {
   ICatalog,
@@ -8,6 +8,7 @@ import type {
   SyncIPageStore,
   SyncIRowManager,
   TableSchema,
+  Value,
 } from "./types.js";
 
 export class SyncTableManager implements SyncIRowManager {
@@ -39,12 +40,37 @@ export class SyncTableManager implements SyncIRowManager {
 
   prepareInsert(tableId: string, row: Row): RowId {
     const schema = this.schema(tableId);
-    return this.tree(schema).insert(encodeRow(schema, row));
+    const tree = this.tree(schema);
+    const rowid = rowidColumn(schema);
+    if (!rowid) {
+      const rowId = tree.nextRowId();
+      tree.insert(rowId, encodeRow(schema, row));
+      return rowId;
+    }
+
+    const named = row[rowid.name] ?? null;
+    const rowId = named === null ? tree.nextRowId() : toRowId(schema, named);
+    if (!tree.insert(rowId, encodeRow(schema, row))) {
+      throw uniqueViolation(schema);
+    }
+    row[rowid.name] = rowId;
+    return rowId;
   }
   prepareUpdate(tableId: string, rowId: RowId, row: Row): RowId {
     const schema = this.schema(tableId);
-    this.tree(schema).update(rowId, encodeRow(schema, row));
-    return rowId;
+    const tree = this.tree(schema);
+    const rowid = rowidColumn(schema);
+    const newRowId = rowid ? toRowId(schema, row[rowid.name] ?? null) : rowId;
+    const cell = encodeRow(schema, row);
+    if (newRowId === rowId) {
+      tree.update(rowId, cell);
+      return rowId;
+    }
+
+    // A new INTEGER PRIMARY KEY moves the row to its new key.
+    if (!tree.insert(newRowId, cell)) throw uniqueViolation(schema);
+    tree.delete(rowId);
+    return newRowId;
   }
   prepareDelete(tableId: string, rowId: RowId): void {
     this.tree(this.schema(tableId)).delete(rowId);
@@ -52,18 +78,18 @@ export class SyncTableManager implements SyncIRowManager {
   *scanTable(tableId: string): Generator<{ rowId: RowId; row: Row }> {
     const schema = this.schema(tableId);
     for (const [rowId, cell] of this.tree(schema).scan()) {
-      yield { rowId, row: decodeRow(schema, cell) };
+      yield { rowId, row: decodeRow(schema, rowId, cell) };
     }
   }
   readRow(tableId: string, rowId: RowId): Row | null {
     const schema = this.schema(tableId);
     const cell = this.tree(schema).get(rowId);
-    return cell && decodeRow(schema, cell);
+    return cell && decodeRow(schema, rowId, cell);
   }
   rewriteTable(tableId: string, from: TableSchema, to: TableSchema): void {
     const tree = this.tree(this.schema(tableId));
     for (const [rowId, cell] of [...tree.scan()]) {
-      tree.update(rowId, encodeRow(to, decodeRow(from, cell)));
+      tree.update(rowId, encodeRow(to, decodeRow(from, rowId, cell)));
     }
   }
   nextAutoIncrement(tableId: string): number {
@@ -93,4 +119,18 @@ export class SyncTableManager implements SyncIRowManager {
     }
     return sequencePageNo;
   }
+}
+
+/** The rowid an INTEGER PRIMARY KEY value names. */
+function toRowId(schema: TableSchema, value: Value): RowId {
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  const column = rowidColumn(schema)!.name;
+  throw new Error(
+    `datatype mismatch: PRIMARY KEY "${column}" of table "${schema.name}" must be an integer, got ${value === null ? "NULL" : JSON.stringify(value)}`,
+  );
+}
+
+function uniqueViolation(schema: TableSchema): Error {
+  const column = rowidColumn(schema)!.name;
+  return new Error(`UNIQUE constraint failed: ${schema.name}.${column}`);
 }

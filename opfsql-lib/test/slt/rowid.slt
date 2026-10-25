@@ -1,0 +1,139 @@
+# rowid.slt — a sole INTEGER PRIMARY KEY keys the table's rows
+
+statement ok
+CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)
+
+# --- A missing or NULL id gets the one after the largest ---
+
+statement ok
+INSERT INTO t (name) VALUES ('a')
+
+statement ok
+INSERT INTO t (id, name) VALUES (10, 'b')
+
+statement ok
+INSERT INTO t (id, name) VALUES (NULL, 'c')
+
+query IT nosort
+SELECT * FROM t
+----
+1|a
+10|b
+11|c
+
+# --- Without AUTOINCREMENT, the largest id is free again once deleted ---
+
+statement ok
+DELETE FROM t WHERE id = 11
+
+statement ok
+INSERT INTO t (name) VALUES ('d')
+
+query IT nosort
+SELECT * FROM t WHERE name = 'd'
+----
+11|d
+
+# --- Ids are unique integers ---
+
+statement error
+INSERT INTO t (id, name) VALUES (10, 'duplicate')
+
+statement error
+INSERT INTO t (id, name) VALUES ('ten', 'text')
+
+statement error
+INSERT INTO t (id, name) VALUES (2.5, 'fraction')
+
+query IT nosort
+SELECT * FROM t
+----
+1|a
+10|b
+11|d
+
+# --- Negative ids sort first ---
+
+statement ok
+INSERT INTO t (id, name) VALUES (-5, 'negative')
+
+query IT nosort
+SELECT * FROM t ORDER BY id LIMIT 2
+----
+-5|negative
+1|a
+
+# --- Lookups and ranges by id ---
+
+query T nosort
+SELECT name FROM t WHERE id = 10
+----
+b
+
+query I nosort
+SELECT id FROM t WHERE id > 1 AND id <= 11
+----
+10
+11
+
+query I nosort
+SELECT id FROM t WHERE id = 1 OR id = 11
+----
+1
+11
+
+query I nosort
+SELECT MAX(id) FROM t
+----
+11
+
+query I nosort
+SELECT MIN(id) FROM t
+----
+-5
+
+# --- UPDATE can move a row to a free id, not a taken one ---
+
+statement ok
+UPDATE t SET id = 20 WHERE id = 10
+
+statement error
+UPDATE t SET id = 1 WHERE id = 20
+
+statement error
+UPDATE t SET id = NULL WHERE id = 20
+
+query IT nosort
+SELECT * FROM t
+----
+-5|negative
+1|a
+11|d
+20|b
+
+# --- ON CONFLICT on the id ---
+
+statement ok
+INSERT INTO t (id, name) VALUES (20, 'b2') ON CONFLICT (id) DO UPDATE SET name = excluded.name
+
+statement ok
+INSERT INTO t (id, name) VALUES (1, 'ignored') ON CONFLICT (id) DO NOTHING
+
+query IT nosort
+SELECT * FROM t WHERE id IN (1, 20)
+----
+1|a
+20|b2
+
+# --- Other indexes follow a row to its new id ---
+
+statement ok
+CREATE INDEX t_name ON t (name)
+
+statement ok
+UPDATE t SET id = 30 WHERE name = 'b2'
+
+query I nosort
+SELECT id FROM t WHERE name = 'b2'
+----
+30

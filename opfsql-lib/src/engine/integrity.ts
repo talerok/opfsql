@@ -18,6 +18,7 @@ export function checkIndexConsistency(
 
   for (const table of catalog.getAllTables()) {
     for (const index of catalog.getTableIndexes(table.name)) {
+      if (index.rowid) continue; // the table's own tree
       const tree = new SyncBTree(pages, index.rootPageNo!, index);
       for (const { rowId, row } of rows.scanTable(table.name)) {
         const key = buildIndexKey(row, table, index);

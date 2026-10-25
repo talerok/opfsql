@@ -1,13 +1,9 @@
+import { compareIndexKeys } from "./compare.js";
 import type { IndexKey, IndexKeyValue, RangeOptions } from "./types.js";
 
 export interface SearchPredicate {
   columnPosition: number;
-  comparisonType:
-    | "EQUAL"
-    | "LESS"
-    | "GREATER"
-    | "LESS_EQUAL"
-    | "GREATER_EQUAL";
+  comparisonType: "EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
   value: IndexKeyValue;
 }
 
@@ -57,8 +53,7 @@ export function computeBounds(predicates: SearchPredicate[]): RangeOptions {
   const prefix = eqValues.map((eq) => eq.value);
 
   for (const pred of rangePreds) {
-    const fullKey =
-      prefix.length > 0 ? [...prefix, pred.value] : [pred.value];
+    const fullKey = prefix.length > 0 ? [...prefix, pred.value] : [pred.value];
     applyRangePred(bounds, fullKey, pred.comparisonType);
   }
 
@@ -78,4 +73,20 @@ export function computeBounds(predicates: SearchPredicate[]): RangeOptions {
   }
 
   return bounds;
+}
+
+// Bounds are user keys, compared with the stored key's prefix of their length.
+
+export function isBelowLower(key: IndexKey, opts: RangeOptions): boolean {
+  if (!opts.lower) return false;
+  const prefix = key.slice(0, opts.lower.length);
+  const cmp = compareIndexKeys(prefix, opts.lower);
+  return opts.lowerInclusive !== false ? cmp < 0 : cmp <= 0;
+}
+
+export function isAboveUpper(key: IndexKey, opts: RangeOptions): boolean {
+  if (!opts.upper) return false;
+  const prefix = key.slice(0, opts.upper.length);
+  const cmp = compareIndexKeys(prefix, opts.upper);
+  return opts.upperInclusive !== false ? cmp > 0 : cmp >= 0;
 }

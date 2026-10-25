@@ -35,6 +35,13 @@ describe('SyncTableBTree', () => {
     tree = new SyncTableBTree(ps, rootPageNo, 't');
   });
 
+  /** Stores a row under the next rowid, as a table without a key does. */
+  function add(c: Uint8Array): number {
+    const rowId = tree.nextRowId();
+    expect(tree.insert(rowId, c)).toBe(true);
+    return rowId;
+  }
+
   function collectScan() {
     return [...tree.scan()].map(([rowId, cell]) => ({ rowId, cell }));
   }
@@ -45,26 +52,32 @@ describe('SyncTableBTree', () => {
 
   describe('insert & get', () => {
     it('inserts and reads back', () => {
-      const id = tree.insert(cell({ name: 'Alice' }));
+      const id = add(cell({ name: 'Alice' }));
       expect(id).toBe(1);
       expect(read(tree.get(id))).toEqual({ name: 'Alice' });
     });
 
     it('sequential rowIds', () => {
-      const id1 = tree.insert(cell({ a: 1 }));
-      const id2 = tree.insert(cell({ a: 2 }));
-      const id3 = tree.insert(cell({ a: 3 }));
+      const id1 = add(cell({ a: 1 }));
+      const id2 = add(cell({ a: 2 }));
+      const id3 = add(cell({ a: 3 }));
       expect(id1).toBe(1);
       expect(id2).toBe(2);
       expect(id3).toBe(3);
     });
 
     it('the next rowId follows the largest in use', () => {
-      for (let i = 0; i < 500; i++) tree.insert(cell({ i }));
+      for (let i = 0; i < 500; i++) add(cell({ i }));
       for (let rowId = 101; rowId <= 500; rowId++) tree.delete(rowId);
 
       // The rightmost leaves are empty now; the largest rowId is further left.
-      expect(tree.insert(cell({ i: 'next' }))).toBe(101);
+      expect(add(cell({ i: 'next' }))).toBe(101);
+    });
+
+    it('refuses a rowid in use, changing nothing', () => {
+      add(cell('a'));
+      expect(tree.insert(1, cell('b'))).toBe(false);
+      expect(read(tree.get(1))).toBe('a');
     });
 
     it('get returns null for missing', () => {
@@ -72,7 +85,7 @@ describe('SyncTableBTree', () => {
     });
 
     it('survives commit + reload', () => {
-      const id = tree.insert(cell({ val: 'persisted' }));
+      const id = add(cell({ val: 'persisted' }));
       ps.commit();
 
       const tree2 = new SyncTableBTree(ps, rootPageNo, 't');
@@ -80,19 +93,19 @@ describe('SyncTableBTree', () => {
     });
 
     it('rejects a row over half a page, changing nothing', () => {
-      tree.insert(cell('small'));
-      expect(() => tree.insert(new Uint8Array(2100))).toThrow(RowTooLargeError);
-      expect(() => tree.insert(new Uint8Array(2100))).toThrow(
+      add(cell('small'));
+      expect(() => add(new Uint8Array(2100))).toThrow(RowTooLargeError);
+      expect(() => add(new Uint8Array(2100))).toThrow(
         /row of table "t" is \d+ bytes, exceeds the limit of \d+ bytes/,
       );
-      expect(tree.insert(new Uint8Array(1900))).toBe(2);
+      expect(add(new Uint8Array(1900))).toBe(2);
       expect(collectScan().map((r) => r.rowId)).toEqual([1, 2]);
     });
   });
 
   describe('update', () => {
     it('replaces row data', () => {
-      const id = tree.insert(cell({ val: 'old' }));
+      const id = add(cell({ val: 'old' }));
       tree.update(id, cell({ val: 'new' }));
       expect(read(tree.get(id))).toEqual({ val: 'new' });
     });
@@ -102,7 +115,7 @@ describe('SyncTableBTree', () => {
     });
 
     it('splits a leaf that a growing row overflows', () => {
-      for (let i = 0; i < 30; i++) tree.insert(cell('x'.repeat(100)));
+      for (let i = 0; i < 30; i++) add(cell('x'.repeat(100)));
       expect(root().kind).toBe('leaf');
 
       tree.update(15, cell('y'.repeat(1500)));
@@ -114,7 +127,7 @@ describe('SyncTableBTree', () => {
 
   describe('delete', () => {
     it('removes row', () => {
-      const id = tree.insert(cell({ val: 1 }));
+      const id = add(cell({ val: 1 }));
       tree.delete(id);
       expect(read(tree.get(id))).toBeNull();
     });
@@ -130,9 +143,9 @@ describe('SyncTableBTree', () => {
     });
 
     it('yields all rows in rowId order', () => {
-      tree.insert(cell({ a: 1 }));
-      tree.insert(cell({ a: 2 }));
-      tree.insert(cell({ a: 3 }));
+      add(cell({ a: 1 }));
+      add(cell({ a: 2 }));
+      add(cell({ a: 3 }));
       const rows = collectScan();
       expect(rows).toHaveLength(3);
       expect(rows.map((r) => r.rowId)).toEqual([1, 2, 3]);
@@ -140,9 +153,9 @@ describe('SyncTableBTree', () => {
     });
 
     it('skips deleted rows', () => {
-      tree.insert(cell({ a: 1 }));
-      tree.insert(cell({ a: 2 }));
-      tree.insert(cell({ a: 3 }));
+      add(cell({ a: 1 }));
+      add(cell({ a: 2 }));
+      add(cell({ a: 3 }));
       tree.delete(2);
       const rows = collectScan();
       expect(rows).toHaveLength(2);
@@ -153,7 +166,7 @@ describe('SyncTableBTree', () => {
   describe('split', () => {
     it('handles inserts over several levels', () => {
       const N = 3000;
-      for (let i = 0; i < N; i++) tree.insert(cell({ id: i }));
+      for (let i = 0; i < N; i++) add(cell({ id: i }));
 
       expect(root().kind).toBe('internal');
       for (let i = 0; i < N; i++) {

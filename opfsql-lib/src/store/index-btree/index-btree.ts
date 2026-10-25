@@ -2,6 +2,7 @@ import { BTree, type BTreeLayout } from "../btree.js";
 import { IndexKeyTooLargeError } from "../errors.js";
 import type { RowId, SyncIPageStore } from "../types.js";
 import { compareIndexKeys, keyHasNull } from "./compare.js";
+import { isAboveUpper, isBelowLower } from "./search-bounds.js";
 import type { IndexKey, RangeOptions } from "./types.js";
 
 export type { RangeOptions } from "./types.js";
@@ -53,7 +54,7 @@ export class SyncBTree {
       !keyHasNull(userKey) &&
       this.lookup(userKey).length > 0
     )
-      throw new Error(`UNIQUE constraint failed: index`);
+      throw uniqueViolation(this.index.name);
     this.tree.insert([...userKey, rowId]);
   }
 
@@ -77,7 +78,7 @@ export class SyncBTree {
 
   /** Fills the empty index with `entries`, sorted by key and then rowId. */
   bulkLoad(entries: Array<{ key: IndexKey; rowId: RowId }>): void {
-    if (this.index.unique) checkUniqueSorted(entries);
+    if (this.index.unique) checkUniqueSorted(this.index.name, entries);
     this.tree.build(entries.map(({ key, rowId }) => [...key, rowId]));
   }
 
@@ -102,21 +103,8 @@ export class SyncBTree {
   }
 }
 
-function isBelowLower(key: IndexKey, opts: RangeOptions): boolean {
-  if (!opts.lower) return false;
-  const prefix = key.slice(0, opts.lower.length);
-  const cmp = compareIndexKeys(prefix, opts.lower);
-  return opts.lowerInclusive !== false ? cmp < 0 : cmp <= 0;
-}
-
-function isAboveUpper(key: IndexKey, opts: RangeOptions): boolean {
-  if (!opts.upper) return false;
-  const prefix = key.slice(0, opts.upper.length);
-  const cmp = compareIndexKeys(prefix, opts.upper);
-  return opts.upperInclusive !== false ? cmp > 0 : cmp >= 0;
-}
-
 function checkUniqueSorted(
+  index: string,
   entries: Array<{ key: IndexKey; rowId: RowId }>,
 ): void {
   for (let i = 1; i < entries.length; i++) {
@@ -124,6 +112,10 @@ function checkUniqueSorted(
       compareIndexKeys(entries[i].key, entries[i - 1].key) === 0 &&
       !keyHasNull(entries[i].key)
     )
-      throw new Error(`UNIQUE constraint failed: index`);
+      throw uniqueViolation(index);
   }
+}
+
+function uniqueViolation(index: string): Error {
+  return new Error(`UNIQUE constraint failed: index "${index}"`);
 }

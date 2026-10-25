@@ -109,7 +109,12 @@ export interface SyncIRowManager {
   createTable(
     schema: TableSchema,
   ): Pick<TableSchema, "rootPageNo" | "sequencePageNo">;
+  /**
+   * Stores a new row and returns its rowid. A NULL INTEGER PRIMARY KEY gets
+   * the next rowid, written into `row`.
+   */
   prepareInsert(tableId: string, row: Row): RowId;
+  /** Replaces a row and returns its rowid, which changes with its INTEGER PRIMARY KEY. */
   prepareUpdate(tableId: string, rowId: RowId, row: Row): RowId;
   prepareDelete(tableId: string, rowId: RowId): void;
   scanTable(tableId: string): Iterable<{ rowId: RowId; row: Row }>;

@@ -76,6 +76,11 @@ export interface IndexDef {
   unique: boolean;
   /** Root page of the index's B-tree, which never moves. */
   rootPageNo?: number;
+  /**
+   * The primary key index of a table keyed by its INTEGER PRIMARY KEY: the
+   * table's own B-tree, with no pages of its own.
+   */
+  rowid?: boolean;
 }
 
 export interface CatalogData {
