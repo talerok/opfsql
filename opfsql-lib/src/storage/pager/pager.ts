@@ -100,17 +100,9 @@ export class Pager {
    * there, truncating the free pages at the end of the file.
    */
   checkpoint(): void {
-    const target = this.agreeOnTarget(this.oldestPin() ?? this.latestCommit());
-    if (target > this.backfilled) {
-      this.file.write(this.wal.pagesBetween(this.backfilled, target));
-      this.file.flush();
-      this.backfilled = target;
-    }
-    if (this.backfilled !== this.latestCommit() || this.wal.frameCount === 0) {
-      return;
-    }
-    this.truncateFreeTail(this.latestCommit());
-    this.wal.restart();
+    this.backfill(this.agreeOnTarget(this.oldestPin() ?? this.latestCommit()));
+    const isAllInFile = this.backfilled === this.latestCommit();
+    if (isAllInFile && this.wal.frameCount > 0) this.restartWal();
   }
 
   /** Clears read marks left by tabs that died with a snapshot open. */
@@ -145,23 +137,32 @@ export class Pager {
   }
 
   private oldestPin(): number | null {
-    let oldest: number | null = null;
-    for (const snapshot of this.pins.keys()) {
-      if (oldest === null || snapshot < oldest) oldest = snapshot;
-    }
-    return oldest;
+    return this.pins.size === 0 ? null : Math.min(...this.pins.keys());
   }
 
   /** Lowers `target` to the oldest snapshot any tab has open. */
   private agreeOnTarget(target: number): number {
     const marks = this.options.marks;
     if (marks === null) return target;
-    for (let agreed = target; ;) {
-      marks.setCheckpointIntent(agreed);
-      const oldest = marks.oldestMark();
-      if (oldest === null || oldest >= agreed) return agreed;
+    let agreed = target;
+    let oldest = announce(marks, agreed);
+    while (oldest !== null && oldest < agreed) {
       agreed = oldest;
+      oldest = announce(marks, agreed);
     }
+    return agreed;
+  }
+
+  private backfill(target: number): void {
+    if (target <= this.backfilled) return;
+    this.file.write(this.wal.pagesBetween(this.backfilled, target));
+    this.file.flush();
+    this.backfilled = target;
+  }
+
+  private restartWal(): void {
+    this.truncateFreeTail(this.latestCommit());
+    this.wal.restart();
   }
 
   private truncateFreeTail(snapshot: number): void {
@@ -175,4 +176,13 @@ export class Pager {
     this.file.resize(pageCount);
     this.file.flush();
   }
+}
+
+/**
+ * Announces a checkpoint's target, then reads the oldest snapshot of any
+ * tab: a tab that pins an older snapshot after this sees the announcement.
+ */
+function announce(marks: ReadMarks, target: number): number | null {
+  marks.setCheckpointIntent(target);
+  return marks.oldestMark();
 }

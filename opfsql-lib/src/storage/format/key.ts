@@ -108,15 +108,19 @@ function writeEscaped(
   bytes: Uint8Array,
 ): void {
   writer.byte(tag);
-  if (bytes.includes(TERMINATOR)) {
-    for (const byte of bytes) {
-      writer.byte(byte);
-      if (byte === TERMINATOR) writer.byte(ESCAPED_ZERO);
-    }
-  } else {
-    writer.bytes(bytes);
-  }
+  writer.bytes(escapeZeros(bytes));
   writer.byte(TERMINATOR);
+}
+
+/** `bytes` with every zero written as 0x00 0xFF, so 0x00 alone ends a value. */
+function escapeZeros(bytes: Uint8Array): Uint8Array {
+  if (!bytes.includes(TERMINATOR)) return bytes;
+  const escaped: number[] = [];
+  for (const byte of bytes) {
+    escaped.push(byte);
+    if (byte === TERMINATOR) escaped.push(ESCAPED_ZERO);
+  }
+  return Uint8Array.from(escaped);
 }
 
 // --- Decoding ----------------------------------------------------------------
@@ -161,23 +165,29 @@ function readEscaped(
   tag: typeof TAG.text | typeof TAG.blob | typeof TAG.json,
   start: number,
 ): [Value, number] {
+  const { bytes, end } = unescapeZeros(key, start);
+  if (tag === TAG.blob) return [bytes, end];
+  const text = decoder.decode(bytes);
+  return [tag === TAG.text ? text : (JSON.parse(text) as JsonValue), end];
+}
+
+/** The escaped bytes from `start` to their terminator, and where the value ends. */
+function unescapeZeros(
+  key: Uint8Array,
+  start: number,
+): { bytes: Uint8Array; end: number } {
   const bytes: number[] = [];
   let offset = start;
-  for (;;) {
-    const byte = key[offset];
-    if (byte === undefined) throw new CorruptError("unterminated key value");
-    offset++;
-    if (byte !== TERMINATOR) {
-      bytes.push(byte);
-    } else if (key[offset] === ESCAPED_ZERO) {
-      bytes.push(TERMINATOR);
-      offset++;
-    } else {
-      break;
-    }
+  while (!isTerminatorAt(key, offset)) {
+    const byte = key[offset] ?? TERMINATOR;
+    bytes.push(byte);
+    // An escaped zero takes two bytes.
+    offset += byte === TERMINATOR ? 2 : 1;
   }
-  const raw = Uint8Array.from(bytes);
-  if (tag === TAG.blob) return [raw, offset];
-  const text = decoder.decode(raw);
-  return [tag === TAG.text ? text : (JSON.parse(text) as JsonValue), offset];
+  return { bytes: Uint8Array.from(bytes), end: offset + 1 };
+}
+
+function isTerminatorAt(key: Uint8Array, offset: number): boolean {
+  if (offset >= key.length) throw new CorruptError("unterminated key value");
+  return key[offset] === TERMINATOR && key[offset + 1] !== ESCAPED_ZERO;
 }

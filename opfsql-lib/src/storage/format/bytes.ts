@@ -8,10 +8,31 @@ import { CorruptError } from "../../errors.js";
 const TWO_32 = 2 ** 32;
 const MAX_VARINT_BYTES = 8;
 
+/** A big-endian view of exactly `bytes`. */
+export function viewOf(bytes: Uint8Array): DataView {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+export function readUint32(bytes: Uint8Array, offset: number): number {
+  return viewOf(bytes).getUint32(offset);
+}
+
+export function writeUint32(
+  bytes: Uint8Array,
+  offset: number,
+  value: number,
+): void {
+  viewOf(bytes).setUint32(offset, value);
+}
+
 /** Bytes an unsigned LEB128 varint of `value` takes. */
 export function varintSize(value: number): number {
   let size = 1;
-  for (let rest = value; rest >= 0x80; rest = Math.floor(rest / 0x80)) size++;
+  let rest = value;
+  while (rest >= 0x80) {
+    rest = Math.floor(rest / 0x80);
+    size++;
+  }
   return size;
 }
 
@@ -42,7 +63,8 @@ export function zigzag(value: number): number {
 }
 
 export function unzigzag(value: number): number {
-  return (value % 2 === 0 ? value : -(value + 1)) / 2;
+  const half = Math.floor(value / 2);
+  return value % 2 === 0 ? half : -half - 1;
 }
 
 /** Appends bytes to a buffer that grows as needed. */
@@ -117,13 +139,21 @@ export class ByteWriter {
 
 export type IntegerWidth = 1 | 2 | 3 | 4 | 6 | 8;
 
+/** Each width but the widest, and the magnitude its values stay below. */
+const NARROW_WIDTHS: readonly (readonly [IntegerWidth, number])[] = [
+  [1, 2 ** 7],
+  [2, 2 ** 15],
+  [3, 2 ** 23],
+  [4, 2 ** 31],
+  [6, 2 ** 47],
+];
+
 /** Fewest bytes of two's complement that hold `value`. */
 export function integerWidth(value: number): IntegerWidth {
-  if (value >= -0x80 && value < 0x80) return 1;
-  if (value >= -0x80_00 && value < 0x80_00) return 2;
-  if (value >= -0x80_00_00 && value < 0x80_00_00) return 3;
-  if (value >= -0x80_00_00_00 && value < 0x80_00_00_00) return 4;
-  return Math.abs(value) < 2 ** 47 ? 6 : 8;
+  for (const [width, limit] of NARROW_WIDTHS) {
+    if (value >= -limit && value < limit) return width;
+  }
+  return 8;
 }
 
 export function writeInteger(
@@ -150,12 +180,14 @@ export function writeInteger(
       view.setInt32(offset, value);
       return;
     }
-    case 6:
+    case 6: {
+      view.setInt16(offset, highPart(value));
+      view.setUint32(offset + 2, lowPart(value));
+      return;
+    }
     case 8: {
-      const high = Math.floor(value / TWO_32);
-      if (width === 6) view.setInt16(offset, high);
-      else view.setInt32(offset, high);
-      view.setUint32(offset + width - 4, value - high * TWO_32);
+      view.setInt32(offset, highPart(value));
+      view.setUint32(offset + 4, lowPart(value));
     }
   }
 }
@@ -178,14 +210,24 @@ export function readInteger(
     case 4: {
       return view.getInt32(offset);
     }
-    case 6:
+    case 6: {
+      return view.getInt16(offset) * TWO_32 + view.getUint32(offset + 2);
+    }
     case 8: {
-      const high = width === 6 ? view.getInt16(offset) : view.getInt32(offset);
-      const value = high * TWO_32 + view.getUint32(offset + width - 4);
+      const value = view.getInt32(offset) * TWO_32 + view.getUint32(offset + 4);
       if (!Number.isSafeInteger(value)) {
         throw new CorruptError(`integer at byte ${String(offset)} is not safe`);
       }
       return value;
     }
   }
+}
+
+/** The signed upper part of a wide integer, above its low 32 bits. */
+function highPart(value: number): number {
+  return Math.floor(value / TWO_32);
+}
+
+function lowPart(value: number): number {
+  return value - highPart(value) * TWO_32;
 }

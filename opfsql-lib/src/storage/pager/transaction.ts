@@ -79,12 +79,11 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
 
   write(pageNo: number): Uint8Array {
     this.ensureOpen();
-    let page = this.dirty.get(pageNo);
-    if (page === undefined) {
-      page = new Uint8Array(super.read(pageNo));
-      this.dirty.set(pageNo, page);
-    }
-    return page;
+    const dirty = this.dirty.get(pageNo);
+    if (dirty !== undefined) return dirty;
+    const copy = new Uint8Array(super.read(pageNo));
+    this.dirty.set(pageNo, copy);
+    return copy;
   }
 
   allocate(): number {
@@ -117,14 +116,8 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   commit(): void {
     this.ensureOpen();
     try {
-      if (this.pager.latestCommit() !== this.snapshot) {
-        throw new InternalError(
-          "another writer committed during this transaction",
-        );
-      }
-      if (this.dirty.size > 0 || this.pageCount !== this.initialPageCount) {
-        this.pager.append(this.dirty, this.pageCount);
-      }
+      this.ensureNoOtherCommit();
+      if (this.hasChanges()) this.pager.append(this.dirty, this.pageCount);
     } finally {
       this.dirty.clear();
       this.end();
@@ -138,15 +131,31 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     this.end();
   }
 
-  /** Adds a page at the end, and the allocation map of a new group with it. */
+  /** Writers are serialized by a lock: another commit means a bug, not a race. */
+  private ensureNoOtherCommit(): void {
+    if (this.pager.latestCommit() !== this.snapshot) {
+      throw new InternalError(
+        "another writer committed during this transaction",
+      );
+    }
+  }
+
+  private hasChanges(): boolean {
+    return this.dirty.size > 0 || this.pageCount !== this.initialPageCount;
+  }
+
+  /** Adds a page at the end of the file. */
   private extend(): number {
     const pageNo = this.pageCount;
-    if (pageNo % groupSize(this.pageSize) === 0) {
-      this.dirty.set(pageNo + 1, newMapPage(this.pageSize, pageNo + 1));
-      this.pageCount = pageNo + 2;
-    } else {
-      this.pageCount = pageNo + 1;
-    }
+    this.pageCount = pageNo + 1;
+    const isGroupStart = pageNo % groupSize(this.pageSize) === 0;
+    if (isGroupStart) this.addMapPage(pageNo + 1);
     return pageNo;
+  }
+
+  /** A new group's allocation map, which follows the group's first page. */
+  private addMapPage(mapPageNo: number): void {
+    this.dirty.set(mapPageNo, newMapPage(this.pageSize, mapPageNo));
+    this.pageCount = mapPageNo + 1;
   }
 }

@@ -102,17 +102,56 @@ join `tsconfig.strict.json`, which adds `noUncheckedIndexedAccess`,
 `exactOptionalPropertyTypes` and the other strict flags; when it covers
 everything, it becomes the only configuration.
 
+## How code reads
+
+Lint keeps units small; it does not make them pleasant to read. New code is
+reviewed against these as well.
+
+**Flat control flow.** Guard clauses return early and the main path runs
+down the left margin. A loop inside a loop, or a branch inside a loop inside
+a branch, is a function waiting for a name: extract the inner part and call
+it by what it does (`claimSlot`, `largestMovable`, `readFrame`).
+
+**One level per function.** A function either strings named steps together
+or does one step's arithmetic, not both: `checkpoint()` is three calls, and
+the details live in `backfill()` and `restartWal()`.
+
+**Named intermediate results.** A condition of more than one clause gets a
+boolean name (`isComplete`, `isGroupStart`); a magic number gets a constant
+(`FRAME_EPOCH_OFFSET`, not `8`); a repeated idiom gets a helper
+(`readUint32(bytes, offset)`, which gets `byteOffset` right in one place).
+
+**Ternaries pick values.** A ternary chooses between two values and fits on
+one line. No nested ternaries, no ternary followed by an `if` on the same
+condition: when the branches do not fit one line, write `if` and `return`.
+
+**Decide, then act.** Work out what to do before changing anything, so a
+failure leaves nothing half done: a row that cannot fit is rejected before
+any overflow page is written (`valuesToMove`).
+
+**Data says what it is.** A discriminated union with named fields
+(`PreparedField`) rather than numbers whose meaning is in a comment; one
+function translates to and from the numbers on disk.
+
+**Walks are generators.** Code that walks a structure (`framesFrom`,
+`chainPages`, `BTree.ascending`) yields results, and callers loop over them
+instead of driving the walk themselves.
+
+**Comments say why.** Names say what code does. A comment states a
+constraint, a choice or an invariant the code cannot show: "the browser
+holds the lock until this promise settles".
+
 ## Where the rebuild stands
 
-| Module             | State                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------- |
-| `values`, `errors` | rebuilt                                                                                     |
-| `storage`          | format 5 specified; implementation in progress (currently `src/store`, format 4)            |
-| `sql/parser`       | to rebuild: statement boundaries, name rules, precedence, literals                          |
-| `sql/binder`       | to rebuild: grouping model, scopes, types and conversions, output columns                   |
-| `sql/optimizer`    | to rebuild: pure passes, one access-path choice with residual filters, physical plan        |
-| `functions`        | to build: one registry for the binder and the executor                                      |
-| `executor`         | to rebuild: one expression compiler, join and subquery operators, DML through the planner   |
-| `table`            | to build: one write path for rows, indexes and constraints                                  |
-| `schema`           | to build: the model, separate from where it is stored                                       |
-| `engine`, `worker` | to rebuild: schema from the snapshot, session state machines, statement cache, result shape |
+| Module             | State                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| `values`, `errors` | rebuilt                                                                                       |
+| `storage`          | format 5 built up to rows and indexes; system tables next (the engine still uses `src/store`) |
+| `sql/parser`       | to rebuild: statement boundaries, name rules, precedence, literals                            |
+| `sql/binder`       | to rebuild: grouping model, scopes, types and conversions, output columns                     |
+| `sql/optimizer`    | to rebuild: pure passes, one access-path choice with residual filters, physical plan          |
+| `functions`        | to build: one registry for the binder and the executor                                        |
+| `executor`         | to rebuild: one expression compiler, join and subquery operators, DML through the planner     |
+| `table`            | to build: one write path for rows, indexes and constraints                                    |
+| `schema`           | to build: the model, separate from where it is stored                                         |
+| `engine`, `worker` | to rebuild: schema from the snapshot, session state machines, statement cache, result shape   |

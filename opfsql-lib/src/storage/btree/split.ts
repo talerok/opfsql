@@ -31,7 +31,7 @@ export interface Split {
 
 export function contentOf(page: BTreePage): NodeContent {
   const cells = Array.from({ length: page.cellCount }, (_, index) =>
-    Uint8Array.from(page.cell(index)),
+    page.cell(index).slice(),
   );
   return {
     type: page.type,
@@ -65,9 +65,13 @@ function cutLeaf(content: NodeContent, isAtRightEdge: boolean): Split {
   const { type, cells } = content;
   const at = isAtRightEdge ? cells.length - 1 : balancedCut(cells);
   const right = cells.slice(at);
+  const [firstRight] = right;
+  if (firstRight === undefined) {
+    throw new InternalError("a leaf too small to split");
+  }
   return {
     left: { type, cells: cells.slice(0, at), rightChild: 0 },
-    separator: leafCellKey(type, right[0] ?? new Uint8Array()),
+    separator: leafCellKey(type, firstRight),
     right: { type, cells: right, rightChild: 0 },
   };
 }
@@ -94,42 +98,50 @@ function cutInterior(content: NodeContent, isAtRightEdge: boolean): Split {
   };
 }
 
+/**
+ * Where to cut leaf cells so that the larger half is smallest. Cutting at
+ * `at` keeps cells before it on the left.
+ */
+function balancedCut(cells: readonly Uint8Array[]): number {
+  const bytesBefore = prefixSums(footprints(cells));
+  const total = bytesBefore(cells.length);
+  return cheapestCut(cells.length - 1, (at) =>
+    Math.max(bytesBefore(at), total - bytesBefore(at)),
+  );
+}
+
+/**
+ * Which interior cell to move up so that the larger half is smallest: the
+ * cells before it stay left, the cells after it go right.
+ */
+function balancedPromotion(cells: readonly Uint8Array[]): number {
+  const bytesBefore = prefixSums(footprints(cells));
+  const total = bytesBefore(cells.length);
+  return cheapestCut(cells.length - 2, (at) =>
+    Math.max(bytesBefore(at), total - bytesBefore(at + 1)),
+  );
+}
+
 /** Bytes each cell takes in a page, its pointer included. */
 function footprints(cells: readonly Uint8Array[]): number[] {
   return cells.map((cell) => cell.length + POINTER_SIZE);
 }
 
-/** Where to cut so that the larger half is smallest; both keep a cell. */
-function balancedCut(cells: readonly Uint8Array[]): number {
-  const sizes = footprints(cells);
-  const total = sizes.reduce((sum, size) => sum + size, 0);
-  let best = 1;
-  let bestLarger = Infinity;
-  let left = 0;
-  for (let at = 1; at < sizes.length; at++) {
-    left += sizes[at - 1] ?? 0;
-    const larger = Math.max(left, total - left);
-    if (larger >= bestLarger) continue;
-    best = at;
-    bestLarger = larger;
-  }
-  return best;
+/** sum(n): the total of the first `n` sizes. */
+function prefixSums(sizes: readonly number[]): (count: number) => number {
+  const sums = [0];
+  for (const size of sizes) sums.push((sums.at(-1) ?? 0) + size);
+  return (count) => sums[count] ?? 0;
 }
 
-/** Which cell to move up so that the larger half is smallest; both keep a cell. */
-function balancedPromotion(cells: readonly Uint8Array[]): number {
-  const sizes = footprints(cells);
-  const total = sizes.reduce((sum, size) => sum + size, 0);
+/**
+ * The cut from 1 to `last` with the lowest cost, the first on a tie. Cuts
+ * start at 1 so the left half keeps at least one cell.
+ */
+function cheapestCut(last: number, cost: (at: number) => number): number {
   let best = 1;
-  let bestLarger = Infinity;
-  let left = sizes[0] ?? 0;
-  for (let at = 1; at < sizes.length - 1; at++) {
-    const promoted = sizes[at] ?? 0;
-    const larger = Math.max(left, total - left - promoted);
-    left += promoted;
-    if (larger >= bestLarger) continue;
-    best = at;
-    bestLarger = larger;
+  for (let at = 2; at <= last; at++) {
+    if (cost(at) < cost(best)) best = at;
   }
   return best;
 }

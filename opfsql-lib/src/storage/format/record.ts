@@ -8,19 +8,24 @@ import {
   readVarint,
   skipVarint,
   varintSize,
+  viewOf,
 } from "./bytes.js";
 
 // ---------------------------------------------------------------------------
 // Records (docs/file-format.md, Records): a row's values in column order,
 // behind a header of serial types, so one column decodes without the others.
+//
+// A serial type is a number standing for what a field holds. fieldOf() and
+// serialTypeOf() are the only places that know the numbers; everything else
+// works with Field.
 // ---------------------------------------------------------------------------
 
-export type OverflowKind = "text" | "blob" | "json";
+export type ByteKind = "text" | "blob" | "json";
 
 /** A value whose bytes live in a chain of overflow pages. */
 export class OverflowValue {
   constructor(
-    readonly kind: OverflowKind,
+    readonly kind: ByteKind,
     readonly length: number,
     readonly firstPage: number,
   ) {}
@@ -28,215 +33,241 @@ export class OverflowValue {
 
 export type RecordField = Value | OverflowValue;
 
-const SERIAL = {
-  null: 0,
-  false: 1,
-  true: 2,
-  zero: 3,
-  one: 4,
-  float: 11,
-  overflow: { text: 12, blob: 13, json: 14 },
-  inline: 16,
-} as const;
+/** What a field holds, as its serial type says. */
+type Field =
+  | { readonly kind: "constant"; readonly value: null | boolean | 0 | 1 }
+  | { readonly kind: "integer"; readonly width: IntegerWidth }
+  | { readonly kind: "float" }
+  | { readonly kind: "bytes"; readonly of: ByteKind; readonly length: number }
+  | { readonly kind: "overflow"; readonly of: ByteKind };
 
-const INTEGER_SERIAL: Record<IntegerWidth, number> = {
-  1: 5,
-  2: 6,
-  3: 7,
-  4: 8,
-  6: 9,
-  8: 10,
-};
+/** A field ready to write: what it holds, and its value. */
+export type PreparedField =
+  | { readonly kind: "constant"; readonly value: null | boolean | 0 | 1 }
+  | {
+      readonly kind: "integer";
+      readonly width: IntegerWidth;
+      readonly value: number;
+    }
+  | { readonly kind: "float"; readonly value: number }
+  | {
+      readonly kind: "bytes";
+      readonly of: ByteKind;
+      readonly bytes: Uint8Array;
+    }
+  | { readonly kind: "overflow"; readonly reference: OverflowValue };
 
-const WIDTH_OF_SERIAL: Readonly<Partial<Record<number, IntegerWidth>>> = {
-  5: 1,
-  6: 2,
-  7: 3,
-  8: 4,
-  9: 6,
-  10: 8,
-};
+// Serial types, as docs/file-format.md lists them.
+const CONSTANTS = [null, false, true, 0, 1] as const;
+const INTEGER_WIDTHS: readonly IntegerWidth[] = [1, 2, 3, 4, 6, 8];
+const FIRST_INTEGER = 5;
+const FLOAT = 11;
+const FIRST_OVERFLOW = 12;
+const RESERVED = 15;
+const FIRST_INLINE = 16;
+const BYTE_KINDS: readonly ByteKind[] = ["text", "blob", "json"];
 
-const OVERFLOW_BODY_SIZE = 8;
-const INLINE_KINDS: readonly OverflowKind[] = ["text", "blob", "json"];
+/** Bytes a field in overflow pages takes in its record. */
+export const OVERFLOW_REFERENCE_SIZE = 8;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** A field ready to write: its serial type and the body that follows. */
-export type PreparedField =
-  | { readonly serialType: number; readonly body: "none" }
-  | {
-      readonly serialType: number;
-      readonly body: "integer";
-      readonly value: number;
-      readonly width: IntegerWidth;
-    }
-  | {
-      readonly serialType: number;
-      readonly body: "float";
-      readonly value: number;
-    }
-  | {
-      readonly serialType: number;
-      readonly body: "bytes";
-      readonly kind: OverflowKind;
-      readonly bytes: Uint8Array;
-    }
-  | {
-      readonly serialType: number;
-      readonly body: "overflow";
-      readonly value: OverflowValue;
-    };
+// --- Writing -------------------------------------------------------------------
 
 export function prepareField(field: RecordField): PreparedField {
-  if (field === null) return { serialType: SERIAL.null, body: "none" };
-  if (typeof field === "boolean") {
-    return { serialType: field ? SERIAL.true : SERIAL.false, body: "none" };
+  if (field === null || typeof field === "boolean") {
+    return { kind: "constant", value: field };
   }
   if (typeof field === "number") return prepareNumber(field);
-  if (typeof field === "string")
-    return inlineBytes("text", encoder.encode(field));
-  if (field instanceof Uint8Array) return inlineBytes("blob", field);
-  if (field instanceof OverflowValue) {
-    return {
-      serialType: SERIAL.overflow[field.kind],
-      body: "overflow",
-      value: field,
-    };
+  if (typeof field === "string") {
+    return { kind: "bytes", of: "text", bytes: encoder.encode(field) };
   }
-  return inlineBytes("json", encoder.encode(JSON.stringify(field)));
+  if (field instanceof Uint8Array) {
+    return { kind: "bytes", of: "blob", bytes: field };
+  }
+  if (field instanceof OverflowValue) {
+    return { kind: "overflow", reference: field };
+  }
+  const json = encoder.encode(JSON.stringify(field));
+  return { kind: "bytes", of: "json", bytes: json };
 }
 
 /** Bytes the prepared fields take as a record. */
 export function recordSize(fields: readonly PreparedField[]): number {
-  let header = 0;
-  let body = 0;
-  for (const field of fields) {
-    header += varintSize(field.serialType);
-    body += bodySize(field);
-  }
-  return headerSizeWith(header) + body;
+  const typesSize = sum(fields, (field) => varintSize(serialTypeOf(field)));
+  const valuesSize = sum(fields, preparedBodySize);
+  return headerSizeFor(typesSize) + valuesSize;
 }
 
 export function encodeRecord(fields: readonly PreparedField[]): Uint8Array {
   const types = new ByteWriter();
-  for (const field of fields) types.varint(field.serialType);
+  for (const field of fields) types.varint(serialTypeOf(field));
 
-  const writer = new ByteWriter(recordSize(fields));
-  writer.varint(headerSizeWith(types.length));
-  writer.bytes(types.toBytes());
-  for (const field of fields) writeBody(writer, field);
-  return writer.toBytes();
+  const record = new ByteWriter(recordSize(fields));
+  record.varint(headerSizeFor(types.length));
+  record.bytes(types.toBytes());
+  for (const field of fields) writeBody(record, field);
+  return record.toBytes();
+}
+
+function prepareNumber(value: number): PreparedField {
+  if (value === 0 || value === 1) return { kind: "constant", value };
+  if (!Number.isSafeInteger(value)) return { kind: "float", value };
+  return { kind: "integer", width: integerWidth(value), value };
+}
+
+function serialTypeOf(field: PreparedField): number {
+  switch (field.kind) {
+    case "constant": {
+      return CONSTANTS.indexOf(field.value);
+    }
+    case "integer": {
+      return FIRST_INTEGER + INTEGER_WIDTHS.indexOf(field.width);
+    }
+    case "float": {
+      return FLOAT;
+    }
+    case "bytes": {
+      const kind = BYTE_KINDS.indexOf(field.of);
+      return FIRST_INLINE + field.bytes.length * 3 + kind;
+    }
+    case "overflow": {
+      return FIRST_OVERFLOW + BYTE_KINDS.indexOf(field.reference.kind);
+    }
+  }
+}
+
+function preparedBodySize(field: PreparedField): number {
+  switch (field.kind) {
+    case "constant": {
+      return 0;
+    }
+    case "integer": {
+      return field.width;
+    }
+    case "float": {
+      return 8;
+    }
+    case "bytes": {
+      return field.bytes.length;
+    }
+    case "overflow": {
+      return OVERFLOW_REFERENCE_SIZE;
+    }
+  }
+}
+
+function writeBody(record: ByteWriter, field: PreparedField): void {
+  switch (field.kind) {
+    case "constant": {
+      return;
+    }
+    case "integer": {
+      record.integer(field.value, field.width);
+      return;
+    }
+    case "float": {
+      record.float64(field.value);
+      return;
+    }
+    case "bytes": {
+      record.bytes(field.bytes);
+      return;
+    }
+    case "overflow": {
+      record.uint32(field.reference.length);
+      record.uint32(field.reference.firstPage);
+    }
+  }
+}
+
+// --- Reading -------------------------------------------------------------------
+
+interface FieldEntry {
+  readonly field: Field;
+  /** Where the field's body starts in the record. */
+  readonly offset: number;
 }
 
 /** Reads a record's fields one at a time, decoding only what is asked. */
 export class RecordReader {
-  private readonly serialTypes: number[] = [];
-  private readonly offsets: number[] = [];
+  private readonly entries: FieldEntry[] = [];
   private readonly view: DataView;
 
   constructor(private readonly bytes: Uint8Array) {
-    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    this.view = viewOf(bytes);
     const headerSize = readVarint(bytes, 0);
     let position = skipVarint(bytes, 0);
-    let bodyOffset = headerSize;
+    let offset = headerSize;
     while (position < headerSize) {
-      const serialType = readVarint(bytes, position);
-      this.serialTypes.push(serialType);
-      this.offsets.push(bodyOffset);
-      bodyOffset += serialBodySize(serialType);
+      const field = fieldOf(readVarint(bytes, position));
+      this.entries.push({ field, offset });
+      offset += bodySize(field);
       position = skipVarint(bytes, position);
     }
-    if (bodyOffset !== bytes.length) {
+    if (offset !== bytes.length) {
       throw new CorruptError("record body does not match its header");
     }
   }
 
   /** Number of fields stored; columns added later are not among them. */
   get length(): number {
-    return this.serialTypes.length;
+    return this.entries.length;
   }
 
   isOverflow(index: number): boolean {
-    const serialType = this.serialType(index);
-    return (
-      serialType >= SERIAL.overflow.text && serialType <= SERIAL.overflow.json
-    );
+    return this.entry(index).field.kind === "overflow";
   }
 
   /** The value of field `index`, which must not be in overflow pages. */
   value(index: number): Value {
-    const serialType = this.serialType(index);
-    const offset = this.offsets[index] ?? 0;
-    if (serialType >= SERIAL.inline)
-      return this.inlineValue(serialType, offset);
-    const width = WIDTH_OF_SERIAL[serialType];
-    return width === undefined
-      ? this.constantValue(serialType, offset)
-      : readInteger(this.view, offset, width);
+    const { field, offset } = this.entry(index);
+    switch (field.kind) {
+      case "constant": {
+        return field.value;
+      }
+      case "integer": {
+        return readInteger(this.view, offset, field.width);
+      }
+      case "float": {
+        return this.view.getFloat64(offset);
+      }
+      case "bytes": {
+        const bytes = this.bytes.subarray(offset, offset + field.length);
+        return decodeBytes(field.of, bytes);
+      }
+      case "overflow": {
+        throw new CorruptError(`field ${String(index)} is in overflow pages`);
+      }
+    }
   }
 
   /** Where the bytes of field `index` live, when it is in overflow pages. */
   overflow(index: number): OverflowValue {
-    const serialType = this.serialType(index);
-    const kind = INLINE_KINDS[serialType - SERIAL.overflow.text];
-    if (kind === undefined || !this.isOverflow(index)) {
+    const { field, offset } = this.entry(index);
+    if (field.kind !== "overflow") {
       throw new CorruptError(`field ${String(index)} is not in overflow pages`);
     }
-    const offset = this.offsets[index] ?? 0;
-    return new OverflowValue(
-      kind,
-      this.view.getUint32(offset),
-      this.view.getUint32(offset + 4),
-    );
+    const length = this.view.getUint32(offset);
+    const firstPage = this.view.getUint32(offset + 4);
+    return new OverflowValue(field.of, length, firstPage);
   }
 
-  private serialType(index: number): number {
-    const serialType = this.serialTypes[index];
-    if (serialType === undefined) {
+  private entry(index: number): FieldEntry {
+    const entry = this.entries[index];
+    if (entry === undefined) {
       throw new CorruptError(`record has no field ${String(index)}`);
     }
-    return serialType;
-  }
-
-  private constantValue(serialType: number, offset: number): Value {
-    switch (serialType) {
-      case SERIAL.null: {
-        return null;
-      }
-      case SERIAL.false:
-      case SERIAL.true: {
-        return serialType === SERIAL.true;
-      }
-      case SERIAL.zero:
-      case SERIAL.one: {
-        return serialType - SERIAL.zero;
-      }
-      case SERIAL.float: {
-        return this.view.getFloat64(offset);
-      }
-      default: {
-        throw new CorruptError(`unknown serial type ${String(serialType)}`);
-      }
-    }
-  }
-
-  private inlineValue(serialType: number, offset: number): Value {
-    const kind = INLINE_KINDS[(serialType - SERIAL.inline) % 3];
-    const bytes = this.bytes.subarray(
-      offset,
-      offset + serialBodySize(serialType),
-    );
-    return decodeBytes(kind ?? "blob", bytes);
+    return entry;
   }
 }
 
 /** The value overflow bytes hold, once read back from their pages. */
-export function decodeBytes(kind: OverflowKind, bytes: Uint8Array): Value {
+export function decodeBytes(kind: ByteKind, bytes: Uint8Array): Value {
   switch (kind) {
     case "blob": {
-      return Uint8Array.from(bytes);
+      return bytes.slice();
     }
     case "text": {
       return decoder.decode(bytes);
@@ -247,93 +278,65 @@ export function decodeBytes(kind: OverflowKind, bytes: Uint8Array): Value {
   }
 }
 
-// --- Sizes ---------------------------------------------------------------------
-
-export function serialBodySize(serialType: number): number {
-  if (serialType >= SERIAL.inline)
-    return Math.floor((serialType - SERIAL.inline) / 3);
-  if (
-    serialType >= SERIAL.overflow.text &&
-    serialType <= SERIAL.overflow.json
-  ) {
-    return OVERFLOW_BODY_SIZE;
+function fieldOf(serialType: number): Field {
+  if (serialType < FIRST_INTEGER) {
+    return { kind: "constant", value: CONSTANTS[serialType] ?? null };
   }
-  if (serialType === SERIAL.float) return 8;
-  const width = WIDTH_OF_SERIAL[serialType];
-  if (width !== undefined) return width;
-  if (serialType <= SERIAL.one) return 0;
-  throw new CorruptError(`unknown serial type ${String(serialType)}`);
+  if (serialType < FLOAT) {
+    const width = INTEGER_WIDTHS[serialType - FIRST_INTEGER] ?? 8;
+    return { kind: "integer", width };
+  }
+  if (serialType === FLOAT) return { kind: "float" };
+  if (serialType < RESERVED) {
+    return { kind: "overflow", of: byteKind(serialType - FIRST_OVERFLOW) };
+  }
+  if (serialType === RESERVED) {
+    throw new CorruptError(`serial type ${String(RESERVED)} is reserved`);
+  }
+  const inline = serialType - FIRST_INLINE;
+  const length = Math.floor(inline / 3);
+  return { kind: "bytes", of: byteKind(inline % 3), length };
 }
 
-function bodySize(field: PreparedField): number {
-  switch (field.body) {
-    case "none": {
+function bodySize(field: Field): number {
+  switch (field.kind) {
+    case "constant": {
       return 0;
     }
     case "integer": {
       return field.width;
     }
-    case "float":
-    case "overflow": {
+    case "float": {
       return 8;
     }
     case "bytes": {
-      return field.bytes.length;
+      return field.length;
+    }
+    case "overflow": {
+      return OVERFLOW_REFERENCE_SIZE;
     }
   }
 }
 
-/** Header size counting the varint that states it. */
-function headerSizeWith(serialTypesSize: number): number {
-  let size = serialTypesSize + 1;
-  while (varintSize(size) + serialTypesSize !== size) {
-    size = serialTypesSize + varintSize(size);
+function byteKind(index: number): ByteKind {
+  const kind = BYTE_KINDS[index];
+  if (kind === undefined) throw new CorruptError("unknown byte kind");
+  return kind;
+}
+
+// --- Sizes ---------------------------------------------------------------------
+
+/** Header size: the serial types, and the varint stating the size itself. */
+function headerSizeFor(typesSize: number): number {
+  let size = typesSize + 1;
+  while (typesSize + varintSize(size) !== size) {
+    size = typesSize + varintSize(size);
   }
   return size;
 }
 
-// --- Encoding ------------------------------------------------------------------
-
-function prepareNumber(value: number): PreparedField {
-  if (!Number.isSafeInteger(value)) {
-    return { serialType: SERIAL.float, body: "float", value };
-  }
-  if (value === 0 || value === 1) {
-    return { serialType: SERIAL.zero + value, body: "none" };
-  }
-  const width = integerWidth(value);
-  return { serialType: INTEGER_SERIAL[width], body: "integer", value, width };
-}
-
-function inlineBytes(kind: OverflowKind, bytes: Uint8Array): PreparedField {
-  return {
-    serialType: SERIAL.inline + bytes.length * 3 + INLINE_KINDS.indexOf(kind),
-    body: "bytes",
-    kind,
-    bytes,
-  };
-}
-
-function writeBody(writer: ByteWriter, field: PreparedField): void {
-  switch (field.body) {
-    case "none": {
-      return;
-    }
-    case "integer": {
-      writer.integer(field.value, field.width);
-      return;
-    }
-    case "float": {
-      writer.float64(field.value);
-      return;
-    }
-    case "bytes": {
-      writer.bytes(field.bytes);
-      return;
-    }
-    case "overflow": {
-      writer.uint32(field.value.length);
-      writer.uint32(field.value.firstPage);
-    }
-  }
+function sum<T>(items: readonly T[], size: (item: T) => number): number {
+  let total = 0;
+  for (const item of items) total += size(item);
+  return total;
 }

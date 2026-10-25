@@ -14,20 +14,18 @@ export function valueKey(value: Value): string {
   // String() is exact and unique per number, and prints -0 as "0".
   if (typeof value === "number") return `#${String(value)}`;
   if (typeof value === "string") return `s${value}`;
-  return value instanceof Uint8Array
-    ? `b${bytesToBinaryString(value)}`
-    : `j${canonicalJson(value)}`;
+  if (value instanceof Uint8Array) return `b${bytesToBinaryString(value)}`;
+  return `j${canonicalJson(value)}`;
 }
 
 /** A key for a list of values: equal exactly when every pair is equal. */
 export function rowKey(values: readonly Value[]): string {
-  // Length prefixes keep ["ab", "c"] apart from ["a", "bc"].
-  return values
-    .map((value) => {
-      const key = valueKey(value);
-      return `${String(key.length)}:${key}`;
-    })
-    .join("");
+  return values.map((value) => lengthPrefixed(valueKey(value))).join("");
+}
+
+/** Length prefixes keep ["ab", "c"] apart from ["a", "bc"]. */
+function lengthPrefixed(key: string): string {
+  return `${String(key.length)}:${key}`;
 }
 
 function bytesToBinaryString(bytes: Uint8Array): string {

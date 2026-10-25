@@ -16,21 +16,15 @@ export class MemoryFile implements SyncFile {
   private size = 0;
 
   read(buffer: Uint8Array, options: { at: number }): number {
-    const readable = Math.max(
-      0,
-      Math.min(buffer.length, this.size - options.at),
-    );
+    const available = Math.max(0, this.size - options.at);
+    const readable = Math.min(buffer.length, available);
     buffer.set(this.bytes.subarray(options.at, options.at + readable));
     return readable;
   }
 
   write(buffer: Uint8Array, options: { at: number }): number {
     const end = options.at + buffer.length;
-    if (end > this.bytes.length) {
-      const grown = new Uint8Array(Math.max(this.bytes.length * 2, end));
-      grown.set(this.bytes);
-      this.bytes = grown;
-    }
+    this.reserve(end);
     this.bytes.set(buffer, options.at);
     this.size = Math.max(this.size, end);
     return buffer.length;
@@ -40,12 +34,10 @@ export class MemoryFile implements SyncFile {
     return this.size;
   }
 
+  /** Bytes past the end are kept zero, so growing the file adds zeros. */
   truncate(size: number): void {
-    if (size > this.bytes.length) {
-      this.write(new Uint8Array(size - this.size), { at: this.size });
-    } else {
-      this.bytes.fill(0, size);
-    }
+    this.reserve(size);
+    this.bytes.fill(0, size);
     this.size = size;
   }
 
@@ -55,5 +47,12 @@ export class MemoryFile implements SyncFile {
 
   close(): void {
     // Nothing to release.
+  }
+
+  private reserve(capacity: number): void {
+    if (capacity <= this.bytes.length) return;
+    const grown = new Uint8Array(Math.max(this.bytes.length * 2, capacity));
+    grown.set(this.bytes);
+    this.bytes = grown;
   }
 }

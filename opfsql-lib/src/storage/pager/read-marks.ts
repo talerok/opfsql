@@ -47,17 +47,11 @@ export class ReadMarks {
       await navigator.locks.request(`${lockName}:shm-init`, () => {
         if (!isInitialised(handle)) initialise(handle);
       });
-      for (let slot = 0; slot < SLOT_COUNT; slot++) {
-        const release = await holdIfAvailable(slotLock(lockName, slot));
-        if (release === null) continue;
-        const marks = new ReadMarks(handle, lockName, slot, release);
-        marks.publish(null); // whatever a dead previous owner left
-        await marks.reclaimDeadSlots();
-        return marks;
-      }
-      throw new DatabaseInUseError(
-        `all ${String(SLOT_COUNT)} read-mark slots are taken: too many tabs have the database open`,
-      );
+      const { slot, release } = await claimSlot(lockName);
+      const marks = new ReadMarks(handle, lockName, slot, release);
+      marks.publish(null); // whatever a dead previous owner left
+      await marks.reclaimDeadSlots();
+      return marks;
     } catch (error) {
       handle.close();
       throw error;
@@ -71,12 +65,8 @@ export class ReadMarks {
 
   /** Oldest snapshot open in any tab, or null if none is. */
   oldestMark(): number | null {
-    let oldest: number | null = null;
-    for (let slot = 0; slot < SLOT_COUNT; slot++) {
-      const mark = this.read(slotOffset(slot));
-      if (mark !== NO_MARK && (oldest === null || mark < oldest)) oldest = mark;
-    }
-    return oldest;
+    const marks = this.marks().filter((mark) => mark !== NO_MARK);
+    return marks.length === 0 ? null : Math.min(...marks);
   }
 
   checkpointIntent(): number {
@@ -89,17 +79,9 @@ export class ReadMarks {
 
   /** Clears marks left by tabs that died with a snapshot open. */
   async reclaimDeadSlots(): Promise<void> {
-    for (let slot = 0; slot < SLOT_COUNT; slot++) {
-      if (slot === this.slot || this.read(slotOffset(slot)) === NO_MARK) {
-        continue;
-      }
-      await navigator.locks.request(
-        slotLock(this.lockName, slot),
-        { ifAvailable: true },
-        (lock) => {
-          if (lock !== null) this.write(slotOffset(slot), NO_MARK);
-        },
-      );
+    for (const [slot, mark] of this.marks().entries()) {
+      const isOtherTabsMark = slot !== this.slot && mark !== NO_MARK;
+      if (isOtherTabsMark) await this.clearIfDead(slot);
     }
   }
 
@@ -107,6 +89,21 @@ export class ReadMarks {
     this.publish(null);
     this.releaseSlot();
     this.handle.close();
+  }
+
+  /** The mark in every slot, NO_MARK included. */
+  private marks(): number[] {
+    return Array.from({ length: SLOT_COUNT }, (_, slot) =>
+      this.read(slotOffset(slot)),
+    );
+  }
+
+  /** A slot whose lock can be taken has no owner, so its mark is stale. */
+  private async clearIfDead(slot: number): Promise<void> {
+    const lock = slotLock(this.lockName, slot);
+    await navigator.locks.request(lock, { ifAvailable: true }, (held) => {
+      if (held !== null) this.write(slotOffset(slot), NO_MARK);
+    });
   }
 
   private read(offset: number): number {
@@ -144,16 +141,30 @@ function initialise(handle: SyncFile): void {
   handle.flush();
 }
 
+/** The first free slot, held until `release` is called. */
+async function claimSlot(
+  lockName: string,
+): Promise<{ slot: number; release: () => void }> {
+  for (let slot = 0; slot < SLOT_COUNT; slot++) {
+    const release = await holdIfAvailable(slotLock(lockName, slot));
+    if (release !== null) return { slot, release };
+  }
+  throw new DatabaseInUseError(
+    `all ${String(SLOT_COUNT)} read-mark slots are taken: too many tabs have the database open`,
+  );
+}
+
 /** Takes the lock if it is free and holds it until the returned function is called. */
 async function holdIfAvailable(name: string): Promise<(() => void) | null> {
-  return new Promise((claimed) => {
+  return new Promise((resolve) => {
     void navigator.locks.request(name, { ifAvailable: true }, async (lock) => {
       if (lock === null) {
-        claimed(null);
+        resolve(null);
         return;
       }
+      // The browser holds the lock until this promise settles.
       await new Promise<void>((release) => {
-        claimed(release);
+        resolve(release);
       });
     });
   });

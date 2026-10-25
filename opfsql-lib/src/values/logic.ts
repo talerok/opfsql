@@ -7,12 +7,14 @@ export type Truth = boolean | null;
 
 export function and(a: Truth, b: Truth): Truth {
   if (a === false || b === false) return false;
-  return a === null || b === null ? null : true;
+  if (a === null || b === null) return null;
+  return true;
 }
 
 export function or(a: Truth, b: Truth): Truth {
   if (a === true || b === true) return true;
-  return a === null || b === null ? null : false;
+  if (a === null || b === null) return null;
+  return false;
 }
 
 export function not(a: Truth): Truth {
@@ -36,10 +38,9 @@ export function isSame(a: Value, b: Value): boolean {
 export function isIn(needle: Value, items: readonly Value[]): Truth {
   if (items.length === 0) return false;
   if (needle === null) return null;
-  let hasNull = false;
-  for (const item of items) {
-    if (item === null) hasNull = true;
-    else if (compareValues(needle, item) === 0) return true;
-  }
-  return hasNull ? null : false;
+  const isFound = items.some(
+    (item) => item !== null && compareValues(needle, item) === 0,
+  );
+  if (isFound) return true;
+  return items.includes(null) ? null : false;
 }

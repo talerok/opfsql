@@ -62,7 +62,21 @@ export default config(
       eqeqeq: ["error", "always"],
       curly: ["error", "multi-line", "consistent"],
       "no-console": ["error", { allow: ["warn", "error"] }],
-      "no-param-reassign": ["error", { props: true }],
+      // A parameter is never reassigned, nor its object changed — except
+      // byte buffers, which functions are given precisely to fill.
+      "no-param-reassign": [
+        "error",
+        {
+          props: true,
+          ignorePropertyModificationsFor: [
+            "bytes",
+            "page",
+            "map",
+            "target",
+            "buffer",
+          ],
+        },
+      ],
       "no-implicit-coercion": "error",
       "no-else-return": ["error", { allowElseIf: false }],
       "no-nested-ternary": "error",
@@ -156,6 +170,11 @@ export default config(
         },
       ],
 
+      // Spreading a Uint8Array gives a number[]: .slice() is the copy.
+      "unicorn/prefer-spread": "off",
+      // A ternary only where it reads as one line.
+      // Guard returns read better than ternaries over several lines.
+      "unicorn/prefer-ternary": "off",
       // SQL NULL is null; undefined means "absent", never a value.
       "unicorn/no-null": "off",
       "unicorn/filename-case": ["error", { case: "kebabCase" }],

@@ -1,5 +1,6 @@
 import { IoError } from "../../errors.js";
 import { crc32 } from "../file/crc32.js";
+import { readUint32, writeUint32 } from "../format/bytes.js";
 import { checkPrefix, PREFIX_SIZE, writePrefix } from "../file/file-prefix.js";
 import type { SyncFile } from "../file/sync-file.js";
 
@@ -17,6 +18,10 @@ import type { SyncFile } from "../file/sync-file.js";
 const EPOCH_OFFSET = PREFIX_SIZE;
 const BASE_OFFSET = PREFIX_SIZE + 4;
 const HEADER_SIZE = PREFIX_SIZE + 8;
+const FRAME_PAGE_OFFSET = 0;
+const FRAME_TX_OFFSET = 4;
+const FRAME_EPOCH_OFFSET = 8;
+const FRAME_CHECKSUM_OFFSET = 12;
 const FRAME_HEADER_SIZE = 16;
 const COMMIT_RECORD = 0xff_ff_ff_ff;
 const COMMIT_PAYLOAD_SIZE = 8;
@@ -84,21 +89,13 @@ export class Wal {
   /** The newest version of a page that a snapshot at `txId` sees, or null. */
   versionAt(pageNo: number, txId: number): Uint8Array | null {
     const versions = this.versions.get(pageNo);
-    if (versions === undefined) return null;
-    for (let index = versions.length - 1; index >= 0; index--) {
-      const version = versions[index];
-      if (version !== undefined && version.txId <= txId) return version.page;
-    }
-    return null;
+    return versions?.findLast((version) => version.txId <= txId)?.page ?? null;
   }
 
   /** The page count as of `txId`, or null if it predates this generation. */
   pageCountAt(txId: number): number | null {
-    for (let index = this.commits.length - 1; index >= 0; index--) {
-      const commit = this.commits[index];
-      if (commit !== undefined && commit.txId <= txId) return commit.pageCount;
-    }
-    return null;
+    const commit = this.commits.findLast((candidate) => candidate.txId <= txId);
+    return commit?.pageCount ?? null;
   }
 
   /**
@@ -177,10 +174,9 @@ export class Wal {
     const header = new Uint8Array(HEADER_SIZE);
     this.file.read(header, { at: 0 });
     checkPrefix(header, "wal", this.name);
-    const view = new DataView(header.buffer);
     return {
-      epoch: view.getUint32(EPOCH_OFFSET),
-      base: view.getUint32(BASE_OFFSET),
+      epoch: readUint32(header, EPOCH_OFFSET),
+      base: readUint32(header, BASE_OFFSET),
     };
   }
 
@@ -190,42 +186,47 @@ export class Wal {
    * generation or out of sequence.
    */
   private readFrom(start: number): void {
-    const end = this.file.getSize();
     let pending = new Map<number, Uint8Array>();
-    for (let offset = start; ;) {
-      const frame = this.readFrame(offset, end);
-      if (frame === null) return;
-      offset += FRAME_HEADER_SIZE + frame.payload.length;
+    for (const { frame, end } of this.framesFrom(start)) {
       if (frame.pageNo !== COMMIT_RECORD) {
         pending.set(frame.pageNo, frame.payload);
         continue;
       }
       if (frame.txId !== this.latest + 1) return;
-      const pageCount = new DataView(frame.payload.buffer).getUint32(0);
-      this.addTransaction(frame.txId, pending, pageCount);
-      this.offset = offset;
+      this.addTransaction(frame.txId, pending, pageCountOf(frame));
+      this.offset = end;
       pending = new Map();
     }
   }
 
-  private readFrame(offset: number, end: number): Frame | null {
-    if (offset + FRAME_HEADER_SIZE > end) return null;
+  /** The intact frames from `start` on, each with the offset it ends at. */
+  private *framesFrom(start: number): Generator<{ frame: Frame; end: number }> {
+    const fileSize = this.file.getSize();
+    let offset = start;
+    let frame = this.readFrame(offset, fileSize);
+    while (frame !== null) {
+      offset += frameSize(frame);
+      yield { frame, end: offset };
+      frame = this.readFrame(offset, fileSize);
+    }
+  }
+
+  /** The frame at `offset`, or null if it is incomplete, torn or from another generation. */
+  private readFrame(offset: number, fileSize: number): Frame | null {
+    if (offset + FRAME_HEADER_SIZE > fileSize) return null;
     const header = new Uint8Array(FRAME_HEADER_SIZE);
     this.file.read(header, { at: offset });
-    const view = new DataView(header.buffer);
-    const pageNo = view.getUint32(0);
-    const size = pageNo === COMMIT_RECORD ? COMMIT_PAYLOAD_SIZE : this.pageSize;
-    if (
-      view.getUint32(8) !== this.epoch ||
-      offset + FRAME_HEADER_SIZE + size > end
-    ) {
-      return null;
-    }
-    const payload = new Uint8Array(size);
+    const pageNo = readUint32(header, FRAME_PAGE_OFFSET);
+    const payloadSize =
+      pageNo === COMMIT_RECORD ? COMMIT_PAYLOAD_SIZE : this.pageSize;
+    const isComplete = offset + FRAME_HEADER_SIZE + payloadSize <= fileSize;
+    const epoch = readUint32(header, FRAME_EPOCH_OFFSET);
+    if (!isComplete || epoch !== this.epoch) return null;
+
+    const payload = new Uint8Array(payloadSize);
     this.file.read(payload, { at: offset + FRAME_HEADER_SIZE });
-    return crc32(header.subarray(0, 12), payload) === view.getUint32(12)
-      ? { pageNo, txId: view.getUint32(4), payload }
-      : null;
+    if (!isIntact(header, payload)) return null;
+    return { pageNo, txId: readUint32(header, FRAME_TX_OFFSET), payload };
   }
 
   // --- Writing the file --------------------------------------------------------
@@ -233,9 +234,8 @@ export class Wal {
   private writeHeader(epoch: number, base: number): void {
     const header = new Uint8Array(HEADER_SIZE);
     writePrefix(header, "wal");
-    const view = new DataView(header.buffer);
-    view.setUint32(EPOCH_OFFSET, epoch);
-    view.setUint32(BASE_OFFSET, base);
+    writeUint32(header, EPOCH_OFFSET, epoch);
+    writeUint32(header, BASE_OFFSET, base);
     this.file.write(header, { at: 0 });
     this.file.flush();
     this.epoch = epoch;
@@ -243,47 +243,29 @@ export class Wal {
     this.latest = Math.max(this.latest, base);
   }
 
+  /** The frames of a transaction: its pages, then its commit record. */
   private encodeTransaction(
     pages: ReadonlyMap<number, Uint8Array>,
     txId: number,
     pageCount: number,
   ): Uint8Array {
-    const frameSize = FRAME_HEADER_SIZE + this.pageSize;
+    const frames: Frame[] = [];
+    for (const [pageNo, payload] of pages) {
+      frames.push({ pageNo, txId, payload });
+    }
+    const commit = commitPayload(pageCount);
+    frames.push({ pageNo: COMMIT_RECORD, txId, payload: commit });
+
+    const sizes = frames.map((frame) => frameSize(frame));
     const bytes = new Uint8Array(
-      pages.size * frameSize + FRAME_HEADER_SIZE + COMMIT_PAYLOAD_SIZE,
+      sizes.reduce((total, size) => total + size, 0),
     );
     let offset = 0;
-    for (const [pageNo, page] of pages) {
-      this.encodeFrame(
-        bytes.subarray(offset, offset + frameSize),
-        pageNo,
-        txId,
-        page,
-      );
-      offset += frameSize;
+    for (const frame of frames) {
+      encodeFrame(bytes.subarray(offset), frame, this.epoch);
+      offset += frameSize(frame);
     }
-    const commit = new Uint8Array(COMMIT_PAYLOAD_SIZE);
-    new DataView(commit.buffer).setUint32(0, pageCount);
-    this.encodeFrame(bytes.subarray(offset), COMMIT_RECORD, txId, commit);
     return bytes;
-  }
-
-  private encodeFrame(
-    target: Uint8Array,
-    pageNo: number,
-    txId: number,
-    payload: Uint8Array,
-  ): void {
-    const view = new DataView(
-      target.buffer,
-      target.byteOffset,
-      FRAME_HEADER_SIZE,
-    );
-    view.setUint32(0, pageNo);
-    view.setUint32(4, txId);
-    view.setUint32(8, this.epoch);
-    view.setUint32(12, crc32(target.subarray(0, 12), payload));
-    target.set(payload, FRAME_HEADER_SIZE);
   }
 
   /**
@@ -321,28 +303,68 @@ export class Wal {
     pages: ReadonlyMap<number, Uint8Array>,
     pageCount: number,
   ): void {
-    for (const [pageNo, page] of pages) {
-      const versions = this.versions.get(pageNo);
-      if (versions === undefined) {
-        this.versions.set(pageNo, [{ txId, page }]);
-        continue;
-      }
-      versions.push({ txId, page });
-      this.prune(pageNo);
-    }
+    for (const [pageNo, page] of pages) this.addVersion(pageNo, { txId, page });
     this.commits.push({ txId, pageCount });
     this.frames += pages.size;
     this.latest = txId;
   }
 
-  /** Keeps the newest version the oldest snapshot sees, and every newer one. */
+  private addVersion(pageNo: number, version: Version): void {
+    const versions = this.versions.get(pageNo);
+    if (versions === undefined) {
+      this.versions.set(pageNo, [version]);
+      return;
+    }
+    versions.push(version);
+    this.prune(pageNo);
+  }
+
+  /**
+   * Drops the versions no snapshot can see: those older than the newest one
+   * the oldest open snapshot sees.
+   */
   private prune(pageNo: number): void {
     const versions = this.versions.get(pageNo) ?? [];
-    const keepFrom = versions.findLastIndex(
-      (version, index) => index > 0 && version.txId <= this.pruneBound,
+    const oldestVisible = versions.findLastIndex(
+      (version) => version.txId <= this.pruneBound,
     );
-    if (keepFrom > 0) versions.splice(0, keepFrom);
+    if (oldestVisible > 0) versions.splice(0, oldestVisible);
     if (versions.length > 1) this.layered.add(pageNo);
     else this.layered.delete(pageNo);
   }
+}
+
+function frameSize(frame: Frame): number {
+  return FRAME_HEADER_SIZE + frame.payload.length;
+}
+
+/** Writes `frame`, header then payload, at the start of `target`. */
+function encodeFrame(target: Uint8Array, frame: Frame, epoch: number): void {
+  writeUint32(target, FRAME_PAGE_OFFSET, frame.pageNo);
+  writeUint32(target, FRAME_TX_OFFSET, frame.txId);
+  writeUint32(target, FRAME_EPOCH_OFFSET, epoch);
+  const header = target.subarray(0, FRAME_HEADER_SIZE);
+  writeUint32(target, FRAME_CHECKSUM_OFFSET, checksumOf(header, frame.payload));
+  target.set(frame.payload, FRAME_HEADER_SIZE);
+}
+
+/** The checksum covers the header up to the checksum itself, and the payload. */
+function checksumOf(header: Uint8Array, payload: Uint8Array): number {
+  return crc32(header.subarray(0, FRAME_CHECKSUM_OFFSET), payload);
+}
+
+function isIntact(header: Uint8Array, payload: Uint8Array): boolean {
+  const stored = readUint32(header, FRAME_CHECKSUM_OFFSET);
+  return checksumOf(header, payload) === stored;
+}
+
+/** A commit record's payload: the page count, then zero. */
+function commitPayload(pageCount: number): Uint8Array {
+  const payload = new Uint8Array(COMMIT_PAYLOAD_SIZE);
+  writeUint32(payload, 0, pageCount);
+  return payload;
+}
+
+function pageCountOf(commit: Frame): number {
+  return readUint32(commit.payload, 0);
 }

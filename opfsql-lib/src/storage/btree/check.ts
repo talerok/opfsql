@@ -66,22 +66,24 @@ class TreeChecker {
 
   private visit(pageNo: number, depth: number, bounds: Bounds): void {
     this.pagesSeen.push(pageNo);
-    let page: BTreePage;
+    const page = this.readPage(pageNo);
+    if (page === null) return;
+    for (const problem of page.layoutProblems()) this.report(pageNo, problem);
+    if (page.isLeaf) this.checkLeaf(pageNo, page, depth, bounds);
+    else this.checkInterior(pageNo, page, depth, bounds);
+  }
+
+  /** The page as a B-tree page, or null after reporting why it is not one. */
+  private readPage(pageNo: number): BTreePage | null {
     try {
-      page = new BTreePage(this.pages.read(pageNo));
+      return new BTreePage(this.pages.read(pageNo));
     } catch (error) {
       this.report(
         pageNo,
         error instanceof Error ? error.message : String(error),
       );
-      return;
+      return null;
     }
-    for (const problem of page.layoutProblems()) this.report(pageNo, problem);
-    if (page.isLeaf) {
-      this.checkLeaf(pageNo, page, depth, bounds);
-      return;
-    }
-    this.checkInterior(pageNo, page, depth, bounds);
   }
 
   private checkLeaf(
@@ -116,10 +118,12 @@ class TreeChecker {
       interiorCellKey(page.type, page.cell(index)),
     );
     this.checkKeys(pageNo, keys, bounds);
+    // Child i holds keys from separator i − 1 up to separator i; the first
+    // and last children inherit the parent's own bounds.
     for (let index = 0; index <= page.cellCount; index++) {
       this.visit(page.child(index), depth + 1, {
-        low: index === 0 ? bounds.low : keys[index - 1],
-        high: index === page.cellCount ? bounds.high : keys[index],
+        low: keys[index - 1] ?? bounds.low,
+        high: keys[index] ?? bounds.high,
       });
     }
   }
@@ -136,26 +140,29 @@ class TreeChecker {
     keys: readonly TreeKey[],
     bounds: Bounds,
   ): void {
-    let previous: TreeKey | undefined;
-    for (const key of keys) {
+    for (const [index, key] of keys.entries()) {
+      const previous = keys[index - 1];
       if (previous !== undefined && compareKeys(previous, key) >= 0) {
         this.report(pageNo, `keys out of order at ${describe(key)}`);
       }
-      const isBelow =
-        bounds.low !== undefined && compareKeys(key, bounds.low) < 0;
-      const isAbove =
-        bounds.high !== undefined && compareKeys(key, bounds.high) >= 0;
-      if (isBelow || isAbove) {
+    }
+    for (const key of keys) {
+      if (!isWithin(key, bounds)) {
         this.report(
           pageNo,
           `key ${describe(key)} is outside its parent's separators`,
         );
       }
-      previous = key;
     }
   }
 
   private report(pageNo: number, problem: string): void {
     this.problems.push(`page ${String(pageNo)}: ${problem}`);
   }
+}
+
+function isWithin(key: TreeKey, { low, high }: Bounds): boolean {
+  const isAboveLow = low === undefined || compareKeys(key, low) >= 0;
+  const isBelowHigh = high === undefined || compareKeys(key, high) < 0;
+  return isAboveLow && isBelowHigh;
 }

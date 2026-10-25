@@ -1,4 +1,5 @@
 import { CorruptError, UnsupportedFormatError } from "../../errors.js";
+import { readUint32, writeUint32 } from "../format/bytes.js";
 
 // ---------------------------------------------------------------------------
 // Every file of a database starts with 8 ASCII bytes naming its kind and the
@@ -20,12 +21,14 @@ const MAGIC: Record<FileKind, string> = {
 /** Until format 3, the version was the magic's last two characters. */
 const LEGACY_MAGIC = /^OPFSQL(\d\d)$/u;
 
+const VERSION_OFFSET = 8;
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export function writePrefix(header: Uint8Array, kind: FileKind): void {
   header.set(encoder.encode(MAGIC[kind]), 0);
-  new DataView(header.buffer, header.byteOffset).setUint32(8, FORMAT_VERSION);
+  writeUint32(header, VERSION_OFFSET, FORMAT_VERSION);
 }
 
 /** Throws unless `header` starts like a `kind` file of this format. */
@@ -59,7 +62,7 @@ function prefixProblem(
   if (magic !== MAGIC[kind]) {
     return new CorruptError(`"${fileName}" is not an opfsql ${kind} file`);
   }
-  const version = new DataView(header.buffer, header.byteOffset).getUint32(8);
+  const version = readUint32(header, VERSION_OFFSET);
   return version === FORMAT_VERSION
     ? null
     : new UnsupportedFormatError(fileName, version, FORMAT_VERSION);

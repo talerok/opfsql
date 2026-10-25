@@ -1,4 +1,10 @@
-import type { JsonComposite, JsonValue, Value, ValueKind } from "./value.js";
+import type {
+  JsonComposite,
+  JsonObject,
+  JsonValue,
+  Value,
+  ValueKind,
+} from "./value.js";
 import { kindOf } from "./value.js";
 
 // ---------------------------------------------------------------------------
@@ -20,7 +26,8 @@ const KIND_RANK: Record<ValueKind, number> = {
 export function compareValues(a: Value, b: Value): number {
   const kind = kindOf(a);
   const rankDifference = KIND_RANK[kind] - KIND_RANK[kindOf(b)];
-  return rankDifference === 0 ? compareSameKind(kind, a, b) : rankDifference;
+  if (rankDifference !== 0) return rankDifference;
+  return compareSameKind(kind, a, b);
 }
 
 /** Equal under the total order: NULL equals NULL, 1 equals 1.0. */
@@ -55,8 +62,8 @@ function compareSameKind(kind: ValueKind, a: Value, b: Value): number {
 }
 
 function compareNumbers(a: number, b: number): number {
-  if (a < b) return -1;
-  return a > b ? 1 : 0;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 /**
@@ -73,7 +80,8 @@ export function compareText(a: string, b: string): number {
     const codePointA = a.codePointAt(position) ?? 0;
     const codePointB = b.codePointAt(position) ?? 0;
     if (codePointA !== codePointB) return codePointA - codePointB;
-    position += codePointA > 0xff_ff ? 2 : 1;
+    const isSurrogatePair = codePointA > 0xff_ff;
+    position += isSurrogatePair ? 2 : 1;
   }
   return a.length - b.length;
 }
@@ -93,13 +101,16 @@ export function canonicalJson(value: JsonValue): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
   }
-  if (value !== null && typeof value === "object") {
-    const members = Object.keys(value)
-      .toSorted((x, y) => compareText(x, y))
-      .map(
-        (key) => `${JSON.stringify(key)}:${canonicalJson(value[key] ?? null)}`,
-      );
-    return `{${members.join(",")}}`;
-  }
+  if (value !== null && typeof value === "object")
+    return canonicalObject(value);
   return JSON.stringify(value);
+}
+
+function canonicalObject(object: JsonObject): string {
+  const keys = Object.keys(object).toSorted((x, y) => compareText(x, y));
+  const members = keys.map((key) => {
+    const member = canonicalJson(object[key] ?? null);
+    return `${JSON.stringify(key)}:${member}`;
+  });
+  return `{${members.join(",")}}`;
 }

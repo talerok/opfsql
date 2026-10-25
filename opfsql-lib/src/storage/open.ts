@@ -47,28 +47,10 @@ export async function openPager(
   files: StorageFiles,
   options: StorageOptions,
 ): Promise<Pager> {
-  const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
-  if (!isValidPageSize(pageSize)) {
-    throw new MisuseError(
-      `page size ${String(pageSize)} is not a power of two from ${String(MIN_PAGE_SIZE)} to ${String(MAX_PAGE_SIZE)}`,
-    );
-  }
-  let marks: ReadMarks | null = null;
   try {
-    const { database, wal } = await whileHolding(
-      options.lockName === undefined ? null : `${options.lockName}:open`,
-      () => openFiles(files, options.name, pageSize),
-    );
-    if (files.marks !== null && options.lockName !== undefined) {
-      marks = await ReadMarks.open(files.marks, options.lockName);
-    }
-    return new Pager(database, wal, {
-      checkpointThreshold:
-        options.checkpointThreshold ?? DEFAULT_CHECKPOINT_THRESHOLD,
-      marks,
-    });
+    return await openPagerIn(files, options);
   } catch (error) {
-    if (marks === null) closeQuietly(files.marks);
+    closeQuietly(files.marks);
     closeQuietly(files.wal);
     closeQuietly(files.database);
     throw error;
@@ -79,24 +61,65 @@ export async function openPager(
 export async function openOpfsFiles(name: string): Promise<StorageFiles> {
   const root = await navigator.storage.getDirectory();
   const opened: SyncFile[] = [];
+  const open = async (suffix: string): Promise<SyncFile> => {
+    const file = await openShared(root, `${name}.opfsql${suffix}`);
+    opened.push(file);
+    return file;
+  };
   try {
-    for (const suffix of ["", "-wal", "-shm"]) {
-      opened.push(await openShared(root, `${name}.opfsql${suffix}`));
-    }
+    return {
+      database: await open(""),
+      wal: await open("-wal"),
+      marks: await open("-shm"),
+    };
   } catch (error) {
     for (const file of opened) closeQuietly(file);
-    throw isHeldByAnotherTab(error)
-      ? new DatabaseInUseError(
-          `database "${name}" is open in another tab, and this browser allows only one tab per database`,
-          { cause: error },
-        )
-      : error;
+    throw isHeldByAnotherTab(error) ? inUse(name, error) : error;
   }
-  const [database, wal, marks] = opened;
-  if (database === undefined || wal === undefined || marks === undefined) {
-    throw new Error("unreachable: three files were opened");
+}
+
+async function openPagerIn(
+  files: StorageFiles,
+  options: StorageOptions,
+): Promise<Pager> {
+  const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+  checkPageSize(pageSize);
+  const { name, lockName } = options;
+  const openLock = lockName === undefined ? null : `${lockName}:open`;
+  const { database, wal } = await whileHolding(openLock, () =>
+    openFiles(files, name, pageSize),
+  );
+  const marks = await openMarks(files.marks, lockName);
+  const checkpointThreshold =
+    options.checkpointThreshold ?? DEFAULT_CHECKPOINT_THRESHOLD;
+  return new Pager(database, wal, { checkpointThreshold, marks });
+}
+
+function checkPageSize(pageSize: number): void {
+  if (!isValidPageSize(pageSize)) {
+    throw new MisuseError(
+      `page size ${String(pageSize)} is not a power of two from ${String(MIN_PAGE_SIZE)} to ${String(MAX_PAGE_SIZE)}`,
+    );
   }
-  return { database, wal, marks };
+}
+
+/** Read marks are shared through their file and the tabs' Web Locks. */
+async function openMarks(
+  file: SyncFile | null,
+  lockName: string | undefined,
+): Promise<ReadMarks | null> {
+  if (file === null) return null;
+  if (lockName === undefined) {
+    throw new MisuseError("a read-mark file needs a lock name");
+  }
+  return ReadMarks.open(file, lockName);
+}
+
+function inUse(name: string, cause: unknown): DatabaseInUseError {
+  return new DatabaseInUseError(
+    `database "${name}" is open in another tab, and this browser allows only one tab per database`,
+    { cause },
+  );
 }
 
 function openFiles(
