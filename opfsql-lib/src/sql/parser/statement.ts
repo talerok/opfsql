@@ -4,7 +4,6 @@
 // text is an error, so leftovers never parse as another statement.
 // ---------------------------------------------------------------------------
 
-import { NotSupportedError } from "../../errors.js";
 import { Cursor, type Grammar } from "./cursor.js";
 import { parseAlterTable, parseCreate, parseDrop } from "./ddl.js";
 import { parseDelete, parseInsert, parseUpdate } from "./dml.js";
@@ -15,8 +14,9 @@ import { parseQuery } from "./query.js";
 import {
   StatementType,
   TransactionType,
-  type Statement,
   type BeginMode,
+  type BeginStatement,
+  type Statement,
   type TransactionStatement,
 } from "./types.js";
 
@@ -26,25 +26,36 @@ const GRAMMAR: Grammar = { expression: parseExpression, query: parseQuery };
 export function parse(sql: string): readonly Statement[] {
   const cursor = new Cursor(sql, tokenize(sql), GRAMMAR);
   const statements: Statement[] = [];
-  for (;;) {
-    while (cursor.matchSymbol(";")) {
-      // An empty statement.
-    }
-    if (cursor.atEnd()) return statements;
-    cursor.startStatement();
-    statements.push(parseStatement(cursor));
-    if (!cursor.atEnd() && !cursor.isSymbol(";")) {
-      cursor.fail("';' or end of input");
-    }
+  skipEmptyStatements(cursor);
+  while (!cursor.atEnd()) {
+    statements.push(parseTerminatedStatement(cursor));
+    skipEmptyStatements(cursor);
   }
+  return statements;
 }
 
-const STATEMENTS: ReadonlyMap<Keyword, (cursor: Cursor) => Statement> = new Map<
+function skipEmptyStatements(cursor: Cursor): void {
+  while (cursor.isSymbol(";")) cursor.next();
+}
+
+/** A statement, which `;` or the end of the input must follow. */
+function parseTerminatedStatement(cursor: Cursor): Statement {
+  cursor.startStatement();
+  const statement = parseStatement(cursor);
+  const isTerminated = cursor.atEnd() || cursor.isSymbol(";");
+  if (!isTerminated) cursor.fail("';' or end of input");
+  return statement;
+}
+
+type StatementParser = (cursor: Cursor) => Statement;
+
+const STATEMENTS: ReadonlyMap<Keyword, StatementParser> = new Map<
   Keyword,
-  (cursor: Cursor) => Statement
+  StatementParser
 >([
   ["SELECT", parseQuery],
   ["WITH", parseQuery],
+  ["VALUES", parseQuery],
   ["INSERT", parseInsert],
   ["UPDATE", parseUpdate],
   ["DELETE", parseDelete],
@@ -52,8 +63,8 @@ const STATEMENTS: ReadonlyMap<Keyword, (cursor: Cursor) => Statement> = new Map<
   ["ALTER", parseAlterTable],
   ["DROP", parseDrop],
   ["BEGIN", parseBegin],
-  ["COMMIT", (cursor) => parseEnd(cursor, TransactionType.COMMIT)],
-  ["END", (cursor) => parseEnd(cursor, TransactionType.COMMIT)],
+  ["COMMIT", parseTransactionEnd],
+  ["END", parseTransactionEnd],
   ["ROLLBACK", parseRollback],
   ["EXPLAIN", parseExplain],
 ]);
@@ -69,27 +80,19 @@ const OTHER_STATEMENTS: ReadonlySet<string> = new Set([
   "REPLACE",
   "SAVEPOINT",
   "VACUUM",
-  "VALUES",
 ]);
 
 function parseStatement(cursor: Cursor): Statement {
-  const token = cursor.peek();
-  const parser =
-    token.kind === "keyword" ? STATEMENTS.get(token.value) : undefined;
+  const parser = cursor.lookupKeyword(STATEMENTS);
   if (parser !== undefined) return parser(cursor);
-  const word = token.kind === "keyword" ? token.value : cursor.wordAt();
-  if (word !== undefined && OTHER_STATEMENTS.has(word)) {
-    throw new NotSupportedError(`the ${word} statement`);
-  }
+  cursor.rejectWordIn(OTHER_STATEMENTS, (word) => `the ${word} statement`);
   return cursor.fail("a statement");
 }
 
 // --- Transactions and EXPLAIN ---------------------------------------------------------
 
-type EndType = TransactionType.COMMIT | TransactionType.ROLLBACK;
-
 /** `BEGIN [DEFERRED | IMMEDIATE] [TRANSACTION]`. */
-function parseBegin(cursor: Cursor): TransactionStatement {
+function parseBegin(cursor: Cursor): BeginStatement {
   cursor.next();
   const mode = parseBeginMode(cursor);
   parseTransactionKeyword(cursor);
@@ -102,8 +105,7 @@ function parseBegin(cursor: Cursor): TransactionStatement {
 
 /** DEFERRED, the default, or IMMEDIATE; EXCLUSIVE is not supported. */
 function parseBeginMode(cursor: Cursor): BeginMode {
-  if (cursor.isWord("EXCLUSIVE"))
-    throw new NotSupportedError("BEGIN EXCLUSIVE");
+  cursor.rejectWord("EXCLUSIVE", "BEGIN EXCLUSIVE");
   if (cursor.isWord("IMMEDIATE")) {
     cursor.next();
     return "IMMEDIATE";
@@ -113,32 +115,40 @@ function parseBeginMode(cursor: Cursor): BeginMode {
 }
 
 /** `COMMIT [TRANSACTION]` or `END [TRANSACTION]`. */
-function parseEnd(cursor: Cursor, type: EndType): TransactionStatement {
+function parseTransactionEnd(cursor: Cursor): TransactionStatement {
   cursor.next();
   parseTransactionKeyword(cursor);
-  return { type: StatementType.TRANSACTION_STATEMENT, transactionType: type };
-}
-
-/** `[TRANSACTION]`; SQLite allows a name after it, which it ignores. */
-function parseTransactionKeyword(cursor: Cursor): void {
-  if (!cursor.matchKeyword("TRANSACTION")) return;
-  if (cursor.isName() && !cursor.isWord("TO")) {
-    throw new NotSupportedError("a transaction name");
-  }
+  return transactionEnd(TransactionType.COMMIT);
 }
 
 /** `ROLLBACK [TRANSACTION]`; ROLLBACK TO a savepoint is not supported. */
 function parseRollback(cursor: Cursor): TransactionStatement {
-  const statement = parseEnd(cursor, TransactionType.ROLLBACK);
-  if (cursor.isWord("TO")) throw new NotSupportedError("ROLLBACK TO");
-  return statement;
+  cursor.next();
+  const hasKeyword = cursor.matchKeyword("TRANSACTION");
+  cursor.rejectWord("TO", "ROLLBACK TO");
+  if (hasKeyword) rejectTransactionName(cursor);
+  return transactionEnd(TransactionType.ROLLBACK);
+}
+
+type EndType = TransactionType.COMMIT | TransactionType.ROLLBACK;
+
+function transactionEnd(transactionType: EndType): TransactionStatement {
+  return { type: StatementType.TRANSACTION_STATEMENT, transactionType };
+}
+
+/** `[TRANSACTION]` */
+function parseTransactionKeyword(cursor: Cursor): void {
+  if (cursor.matchKeyword("TRANSACTION")) rejectTransactionName(cursor);
+}
+
+/** SQLite allows a name after TRANSACTION, which it ignores. */
+function rejectTransactionName(cursor: Cursor): void {
+  cursor.rejectName("a transaction name");
 }
 
 function parseExplain(cursor: Cursor): Statement {
   cursor.next();
-  if (cursor.isWord("QUERY")) {
-    throw new NotSupportedError("EXPLAIN QUERY PLAN");
-  }
+  cursor.rejectWord("QUERY", "EXPLAIN QUERY PLAN");
   if (cursor.isKeyword("EXPLAIN")) cursor.fail("a statement to explain");
   return {
     type: StatementType.EXPLAIN_STATEMENT,

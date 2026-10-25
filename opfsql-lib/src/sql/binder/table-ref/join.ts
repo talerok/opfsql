@@ -51,21 +51,22 @@ export function bindJoinRef(
 
   let conditions: BT.JoinCondition[] = [];
 
-  if (ref.usingColumns.length > 0) {
+  const constraint = ref.constraint;
+  if (constraint?.type === "USING") {
     const allBindings = scope.getAllBindings();
     const leftEntries = allBindings.slice(bindingsBefore, bindingsAfterLeft);
     const rightEntries = allBindings.slice(bindingsAfterLeft);
 
-    for (const colName of ref.usingColumns) {
+    for (const colName of constraint.columns) {
       conditions.push({
         left: scope.resolveColumnIn(colName, leftEntries),
         right: scope.resolveColumnIn(colName, rightEntries),
         comparisonType: "EQUAL",
       });
     }
-  } else if (ref.condition) {
-    checkNoAggregates(ref.condition, "JOIN ON clause");
-    conditions = extractJoinConditions(ctx, ref.condition, scope);
+  } else if (constraint?.type === "ON") {
+    checkNoAggregates(constraint.condition, "JOIN ON clause");
+    conditions = extractJoinConditions(ctx, constraint.condition, scope);
 
     // Normalize: cond.left must reference left child, cond.right — right child.
     // extractJoinConditions preserves SQL order which may be backwards.

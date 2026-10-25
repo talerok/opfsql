@@ -51,7 +51,7 @@ describe("tokens", () => {
     ]);
   });
 
-  it("reads words that used to be rejected as plain words", () => {
+  it("reads PARTITION as a name, WINDOW and FULL as non-reserved keywords", () => {
     expect(kinds("partition window full")).toEqual([
       "identifier:partition",
       "keyword:WINDOW",

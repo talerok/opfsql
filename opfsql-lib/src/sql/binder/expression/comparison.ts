@@ -1,10 +1,6 @@
 import type { ComparisonExpression } from "../../parser/types.js";
 import { ExpressionType } from "../../parser/types.js";
-import type {
-  BoundComparisonExpression,
-  BoundExpression,
-  BoundOperatorExpression,
-} from "../types.js";
+import type { BoundComparisonExpression, BoundExpression } from "../types.js";
 import { BoundExpressionClass } from "../types.js";
 import type { BindContext, AggregateContext } from "../core/context.js";
 import type { BindScope } from "../core/scope.js";
@@ -22,10 +18,8 @@ export function bindComparison(
   const left = bindExpression(ctx, expr.left, scope, aggCtx);
   const right = bindExpression(ctx, expr.right, scope, aggCtx);
 
+  // The parser writes NOT LIKE as NOT around LIKE.
   if (expr.type === ExpressionType.COMPARE_LIKE) return bindLike(left, right);
-  if (expr.type === ExpressionType.COMPARE_NOT_LIKE) {
-    return not(bindLike(left, right));
-  }
 
   checkTypeCompatibility(left.returnType, right.returnType);
   return {
@@ -35,14 +29,4 @@ export function bindComparison(
     right,
     returnType: "BOOLEAN",
   } satisfies BoundComparisonExpression;
-}
-
-/** `NOT condition`. */
-function not(condition: BoundExpression): BoundOperatorExpression {
-  return {
-    expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-    operatorType: "NOT",
-    children: [condition],
-    returnType: "BOOLEAN",
-  };
 }

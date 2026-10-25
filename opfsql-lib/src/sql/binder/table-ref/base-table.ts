@@ -12,9 +12,9 @@ export function bindBaseTableRef(
   ref: BaseTableReference,
   scope: BindScope,
 ): BT.LogicalOperator {
-  const alias = ref.alias ?? ref.tableName;
+  const alias = ref.alias ?? ref.table;
 
-  const cte = scope.getCTE(ref.tableName);
+  const cte = scope.getCTE(ref.table);
   if (cte) {
     const columns = extractColumnsFromPlan(cte.plan, cte.plan.types);
     if (cte.aliases.length > 0) {
@@ -22,12 +22,12 @@ export function bindBaseTableRef(
         columns[i] = { ...columns[i], name: cte.aliases[i] };
       }
     }
-    const virtualSchema: TableSchema = { name: ref.tableName, columns };
-    const entry = scope.addTable(ref.tableName, alias, virtualSchema);
+    const virtualSchema: TableSchema = { name: ref.table, columns };
+    const entry = scope.addTable(ref.table, alias, virtualSchema);
 
     return {
       type: LogicalOperatorType.LOGICAL_CTE_REF,
-      cteName: ref.tableName,
+      cteName: ref.table,
       cteIndex: cte.index,
       children: [],
       expressions: [],
@@ -40,12 +40,12 @@ export function bindBaseTableRef(
     } satisfies BT.LogicalCTERef;
   }
 
-  const schema = ctx.catalog.getTable(ref.tableName);
+  const schema = ctx.catalog.getTable(ref.table);
   if (!schema) {
-    throw new BindError(`Table "${ref.tableName}" not found`);
+    throw new BindError(`Table "${ref.table}" not found`);
   }
 
-  const entry = scope.addTable(ref.tableName, alias, schema);
+  const entry = scope.addTable(ref.table, alias, schema);
   const columnIds = schema.columns.map((_, i) => i);
   const types = schema.columns.map((c) => c.type);
 

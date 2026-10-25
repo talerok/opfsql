@@ -3,66 +3,63 @@ import { Parser, parse } from "../index.js";
 import {
   AlterType,
   DropType,
-  JoinType,
-  OrderByNullType,
-  OrderType,
-  ResultModifierType,
-  SetOperationType,
   StatementType,
-  TableReferenceType,
   TransactionType,
   type BeginMode,
-  type CreateTableStatement,
+  type ColumnDefinition,
   type TransactionStatement,
-  type Statement,
-  type TableReference,
 } from "../types.js";
 import {
   notSupported,
-  only,
   query,
   render,
   renderOptional,
+  renderQuery,
+  renderTable,
   select,
+  statementOf,
   syntaxError,
 } from "./helpers.js";
 
-function createTable(sql: string): CreateTableStatement {
-  const statement = only(sql);
-  if (statement.type !== StatementType.CREATE_TABLE_STATEMENT) {
-    throw new Error("not CREATE TABLE");
-  }
-  return statement;
+/** A query printed whole: see renderQuery. */
+function printed(sql: string): string {
+  return renderQuery(query(sql));
 }
 
-/** A FROM clause as a tree: `(CROSS a b)`, `(LEFT a b ON (= x y))`. */
+/** The FROM clause of a query, printed. */
 function from(sql: string): string {
-  const table = select(sql).fromTable;
+  const table = select(sql).from;
   if (table === null) throw new Error("no FROM");
   return renderTable(table);
 }
 
-function renderTable(table: TableReference): string {
-  switch (table.type) {
-    case TableReferenceType.BASE_TABLE: {
-      return table.alias === null
-        ? table.tableName
-        : `${table.tableName} AS ${table.alias}`;
-    }
-    case TableReferenceType.SUBQUERY: {
-      return `(<query>) AS ${table.alias ?? "-"}`;
-    }
-    case TableReferenceType.JOIN: {
-      const sides = `${renderTable(table.left)} ${renderTable(table.right)}`;
-      const on =
-        table.condition === null ? "" : ` ON ${render(table.condition)}`;
-      const using =
-        table.usingColumns.length === 0
-          ? ""
-          : ` USING ${table.usingColumns.join(",")}`;
-      return `(${table.joinType} ${sides}${on}${using})`;
-    }
-  }
+/** A column definition: `name type [constraint, …]`. */
+function renderColumn(column: ColumnDefinition): string {
+  const constraints = column.constraints.map((constraint) =>
+    constraint.type === "DEFAULT"
+      ? `DEFAULT ${render(constraint.value)}`
+      : constraint.type,
+  );
+  return [column.name, column.type ?? "-", ...constraints].join(" ");
+}
+
+function begin(mode: BeginMode): TransactionStatement {
+  return {
+    type: StatementType.TRANSACTION_STATEMENT,
+    transactionType: TransactionType.BEGIN,
+    mode,
+  };
+}
+
+function transactionEnd(
+  transactionType: TransactionType.COMMIT | TransactionType.ROLLBACK,
+): TransactionStatement {
+  return { type: StatementType.TRANSACTION_STATEMENT, transactionType };
+}
+
+function columns(sql: string): string[] {
+  const statement = statementOf(sql, StatementType.CREATE_TABLE_STATEMENT);
+  return statement.columns.map((column) => renderColumn(column));
 }
 
 describe("statement boundaries", () => {
@@ -88,13 +85,12 @@ describe("statement boundaries", () => {
   });
 
   it("does not take EXCEPT for an alias", () => {
-    const { node } = query("SELECT * FROM t1 EXCEPT SELECT * FROM t2");
-    expect(node.type === "SET_OPERATION_NODE" && node.setOperationType).toBe(
-      SetOperationType.EXCEPT,
+    expect(printed("SELECT * FROM t1 EXCEPT SELECT * FROM t2")).toBe(
+      "(EXCEPT (SELECT * FROM t1) (SELECT * FROM t2))",
     );
   });
 
-  it("keeps the old Parser class working", () => {
+  it("keeps the Parser class for callers that hold one", () => {
     expect(new Parser().parse("SELECT 1; SELECT 2")).toHaveLength(2);
   });
 });
@@ -103,18 +99,19 @@ describe("errors", () => {
   it("names what was expected in SQL words, at the offending token", () => {
     const error = syntaxError("SELECT (1 FROM t");
     expect(error.code).toBe("SYNTAX_ERROR");
-    expect(error.message).toBe("expected ')', got 'FROM'");
-    expect([error.offset, error.length]).toEqual([10, 4]);
+    expect([error.message, error.offset, error.length]).toEqual([
+      "expected ')', got 'FROM'",
+      10,
+      4,
+    ]);
   });
 
   it("reports the end of input as such, and an empty string as a string", () => {
-    expect(syntaxError("SELECT a FROM").message).toBe(
+    const end = syntaxError("SELECT a FROM");
+    expect([end.message, end.offset]).toEqual([
       "expected a table name, got end of input",
-    );
-    expect(syntaxError("SELECT a FROM").offset).toBe(13);
-    expect(syntaxError("SELECT a FROM t WHERE a = '' b").message).toBe(
-      "expected ';' or end of input, got 'b'",
-    );
+      13,
+    ]);
     expect(syntaxError("SELECT 1 ''").message).toBe(
       "expected ';' or end of input, got ''''",
     );
@@ -148,74 +145,46 @@ describe("errors", () => {
 
 describe("SELECT", () => {
   it("reads every clause", () => {
-    const node = select(
-      "SELECT DISTINCT a, count(*) AS n FROM t WHERE a > 1 GROUP BY a HAVING count(*) > 1 ORDER BY n DESC NULLS LAST, a LIMIT 10 OFFSET 5",
+    expect(
+      printed(
+        "SELECT DISTINCT a, count(*) AS n FROM t WHERE a > 1 GROUP BY a HAVING count(*) > 1 ORDER BY n DESC NULLS LAST, a LIMIT 10 OFFSET 5",
+      ),
+    ).toBe(
+      "(SELECT DISTINCT a, (count *) AS n FROM t WHERE (> a 1) GROUP BY a HAVING (> (count *) 1)) ORDER BY n DESC NULLS_LAST, a LIMIT 10 OFFSET 5",
     );
-    expect(node.selectList.map((item) => render(item))).toEqual([
-      "a",
-      "(count *) AS n",
-    ]);
-    expect(renderOptional(node.whereClause)).toBe("(> a 1)");
-    expect(node.groups.groupExpressions.map((group) => render(group))).toEqual([
-      "a",
-    ]);
-    expect(renderOptional(node.having)).toBe("(> (count *) 1)");
-    expect(node.modifiers.map((modifier) => modifier.type)).toEqual([
-      ResultModifierType.DISTINCT_MODIFIER,
-      ResultModifierType.ORDER_MODIFIER,
-      ResultModifierType.LIMIT_MODIFIER,
-    ]);
   });
 
   it("leaves the NULL order open unless the query says", () => {
-    const order = select(
-      "SELECT a FROM t ORDER BY a, b DESC, c NULLS FIRST, d ASC NULLS LAST",
-    ).modifiers.find(
-      (modifier) => modifier.type === ResultModifierType.ORDER_MODIFIER,
-    );
     expect(
-      order?.type === ResultModifierType.ORDER_MODIFIER &&
-        order.orders.map((item) => [item.type, item.nullOrder]),
-    ).toEqual([
-      [OrderType.ASCENDING, null],
-      [OrderType.DESCENDING, null],
-      [OrderType.ASCENDING, OrderByNullType.NULLS_FIRST],
-      [OrderType.ASCENDING, OrderByNullType.NULLS_LAST],
-    ]);
+      printed(
+        "SELECT a FROM t ORDER BY a, b DESC, c NULLS FIRST, d ASC NULLS LAST",
+      ),
+    ).toBe("(SELECT a FROM t) ORDER BY a, b DESC, c NULLS_FIRST, d NULLS_LAST");
   });
 
   it.each([
-    ["LIMIT 10", "10", null],
-    ["LIMIT 10 OFFSET 5", "10", "5"],
-    ["LIMIT 5, 10", "10", "5"],
-    ["OFFSET 5", null, "5"],
-    ["OFFSET 5 LIMIT 10", "10", "5"],
-    ["LIMIT -1", "-1", null],
-  ])("reads %s", (clause, limit, offset) => {
-    const modifier = select(`SELECT a FROM t ${clause}`).modifiers.at(-1);
-    if (modifier?.type !== ResultModifierType.LIMIT_MODIFIER) {
-      throw new Error("no LIMIT");
-    }
-    expect([
-      renderOptional(modifier.limit),
-      renderOptional(modifier.offset),
-    ]).toEqual([limit, offset]);
+    ["LIMIT 10", "LIMIT 10"],
+    ["LIMIT 10 OFFSET 5", "LIMIT 10 OFFSET 5"],
+    ["LIMIT 5, 10", "LIMIT 10 OFFSET 5"],
+    ["OFFSET 5", "OFFSET 5"],
+    ["OFFSET 5 LIMIT 10", "LIMIT 10 OFFSET 5"],
+    ["LIMIT -1", "LIMIT -1"],
+  ])("reads %s", (clause, limit) => {
+    expect(printed(`SELECT a FROM t ${clause}`)).toBe(
+      `(SELECT a FROM t) ${limit}`,
+    );
   });
 
   it("reads * and t.* only as whole items", () => {
-    expect(
-      select('SELECT *, t.*, "order".* FROM t').selectList.map((item) =>
-        render(item),
-      ),
-    ).toEqual(["*", "t.*", "order.*"]);
+    expect(printed('SELECT *, t.*, "order".* FROM t')).toBe(
+      "(SELECT *, t.*, order.* FROM t)",
+    );
   });
 
   it("takes only plain identifiers as bare aliases", () => {
-    expect(
-      select('SELECT a b, c "d e", f AS key FROM t').selectList.map((item) =>
-        render(item),
-      ),
-    ).toEqual(["a AS b", "c AS d e", "f AS key"]);
+    expect(printed('SELECT a b, c "d e", f AS key FROM t')).toBe(
+      "(SELECT a AS b, c AS d e, f AS key FROM t)",
+    );
     expect(syntaxError("SELECT a key FROM t").message).toBe(
       "expected ';' or end of input, got 'key'",
     );
@@ -236,17 +205,18 @@ describe("FROM", () => {
     ["SELECT * FROM a, b USING (i)", "(INNER a b USING i)"],
     ["SELECT * FROM a JOIN b", "(INNER a b)"],
     ["SELECT * FROM a INNER JOIN b USING (i, j)", "(INNER a b USING i,j)"],
+    ["SELECT * FROM a LEFT JOIN b", "(LEFT a b)"],
     [
       "SELECT * FROM a LEFT OUTER JOIN b ON a.i = b.i",
       "(LEFT a b ON (= a.i b.i))",
     ],
-    ["SELECT * FROM a RIGHT JOIN b ON TRUE", "(RIGHT a b ON TRUE)"],
+    ["SELECT * FROM a RIGHT OUTER JOIN b ON TRUE", "(RIGHT a b ON TRUE)"],
     [
       "SELECT * FROM left JOIN right ON left.i = right.i",
       "(INNER left right ON (= left.i right.i))",
     ],
-    ["SELECT * FROM (SELECT 1) AS s", "(<query>) AS s"],
-    ["SELECT * FROM (SELECT 1) s", "(<query>) AS s"],
+    ["SELECT * FROM (SELECT 1) AS s", "{(SELECT 1)} AS s"],
+    ["SELECT * FROM (SELECT 1) s", "{(SELECT 1)} AS s"],
     ['SELECT * FROM "order" o', "order AS o"],
     ["SELECT * FROM t AS index", "t AS index"],
   ])("%s", (sql, tree) => {
@@ -272,31 +242,21 @@ describe("FROM", () => {
     ["SELECT * FROM ((SELECT 1))", "parentheses around a FROM item"],
     ["SELECT * FROM (VALUES (1))", "VALUES as a query"],
     ["SELECT * FROM t INDEXED BY i", "INDEXED BY"],
+    ["SELECT * FROM t NOT INDEXED", "INDEXED BY"],
   ])("does not support %s", (sql, feature) => {
     expect(notSupported(sql).feature).toBe(feature);
   });
 });
 
 describe("compound queries and WITH", () => {
-  it("chains compound operators left to right", () => {
-    const { node } = query(
-      "SELECT 1 UNION ALL SELECT 2 INTERSECT SELECT 3 EXCEPT SELECT 4 ORDER BY 1 LIMIT 2",
+  it("chains compound operators left to right; ORDER BY and LIMIT end it", () => {
+    expect(
+      printed(
+        "SELECT 1 UNION ALL SELECT 2 INTERSECT SELECT 3 EXCEPT SELECT DISTINCT 4 ORDER BY 1 LIMIT 2",
+      ),
+    ).toBe(
+      "(EXCEPT (INTERSECT (UNION_ALL (SELECT 1) (SELECT 2)) (SELECT 3)) (SELECT DISTINCT 4)) ORDER BY 1 LIMIT 2",
     );
-    const types: string[] = [];
-    let current = node;
-    while (current.type === "SET_OPERATION_NODE") {
-      types.push(current.setOperationType);
-      current = current.left;
-    }
-    expect(types).toEqual([
-      SetOperationType.EXCEPT,
-      SetOperationType.INTERSECT,
-      SetOperationType.UNION_ALL,
-    ]);
-    expect(node.modifiers.map((modifier) => modifier.type)).toEqual([
-      ResultModifierType.ORDER_MODIFIER,
-      ResultModifierType.LIMIT_MODIFIER,
-    ]);
   });
 
   it("does not support INTERSECT ALL and EXCEPT ALL", () => {
@@ -308,29 +268,24 @@ describe("compound queries and WITH", () => {
     );
   });
 
-  it("attaches WITH to the outermost query, in the order written", () => {
-    const { node } = query(
-      "WITH RECURSIVE a(x) AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a UNION SELECT * FROM b",
-    );
-    expect(node.cteMap.recursive).toBe(true);
-    expect(node.cteMap.ctes.map((cte) => [cte.name, cte.aliases])).toEqual([
-      ["a", ["x"]],
-      ["b", []],
-    ]);
-    expect(node.type === "SET_OPERATION_NODE" && node.left.cteMap.ctes).toEqual(
-      [],
+  it("puts WITH on the whole query, its CTEs in the order written", () => {
+    expect(
+      printed(
+        "WITH RECURSIVE a(x) AS (SELECT 1), b AS (SELECT 2 LIMIT 1) SELECT * FROM a UNION SELECT * FROM b",
+      ),
+    ).toBe(
+      "WITH RECURSIVE a(x) AS {(SELECT 1)}, b AS {(SELECT 2) LIMIT 1} (UNION (SELECT * FROM a) (SELECT * FROM b))",
     );
   });
 
   it("keeps a CTE named like a keyword", () => {
-    const { node } = query(
-      "WITH recursive AS (SELECT 1), __proto__ AS (SELECT 2) SELECT * FROM recursive",
+    expect(
+      printed(
+        "WITH recursive AS (SELECT 1), __proto__ AS (SELECT 2) SELECT * FROM recursive",
+      ),
+    ).toBe(
+      "WITH recursive AS {(SELECT 1)}, __proto__ AS {(SELECT 2)} (SELECT * FROM recursive)",
     );
-    expect(node.cteMap.recursive).toBe(false);
-    expect(node.cteMap.ctes.map((cte) => cte.name)).toEqual([
-      "recursive",
-      "__proto__",
-    ]);
   });
 
   it("does not support MATERIALIZED hints", () => {
@@ -360,59 +315,59 @@ describe("compound queries and WITH", () => {
 
 describe("INSERT, UPDATE, DELETE", () => {
   it("reads INSERT … VALUES with ON CONFLICT", () => {
-    const statement = only(
+    const statement = statementOf(
       "INSERT INTO t (id, key) VALUES (1, 'a'), (2, -3) ON CONFLICT (id) DO UPDATE SET key = excluded.key WHERE t.id > 0",
+      StatementType.INSERT_STATEMENT,
     );
-    if (statement.type !== StatementType.INSERT_STATEMENT) {
-      throw new Error("not an INSERT");
-    }
     expect(statement.columns).toEqual(["id", "key"]);
+    if (statement.source.type !== "VALUES") throw new Error("not VALUES");
     expect(
-      statement.values.map((row) => row.map((value) => render(value))),
+      statement.source.rows.map((row) => row.map((value) => render(value))),
     ).toEqual([
       ["1", "'a'"],
       ["2", "-3"],
     ]);
     const conflict = statement.onConflict;
-    expect(conflict?.conflictTarget).toEqual(["id"]);
+    expect(conflict?.target).toEqual(["id"]);
+    if (conflict?.action.type !== "UPDATE") throw new Error("not DO UPDATE");
     expect(
-      conflict?.action !== "NOTHING" &&
-        conflict?.action.setClauses.map((clause) => [
-          clause.column,
-          render(clause.value),
-        ]),
+      conflict.action.assignments.map((assignment) => [
+        assignment.column,
+        render(assignment.value),
+      ]),
     ).toEqual([["key", "excluded.key"]]);
+    expect(renderOptional(conflict.action.where)).toBe("(> t.id 0)");
   });
 
   it("reads INSERT … SELECT and DO NOTHING", () => {
-    const statement = only(
+    const statement = statementOf(
       "INSERT INTO t SELECT * FROM s ON CONFLICT DO NOTHING",
+      StatementType.INSERT_STATEMENT,
     );
-    if (statement.type !== StatementType.INSERT_STATEMENT) {
-      throw new Error("not an INSERT");
-    }
-    expect(statement.selectStatement).not.toBeNull();
+    if (statement.source.type !== "SELECT") throw new Error("not SELECT");
+    expect(renderQuery(statement.source.query)).toBe("(SELECT * FROM s)");
     expect(statement.onConflict).toEqual({
-      conflictTarget: null,
-      action: "NOTHING",
+      target: null,
+      action: { type: "NOTHING" },
     });
   });
 
   it("reads UPDATE and DELETE", () => {
-    const update = only("UPDATE t SET a = a + 1, end = 'x' WHERE id = ?");
-    if (update.type !== StatementType.UPDATE_STATEMENT) {
-      throw new Error("not an UPDATE");
-    }
-    expect(update.setClauses.map((clause) => clause.column)).toEqual([
+    const update = statementOf(
+      "UPDATE t SET a = a + 1, end = 'x' WHERE id = ?",
+      StatementType.UPDATE_STATEMENT,
+    );
+    expect(update.assignments.map((assignment) => assignment.column)).toEqual([
       "a",
       "end",
     ]);
-    expect(renderOptional(update.whereClause)).toBe("(= id $1)");
-    const deletion = only("DELETE FROM t");
-    expect(deletion).toEqual({
+    expect(renderOptional(update.where)).toBe("(= id $1)");
+    expect(
+      statementOf("DELETE FROM t", StatementType.DELETE_STATEMENT),
+    ).toEqual({
       type: StatementType.DELETE_STATEMENT,
       table: "t",
-      whereClause: null,
+      where: null,
     });
   });
 
@@ -438,53 +393,56 @@ describe("INSERT, UPDATE, DELETE", () => {
 
 describe("CREATE TABLE", () => {
   it("keeps declared types as written, and allows none", () => {
-    const table = createTable(
-      "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY AUTOINCREMENT, name varchar(255) NOT NULL UNIQUE, price DECIMAL(10, 2), anything, big UNSIGNED BIG INT)",
+    const table = statementOf(
+      "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY AUTOINCREMENT, name varchar(255) NOT NULL UNIQUE, price DECIMAL(10, 2) NULL, anything, big UNSIGNED BIG INT)",
+      StatementType.CREATE_TABLE_STATEMENT,
     );
     expect(table.ifNotExists).toBe(true);
-    expect(table.columns.map((column) => [column.name, column.type])).toEqual([
-      ["id", "INTEGER"],
-      ["name", "varchar(255)"],
-      ["price", "DECIMAL(10, 2)"],
-      ["anything", null],
-      ["big", "UNSIGNED BIG INT"],
+    expect(table.columns.map((column) => renderColumn(column))).toEqual([
+      "id INTEGER PRIMARY KEY AUTOINCREMENT",
+      "name varchar(255) NOT NULL UNIQUE",
+      "price DECIMAL(10, 2) NULL",
+      "anything -",
+      "big UNSIGNED BIG INT",
     ]);
-    expect(table.columns[0]?.isPrimaryKey).toBe(true);
-    expect(table.columns[0]?.isAutoincrement).toBe(true);
-    expect(table.columns[1]?.isNotNull).toBe(true);
-    expect(table.columns[1]?.isUnique).toBe(true);
   });
 
   it("allows non-reserved keywords and quoted names as column names", () => {
-    const table = createTable(
-      'CREATE TABLE t (key TEXT, first TEXT, last TEXT, text TEXT, json JSON, index INT, "default" INT, end INT, "order" INT)',
-    );
-    expect(table.columns.map((column) => column.name)).toEqual([
-      "key",
-      "first",
-      "last",
-      "text",
-      "json",
-      "index",
-      "default",
-      "end",
-      "order",
+    expect(
+      columns(
+        'CREATE TABLE t (key TEXT, first TEXT, last TEXT, text TEXT, json JSON, index INT, "default" INT, end INT, "order" INT)',
+      ),
+    ).toEqual([
+      "key TEXT",
+      "first TEXT",
+      "last TEXT",
+      "text TEXT",
+      "json JSON",
+      "index INT",
+      "default INT",
+      "end INT",
+      "order INT",
     ]);
-    expect(createTable('CREATE TABLE "order" ("key" TEXT)').table).toBe(
-      "order",
-    );
+    expect(
+      statementOf(
+        'CREATE TABLE "order" ("key" TEXT)',
+        StatementType.CREATE_TABLE_STATEMENT,
+      ).table,
+    ).toBe("order");
   });
 
   it("reads DEFAULT as an expression, with the sign folded", () => {
-    const table = createTable(
-      "CREATE TABLE t (a INT DEFAULT -1 NOT NULL, b TEXT DEFAULT 'x' || 'y', c INT DEFAULT (1 = 1), d REAL DEFAULT +2.5, e INT DEFAULT NULL)",
-    );
     expect(
-      table.columns.map((column) =>
-        column.defaultValue === null ? "-" : render(column.defaultValue),
+      columns(
+        "CREATE TABLE t (a INT DEFAULT -1 NOT NULL, b TEXT DEFAULT 'x' || 'y', c INT DEFAULT (1 = 1), d REAL DEFAULT +2.5, e INT DEFAULT NULL)",
       ),
-    ).toEqual(["-1", "(|| 'x' 'y')", "(= 1 1)", "real(2.5)", "NULL"]);
-    expect(table.columns[0]?.isNotNull).toBe(true);
+    ).toEqual([
+      "a INT DEFAULT -1 NOT NULL",
+      "b TEXT DEFAULT (|| 'x' 'y')",
+      "c INT DEFAULT (= 1 1)",
+      "d REAL DEFAULT real(2.5)",
+      "e INT DEFAULT NULL",
+    ]);
   });
 
   it("does not let DEFAULT take a NOT NULL constraint as its value", () => {
@@ -494,22 +452,22 @@ describe("CREATE TABLE", () => {
   });
 
   it("does not read non-ASCII look-alikes as keywords", () => {
-    expect(createTable("CREATE TABLE ıs (ſelect INT)").columns[0]?.name).toBe(
-      "ſelect",
-    );
+    expect(columns("CREATE TABLE ıs (ſelect INT)")).toEqual(["ſelect INT"]);
     expect(syntaxError("ſelect 1").message).toBe(
       "expected a statement, got 'ſelect'",
     );
   });
 
-  it("reads a table PRIMARY KEY, once", () => {
-    expect(
-      createTable("CREATE TABLE t (a INT, b INT, PRIMARY KEY (a, b))")
-        .primaryKey,
-    ).toEqual(["a", "b"]);
-    expect(() =>
-      parse("CREATE TABLE t (a INT, PRIMARY KEY (a), PRIMARY KEY (a))"),
-    ).toThrow("more than one PRIMARY KEY");
+  it("keeps every PRIMARY KEY as written, for the binder to count", () => {
+    const table = statementOf(
+      "CREATE TABLE t (a INT PRIMARY KEY PRIMARY KEY, b INT, PRIMARY KEY (a, b), PRIMARY KEY (b))",
+      StatementType.CREATE_TABLE_STATEMENT,
+    );
+    expect(table.columns.map((column) => renderColumn(column))).toEqual([
+      "a INT PRIMARY KEY PRIMARY KEY",
+      "b INT",
+    ]);
+    expect(table.primaryKeys).toEqual([["a", "b"], ["b"]]);
   });
 
   it.each([
@@ -533,6 +491,7 @@ describe("CREATE TABLE", () => {
     ],
     ["CREATE TABLE t (a INT DEFAULT CURRENT_TIMESTAMP)", "CURRENT_TIMESTAMP"],
     ["CREATE TABLE t (a INT GENERATED ALWAYS AS (1))", "a generated column"],
+    ["CREATE TABLE t (a INT AS (1))", "a generated column"],
     ["CREATE TABLE t (a INT) WITHOUT ROWID", "WITHOUT ROWID"],
     ["CREATE TABLE t (a INT) STRICT", "STRICT"],
     ['CREATE TABLE t (a "INTEGER")', "a quoted type name"],
@@ -542,19 +501,30 @@ describe("CREATE TABLE", () => {
   ])("does not support %s", (sql, feature) => {
     expect(notSupported(sql).feature).toBe(feature);
   });
+
+  it("reads PRIMARY KEY (…) AS as a syntax error, not a generated column", () => {
+    expect(
+      syntaxError("CREATE TABLE t (a INT, PRIMARY KEY (a) AS)").message,
+    ).toBe("expected ')', got 'AS'");
+  });
 });
 
 describe("other DDL", () => {
   it("reads CREATE INDEX", () => {
-    expect(
-      only("CREATE UNIQUE INDEX IF NOT EXISTS i ON t (a, lower(b))"),
-    ).toMatchObject({
-      type: StatementType.CREATE_INDEX_STATEMENT,
-      indexName: "i",
-      tableName: "t",
+    const index = statementOf(
+      "CREATE UNIQUE INDEX IF NOT EXISTS i ON t (a, lower(b))",
+      StatementType.CREATE_INDEX_STATEMENT,
+    );
+    expect(index).toMatchObject({
+      name: "i",
+      table: "t",
       isUnique: true,
       ifNotExists: true,
     });
+    expect(index.expressions.map((part) => render(part))).toEqual([
+      "a",
+      "(lower b)",
+    ]);
     expect(notSupported("CREATE INDEX i ON t (a) WHERE a > 0").feature).toBe(
       "a partial index",
     );
@@ -564,25 +534,30 @@ describe("other DDL", () => {
   });
 
   it("reads ALTER TABLE", () => {
-    expect(only("ALTER TABLE t ADD COLUMN key TEXT DEFAULT ''")).toMatchObject({
-      alterType: AlterType.ADD_COLUMN,
-      columnDefinition: { name: "key", type: "TEXT" },
-      columnName: null,
-    });
-    expect(only("ALTER TABLE t DROP first")).toMatchObject({
-      alterType: AlterType.DROP_COLUMN,
-      columnDefinition: null,
-      columnName: "first",
-    });
+    const add = statementOf(
+      "ALTER TABLE t ADD COLUMN key TEXT DEFAULT ''",
+      StatementType.ALTER_TABLE_STATEMENT,
+    );
+    if (add.alterType !== AlterType.ADD_COLUMN) throw new Error("not ADD");
+    expect(renderColumn(add.column)).toBe("key TEXT DEFAULT ''");
+    expect(
+      statementOf(
+        "ALTER TABLE t DROP first",
+        StatementType.ALTER_TABLE_STATEMENT,
+      ),
+    ).toMatchObject({ alterType: AlterType.DROP_COLUMN, columnName: "first" });
     expect(notSupported("ALTER TABLE t RENAME TO u").feature).toBe(
       "ALTER TABLE … RENAME",
     );
   });
 
   it("always reads COLUMN after ADD and DROP as the keyword", () => {
-    expect(only("ALTER TABLE t ADD column INT")).toMatchObject({
-      columnDefinition: { name: "INT", type: null },
-    });
+    const add = statementOf(
+      "ALTER TABLE t ADD column INT",
+      StatementType.ALTER_TABLE_STATEMENT,
+    );
+    if (add.alterType !== AlterType.ADD_COLUMN) throw new Error("not ADD");
+    expect(renderColumn(add.column)).toBe("INT -");
     expect(syntaxError("ALTER TABLE t ADD COLUMN").message).toBe(
       "expected a column name, got end of input",
     );
@@ -595,48 +570,43 @@ describe("other DDL", () => {
   });
 
   it("reads DROP", () => {
-    expect(only("DROP TABLE IF EXISTS t")).toEqual({
+    expect(
+      statementOf("DROP TABLE IF EXISTS t", StatementType.DROP_STATEMENT),
+    ).toEqual({
       type: StatementType.DROP_STATEMENT,
       dropType: DropType.TABLE,
       name: "t",
       ifExists: true,
     });
-    expect(only("DROP INDEX if")).toMatchObject({
-      name: "if",
-      ifExists: false,
-    });
+    expect(
+      statementOf("DROP INDEX if", StatementType.DROP_STATEMENT),
+    ).toMatchObject({ dropType: DropType.INDEX, name: "if", ifExists: false });
     expect(notSupported("DROP VIEW v").feature).toBe("DROP VIEW");
   });
 });
 
 describe("transactions and EXPLAIN", () => {
-  const begin = (mode: BeginMode): TransactionStatement => ({
-    type: StatementType.TRANSACTION_STATEMENT,
-    transactionType: TransactionType.BEGIN,
-    mode,
-  });
-  const end = (
-    transactionType: TransactionType.COMMIT | TransactionType.ROLLBACK,
-  ): TransactionStatement => ({
-    type: StatementType.TRANSACTION_STATEMENT,
-    transactionType,
-  });
-
   it.each<[string, TransactionStatement]>([
     ["BEGIN", begin("DEFERRED")],
     ["BEGIN TRANSACTION", begin("DEFERRED")],
     ["BEGIN DEFERRED", begin("DEFERRED")],
     ["BEGIN IMMEDIATE TRANSACTION", begin("IMMEDIATE")],
-    ["COMMIT", end(TransactionType.COMMIT)],
-    ["END TRANSACTION", end(TransactionType.COMMIT)],
-    ["ROLLBACK", end(TransactionType.ROLLBACK)],
+    ["COMMIT", transactionEnd(TransactionType.COMMIT)],
+    ["END TRANSACTION", transactionEnd(TransactionType.COMMIT)],
+    ["ROLLBACK", transactionEnd(TransactionType.ROLLBACK)],
+    ["ROLLBACK TRANSACTION", transactionEnd(TransactionType.ROLLBACK)],
   ])("%s", (sql, expected) => {
-    expect(only(sql)).toEqual(expected);
+    expect(statementOf(sql, StatementType.TRANSACTION_STATEMENT)).toEqual(
+      expected,
+    );
   });
 
   it("wraps a statement in EXPLAIN", () => {
-    const statement: Statement = only("EXPLAIN SELECT 1");
-    expect(statement.type).toBe(StatementType.EXPLAIN_STATEMENT);
+    const explain = statementOf(
+      "EXPLAIN SELECT 1",
+      StatementType.EXPLAIN_STATEMENT,
+    );
+    expect(explain.statement.type).toBe(StatementType.SELECT_STATEMENT);
     expect(syntaxError("EXPLAIN EXPLAIN SELECT 1").message).toBe(
       "expected a statement to explain, got 'EXPLAIN'",
     );
@@ -646,38 +616,15 @@ describe("transactions and EXPLAIN", () => {
     ["BEGIN EXCLUSIVE", "BEGIN EXCLUSIVE"],
     ["BEGIN TRANSACTION t1", "a transaction name"],
     ["COMMIT TRANSACTION t1", "a transaction name"],
+    ["ROLLBACK TRANSACTION t1", "a transaction name"],
     ["ROLLBACK TRANSACTION TO s", "ROLLBACK TO"],
     ["ROLLBACK TO s", "ROLLBACK TO"],
     ["SAVEPOINT s", "the SAVEPOINT statement"],
     ["PRAGMA table_info(t)", "the PRAGMA statement"],
     ["VACUUM", "the VACUUM statement"],
-    ["VALUES (1)", "the VALUES statement"],
+    ["VALUES (1)", "VALUES as a query"],
     ["EXPLAIN QUERY PLAN SELECT 1", "EXPLAIN QUERY PLAN"],
   ])("does not support %s", (sql, feature) => {
     expect(notSupported(sql).feature).toBe(feature);
-  });
-});
-
-describe("join types", () => {
-  it("reads every supported join into its JoinType", () => {
-    const types = [
-      "a JOIN b",
-      "a INNER JOIN b",
-      "a LEFT JOIN b",
-      "a RIGHT OUTER JOIN b",
-      "a CROSS JOIN b",
-      "a, b",
-    ].map((clause) => {
-      const table = select(`SELECT * FROM ${clause}`).fromTable;
-      return table?.type === TableReferenceType.JOIN ? table.joinType : null;
-    });
-    expect(types).toEqual([
-      JoinType.INNER,
-      JoinType.INNER,
-      JoinType.LEFT,
-      JoinType.RIGHT,
-      JoinType.CROSS,
-      JoinType.CROSS,
-    ]);
   });
 });

@@ -41,7 +41,7 @@ export class Binder {
     switch (stmt.type) {
       case StatementType.SELECT_STATEMENT: {
         const scope = this.ctx.createScope();
-        return bindQueryNode(this.ctx, stmt.node, scope);
+        return bindQueryNode(this.ctx, stmt, scope);
       }
       case StatementType.INSERT_STATEMENT:
         return bindInsert(this.ctx, stmt as InsertStatement);

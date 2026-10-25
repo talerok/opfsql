@@ -1,7 +1,9 @@
 import type {
   InsertStatement,
+  OnConflictAction,
   OnConflictClause,
-  OnConflictUpdate,
+  ParsedExpression,
+  SelectStatement,
 } from "../../parser/types.js";
 import { getIndexColumns } from "../../../store/index-expression.js";
 import type { BindContext } from "../core/context.js";
@@ -24,10 +26,10 @@ export function bindInsert(
   const columnIndices = resolveColumns(stmt, schema);
 
   let result: BT.LogicalInsert;
-  if (stmt.selectStatement) {
-    result = bindInsertSelect(ctx, stmt, schema, columnIndices);
+  if (stmt.source.type === "SELECT") {
+    result = bindInsertSelect(ctx, stmt.source.query, schema, columnIndices);
   } else {
-    result = bindInsertValues(ctx, stmt, schema, columnIndices);
+    result = bindInsertValues(ctx, stmt.source.rows, schema, columnIndices);
   }
 
   if (stmt.onConflict) {
@@ -58,12 +60,12 @@ function resolveColumns(
 
 function bindInsertSelect(
   ctx: BindContext,
-  stmt: InsertStatement,
+  query: SelectStatement,
   schema: BT.TableSchema,
   columnIndices: number[],
 ): BT.LogicalInsert {
   const scope = ctx.createScope();
-  const selectPlan = bindQueryNode(ctx, stmt.selectStatement!.node, scope);
+  const selectPlan = bindQueryNode(ctx, query, scope);
 
   if (selectPlan.types.length !== columnIndices.length) {
     throw new BindError(
@@ -76,14 +78,14 @@ function bindInsertSelect(
 
 function bindInsertValues(
   ctx: BindContext,
-  stmt: InsertStatement,
+  rows: readonly (readonly ParsedExpression[])[],
   schema: BT.TableSchema,
   columnIndices: number[],
 ): BT.LogicalInsert {
   const scope = ctx.createScope();
   const boundExprs: BT.BoundExpression[] = [];
 
-  for (const row of stmt.values) {
+  for (const row of rows) {
     if (row.length !== columnIndices.length) {
       throw new BindError(
         `INSERT VALUES column count mismatch: expected ${columnIndices.length}, got ${row.length}`,
@@ -105,7 +107,7 @@ function bindOnConflict(
   const conflictColumns = resolveConflictColumns(ctx, clause, schema);
   validateConflictTarget(conflictColumns, schema, ctx);
 
-  if (clause.action === "NOTHING") {
+  if (clause.action.type === "NOTHING") {
     return bindDoNothing(conflictColumns);
   }
   return bindDoUpdate(ctx, clause.action, conflictColumns, schema);
@@ -116,8 +118,8 @@ function resolveConflictColumns(
   clause: OnConflictClause,
   schema: BT.TableSchema,
 ): number[] {
-  if (clause.conflictTarget) {
-    return clause.conflictTarget.map((colName) =>
+  if (clause.target) {
+    return clause.target.map((colName) =>
       findColumnIndexOrThrow(schema, colName),
     );
   }
@@ -159,7 +161,7 @@ function bindDoNothing(conflictColumns: number[]): BT.BoundOnConflict {
 
 function bindDoUpdate(
   ctx: BindContext,
-  action: OnConflictUpdate,
+  action: Extract<OnConflictAction, { type: "UPDATE" }>,
   conflictColumns: number[],
   schema: BT.TableSchema,
 ): BT.BoundOnConflict {
@@ -169,13 +171,13 @@ function bindDoUpdate(
 
   const updateColumns: number[] = [];
   const updateExpressions: BT.BoundExpression[] = [];
-  for (const sc of action.setClauses) {
+  for (const sc of action.assignments) {
     updateColumns.push(findColumnIndexOrThrow(schema, sc.column));
     updateExpressions.push(bindExpression(ctx, sc.value, scope));
   }
 
-  const whereExpression = action.whereClause
-    ? bindExpression(ctx, action.whereClause, scope)
+  const whereExpression = action.where
+    ? bindExpression(ctx, action.where, scope)
     : null;
 
   return {

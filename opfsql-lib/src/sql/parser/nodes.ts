@@ -1,30 +1,25 @@
-// Builders for the syntax nodes more than one grammar file makes.
+// Builders for the expression nodes more than one grammar rule makes.
 
 import {
   ExpressionClass,
   ExpressionType,
   type ComparisonExpression,
+  type ComparisonType,
   type ConstantExpression,
-  type LiteralType,
-  type LiteralValue,
+  type Literal,
   type OperatorExpression,
+  type OperatorType,
   type ParsedExpression,
+  type SelectStatement,
+  type SubqueryExpression,
 } from "./types.js";
 
-export function constantNode(
-  type: LiteralType,
-  value: LiteralValue,
-): ConstantExpression {
-  return {
-    expressionClass: ExpressionClass.CONSTANT,
-    alias: null,
-    type,
-    value,
-  };
+export function constantNode(literal: Literal): ConstantExpression {
+  return { expressionClass: ExpressionClass.CONSTANT, alias: null, ...literal };
 }
 
 export function operatorNode(
-  type: ExpressionType,
+  type: OperatorType,
   children: readonly ParsedExpression[],
 ): OperatorExpression {
   return {
@@ -40,7 +35,7 @@ export function notNode(child: ParsedExpression): OperatorExpression {
 }
 
 export function comparisonNode(
-  type: ExpressionType,
+  type: ComparisonType | ExpressionType.COMPARE_LIKE,
   left: ParsedExpression,
   right: ParsedExpression,
 ): ComparisonExpression {
@@ -50,5 +45,35 @@ export function comparisonNode(
     type,
     left,
     right,
+  };
+}
+
+/** A subquery as a value or an EXISTS test. */
+export function subqueryNode(
+  subqueryType: "SCALAR" | "EXISTS" | "NOT_EXISTS",
+  subquery: SelectStatement,
+): SubqueryExpression {
+  return {
+    expressionClass: ExpressionClass.SUBQUERY,
+    alias: null,
+    subqueryType,
+    subquery,
+  };
+}
+
+/** `child <comparisonType> ANY|ALL (subquery)`. */
+export function quantifiedNode(
+  child: ParsedExpression,
+  comparisonType: ComparisonType,
+  subqueryType: "ANY" | "ALL",
+  subquery: SelectStatement,
+): SubqueryExpression {
+  return {
+    expressionClass: ExpressionClass.SUBQUERY,
+    alias: null,
+    subqueryType,
+    subquery,
+    child,
+    comparisonType,
   };
 }

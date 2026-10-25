@@ -1,24 +1,29 @@
 // ---------------------------------------------------------------------------
 // Expressions, by precedence climbing (a Pratt parser). Each infix operator
-// is a rule with a binding power from precedence.ts; one loop applies them,
-// so a chain like `a + b + c` is parsed iteratively, and the right side of
-// every operator is parsed at the level just above its own. Prefix forms
-// live in primary.ts.
+// is a rule with a binding power from precedence.ts; one chain applies them,
+// so `a + b + c` is parsed iteratively, and the right side of every operator
+// is parsed at the level just above its own. Prefix forms live in primary.ts.
 // ---------------------------------------------------------------------------
 
 import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
-import { comparisonNode, notNode, operatorNode } from "./nodes.js";
+import {
+  comparisonNode,
+  notNode,
+  operatorNode,
+  quantifiedNode,
+} from "./nodes.js";
 import { above, power } from "./precedence.js";
-import { parsePrefix, parseSubquery, startsQuery } from "./primary.js";
+import { parsePrefix } from "./primary.js";
 import type { SymbolText } from "./tokens.js";
 import {
   ExpressionClass,
   ExpressionType,
-  type ConjunctionExpression,
+  type ComparisonType,
+  type ConjunctionType,
+  type OperatorType,
   type ParsedExpression,
-  type SubqueryExpression,
 } from "./types.js";
 
 /** An expression whose operators all bind at least as tightly as `minimum`. */
@@ -27,40 +32,37 @@ export function parseExpression(
   minimum: number,
 ): ParsedExpression {
   cursor.descend();
-  let expression = parsePrefix(cursor);
-  let levels = 1;
-  for (
-    let rule = infixRule(cursor);
-    rule !== undefined && rule.power >= minimum;
-    rule = infixRule(cursor)
-  ) {
-    expression = rule.parse(cursor, expression);
-    // A chain of operators makes a tree as deep as a nesting would.
-    cursor.descend();
-    levels++;
-  }
-  cursor.ascend(levels);
+  const expression = cursor.chain(
+    parsePrefix(cursor),
+    () => infixRuleAt(cursor, minimum),
+    (left, rule) => rule.parse(cursor, left),
+  );
+  cursor.ascend();
   return expression;
 }
 
 interface InfixRule {
   readonly power: number;
-  /** Parses the operator, at the cursor, and its right side. */
+  /** Parses the operator, starting at its first word, and its right side. */
   readonly parse: (cursor: Cursor, left: ParsedExpression) => ParsedExpression;
+}
+
+/** The operator at the cursor, if it binds at least as tightly as `minimum`. */
+function infixRuleAt(cursor: Cursor, minimum: number): InfixRule | undefined {
+  const rule = infixRule(cursor);
+  return rule !== undefined && rule.power >= minimum ? rule : undefined;
 }
 
 function infixRule(cursor: Cursor): InfixRule | undefined {
   const token = cursor.peek();
   if (token.kind === "symbol") return SYMBOL_RULES.get(token.value);
-  if (token.kind !== "keyword") return undefined;
-  if (token.value !== "NOT") return KEYWORD_RULES.get(token.value);
-  const next = cursor.peek(1);
-  return next.kind === "keyword" ? NOT_RULES.get(next.value) : undefined;
+  if (cursor.isKeyword("NOT")) return cursor.lookupKeyword(NOT_RULES, 1);
+  return cursor.lookupKeyword(KEYWORD_RULES);
 }
 
 // --- Binary operators ----------------------------------------------------------
 
-function binary(type: ExpressionType, level: number): InfixRule {
+function binary(type: OperatorType, level: number): InfixRule {
   return {
     power: level,
     parse(cursor, left) {
@@ -71,7 +73,7 @@ function binary(type: ExpressionType, level: number): InfixRule {
 }
 
 /** `a = b`, or a quantified comparison `a = ANY (SELECT …)`. */
-function comparison(type: ExpressionType, level: number): InfixRule {
+function comparison(type: ComparisonType, level: number): InfixRule {
   return {
     power: level,
     parse(cursor, left) {
@@ -81,7 +83,7 @@ function comparison(type: ExpressionType, level: number): InfixRule {
         return comparisonNode(type, left, cursor.expression(above(level)));
       }
       cursor.next();
-      return quantified(left, type, quantifier, parseSubquery(cursor));
+      return quantifiedNode(left, type, quantifier, cursor.subquery());
     },
   };
 }
@@ -90,53 +92,46 @@ function comparison(type: ExpressionType, level: number): InfixRule {
 function quantifierAt(cursor: Cursor): "ANY" | "ALL" | undefined {
   if (!cursor.isSymbol("(", 1)) return undefined;
   if (cursor.isKeyword("ALL")) return "ALL";
-  const token = cursor.peek();
-  const isAny =
-    token.kind === "identifier" && /^(?:any|some)$/i.test(token.value);
+  const isAny = cursor.isWord("ANY") || cursor.isWord("SOME");
   return isAny ? "ANY" : undefined;
-}
-
-function quantified(
-  child: ParsedExpression,
-  comparisonType: ExpressionType,
-  subqueryType: "ANY" | "ALL",
-  subquery: SubqueryExpression["subquery"],
-): SubqueryExpression {
-  return {
-    expressionClass: ExpressionClass.SUBQUERY,
-    alias: null,
-    subqueryType,
-    subquery,
-    child,
-    comparisonType,
-  };
 }
 
 /** `a AND b AND c` as one node with three children. */
 function conjunction(
   keyword: "AND" | "OR",
-  type: ExpressionType,
+  type: ConjunctionType,
   level: number,
 ): InfixRule {
   return {
     power: level,
     parse(cursor, left) {
       const children = [left];
-      while (cursor.matchKeyword(keyword)) {
+      do {
+        cursor.next();
         children.push(cursor.expression(above(level)));
-      }
-      const node: ConjunctionExpression = {
+      } while (cursor.isKeyword(keyword));
+      return {
         expressionClass: ExpressionClass.CONJUNCTION,
         alias: null,
         type,
         children,
       };
-      return node;
     },
   };
 }
 
-function unsupported(feature: string, level: number): InfixRule {
+/** `a ISNULL`, `a NOTNULL`, and NULL in `a NOT NULL`. */
+function postfix(type: OperatorType): InfixRule {
+  return {
+    power: power.equality,
+    parse(cursor, left) {
+      cursor.next();
+      return operatorNode(type, [left]);
+    },
+  };
+}
+
+function unsupportedInfix(feature: string, level: number): InfixRule {
   return {
     power: level,
     parse() {
@@ -145,123 +140,108 @@ function unsupported(feature: string, level: number): InfixRule {
   };
 }
 
-// --- IS, IN, LIKE, BETWEEN and the NULL tests ------------------------------------
-
-/** Skips the operator's words: `IN`, or `NOT` and `IN`. */
-function skipOperator(cursor: Cursor, isNegated: boolean): void {
-  if (isNegated) cursor.next();
-  cursor.next();
-}
+// --- IS, IN, LIKE and BETWEEN ------------------------------------------------------
 
 /** `a IS [NOT] NULL`; IS with any other value is not supported. */
-function parseIs(cursor: Cursor, left: ParsedExpression): ParsedExpression {
-  cursor.next();
-  const isNegated = cursor.matchKeyword("NOT");
-  if (cursor.isKeyword("DISTINCT")) {
-    throw new NotSupportedError("IS [NOT] DISTINCT FROM");
+const NULL_TEST_RULE: InfixRule = {
+  power: power.equality,
+  parse(cursor, left) {
+    cursor.next();
+    const isNegated = cursor.matchKeyword("NOT");
+    cursor.rejectKeyword("DISTINCT", "IS [NOT] DISTINCT FROM");
+    const right = cursor.expression(above(power.equality));
+    const isNull =
+      right.expressionClass === ExpressionClass.CONSTANT &&
+      right.type === "NULL";
+    if (!isNull) throw new NotSupportedError("IS with a value other than NULL");
+    const type = isNegated
+      ? ExpressionType.OPERATOR_IS_NOT_NULL
+      : ExpressionType.OPERATOR_IS_NULL;
+    return operatorNode(type, [left]);
+  },
+};
+
+/** `a IN (list)` or `a IN (SELECT …)`. */
+const IN_RULE: InfixRule = {
+  power: power.equality,
+  parse(cursor, left) {
+    cursor.next();
+    cursor.rejectName("IN with a table name");
+    if (cursor.startsQuery(1)) {
+      const subquery = cursor.subquery();
+      return quantifiedNode(
+        left,
+        ExpressionType.COMPARE_EQUAL,
+        "ANY",
+        subquery,
+      );
+    }
+    cursor.expectSymbol("(");
+    cursor.rejectSymbol(")", "an empty IN list");
+    const values = cursor.list(() => cursor.expression());
+    cursor.expectSymbol(")");
+    return operatorNode(ExpressionType.OPERATOR_IN, [left, ...values]);
+  },
+};
+
+/** `a LIKE pattern`; ESCAPE is not supported. */
+const LIKE_RULE: InfixRule = {
+  power: power.equality,
+  parse(cursor, left) {
+    cursor.next();
+    const pattern = cursor.expression(above(power.equality));
+    cursor.rejectKeyword("ESCAPE", "LIKE … ESCAPE");
+    return comparisonNode(ExpressionType.COMPARE_LIKE, left, pattern);
+  },
+};
+
+/** `a BETWEEN lower AND upper`. */
+const BETWEEN_RULE: InfixRule = {
+  power: power.equality,
+  parse(cursor, left) {
+    cursor.next();
+    // As in SQLite, the lower bound may hold `=`, IS, IN, LIKE, BETWEEN.
+    const lower = cursor.expression(power.equality);
+    cursor.expectKeyword("AND");
+    const upper = cursor.expression(above(power.equality));
+    return {
+      expressionClass: ExpressionClass.BETWEEN,
+      alias: null,
+      input: left,
+      lower,
+      upper,
+    };
+  },
+};
+
+/** `a NOT <rule>`: NOT, then the rule's own words, then NOT around it all. */
+function negated(rule: InfixRule): InfixRule {
+  return {
+    power: rule.power,
+    parse(cursor, left) {
+      cursor.next();
+      return negation(rule.parse(cursor, left));
+    },
+  };
+}
+
+/** NOT around a node; NOT IN and IS NOT NULL are operators of their own. */
+function negation(node: ParsedExpression): ParsedExpression {
+  const isOperator = node.expressionClass === ExpressionClass.OPERATOR;
+  if (isOperator && node.type === ExpressionType.OPERATOR_IN) {
+    return operatorNode(ExpressionType.OPERATOR_NOT_IN, node.children);
   }
-  const right = cursor.expression(above(power.equality));
-  if (
-    right.expressionClass !== ExpressionClass.CONSTANT ||
-    right.type !== "NULL"
-  ) {
-    throw new NotSupportedError("IS with a value other than NULL");
+  if (isOperator && node.type === ExpressionType.OPERATOR_IS_NULL) {
+    return operatorNode(ExpressionType.OPERATOR_IS_NOT_NULL, node.children);
   }
-  return nullTest(left, isNegated);
-}
-
-function nullTest(
-  left: ParsedExpression,
-  isNegated: boolean,
-): ParsedExpression {
-  const type = isNegated
-    ? ExpressionType.OPERATOR_IS_NOT_NULL
-    : ExpressionType.OPERATOR_IS_NULL;
-  return operatorNode(type, [left]);
-}
-
-/** `a ISNULL`, `a NOTNULL`, and `a NOT NULL` (two words). */
-function postfixNullTest(words: number, isNegated: boolean): InfixRule {
-  return {
-    power: power.equality,
-    parse(cursor, left) {
-      for (let word = 0; word < words; word++) cursor.next();
-      return nullTest(left, isNegated);
-    },
-  };
-}
-
-/** `a [NOT] IN (list)` or `a [NOT] IN (SELECT …)`. */
-function inRule(isNegated: boolean): InfixRule {
-  return {
-    power: power.equality,
-    parse(cursor, left) {
-      skipOperator(cursor, isNegated);
-      if (cursor.isSymbol("(") && cursor.isSymbol(")", 1)) {
-        throw new NotSupportedError("an empty IN list");
-      }
-      if (cursor.isName()) throw new NotSupportedError("IN with a table name");
-      if (cursor.isSymbol("(") && startsQuery(cursor, 1)) {
-        const test = quantified(
-          left,
-          ExpressionType.COMPARE_EQUAL,
-          "ANY",
-          parseSubquery(cursor),
-        );
-        return isNegated ? notNode(test) : test;
-      }
-      cursor.expectSymbol("(");
-      const values = cursor.list(() => cursor.expression());
-      cursor.expectSymbol(")");
-      const type = isNegated
-        ? ExpressionType.OPERATOR_NOT_IN
-        : ExpressionType.OPERATOR_IN;
-      return operatorNode(type, [left, ...values]);
-    },
-  };
-}
-
-/** `a [NOT] LIKE pattern`; ESCAPE is not supported. */
-function likeRule(isNegated: boolean): InfixRule {
-  return {
-    power: power.equality,
-    parse(cursor, left) {
-      skipOperator(cursor, isNegated);
-      const pattern = cursor.expression(above(power.equality));
-      if (cursor.isKeyword("ESCAPE")) {
-        throw new NotSupportedError("LIKE … ESCAPE");
-      }
-      const type = isNegated
-        ? ExpressionType.COMPARE_NOT_LIKE
-        : ExpressionType.COMPARE_LIKE;
-      return comparisonNode(type, left, pattern);
-    },
-  };
-}
-
-/** `a [NOT] BETWEEN lower AND upper`. */
-function betweenRule(isNegated: boolean): InfixRule {
-  return {
-    power: power.equality,
-    parse(cursor, left) {
-      skipOperator(cursor, isNegated);
-      // As in SQLite, the lower bound may hold `=`, IS, IN, LIKE, BETWEEN.
-      const lower = cursor.expression(power.equality);
-      cursor.expectKeyword("AND");
-      const upper = cursor.expression(above(power.equality));
-      const between: ParsedExpression = {
-        expressionClass: ExpressionClass.BETWEEN,
-        alias: null,
-        input: left,
-        lower,
-        upper,
-      };
-      return isNegated ? notNode(between) : between;
-    },
-  };
+  return notNode(node);
 }
 
 // --- The tables ----------------------------------------------------------------
+
+const GLOB_RULE = unsupportedInfix("GLOB", power.equality);
+const REGEXP_RULE = unsupportedInfix("REGEXP", power.equality);
+const MATCH_RULE = unsupportedInfix("MATCH", power.equality);
 
 const SYMBOL_RULES: ReadonlyMap<SymbolText, InfixRule> = new Map<
   SymbolText,
@@ -281,18 +261,18 @@ const SYMBOL_RULES: ReadonlyMap<SymbolText, InfixRule> = new Map<
     ">=",
     comparison(ExpressionType.COMPARE_GREATERTHANOREQUALTO, power.relational),
   ],
-  ["&", unsupported("the & operator", power.bitwise)],
-  ["|", unsupported("the | operator", power.bitwise)],
-  ["<<", unsupported("the << operator", power.bitwise)],
-  [">>", unsupported("the >> operator", power.bitwise)],
+  ["&", unsupportedInfix("the & operator", power.bitwise)],
+  ["|", unsupportedInfix("the | operator", power.bitwise)],
+  ["<<", unsupportedInfix("the << operator", power.bitwise)],
+  [">>", unsupportedInfix("the >> operator", power.bitwise)],
   ["+", binary(ExpressionType.OPERATOR_ADD, power.additive)],
   ["-", binary(ExpressionType.OPERATOR_SUBTRACT, power.additive)],
   ["*", binary(ExpressionType.OPERATOR_MULTIPLY, power.multiplicative)],
   ["/", binary(ExpressionType.OPERATOR_DIVIDE, power.multiplicative)],
   ["%", binary(ExpressionType.OPERATOR_MOD, power.multiplicative)],
   ["||", binary(ExpressionType.OPERATOR_CONCAT, power.concatenation)],
-  ["->", unsupported("the -> operator", power.concatenation)],
-  ["->>", unsupported("the ->> operator", power.concatenation)],
+  ["->", unsupportedInfix("the -> operator", power.concatenation)],
+  ["->>", unsupportedInfix("the ->> operator", power.concatenation)],
 ]);
 
 const KEYWORD_RULES: ReadonlyMap<Keyword, InfixRule> = new Map<
@@ -301,25 +281,25 @@ const KEYWORD_RULES: ReadonlyMap<Keyword, InfixRule> = new Map<
 >([
   ["OR", conjunction("OR", ExpressionType.CONJUNCTION_OR, power.or)],
   ["AND", conjunction("AND", ExpressionType.CONJUNCTION_AND, power.and)],
-  ["IS", { power: power.equality, parse: parseIs }],
-  ["IN", inRule(false)],
-  ["LIKE", likeRule(false)],
-  ["BETWEEN", betweenRule(false)],
-  ["ISNULL", postfixNullTest(1, false)],
-  ["NOTNULL", postfixNullTest(1, true)],
-  ["GLOB", unsupported("GLOB", power.equality)],
-  ["REGEXP", unsupported("REGEXP", power.equality)],
-  ["MATCH", unsupported("MATCH", power.equality)],
-  ["COLLATE", unsupported("COLLATE", power.collation)],
+  ["IS", NULL_TEST_RULE],
+  ["IN", IN_RULE],
+  ["LIKE", LIKE_RULE],
+  ["BETWEEN", BETWEEN_RULE],
+  ["ISNULL", postfix(ExpressionType.OPERATOR_IS_NULL)],
+  ["NOTNULL", postfix(ExpressionType.OPERATOR_IS_NOT_NULL)],
+  ["GLOB", GLOB_RULE],
+  ["REGEXP", REGEXP_RULE],
+  ["MATCH", MATCH_RULE],
+  ["COLLATE", unsupportedInfix("COLLATE", power.collation)],
 ]);
 
-/** Operators spelled with NOT before them: `NOT IN`, `NOT NULL`, … */
+/** Operators written with NOT before their own word: `NOT IN`, `NOT NULL`. */
 const NOT_RULES: ReadonlyMap<Keyword, InfixRule> = new Map<Keyword, InfixRule>([
-  ["IN", inRule(true)],
-  ["LIKE", likeRule(true)],
-  ["BETWEEN", betweenRule(true)],
-  ["NULL", postfixNullTest(2, true)],
-  ["GLOB", unsupported("GLOB", power.equality)],
-  ["REGEXP", unsupported("REGEXP", power.equality)],
-  ["MATCH", unsupported("MATCH", power.equality)],
+  ["IN", negated(IN_RULE)],
+  ["LIKE", negated(LIKE_RULE)],
+  ["BETWEEN", negated(BETWEEN_RULE)],
+  ["NULL", negated(postfix(ExpressionType.OPERATOR_IS_NULL))],
+  ["GLOB", GLOB_RULE],
+  ["REGEXP", REGEXP_RULE],
+  ["MATCH", MATCH_RULE],
 ]);

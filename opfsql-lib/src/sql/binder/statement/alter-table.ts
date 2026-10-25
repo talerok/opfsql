@@ -1,8 +1,13 @@
-import type { AlterTableStatement } from "../../parser/types.js";
+import {
+  AlterType,
+  type AlterTableStatement,
+  type ColumnDefinition,
+} from "../../parser/types.js";
 import { getIndexColumns } from "../../../store/index-expression.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
 import { mapTypeName } from "../core/type-map.js";
+import { columnConstraints } from "../core/utils/column-constraints.js";
 import { evalDefaultValue } from "../core/utils/eval-constant.js";
 import { requireTable } from "../core/utils/require-table.js";
 import type * as BT from "../types.js";
@@ -14,9 +19,9 @@ export function bindAlterTable(
 ): BT.LogicalAlterTable {
   const table = requireTable(ctx, stmt.table);
   const action =
-    stmt.alterType === "ADD_COLUMN" && stmt.columnDefinition
-      ? bindAddColumn(stmt.columnDefinition)
-      : bindDropColumn(ctx, stmt.table, stmt.columnName!);
+    stmt.alterType === AlterType.ADD_COLUMN
+      ? bindAddColumn(stmt.column)
+      : bindDropColumn(ctx, stmt.table, stmt.columnName);
 
   return {
     type: LogicalOperatorType.LOGICAL_ALTER_TABLE,
@@ -30,15 +35,14 @@ export function bindAlterTable(
   };
 }
 
-function bindAddColumn(
-  def: NonNullable<AlterTableStatement["columnDefinition"]>,
-): BT.LogicalAlterTable["action"] {
+function bindAddColumn(def: ColumnDefinition): BT.LogicalAlterTable["action"] {
+  const constraints = columnConstraints(def);
   // A table's primary key, and with it how its rows are keyed, is fixed
   // when the table is created.
-  if (def.isPrimaryKey) {
+  if (constraints.primaryKeyCount > 0) {
     throw new BindError(`Cannot add a PRIMARY KEY column`);
   }
-  if (def.isAutoincrement) {
+  if (constraints.isAutoincrement) {
     throw new BindError(`AUTOINCREMENT is only allowed on PRIMARY KEY columns`);
   }
 
@@ -47,12 +51,12 @@ function bindAddColumn(
     column: {
       name: def.name,
       type: mapTypeName(def.type),
-      nullable: !def.isNotNull,
+      nullable: !constraints.isNotNull,
       primaryKey: false,
-      unique: def.isUnique,
+      unique: constraints.isUnique,
       autoIncrement: false,
-      defaultValue: def.defaultValue
-        ? evalDefaultValue(def.name, def.defaultValue)
+      defaultValue: constraints.defaultValue
+        ? evalDefaultValue(def.name, constraints.defaultValue)
         : null,
     },
   };

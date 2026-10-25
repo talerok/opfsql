@@ -160,6 +160,41 @@ describe("CREATE TABLE", () => {
     );
   });
 
+  it.each([
+    "CREATE TABLE t (a INT PRIMARY KEY, b INT PRIMARY KEY)",
+    "CREATE TABLE t (a INT PRIMARY KEY, b INT, PRIMARY KEY (b))",
+    "CREATE TABLE t (a INT PRIMARY KEY PRIMARY KEY)",
+    "CREATE TABLE t (a INT, b INT, PRIMARY KEY (a), PRIMARY KEY (b))",
+  ])("refuses a second primary key, as SQLite does: %s", (sql) => {
+    expect(() => bind(sql)).toThrow(
+      new SemanticError('table "t" has more than one primary key'),
+    );
+  });
+
+  it("takes one primary key over several columns", () => {
+    expect(
+      columns(
+        "CREATE TABLE t (a INTEGER, b INTEGER, c INTEGER, PRIMARY KEY (a, b))",
+      ).map((column) => column[0]),
+    ).toEqual(["a", "b", "c"]);
+    const plan = bind(
+      "CREATE TABLE t (a INTEGER, b INTEGER, c INTEGER, PRIMARY KEY (a, b))",
+    ) as LogicalCreateTable;
+    expect(plan.schema.columns.map((column) => column.primaryKey)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("uses the last of several DEFAULTs, as SQLite does", () => {
+    expect(
+      columns("CREATE TABLE t (a INTEGER DEFAULT 1 DEFAULT 2)").map(
+        (column) => column[2],
+      ),
+    ).toEqual([2]);
+  });
+
   it("stores constant defaults, signs included", () => {
     expect(
       columns(

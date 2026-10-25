@@ -1,131 +1,106 @@
 // INSERT, UPDATE and DELETE.
 
-import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
-import { parseTableName } from "./from-clause.js";
-import { startsQuery } from "./primary.js";
 import {
   StatementType,
+  type Assignment,
   type DeleteStatement,
+  type InsertSource,
   type InsertStatement,
+  type OnConflictAction,
   type OnConflictClause,
   type ParsedExpression,
-  type SelectStatement,
-  type UpdateSetClause,
   type UpdateStatement,
 } from "./types.js";
 
 export function parseInsert(cursor: Cursor): InsertStatement {
   cursor.next();
-  if (cursor.isKeyword("OR")) throw new NotSupportedError("INSERT OR …");
+  cursor.rejectKeyword("OR", "INSERT OR …");
   cursor.expectKeyword("INTO");
-  const table = parseTableName(cursor);
-  rejectAlias(cursor, "INSERT");
+  const table = cursor.objectName("a table name");
+  cursor.rejectKeyword("AS", "a table alias in INSERT");
   const columns = cursor.isSymbol("(") ? cursor.nameList("a column name") : [];
-  const { values, selectStatement } = parseInsertSource(cursor);
+  const source = parseInsertSource(cursor);
   const onConflict = cursor.isKeyword("ON") ? parseOnConflict(cursor) : null;
-  rejectReturning(cursor);
+  cursor.rejectKeyword("RETURNING", "RETURNING");
   return {
     type: StatementType.INSERT_STATEMENT,
     table,
     columns,
-    values,
-    selectStatement,
+    source,
     onConflict,
   };
 }
 
-function parseInsertSource(cursor: Cursor): {
-  values: readonly (readonly ParsedExpression[])[];
-  selectStatement: SelectStatement | null;
-} {
-  if (startsQuery(cursor))
-    return { values: [], selectStatement: cursor.query() };
-  if (cursor.isKeyword("DEFAULT")) {
-    throw new NotSupportedError("DEFAULT VALUES");
+/** `VALUES (…), …` or a query. */
+function parseInsertSource(cursor: Cursor): InsertSource {
+  if (cursor.matchKeyword("VALUES")) {
+    return { type: "VALUES", rows: cursor.list(() => parseRow(cursor)) };
   }
-  if (!cursor.matchKeyword("VALUES")) cursor.fail("VALUES or SELECT");
-  const values = cursor.list(() => {
-    cursor.expectSymbol("(");
-    const row = cursor.list(() => cursor.expression());
-    cursor.expectSymbol(")");
-    return row;
-  });
-  return { values, selectStatement: null };
+  cursor.rejectKeyword("DEFAULT", "DEFAULT VALUES");
+  if (!cursor.startsQuery()) cursor.fail("VALUES or SELECT");
+  return { type: "SELECT", query: cursor.query() };
+}
+
+/** `( value, … )` */
+function parseRow(cursor: Cursor): readonly ParsedExpression[] {
+  cursor.expectSymbol("(");
+  const row = cursor.list(() => cursor.expression());
+  cursor.expectSymbol(")");
+  return row;
 }
 
 /** `ON CONFLICT [(columns)] DO NOTHING | DO UPDATE SET … [WHERE …]`. */
 function parseOnConflict(cursor: Cursor): OnConflictClause {
   cursor.next();
   cursor.expectKeyword("CONFLICT");
-  const conflictTarget = cursor.isSymbol("(")
-    ? cursor.nameList("a column name")
-    : null;
-  if (cursor.isKeyword("WHERE")) {
-    throw new NotSupportedError("ON CONFLICT … WHERE");
-  }
+  const target = cursor.isSymbol("(") ? cursor.nameList("a column name") : null;
+  cursor.rejectKeyword("WHERE", "ON CONFLICT … WHERE");
   cursor.expectKeyword("DO");
-  if (cursor.matchKeyword("NOTHING"))
-    return { conflictTarget, action: "NOTHING" };
+  return { target, action: parseConflictAction(cursor) };
+}
+
+function parseConflictAction(cursor: Cursor): OnConflictAction {
+  if (cursor.matchKeyword("NOTHING")) return { type: "NOTHING" };
   if (!cursor.matchKeyword("UPDATE")) cursor.fail("NOTHING or UPDATE");
   cursor.expectKeyword("SET");
   const assignments = parseAssignments(cursor);
-  const whereClause = cursor.matchKeyword("WHERE") ? cursor.expression() : null;
   return {
-    conflictTarget,
-    action: { type: "UPDATE", setClauses: assignments, whereClause },
+    type: "UPDATE",
+    assignments,
+    where: cursor.expressionAfter("WHERE"),
   };
 }
 
 export function parseUpdate(cursor: Cursor): UpdateStatement {
   cursor.next();
-  if (cursor.isKeyword("OR")) throw new NotSupportedError("UPDATE OR …");
-  const table = parseTableName(cursor);
-  rejectAlias(cursor, "UPDATE");
+  cursor.rejectKeyword("OR", "UPDATE OR …");
+  const table = cursor.objectName("a table name");
+  cursor.rejectKeyword("AS", "a table alias in UPDATE");
   cursor.expectKeyword("SET");
   const assignments = parseAssignments(cursor);
-  if (cursor.isKeyword("FROM")) throw new NotSupportedError("UPDATE … FROM");
-  const whereClause = cursor.matchKeyword("WHERE") ? cursor.expression() : null;
-  rejectReturning(cursor);
-  return {
-    type: StatementType.UPDATE_STATEMENT,
-    table,
-    setClauses: assignments,
-    whereClause,
-  };
+  cursor.rejectKeyword("FROM", "UPDATE … FROM");
+  const where = cursor.expressionAfter("WHERE");
+  cursor.rejectKeyword("RETURNING", "RETURNING");
+  return { type: StatementType.UPDATE_STATEMENT, table, assignments, where };
 }
 
 export function parseDelete(cursor: Cursor): DeleteStatement {
   cursor.next();
   cursor.expectKeyword("FROM");
-  const table = parseTableName(cursor);
-  rejectAlias(cursor, "DELETE");
-  const whereClause = cursor.matchKeyword("WHERE") ? cursor.expression() : null;
-  rejectReturning(cursor);
-  return { type: StatementType.DELETE_STATEMENT, table, whereClause };
+  const table = cursor.objectName("a table name");
+  cursor.rejectKeyword("AS", "a table alias in DELETE");
+  const where = cursor.expressionAfter("WHERE");
+  cursor.rejectKeyword("RETURNING", "RETURNING");
+  return { type: StatementType.DELETE_STATEMENT, table, where };
 }
 
 /** `column = value, …` */
-function parseAssignments(cursor: Cursor): readonly UpdateSetClause[] {
+function parseAssignments(cursor: Cursor): readonly Assignment[] {
   return cursor.list(() => {
-    if (cursor.isSymbol("(")) {
-      throw new NotSupportedError("assigning to a list of columns");
-    }
+    cursor.rejectSymbol("(", "assigning to a list of columns");
     const column = cursor.name("a column name");
     cursor.expectSymbol("=");
     return { column, value: cursor.expression() };
   });
-}
-
-function rejectAlias(
-  cursor: Cursor,
-  statement: "INSERT" | "UPDATE" | "DELETE",
-): void {
-  if (cursor.isKeyword("AS")) {
-    throw new NotSupportedError(`a table alias in ${statement}`);
-  }
-}
-
-function rejectReturning(cursor: Cursor): void {
-  if (cursor.isKeyword("RETURNING")) throw new NotSupportedError("RETURNING");
 }

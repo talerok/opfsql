@@ -985,7 +985,7 @@
   },
   "src/sql/binder/expression/column-ref.ts": {
     "@typescript-eslint/strict-boolean-expressions": {
-      "count": 3
+      "count": 2
     },
     "max-lines-per-function": {
       "count": 1
@@ -1087,9 +1087,6 @@
     }
   },
   "src/sql/binder/expression/subquery.ts": {
-    "@typescript-eslint/strict-boolean-expressions": {
-      "count": 2
-    },
     "import-x/no-cycle": {
       "count": 1
     },
@@ -1124,17 +1121,11 @@
     }
   },
   "src/sql/binder/statement/alter-table.ts": {
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-enum-comparison": {
-      "count": 1
-    },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     },
     "@typescript-eslint/strict-boolean-expressions": {
-      "count": 2
+      "count": 1
     },
     "sonarjs/no-dead-store": {
       "count": 1
@@ -1178,9 +1169,6 @@
     }
   },
   "src/sql/binder/statement/cte.ts": {
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
     },
@@ -1200,7 +1188,7 @@
       "count": 1
     },
     "unicorn/name-replacements": {
-      "count": 9
+      "count": 8
     },
     "unicorn/no-non-function-verb-prefix": {
       "count": 1
@@ -1229,9 +1217,6 @@
     }
   },
   "src/sql/binder/statement/insert.ts": {
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/require-array-sort-compare": {
       "count": 2
     },
@@ -1239,7 +1224,7 @@
       "count": 4
     },
     "@typescript-eslint/strict-boolean-expressions": {
-      "count": 5
+      "count": 4
     },
     "sonarjs/no-alphabetical-sort": {
       "count": 2
@@ -1248,7 +1233,7 @@
       "count": 1
     },
     "unicorn/name-replacements": {
-      "count": 22
+      "count": 20
     },
     "unicorn/no-array-callback-reference": {
       "count": 2
@@ -1263,9 +1248,6 @@
   "src/sql/binder/statement/query-node.ts": {
     "import-x/no-cycle": {
       "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 1
     }
   },
   "src/sql/binder/statement/select.ts": {
@@ -1291,10 +1273,7 @@
       "count": 1
     },
     "unicorn/name-replacements": {
-      "count": 30
-    },
-    "unicorn/no-break-in-nested-loop": {
-      "count": 3
+      "count": 29
     },
     "unicorn/no-for-loop": {
       "count": 1
@@ -1304,9 +1283,6 @@
     },
     "unicorn/no-negated-condition": {
       "count": 2
-    },
-    "unicorn/switch-case-braces": {
-      "count": 3
     }
   },
   "src/sql/binder/statement/set-operation.ts": {
@@ -1316,29 +1292,17 @@
     "@typescript-eslint/restrict-template-expressions": {
       "count": 2
     },
-    "@typescript-eslint/switch-exhaustiveness-check": {
-      "count": 1
-    },
     "import-x/no-cycle": {
       "count": 1
     },
     "max-lines-per-function": {
       "count": 1
     },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
-      "count": 7
-    },
-    "unicorn/no-break-in-nested-loop": {
-      "count": 2
+      "count": 6
     },
     "unicorn/no-negated-condition": {
       "count": 2
-    },
-    "unicorn/switch-case-braces": {
-      "count": 1
     }
   },
   "src/sql/binder/statement/update.ts": {
@@ -1377,9 +1341,6 @@
   "src/sql/binder/table-ref/join.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 7
-    },
-    "@typescript-eslint/strict-boolean-expressions": {
-      "count": 1
     },
     "@typescript-eslint/switch-exhaustiveness-check": {
       "count": 2

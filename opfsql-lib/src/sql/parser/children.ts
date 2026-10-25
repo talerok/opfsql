@@ -26,7 +26,7 @@ export function childExpressions(
       return [expression.input, expression.lower, expression.upper];
     }
     case ExpressionClass.SUBQUERY: {
-      return expression.child === null ? [] : [expression.child];
+      return "child" in expression ? [expression.child] : [];
     }
     case ExpressionClass.CASE: {
       return [

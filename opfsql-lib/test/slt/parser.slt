@@ -17,9 +17,11 @@ INSERT INTO pets VALUES (1, 1, 'cat'), (2, 3, 'dog')
 # Statement ends: leftovers are an error, never another statement
 # ============================================================================
 
+# syntax error: a statement must end with ';' or the end of input
 statement error
 SELECT 1 SELECT 2
 
+# syntax error: q is left over after the alias p
 statement error
 SELECT name FROM people p q
 
@@ -27,9 +29,11 @@ statement ok
 SELECT 1; SELECT 2;
 
 # EXCEPT is an operator, not an alias of the table before it
+# parses as EXCEPT; the binder does not support EXCEPT yet
 statement error
 SELECT * FROM people EXCEPT SELECT * FROM people
 
+# parses as INTERSECT; the binder does not support INTERSECT yet
 statement error
 SELECT * FROM people INTERSECT SELECT * FROM people
 
@@ -66,6 +70,7 @@ SELECT id, age NOTNULL FROM people ORDER BY id
 2|false
 3|true
 
+# not supported by the parser: NATURAL JOIN
 statement error
 SELECT * FROM people NATURAL JOIN pets
 
@@ -93,9 +98,11 @@ SELECT 0xFFFFFFFFFFFFFFFF
 ----
 -1
 
+# syntax error: a number that runs into a letter or _
 statement error
 SELECT 1_000
 
+# syntax error: a number that runs into a letter or _
 statement error
 SELECT 1e3x
 
@@ -125,6 +132,7 @@ SELECT "key", "a""b" FROM "order"
 ----
 x|7
 
+# syntax error: ORDER is reserved and must be quoted
 statement error
 SELECT * FROM order
 
@@ -174,15 +182,19 @@ SELECT id, n, s, r FROM defaults
 ----
 1|-1|x|-0.5
 
+# not supported by the parser: CURRENT_TIMESTAMP
 statement error
 CREATE TABLE bad_default (t TEXT DEFAULT CURRENT_TIMESTAMP)
 
+# parses; the binder refuses a DEFAULT that is not constant
 statement error
 CREATE TABLE bad_default (a INTEGER, b INTEGER DEFAULT a)
 
+# parses; the binder does not evaluate a DEFAULT expression yet
 statement error
 CREATE TABLE bad_default (a INTEGER DEFAULT (1 + 2))
 
+# parses as LIMIT -1; the binder takes only a non-negative LIMIT
 statement error
 SELECT * FROM people LIMIT -1
 
@@ -211,9 +223,11 @@ SELECT -9007199254740991
 ----
 -9007199254740991
 
+# syntax error: outside the safe integer range
 statement error
 SELECT 9007199254740993
 
+# syntax error: outside the safe integer range
 statement error
 SELECT 99999999999999999999999999999999999999999999999999
 
@@ -221,6 +235,7 @@ SELECT 99999999999999999999999999999999999999999999999999
 # Nesting is limited: a syntax error, not a stack overflow
 # ============================================================================
 
+# syntax error: nested deeper than the parser allows
 statement error
 SELECT ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
 
@@ -261,21 +276,27 @@ SELECT s FROM sized
 ----
 longer than three
 
+# parses; the binder knows no type WIDGET
 statement error
 CREATE TABLE unknown_type (a WIDGET)
 
+# not supported by the parser: REFERENCES
 statement error
 CREATE TABLE fk (a INTEGER REFERENCES people(id))
 
+# not supported by the parser: FOREIGN KEY
 statement error
 CREATE TABLE fk (a INTEGER, FOREIGN KEY (a) REFERENCES people(id))
 
+# syntax error: * is a select list item, not a value
 statement error
 SELECT * + 1 FROM people
 
+# syntax error: only count takes *
 statement error
 SELECT sum(*) FROM people
 
+# syntax error: * is a select list item, not a value
 statement error
 SELECT id FROM people ORDER BY *
 
@@ -331,8 +352,36 @@ Charlie|dog
 # ALTER TABLE … ADD COLUMN needs a name after COLUMN
 # ============================================================================
 
+# syntax error: a column name must follow COLUMN
 statement error
 ALTER TABLE people ADD COLUMN NOT NULL DEFAULT 0
 
+# syntax error: DEFAULT needs a value before NOT NULL
 statement error
 CREATE TABLE bad_default (a INTEGER DEFAULT NOT NULL)
+
+# ============================================================================
+# A table has one primary key, however it is written
+# ============================================================================
+
+# parses; the binder refuses a second primary key, as SQLite does
+statement error
+CREATE TABLE two_keys (a INTEGER PRIMARY KEY, b INTEGER PRIMARY KEY)
+
+# parses; the binder refuses a second primary key, as SQLite does
+statement error
+CREATE TABLE two_keys (a INTEGER PRIMARY KEY, b INTEGER, PRIMARY KEY (b))
+
+# parses; the binder refuses a second primary key, as SQLite does
+statement error
+CREATE TABLE two_keys (a INTEGER PRIMARY KEY PRIMARY KEY)
+
+statement ok
+CREATE TABLE one_key (a INTEGER, b TEXT, c INTEGER, PRIMARY KEY (a, b))
+
+statement ok
+INSERT INTO one_key VALUES (1, 'x', 10), (1, 'y', 20)
+
+# parses; the composite key refuses a duplicate
+statement error
+INSERT INTO one_key VALUES (1, 'x', 30)

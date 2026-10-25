@@ -36,6 +36,7 @@ function parseTypeWord(cursor: Cursor): Token {
 function parseSignedNumber(cursor: Cursor): void {
   if (!cursor.matchSymbol("-")) cursor.matchSymbol("+");
   const kind = cursor.peek().kind;
-  if (kind !== "integer" && kind !== "real") cursor.fail("a number");
+  const isNumber = kind === "integer" || kind === "real";
+  if (!isNumber) cursor.fail("a number");
   cursor.next();
 }

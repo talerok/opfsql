@@ -1,5 +1,5 @@
-// Test helpers: parse one statement of a known kind, and print expressions
-// as S-expressions so that a test states the tree it expects in one line.
+// Test helpers: parse one statement of a known kind, and print syntax trees
+// as S-expressions, so that a test states the tree it expects in one line.
 
 import { expect } from "vitest";
 import { NotSupportedError, SqlSyntaxError } from "../../../errors.js";
@@ -7,13 +7,21 @@ import { parse } from "../index.js";
 import {
   ExpressionClass,
   ExpressionType,
+  OrderType,
   StatementType,
+  TableReferenceType,
   type CaseExpression,
-  type LiteralValue,
+  type Literal,
+  type LimitClause,
+  type OrderByNode,
   type ParsedExpression,
   type SelectNode,
   type SelectStatement,
+  type SetOperationNode,
   type Statement,
+  type SubqueryExpression,
+  type TableReference,
+  type WithClause,
 } from "../types.js";
 
 export function only(sql: string): Statement {
@@ -24,18 +32,33 @@ export function only(sql: string): Statement {
   return statement;
 }
 
-export function query(sql: string): SelectStatement {
+/** The one statement in `sql`, which must be of `type`. */
+export function statementOf<Type extends StatementType>(
+  sql: string,
+  type: Type,
+): Extract<Statement, { type: Type }> {
   const statement = only(sql);
-  if (statement.type !== StatementType.SELECT_STATEMENT) {
-    throw new Error(`not a query: ${sql}`);
+  if (!isOfType(statement, type)) {
+    throw new Error(`expected ${type} from ${sql}, got ${statement.type}`);
   }
   return statement;
 }
 
+function isOfType<Type extends StatementType>(
+  statement: Statement,
+  type: Type,
+): statement is Extract<Statement, { type: Type }> {
+  return statement.type === type;
+}
+
+export function query(sql: string): SelectStatement {
+  return statementOf(sql, StatementType.SELECT_STATEMENT);
+}
+
 export function select(sql: string): SelectNode {
-  const { node } = query(sql);
-  if (node.type !== "SELECT_NODE") throw new Error(`compound: ${sql}`);
-  return node;
+  const { body } = query(sql);
+  if (body.type !== "SELECT_NODE") throw new Error(`compound: ${sql}`);
+  return body;
 }
 
 /** The select list of `SELECT <list>`, printed. */
@@ -79,7 +102,9 @@ function thrown(sql: string): unknown {
   throw new Error(`parsed without an error: ${sql}`);
 }
 
-const SYMBOLS: Readonly<Partial<Record<ExpressionType, string>>> = {
+// --- Expressions ---------------------------------------------------------------
+
+const SYMBOLS: Readonly<Record<ExpressionType, string>> = {
   [ExpressionType.COMPARE_EQUAL]: "=",
   [ExpressionType.COMPARE_NOTEQUAL]: "<>",
   [ExpressionType.COMPARE_LESSTHAN]: "<",
@@ -87,7 +112,6 @@ const SYMBOLS: Readonly<Partial<Record<ExpressionType, string>>> = {
   [ExpressionType.COMPARE_GREATERTHAN]: ">",
   [ExpressionType.COMPARE_GREATERTHANOREQUALTO]: ">=",
   [ExpressionType.COMPARE_LIKE]: "LIKE",
-  [ExpressionType.COMPARE_NOT_LIKE]: "NOT LIKE",
   [ExpressionType.CONJUNCTION_AND]: "AND",
   [ExpressionType.CONJUNCTION_OR]: "OR",
   [ExpressionType.OPERATOR_NOT]: "NOT",
@@ -111,17 +135,22 @@ function list(head: string, parts: readonly ParsedExpression[]): string {
 /**
  * An expression as an S-expression: `(+ a 1)`, `(IS NULL a)`. Literals show
  * their type: `1`, `real(1)`, `'a'`, `NULL`, `TRUE`, `x'cafe'`; an alias
- * follows `AS`.
+ * follows `AS`; a subquery inside is `<query>`.
  */
 export function render(node: ParsedExpression): string {
   const printed = renderNode(node);
   return node.alias === null ? printed : `${printed} AS ${node.alias}`;
 }
 
+/** An optional expression, printed, or null. */
+export function renderOptional(node: ParsedExpression | null): string | null {
+  return node === null ? null : render(node);
+}
+
 function renderNode(node: ParsedExpression): string {
   switch (node.expressionClass) {
     case ExpressionClass.COLUMN_REF: {
-      const path = (node.path ?? []).map((segment) =>
+      const path = node.path.map((segment) =>
         segment.type === "field"
           ? `.${segment.name}`
           : `[${String(segment.value)}]`,
@@ -129,30 +158,30 @@ function renderNode(node: ParsedExpression): string {
       return node.columnNames.join(".") + path.join("");
     }
     case ExpressionClass.CONSTANT: {
-      return renderConstant(node.type, node.value);
+      return renderLiteral(node);
     }
     case ExpressionClass.PARAMETER: {
       return `$${String(node.index + 1)}`;
     }
     case ExpressionClass.COMPARISON: {
-      return list(SYMBOLS[node.type] ?? node.type, [node.left, node.right]);
+      return list(SYMBOLS[node.type], [node.left, node.right]);
     }
     case ExpressionClass.CONJUNCTION:
     case ExpressionClass.OPERATOR: {
-      return list(SYMBOLS[node.type] ?? node.type, node.children);
+      return list(SYMBOLS[node.type], node.children);
     }
     case ExpressionClass.BETWEEN: {
       return list("BETWEEN", [node.input, node.lower, node.upper]);
     }
     case ExpressionClass.FUNCTION: {
       if (node.isStar) return `(${node.functionName} *)`;
-      const head = node.distinct
+      const head = node.isDistinct
         ? `${node.functionName} DISTINCT`
         : node.functionName;
       return list(head, node.children);
     }
     case ExpressionClass.SUBQUERY: {
-      return renderSubquery(node.subqueryType, node.child, node.comparisonType);
+      return renderSubquery(node);
     }
     case ExpressionClass.CASE: {
       return renderCase(node);
@@ -161,7 +190,45 @@ function renderNode(node: ParsedExpression): string {
       return `(CAST ${render(node.child)} '${node.castType}')`;
     }
     case ExpressionClass.STAR: {
-      return node.tableName === null ? "*" : `${node.tableName}.*`;
+      return node.table === null ? "*" : `${node.table}.*`;
+    }
+  }
+}
+
+function renderLiteral(literal: Literal): string {
+  switch (literal.type) {
+    case "INTEGER": {
+      return String(literal.value);
+    }
+    case "REAL": {
+      return `real(${String(literal.value)})`;
+    }
+    case "TEXT": {
+      return `'${literal.value}'`;
+    }
+    case "BLOB": {
+      return `x'${Buffer.from(literal.value).toString("hex")}'`;
+    }
+    case "BOOLEAN": {
+      return literal.value ? "TRUE" : "FALSE";
+    }
+    case "NULL": {
+      return "NULL";
+    }
+  }
+}
+
+function renderSubquery(node: SubqueryExpression): string {
+  switch (node.subqueryType) {
+    case "SCALAR":
+    case "EXISTS":
+    case "NOT_EXISTS": {
+      return `(${node.subqueryType} <query>)`;
+    }
+    case "ANY":
+    case "ALL": {
+      const operator = SYMBOLS[node.comparisonType];
+      return `(${operator} ${node.subqueryType} ${render(node.child)} <query>)`;
     }
   }
 }
@@ -178,28 +245,91 @@ function renderCase(node: CaseExpression): string {
   return `(CASE${operand}${checks.join("")}${otherwise})`;
 }
 
-/** An optional expression, printed, or null. */
-export function renderOptional(node: ParsedExpression | null): string | null {
-  return node === null ? null : render(node);
+// --- Queries and tables --------------------------------------------------------------
+
+/**
+ * A query, compound or not: `WITH a AS {…} (SELECT … FROM … WHERE …) ORDER
+ * BY … LIMIT …`, a compound as `(UNION_ALL left right)`, a nested query in
+ * braces.
+ */
+export function renderQuery(statement: SelectStatement): string {
+  const parts = [
+    statement.with === null ? "" : renderWith(statement.with),
+    renderBody(statement.body),
+    renderOrderBy(statement.orderBy),
+    statement.limit === null ? "" : renderLimit(statement.limit),
+  ];
+  return parts.filter((part) => part !== "").join(" ");
 }
 
-function renderConstant(type: string, value: LiteralValue): string {
-  if (value instanceof Uint8Array)
-    return `x'${Buffer.from(value).toString("hex")}'`;
-  if (typeof value === "string") return `'${value}'`;
-  if (value === null) return "NULL";
-  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-  const number = String(value);
-  return type === "REAL" ? `real(${number})` : number;
+function renderWith(clause: WithClause): string {
+  const ctes = clause.ctes.map((cte) => {
+    const columns =
+      cte.columnNames.length === 0 ? "" : `(${cte.columnNames.join(", ")})`;
+    return `${cte.name}${columns} AS {${renderQuery(cte.query)}}`;
+  });
+  const recursive = clause.isRecursive ? "RECURSIVE " : "";
+  return `WITH ${recursive}${ctes.join(", ")}`;
 }
 
-function renderSubquery(
-  type: string,
-  child: ParsedExpression | null,
-  comparison: ExpressionType | undefined,
+function renderBody(body: SelectNode | SetOperationNode): string {
+  if (body.type === "SET_OPERATION_NODE") {
+    const sides = `${renderBody(body.left)} ${renderBody(body.right)}`;
+    return `(${body.setOperationType} ${sides})`;
+  }
+  const clauses = [
+    `SELECT${body.isDistinct ? " DISTINCT" : ""}`,
+    body.selectList.map((item) => render(item)).join(", "),
+    body.from === null ? "" : `FROM ${renderTable(body.from)}`,
+    body.where === null ? "" : `WHERE ${render(body.where)}`,
+    body.groupBy.length === 0
+      ? ""
+      : `GROUP BY ${body.groupBy.map((group) => render(group)).join(", ")}`,
+    body.having === null ? "" : `HAVING ${render(body.having)}`,
+  ];
+  return `(${clauses.filter((clause) => clause !== "").join(" ")})`;
+}
+
+function renderOrderBy(orders: readonly OrderByNode[]): string {
+  if (orders.length === 0) return "";
+  const orderItems = orders.map((order) => {
+    const direction = order.type === OrderType.DESCENDING ? " DESC" : "";
+    const nulls = order.nullOrder === null ? "" : ` ${order.nullOrder}`;
+    return `${render(order.expression)}${direction}${nulls}`;
+  });
+  return `ORDER BY ${orderItems.join(", ")}`;
+}
+
+function renderLimit(clause: LimitClause): string {
+  const limit = clause.limit === null ? "" : `LIMIT ${render(clause.limit)}`;
+  const offset =
+    clause.offset === null ? "" : `OFFSET ${render(clause.offset)}`;
+  return [limit, offset].filter((part) => part !== "").join(" ");
+}
+
+/** A FROM clause as a tree: `(CROSS a b)`, `(LEFT a b ON (= x y))`. */
+export function renderTable(table: TableReference): string {
+  switch (table.type) {
+    case TableReferenceType.BASE_TABLE: {
+      return table.alias === null
+        ? table.table
+        : `${table.table} AS ${table.alias}`;
+    }
+    case TableReferenceType.SUBQUERY: {
+      return `{${renderQuery(table.subquery)}} AS ${table.alias ?? "-"}`;
+    }
+    case TableReferenceType.JOIN: {
+      const sides = `${renderTable(table.left)} ${renderTable(table.right)}`;
+      return `(${table.joinType} ${sides}${renderConstraint(table)})`;
+    }
+  }
+}
+
+function renderConstraint(
+  join: Extract<TableReference, { type: TableReferenceType.JOIN }>,
 ): string {
-  if (child === null) return `(${type} <query>)`;
-  const operator =
-    comparison === undefined ? "?" : (SYMBOLS[comparison] ?? comparison);
-  return `(${operator} ${type} ${render(child)} <query>)`;
+  if (join.constraint === null) return "";
+  return join.constraint.type === "ON"
+    ? ` ON ${render(join.constraint.condition)}`
+    : ` USING ${join.constraint.columns.join(",")}`;
 }
