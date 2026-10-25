@@ -1,4 +1,4 @@
-import { Engine } from "../src/index.js";
+import { Engine } from "../src/worker-entry.js";
 import type { Scenario } from "./scenarios.js";
 
 export interface BenchHost {

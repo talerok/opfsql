@@ -1,4 +1,4 @@
-import type { Session } from "../../src/index.js";
+import type { Session } from "../../src/worker-entry.js";
 import { blobToHex } from "../../src/executor/evaluate/utils/cast.js";
 
 // ---------------------------------------------------------------------------

@@ -5,17 +5,21 @@ there. The page talks to it through an asynchronous client. This document is
 the contract of that client, of the worker that serves it, and of the engine
 underneath for code that already runs in a worker.
 
-| Where             | Entry point                   | Use                                     |
-| ----------------- | ----------------------------- | --------------------------------------- |
-| the page          | `openDatabase(name, options)` | everything, normally                    |
-| your worker file  | `serveDatabase()`             | one line that makes the worker a server |
-| inside any worker | `Engine.open(name, options)`  | the engine without messages (advanced)  |
+| Where             | Import from       | Entry point                   | Use                                     |
+| ----------------- | ----------------- | ----------------------------- | --------------------------------------- |
+| the page          | `"opfsql"`        | `openDatabase(name, options)` | everything, normally                    |
+| your worker file  | `"opfsql/worker"` | `serveDatabase()`             | one line that makes the worker a server |
+| inside any worker | `"opfsql/worker"` | `Engine.open(name, options)`  | the engine without messages (advanced)  |
+
+`"opfsql"` holds the client, results, errors and types, and never loads the
+engine, so the page's bundle stays small; `"opfsql/worker"` holds the
+engine. Both share their error classes, so `instanceof` works across them.
 
 ## Quick start
 
 ```ts
 // db-worker.ts — the worker's script
-import { serveDatabase } from "opfsql";
+import { serveDatabase } from "opfsql/worker";
 serveDatabase();
 ```
 
@@ -349,7 +353,7 @@ messages. It has the same semantics under other names:
 | `Statement`  | `PreparedStatement` |
 
 ```ts
-import { Engine } from "opfsql";
+import { Engine } from "opfsql/worker";
 
 const engine = await Engine.open("app", { busyTimeout: 1000 });
 const session = engine.connect();
@@ -362,13 +366,15 @@ await engine.close();
 ```
 
 `Engine.open(name, options)` takes the options of `openDatabase` but
-`worker`. `engine.connect()` returns a `Session`, which also has
+`worker`; it is the only way to make an engine, so an engine always runs on
+the WAL, whose page versions snapshots need. `engine.connect()` returns a `Session`, which also has
 `begin(options)` (deferred unless `mode` says otherwise), `commit()`,
 `rollback()` and `inTransaction`; `PreparedStatement.close()` is synchronous.
 A session that is garbage-collected unclosed is closed by its engine.
 `engine.checkpoint()` copies the WAL into the database file as far as open
-snapshots allow; `engine.checkIntegrity()` returns the problems it finds, an
-empty list for a sound database. `serveDatabase()` is built from these and
+snapshots allow; `engine.checkIntegrity()` resolves to the problems it finds,
+an empty list for a sound database — it waits for the write lock, so no
+writer's uncommitted pages count. `serveDatabase()` is built from these and
 nothing else.
 
 The engine reads every statement's schema from the snapshot the statement

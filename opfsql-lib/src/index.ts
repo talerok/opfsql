@@ -1,9 +1,7 @@
-// opfsql's public API; docs/api.md describes it.
-
-import { Engine, engineContract } from "./engine/index.js";
-import { type HostScope, startHost } from "./worker/index.js";
-
-// --- In the page: the database, served by a worker -------------------------
+// "opfsql": what the page imports — the client of a database served by a
+// worker, results, errors and types. It must not load the engine; the
+// worker's side is "opfsql/worker" (worker-entry.ts). docs/api.md
+// describes both.
 
 export {
   type Connection,
@@ -13,9 +11,6 @@ export {
   type Statement,
   type WorkerHandle,
 } from "./worker/index.js";
-
-// --- Shared by the page and the worker -------------------------------------
-
 export {
   type CallOptions,
   type ColumnInfo,
@@ -28,7 +23,7 @@ export {
   type TableInfo,
   type TransactionMode,
   type TransactionOptions,
-} from "./engine/index.js";
+} from "./engine/api/index.js";
 export {
   AbortError,
   BusyError,
@@ -46,24 +41,3 @@ export {
   TransactionAbortedError,
 } from "./errors.js";
 export type { JsonValue, SqlType, Value } from "./values/index.js";
-
-// --- In the worker ----------------------------------------------------------
-
-/**
- * Makes this dedicated worker serve a database to openDatabase() in the page.
- * Call it once, in the worker's script.
- */
-export function serveDatabase(scope?: HostScope): void {
-  startHost(scope ?? globalThis, async (name, options) =>
-    engineContract(await Engine.open(name, options)),
-  );
-}
-
-export type { HostScope } from "./worker/index.js";
-
-// The engine itself, for code that already runs in a worker (advanced).
-export {
-  Engine,
-  type PreparedStatement,
-  type Session,
-} from "./engine/index.js";

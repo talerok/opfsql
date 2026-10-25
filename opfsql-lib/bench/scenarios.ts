@@ -1,4 +1,4 @@
-import type { Session } from "../src/index.js";
+import type { Session } from "../src/worker-entry.js";
 
 // ---------------------------------------------------------------------------
 // Benchmark scenarios. They use only the public SQL API, so the same file can
