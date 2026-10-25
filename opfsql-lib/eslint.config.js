@@ -146,6 +146,12 @@ export default config(
               except: ["./errors.ts"],
               message: "errors depends on nothing.",
             },
+            {
+              target: "./src/sql/parser",
+              from: "./src",
+              except: ["./sql/parser", "./values", "./errors.ts"],
+              message: "sql/parser depends on nothing but values and errors.",
+            },
           ],
         },
       ],
