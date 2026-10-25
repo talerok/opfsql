@@ -28,7 +28,8 @@ export default config(
   {
     languageOptions: {
       parserOptions: {
-        project: ["./tsconfig.check.json"],
+        // Code under the strict compiler flags gets its types from there.
+        project: ["./tsconfig.strict.json", "./tsconfig.check.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
