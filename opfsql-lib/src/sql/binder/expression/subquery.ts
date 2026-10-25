@@ -14,7 +14,7 @@ export function bindSubquery(
   scope: BindScope,
 ): BoundSubqueryExpression {
   const childScope = scope.createChildScope();
-  const subplan = bindQueryNode(ctx, expr.subquery.node, childScope);
+  const subplan = bindQueryNode(ctx, expr.subquery, childScope);
 
   let returnType: LogicalType;
   switch (expr.subqueryType) {
@@ -38,10 +38,8 @@ export function bindSubquery(
     returnType,
   };
 
-  if (expr.child) {
+  if (expr.subqueryType === "ANY" || expr.subqueryType === "ALL") {
     result.child = bindExpression(ctx, expr.child, scope);
-  }
-  if (expr.comparisonType) {
     result.comparisonType = mapComparisonType(expr.comparisonType);
   }
 

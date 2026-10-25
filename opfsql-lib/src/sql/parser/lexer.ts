@@ -24,19 +24,35 @@ class Pattern {
   }
 }
 
+/**
+ * A character of an identifier after its first, as in SQLite: an ASCII
+ * letter, digit, `_` or `$`, or any character outside ASCII.
+ */
+const IDENTIFIER_CHARACTER = String.raw`[\w$\u{80}-\u{10FFFF}]`;
+
 const SPACE = new Pattern(/[\t\n\f\r ]+/y);
 const LINE_COMMENT = new Pattern(/--[^\n]*/y);
 const BLOCK_COMMENT = new Pattern(/\/\*[\s\S]*?(?:\*\/|$)/y);
 const HEX_NUMBER = new Pattern(/0x[\da-f]+/iy);
 const DECIMAL_NUMBER = new Pattern(/(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?/iy);
-const WORD = new Pattern(/[a-z_\u{80}-\u{10FFFF}][\w$\u{80}-\u{10FFFF}]*/iuy);
-const WORD_CHARACTERS = new Pattern(/[\w$\u{80}-\u{10FFFF}]*/uy);
+const NUMBER_START = new Pattern(/\.?\d/y);
+const WORD = new Pattern(
+  new RegExp(
+    String.raw`[a-z_\u{80}-\u{10FFFF}]${IDENTIFIER_CHARACTER}*`,
+    "iuy",
+  ),
+);
+const WORD_CHARACTERS = new Pattern(
+  new RegExp(`${IDENTIFIER_CHARACTER}*`, "uy"),
+);
 const STRING = new Pattern(/'(?:[^']|'')*'/y);
 const QUOTED = new Pattern(/"(?:[^"]|"")*"/y);
 const BACKQUOTED = new Pattern(/`(?:[^`]|``)*`/y);
 const BLOB = new Pattern(/x'([^']*)'/iy);
 const PARAMETER = new Pattern(/\$\d+|\?\d*/y);
-const NAMED_PARAMETER = new Pattern(/[$:@][\w$\u{80}-\u{10FFFF}]/uy);
+const NAMED_PARAMETER = new Pattern(
+  new RegExp(`[$:@]${IDENTIFIER_CHARACTER}`, "uy"),
+);
 const HEX_DIGITS = /^(?:[\da-f]{2})*$/i;
 
 // Longest first, so that `<=` is not read as `<` and `=`.
@@ -93,11 +109,8 @@ class Lexer {
     if (this.position >= this.sql.length) {
       return this.token({ kind: "end", value: "" }, this.position);
     }
-    const character = this.sql.charAt(this.position);
-    if (/\d/.test(character) || /^\.\d/.test(this.ahead(2))) {
-      return this.number();
-    }
-    switch (character) {
+    if (this.startsNumber()) return this.number();
+    switch (this.sql.charAt(this.position)) {
       case "'": {
         return this.string();
       }
@@ -130,6 +143,10 @@ class Lexer {
     }
   }
 
+  private startsNumber(): boolean {
+    return this.match(NUMBER_START) !== undefined;
+  }
+
   private number(): Token {
     const text = this.match(HEX_NUMBER) ?? this.match(DECIMAL_NUMBER) ?? "";
     const end = this.position + text.length;
@@ -146,7 +163,7 @@ class Lexer {
     if (text === undefined) {
       this.fail("unterminated string", this.sql.length);
     }
-    const value = text.slice(1, -1).replaceAll("''", "'");
+    const value = unescape(text, "'");
     return this.token({ kind: "string", value }, this.position + text.length);
   }
 
@@ -158,8 +175,7 @@ class Lexer {
     }
     const end = this.position + text.length;
     if (text.length === 2) this.fail("a quoted name cannot be empty", end);
-    const value = text.slice(1, -1).replaceAll(quote + quote, () => quote);
-    return this.token({ kind: "quoted", value }, end);
+    return this.token({ kind: "quoted", value: unescape(text, quote) }, end);
   }
 
   private blob(): Token | undefined {
@@ -186,33 +202,40 @@ class Lexer {
 
   private parameter(): Token {
     const text = this.match(PARAMETER);
-    const end = this.position + (text?.length ?? 0);
-    // SQLite reads `$1abc`, `$x`, `:1` and `@x` as named parameters.
+    if (text === undefined) return this.unnumberedParameter();
+    const end = this.position + text.length;
+    // SQLite reads `$1abc` as one named parameter.
     const isNamed =
-      text === undefined
-        ? this.match(NAMED_PARAMETER) !== undefined
-        : text.startsWith("$") && WORD_CHARACTERS.at(this.sql, end) !== "";
+      text.startsWith("$") && WORD_CHARACTERS.at(this.sql, end) !== "";
     if (isNamed) throw new NotSupportedError("a named parameter");
-    return text === undefined
-      ? this.symbol()
-      : this.token({ kind: "parameter", value: text.slice(1) }, end);
+    return this.token({ kind: "parameter", value: text.slice(1) }, end);
+  }
+
+  /** `$x`, `:x` or `@x` is a named parameter; a lone `$`, `:` or `@` is not. */
+  private unnumberedParameter(): never {
+    if (this.match(NAMED_PARAMETER) !== undefined) {
+      throw new NotSupportedError("a named parameter");
+    }
+    return this.unexpectedCharacter();
   }
 
   private symbol(): Token {
     const symbol = SYMBOLS.find((candidate) =>
       this.sql.startsWith(candidate, this.position),
     );
-    if (symbol === undefined) {
-      const character = String.fromCodePoint(
-        this.sql.codePointAt(this.position) ?? 0,
-      );
-      this.fail(
-        `unexpected character '${character}'`,
-        this.position + character.length,
-      );
-    }
+    if (symbol === undefined) return this.unexpectedCharacter();
     const end = this.position + symbol.length;
     return this.token({ kind: "symbol", value: symbol }, end);
+  }
+
+  private unexpectedCharacter(): never {
+    const character = String.fromCodePoint(
+      this.sql.codePointAt(this.position) ?? 0,
+    );
+    return this.fail(
+      `unexpected character '${character}'`,
+      this.position + character.length,
+    );
   }
 
   private ahead(length: number): string {
@@ -232,4 +255,9 @@ class Lexer {
   private fail(message: string, end: number): never {
     throw new SqlSyntaxError(message, this.position, end - this.position);
   }
+}
+
+/** A quoted token's content: without its quotes, doubled quotes single. */
+function unescape(text: string, quote: string): string {
+  return text.slice(1, -1).replaceAll(quote + quote, () => quote);
 }

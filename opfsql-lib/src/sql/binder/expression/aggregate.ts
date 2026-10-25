@@ -137,7 +137,7 @@ export function bindAggregate(
     functionName: name,
     function: definition,
     children,
-    distinct: expr.distinct,
+    distinct: expr.isDistinct,
     isStar: expr.isStar,
     aggregateIndex: 0,
     returnType,

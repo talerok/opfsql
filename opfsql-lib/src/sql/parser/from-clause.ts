@@ -6,67 +6,43 @@
 import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
-import { parseSubquery } from "./primary.js";
 import {
   JoinType,
   TableReferenceType,
+  type JoinConstraint,
   type JoinReference,
-  type ParsedExpression,
   type TableReference,
 } from "./types.js";
 
 export function parseFrom(cursor: Cursor): TableReference {
-  let table = parseTableOrSubquery(cursor);
-  let levels = 0;
-  for (let type = parseJoinOperator(cursor); type !== undefined;) {
-    // A chain of joins makes a tree as deep as a nesting would.
-    cursor.descend();
-    levels++;
-    table = parseJoin(cursor, table, type);
-    type = parseJoinOperator(cursor);
-  }
-  cursor.ascend(levels);
-  return table;
-}
-
-/** A table name, which cannot have a schema: `main.t` is not supported. */
-export function parseTableName(cursor: Cursor, what = "a table name"): string {
-  const name = cursor.name(what);
-  if (cursor.isSymbol(".")) throw new NotSupportedError("a schema name");
-  return name;
+  return cursor.chain(
+    parseTableOrSubquery(cursor),
+    () => parseJoinOperator(cursor),
+    (left, joinType) => parseJoin(cursor, left, joinType),
+  );
 }
 
 function parseTableOrSubquery(cursor: Cursor): TableReference {
-  if (cursor.isSymbol("(")) {
-    if (cursor.isName(1) || cursor.isSymbol("(", 1)) {
-      throw new NotSupportedError("parentheses around a FROM item");
-    }
-    if (cursor.isKeyword("VALUES", 1)) {
-      throw new NotSupportedError("VALUES as a query");
-    }
-    const subquery = parseSubquery(cursor);
-    const alias = parseAlias(cursor);
-    return { type: TableReferenceType.SUBQUERY, subquery, alias };
-  }
-  const tableName = parseTableName(cursor);
-  if (cursor.isSymbol("(")) {
-    throw new NotSupportedError("a table-valued function");
-  }
-  const alias = parseAlias(cursor);
+  if (cursor.isSymbol("(")) return parseSubqueryReference(cursor);
+  const table = cursor.objectName("a table name");
+  cursor.rejectSymbol("(", "a table-valued function");
+  const alias = cursor.optionalAlias();
   const isIndexed =
     cursor.isKeyword("INDEXED") ||
     (cursor.isKeyword("NOT") && cursor.isKeyword("INDEXED", 1));
-  if (isIndexed) {
-    throw new NotSupportedError("INDEXED BY");
-  }
-  return { type: TableReferenceType.BASE_TABLE, tableName, alias };
+  if (isIndexed) throw new NotSupportedError("INDEXED BY");
+  return { type: TableReferenceType.BASE_TABLE, table, alias };
 }
 
-/** `AS name`, a bare identifier, or nothing. */
-function parseAlias(cursor: Cursor): string | null {
-  return cursor.matchKeyword("AS")
-    ? cursor.name("an alias")
-    : cursor.matchAlias();
+/** `( SELECT … ) [AS] alias`; other parentheses here are not supported. */
+function parseSubqueryReference(cursor: Cursor): TableReference {
+  const isParenthesizedItem = cursor.isName(1) || cursor.isSymbol("(", 1);
+  if (isParenthesizedItem) {
+    throw new NotSupportedError("parentheses around a FROM item");
+  }
+  const subquery = cursor.subquery();
+  const alias = cursor.optionalAlias();
+  return { type: TableReferenceType.SUBQUERY, subquery, alias };
 }
 
 const JOIN_KEYWORDS: ReadonlyMap<Keyword, JoinType> = new Map<
@@ -82,25 +58,21 @@ const JOIN_KEYWORDS: ReadonlyMap<Keyword, JoinType> = new Map<
 /** `,` or `[INNER | CROSS | LEFT [OUTER] | RIGHT [OUTER]] JOIN`. */
 function parseJoinOperator(cursor: Cursor): JoinType | undefined {
   if (cursor.matchSymbol(",")) return JoinType.CROSS;
-  const token = cursor.peek();
-  if (token.kind !== "keyword") return undefined;
-  if (token.value === "NATURAL" || token.value === "FULL") {
-    throw new NotSupportedError(`${token.value} JOIN`);
-  }
+  cursor.rejectKeyword("NATURAL", "NATURAL JOIN");
+  cursor.rejectKeyword("FULL", "FULL JOIN");
   if (cursor.matchKeyword("JOIN")) return JoinType.INNER;
-  const type = JOIN_KEYWORDS.get(token.value);
+  const type = cursor.lookupKeyword(JOIN_KEYWORDS);
   if (type === undefined) return undefined;
   cursor.next();
-  if (type === JoinType.LEFT || type === JoinType.RIGHT) {
-    cursor.matchKeyword("OUTER");
-  }
+  const isOuter = type === JoinType.LEFT || type === JoinType.RIGHT;
+  if (isOuter) cursor.matchKeyword("OUTER");
   cursor.expectKeyword("JOIN");
   return type;
 }
 
 /**
- * The right side of a join and its ON or USING. As in SQLite, a CROSS
- * join or a comma with ON or USING is an inner join.
+ * The right side of a join and its constraint. As in SQLite, a CROSS join
+ * or a comma with ON or USING is an inner join.
  */
 function parseJoin(
   cursor: Cursor,
@@ -108,21 +80,24 @@ function parseJoin(
   joinType: JoinType,
 ): JoinReference {
   const right = parseTableOrSubquery(cursor);
-  let condition: ParsedExpression | null = null;
-  let usingColumns: readonly string[] = [];
-  if (cursor.matchKeyword("ON")) {
-    condition = cursor.expression();
-  } else if (cursor.matchKeyword("USING")) {
-    usingColumns = cursor.nameList("a column name");
-  }
-  const isConstrained = condition !== null || usingColumns.length > 0;
+  const constraint = parseJoinConstraint(cursor);
+  const isInner = joinType === JoinType.CROSS && constraint !== null;
   return {
     type: TableReferenceType.JOIN,
     left,
     right,
-    condition,
-    joinType:
-      isConstrained && joinType === JoinType.CROSS ? JoinType.INNER : joinType,
-    usingColumns,
+    joinType: isInner ? JoinType.INNER : joinType,
+    constraint,
   };
+}
+
+/** `ON condition`, `USING (columns)`, or null for neither. */
+function parseJoinConstraint(cursor: Cursor): JoinConstraint | null {
+  if (cursor.matchKeyword("ON")) {
+    return { type: "ON", condition: cursor.expression() };
+  }
+  if (cursor.matchKeyword("USING")) {
+    return { type: "USING", columns: cursor.nameList("a column name") };
+  }
+  return null;
 }

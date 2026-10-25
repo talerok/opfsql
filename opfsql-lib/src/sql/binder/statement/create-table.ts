@@ -3,6 +3,7 @@ import type { ColumnDef, TableSchema } from "../../../store/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
 import { mapTypeName } from "../core/type-map.js";
+import { columnConstraints } from "../core/utils/column-constraints.js";
 import { evalDefaultValue } from "../core/utils/eval-constant.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";
@@ -12,9 +13,12 @@ export function bindCreateTable(
   stmt: CreateTableStatement,
 ): BT.LogicalCreateTable {
   const columns: ColumnDef[] = stmt.columns.map((col) => {
+    const constraints = columnConstraints(col);
     const isPk =
-      col.isPrimaryKey ||
-      stmt.primaryKey.some((pk) => pk.toLowerCase() === col.name.toLowerCase());
+      constraints.primaryKeyCount > 0 ||
+      stmt.primaryKeys.some((key) =>
+        key.some((pk) => pk.toLowerCase() === col.name.toLowerCase()),
+      );
     const colType = mapTypeName(col.type);
 
     if (colType === "JSON" || colType === "BLOB") {
@@ -23,12 +27,12 @@ export function bindCreateTable(
           `${colType} column "${col.name}" cannot be a PRIMARY KEY`,
         );
       }
-      if (col.isUnique) {
+      if (constraints.isUnique) {
         throw new BindError(`${colType} column "${col.name}" cannot be UNIQUE`);
       }
     }
 
-    if (col.isAutoincrement) {
+    if (constraints.isAutoincrement) {
       if (!isPk) {
         throw new BindError(
           `AUTOINCREMENT is only allowed on PRIMARY KEY columns`,
@@ -42,12 +46,12 @@ export function bindCreateTable(
     return {
       name: col.name,
       type: colType,
-      nullable: !col.isNotNull && !isPk,
+      nullable: !constraints.isNotNull && !isPk,
       primaryKey: isPk,
-      unique: col.isUnique,
-      autoIncrement: col.isAutoincrement,
-      defaultValue: col.defaultValue
-        ? evalDefaultValue(col.name, col.defaultValue)
+      unique: constraints.isUnique,
+      autoIncrement: constraints.isAutoincrement,
+      defaultValue: constraints.defaultValue
+        ? evalDefaultValue(col.name, constraints.defaultValue)
         : null,
     };
   });

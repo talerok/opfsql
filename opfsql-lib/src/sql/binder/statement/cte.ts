@@ -1,16 +1,12 @@
 import type {
-  CTEMap,
   CTENode,
   SelectNode,
   SelectStatement,
   SetOperationNode,
   TableReference,
+  WithClause,
 } from "../../parser/types.js";
-import {
-  ResultModifierType,
-  SetOperationType,
-  TableReferenceType,
-} from "../../parser/types.js";
+import { SetOperationType, TableReferenceType } from "../../parser/types.js";
 import { SemanticError } from "../../../errors.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
@@ -18,7 +14,8 @@ import type { BindScope } from "../core/scope.js";
 import { detectAggregates } from "../expression/aggregate.js";
 import type { LogicalOperator } from "../types.js";
 import { LogicalOperatorType } from "../types.js";
-import { bindQueryNode } from "./query-node.js";
+import { NO_CLAUSES } from "./query-clauses.js";
+import { bindQueryBody, bindQueryNode } from "./query-node.js";
 import { bindSelect } from "./select.js";
 
 export interface CTECollected {
@@ -29,24 +26,26 @@ export interface CTECollected {
 
 export function collectCTEs(
   ctx: BindContext,
-  cteMap: CTEMap,
+  withClause: WithClause | null,
   scope: BindScope,
 ): CTECollected[] {
   const entries: CTECollected[] = [];
-  for (const cteNode of cteMap.ctes) {
+  const ctes = withClause?.ctes ?? [];
+  for (const cteNode of ctes) {
     const name = cteNode.name;
     if (entries.some((e) => e.name.toLowerCase() === name.toLowerCase())) {
       throw new SemanticError(`WITH query name ${name} is used twice`);
     }
     const isRecursive =
-      cteMap.recursive && isSelfReferencing(name, cteNode.query);
+      withClause?.isRecursive === true &&
+      isSelfReferencing(name, cteNode.query);
 
     const cteIndex = ctx.nextTableIndex();
     const ctePlan = isRecursive
       ? bindRecursiveCTE(ctx, name, cteNode, cteIndex, scope)
       : bindNonRecursiveCTE(ctx, cteNode, scope);
 
-    const aliases = cteNode.aliases;
+    const aliases = cteNode.columnNames;
     if (aliases.length > 0 && aliases.length !== ctePlan.types.length) {
       throw new BindError(
         `CTE "${name}" has ${ctePlan.types.length} columns but ${aliases.length} column aliases were provided`,
@@ -69,7 +68,7 @@ function bindNonRecursiveCTE(
   scope: BindScope,
 ): LogicalOperator {
   const cteScope = scope.createChildScope();
-  return bindQueryNode(ctx, cteNode.query.node, cteScope);
+  return bindQueryNode(ctx, cteNode.query, cteScope);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +82,7 @@ function bindRecursiveCTE(
   cteIndex: number,
   scope: BindScope,
 ): LogicalOperator {
-  const body = cteNode.query.node;
+  const body = cteNode.query.body;
   if (
     body.type !== "SET_OPERATION_NODE" ||
     (body.setOperationType !== SetOperationType.UNION &&
@@ -97,18 +96,18 @@ function bindRecursiveCTE(
   // 1. Bind anchor (left side) — no self-reference visible; it sees a WITH
   // in the body, which belongs to the body's outermost node.
   const anchorScope = scope.createChildScope();
-  const anchor = { ...setOp.left, cteMap: setOp.cteMap };
-  const anchorPlan = bindQueryNode(ctx, anchor, anchorScope);
+  const anchorClauses = { ...NO_CLAUSES, with: cteNode.query.with };
+  const anchorPlan = bindQueryBody(ctx, setOp.left, anchorScope, anchorClauses);
 
   // 2. Register CTE in scope with anchor types so recursive term can reference it
-  scope.addCTE(name, anchorPlan, cteIndex, cteNode.aliases);
+  scope.addCTE(name, anchorPlan, cteIndex, cteNode.columnNames);
 
   // 3. Validate recursive term structure before binding
   validateRecursiveTerm(name, setOp.right);
 
   // 4. Bind recursive term (right side) — self-reference visible via scope
   const recScope = scope.createChildScope();
-  const recPlan = bindSelect(ctx, setOp.right, recScope);
+  const recPlan = bindSelect(ctx, setOp.right, recScope, NO_CLAUSES);
 
   // 5. Validate column count and type compatibility
   if (anchorPlan.types.length !== recPlan.types.length) {
@@ -144,21 +143,21 @@ function bindRecursiveCTE(
 // ---------------------------------------------------------------------------
 
 function isSelfReferencing(cteName: string, query: SelectStatement): boolean {
-  const node = query.node;
+  const node = query.body;
   if (node.type !== "SET_OPERATION_NODE") return false;
   // Check if the right side of the UNION references the CTE name
   return selectNodeRefs(node.right, cteName);
 }
 
 function selectNodeRefs(node: SelectNode, name: string): boolean {
-  if (node.fromTable && tableRefRefs(node.fromTable, name)) return true;
+  if (node.from && tableRefRefs(node.from, name)) return true;
   return false;
 }
 
 function tableRefRefs(ref: TableReference, name: string): boolean {
   switch (ref.type) {
     case TableReferenceType.BASE_TABLE:
-      return ref.tableName.toLowerCase() === name.toLowerCase();
+      return ref.table.toLowerCase() === name.toLowerCase();
     case TableReferenceType.JOIN:
       return tableRefRefs(ref.left, name) || tableRefRefs(ref.right, name);
     case TableReferenceType.SUBQUERY:
@@ -171,7 +170,7 @@ function tableRefRefs(ref: TableReference, name: string): boolean {
 // ---------------------------------------------------------------------------
 
 function validateRecursiveTerm(cteName: string, node: SelectNode): void {
-  if (node.groups.groupExpressions.length > 0) {
+  if (node.groupBy.length > 0) {
     throw new BindError(
       `Recursive CTE "${cteName}": GROUP BY is not allowed in the recursive term`,
     );
@@ -181,22 +180,11 @@ function validateRecursiveTerm(cteName: string, node: SelectNode): void {
       `Recursive CTE "${cteName}": HAVING is not allowed in the recursive term`,
     );
   }
-  for (const mod of node.modifiers) {
-    if (mod.type === ResultModifierType.DISTINCT_MODIFIER) {
-      throw new BindError(
-        `Recursive CTE "${cteName}": DISTINCT is not allowed in the recursive term`,
-      );
-    }
-    if (mod.type === ResultModifierType.ORDER_MODIFIER) {
-      throw new BindError(
-        `Recursive CTE "${cteName}": ORDER BY is not allowed in the recursive term`,
-      );
-    }
-    if (mod.type === ResultModifierType.LIMIT_MODIFIER) {
-      throw new BindError(
-        `Recursive CTE "${cteName}": LIMIT is not allowed in the recursive term`,
-      );
-    }
+  // ORDER BY and LIMIT belong to the whole CTE body, never to a term.
+  if (node.isDistinct) {
+    throw new BindError(
+      `Recursive CTE "${cteName}": DISTINCT is not allowed in the recursive term`,
+    );
   }
   if (detectAggregates(node.selectList)) {
     throw new BindError(

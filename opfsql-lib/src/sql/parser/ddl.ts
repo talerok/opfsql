@@ -1,16 +1,14 @@
 // CREATE TABLE, CREATE INDEX, ALTER TABLE and DROP.
 
-import { NotSupportedError, SemanticError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
-import { parseTableName } from "./from-clause.js";
-import type { Keyword } from "./keywords.js";
-import { power } from "./precedence.js";
+import { above, power } from "./precedence.js";
 import { parseTypeName, startsTypeName } from "./type-name.js";
 import {
   AlterType,
   DropType,
   StatementType,
   type AlterTableStatement,
+  type ColumnConstraint,
   type ColumnDefinition,
   type CreateIndexStatement,
   type CreateTableStatement,
@@ -22,10 +20,8 @@ export function parseCreate(
   cursor: Cursor,
 ): CreateTableStatement | CreateIndexStatement {
   cursor.next();
-  const isUnique = cursor.matchKeyword("UNIQUE");
-  if (isUnique || cursor.isKeyword("INDEX")) {
-    return parseCreateIndex(cursor, isUnique);
-  }
+  const isIndex = cursor.isKeyword("UNIQUE") || cursor.isKeyword("INDEX");
+  if (isIndex) return parseCreateIndex(cursor);
   if (cursor.isKeyword("TABLE")) return parseCreateTable(cursor);
   rejectOtherObjects(cursor, "CREATE");
   return cursor.fail("TABLE or INDEX");
@@ -33,131 +29,103 @@ export function parseCreate(
 
 // --- CREATE TABLE -------------------------------------------------------------------
 
+/** An item between CREATE TABLE's parentheses. */
+type TableElement =
+  | { readonly type: "COLUMN"; readonly column: ColumnDefinition }
+  | { readonly type: "PRIMARY KEY"; readonly columns: readonly string[] };
+
 function parseCreateTable(cursor: Cursor): CreateTableStatement {
-  cursor.next();
-  const isConditional = parseIfNotExists(cursor);
-  const table = parseTableName(cursor);
-  if (cursor.isKeyword("AS")) {
-    throw new NotSupportedError("CREATE TABLE … AS");
-  }
+  cursor.expectKeyword("TABLE");
+  const hasIfNotExists = parseIfNotExists(cursor);
+  const table = cursor.objectName("a table name");
+  cursor.rejectKeyword("AS", "CREATE TABLE … AS");
   cursor.expectSymbol("(");
-  const columns: ColumnDefinition[] = [];
-  let primaryKey: readonly string[] | null = null;
-  do {
-    if (!cursor.matchKeyword("PRIMARY")) {
-      rejectTableConstraint(cursor);
-      columns.push(parseColumnDefinition(cursor));
-      continue;
-    }
-    if (primaryKey !== null) {
-      throw new SemanticError(`table ${table} has more than one PRIMARY KEY`);
-    }
-    cursor.expectKeyword("KEY");
-    primaryKey = cursor.nameList("a column name");
-    rejectKeyword(cursor, COLUMN_CONSTRAINTS);
-  } while (cursor.matchSymbol(","));
+  const elements = cursor.list(() => parseTableElement(cursor));
   cursor.expectSymbol(")");
-  if (cursor.isWord("STRICT")) throw new NotSupportedError("STRICT");
-  if (cursor.isWord("WITHOUT")) throw new NotSupportedError("WITHOUT ROWID");
+  cursor.rejectWord("STRICT", "STRICT");
+  cursor.rejectWord("WITHOUT", "WITHOUT ROWID");
   return {
     type: StatementType.CREATE_TABLE_STATEMENT,
     table,
-    ifNotExists: isConditional,
-    columns,
-    primaryKey: primaryKey ?? [],
+    ifNotExists: hasIfNotExists,
+    columns: elements.flatMap((element) =>
+      element.type === "COLUMN" ? [element.column] : [],
+    ),
+    primaryKeys: elements.flatMap((element) =>
+      element.type === "PRIMARY KEY" ? [element.columns] : [],
+    ),
   };
 }
 
-const TABLE_CONSTRAINTS: ReadonlyMap<Keyword, string> = new Map<
-  Keyword,
-  string
->([
-  ["CONSTRAINT", "CONSTRAINT"],
-  ["UNIQUE", "a table UNIQUE constraint"],
-  ["CHECK", "CHECK"],
-  ["FOREIGN", "FOREIGN KEY"],
-]);
-
-const COLUMN_CONSTRAINTS: ReadonlyMap<Keyword, string> = new Map<
-  Keyword,
-  string
->([
-  ["CONSTRAINT", "CONSTRAINT"],
-  ["CHECK", "CHECK"],
-  ["COLLATE", "COLLATE"],
-  ["REFERENCES", "REFERENCES"],
-  ["GENERATED", "a generated column"],
-  ["AS", "a generated column"],
-  ["ASC", "ASC or DESC on a PRIMARY KEY"],
-  ["DESC", "ASC or DESC on a PRIMARY KEY"],
-  ["ON", "ON CONFLICT in a constraint"],
-]);
-
-function rejectTableConstraint(cursor: Cursor): void {
-  rejectKeyword(cursor, TABLE_CONSTRAINTS);
-}
-
-function rejectKeyword(
-  cursor: Cursor,
-  unsupported: ReadonlyMap<Keyword, string>,
-): void {
-  const token = cursor.peek();
-  if (token.kind !== "keyword") return;
-  const feature = unsupported.get(token.value);
-  if (feature !== undefined) throw new NotSupportedError(feature);
+/** A column, or a table-level `PRIMARY KEY (…)`. */
+function parseTableElement(cursor: Cursor): TableElement {
+  if (cursor.matchKeyword("PRIMARY")) {
+    cursor.expectKeyword("KEY");
+    const columns = cursor.nameList("a column name");
+    rejectConflictClause(cursor);
+    return { type: "PRIMARY KEY", columns };
+  }
+  cursor.rejectKeyword("CONSTRAINT", "CONSTRAINT");
+  cursor.rejectKeyword("UNIQUE", "a table UNIQUE constraint");
+  cursor.rejectKeyword("CHECK", "CHECK");
+  cursor.rejectKeyword("FOREIGN", "FOREIGN KEY");
+  return { type: "COLUMN", column: parseColumnDefinition(cursor) };
 }
 
 /** `name [type] [constraint …]` */
 function parseColumnDefinition(cursor: Cursor): ColumnDefinition {
   const name = cursor.name("a column name");
   const type = startsTypeName(cursor) ? parseTypeName(cursor) : null;
-  let definition: ColumnDefinition = {
-    name,
-    type,
-    isPrimaryKey: false,
-    isNotNull: false,
-    isUnique: false,
-    isAutoincrement: false,
-    defaultValue: null,
-  };
-  for (
-    let constraint = parseColumnConstraint(cursor);
-    constraint !== undefined;
-    constraint = parseColumnConstraint(cursor)
-  ) {
-    definition = { ...definition, ...constraint };
+  const constraints: ColumnConstraint[] = [];
+  let constraint = parseColumnConstraint(cursor);
+  while (constraint !== undefined) {
+    constraints.push(constraint);
+    constraint = parseColumnConstraint(cursor);
   }
-  return definition;
+  return { name, type, constraints };
 }
-
-type ColumnConstraint = Partial<
-  Pick<
-    ColumnDefinition,
-    | "isPrimaryKey"
-    | "isNotNull"
-    | "isUnique"
-    | "isAutoincrement"
-    | "defaultValue"
-  >
->;
 
 /** One column constraint, or undefined when there is none here. */
 function parseColumnConstraint(cursor: Cursor): ColumnConstraint | undefined {
-  if (cursor.matchKeyword("PRIMARY")) {
-    cursor.expectKeyword("KEY");
-    return { isPrimaryKey: true };
-  }
+  if (cursor.matchKeyword("PRIMARY")) return parsePrimaryKeyConstraint(cursor);
   if (cursor.matchKeyword("NOT")) {
     cursor.expectKeyword("NULL");
-    return { isNotNull: true };
+    rejectConflictClause(cursor);
+    return { type: "NOT NULL" };
   }
-  if (cursor.matchKeyword("NULL")) return {};
-  if (cursor.matchKeyword("UNIQUE")) return { isUnique: true };
-  if (cursor.matchKeyword("AUTOINCREMENT")) return { isAutoincrement: true };
-  if (cursor.matchKeyword("DEFAULT"))
-    return { defaultValue: parseDefault(cursor) };
-  rejectKeyword(cursor, COLUMN_CONSTRAINTS);
+  if (cursor.matchKeyword("NULL")) return { type: "NULL" };
+  if (cursor.matchKeyword("UNIQUE")) {
+    rejectConflictClause(cursor);
+    return { type: "UNIQUE" };
+  }
+  if (cursor.matchKeyword("AUTOINCREMENT")) return { type: "AUTOINCREMENT" };
+  if (cursor.matchKeyword("DEFAULT")) {
+    return { type: "DEFAULT", value: parseDefault(cursor) };
+  }
+  rejectUnsupportedConstraint(cursor);
   return undefined;
+}
+
+/** After PRIMARY: `KEY`, without a sort order or a conflict clause. */
+function parsePrimaryKeyConstraint(cursor: Cursor): ColumnConstraint {
+  cursor.expectKeyword("KEY");
+  cursor.rejectKeyword("ASC", "ASC or DESC on a PRIMARY KEY");
+  cursor.rejectKeyword("DESC", "ASC or DESC on a PRIMARY KEY");
+  rejectConflictClause(cursor);
+  return { type: "PRIMARY KEY" };
+}
+
+function rejectConflictClause(cursor: Cursor): void {
+  cursor.rejectKeyword("ON", "ON CONFLICT in a constraint");
+}
+
+function rejectUnsupportedConstraint(cursor: Cursor): void {
+  cursor.rejectKeyword("CONSTRAINT", "CONSTRAINT");
+  cursor.rejectKeyword("CHECK", "CHECK");
+  cursor.rejectKeyword("COLLATE", "COLLATE");
+  cursor.rejectKeyword("REFERENCES", "REFERENCES");
+  cursor.rejectKeyword("GENERATED", "a generated column");
+  cursor.rejectKeyword("AS", "a generated column");
 }
 
 /**
@@ -168,39 +136,36 @@ function parseColumnConstraint(cursor: Cursor): ColumnConstraint | undefined {
 function parseDefault(cursor: Cursor): ParsedExpression {
   // A prefix NOT would take a following NOT NULL as its operand.
   if (cursor.isKeyword("NOT")) cursor.fail("a default value");
-  return cursor.expression(power.bitwise);
+  return cursor.expression(above(power.relational));
 }
 
 // --- CREATE INDEX -------------------------------------------------------------------
 
-function parseCreateIndex(
-  cursor: Cursor,
-  isUnique: boolean,
-): CreateIndexStatement {
+function parseCreateIndex(cursor: Cursor): CreateIndexStatement {
+  const isUnique = cursor.matchKeyword("UNIQUE");
   cursor.expectKeyword("INDEX");
-  const isConditional = parseIfNotExists(cursor);
-  const indexName = parseTableName(cursor, "an index name");
+  const hasIfNotExists = parseIfNotExists(cursor);
+  const name = cursor.objectName("an index name");
   cursor.expectKeyword("ON");
-  const tableName = parseTableName(cursor);
+  const table = cursor.objectName("a table name");
   cursor.expectSymbol("(");
   const expressions = cursor.list(() => parseIndexedExpression(cursor));
   cursor.expectSymbol(")");
-  if (cursor.isKeyword("WHERE")) throw new NotSupportedError("a partial index");
+  cursor.rejectKeyword("WHERE", "a partial index");
   return {
     type: StatementType.CREATE_INDEX_STATEMENT,
-    indexName,
-    tableName,
+    name,
+    table,
     expressions,
     isUnique,
-    ifNotExists: isConditional,
+    ifNotExists: hasIfNotExists,
   };
 }
 
 function parseIndexedExpression(cursor: Cursor): ParsedExpression {
   const expression = cursor.expression();
-  if (cursor.isKeyword("ASC") || cursor.isKeyword("DESC")) {
-    throw new NotSupportedError("ASC or DESC in an index");
-  }
+  cursor.rejectKeyword("ASC", "ASC or DESC in an index");
+  cursor.rejectKeyword("DESC", "ASC or DESC in an index");
   return expression;
 }
 
@@ -209,34 +174,19 @@ function parseIndexedExpression(cursor: Cursor): ParsedExpression {
 export function parseAlterTable(cursor: Cursor): AlterTableStatement {
   cursor.next();
   cursor.expectKeyword("TABLE");
-  const table = parseTableName(cursor);
-  const statement = {
-    type: StatementType.ALTER_TABLE_STATEMENT,
-    table,
-  } as const;
+  const table = cursor.objectName("a table name");
+  const type = StatementType.ALTER_TABLE_STATEMENT;
   if (cursor.matchKeyword("ADD")) {
     skipColumnKeyword(cursor);
-    const columnDefinition = parseColumnDefinition(cursor);
-    return {
-      ...statement,
-      alterType: AlterType.ADD_COLUMN,
-      columnDefinition,
-      columnName: null,
-    };
+    const column = parseColumnDefinition(cursor);
+    return { type, table, alterType: AlterType.ADD_COLUMN, column };
   }
   if (cursor.matchKeyword("DROP")) {
     skipColumnKeyword(cursor);
     const columnName = cursor.name("a column name");
-    return {
-      ...statement,
-      alterType: AlterType.DROP_COLUMN,
-      columnDefinition: null,
-      columnName,
-    };
+    return { type, table, alterType: AlterType.DROP_COLUMN, columnName };
   }
-  if (cursor.isWord("RENAME")) {
-    throw new NotSupportedError("ALTER TABLE … RENAME");
-  }
+  cursor.rejectWord("RENAME", "ALTER TABLE … RENAME");
   return cursor.fail("ADD or DROP");
 }
 
@@ -247,38 +197,41 @@ function skipColumnKeyword(cursor: Cursor): void {
 
 export function parseDrop(cursor: Cursor): DropStatement {
   cursor.next();
-  let dropType: DropType;
-  if (cursor.matchKeyword("TABLE")) {
-    dropType = DropType.TABLE;
-  } else if (cursor.matchKeyword("INDEX")) {
-    dropType = DropType.INDEX;
-  } else {
-    rejectOtherObjects(cursor, "DROP");
-    return cursor.fail("TABLE or INDEX");
-  }
-  const isConditional = cursor.isKeyword("IF") && cursor.isKeyword("EXISTS", 1);
-  if (isConditional) {
-    cursor.next();
-    cursor.next();
-  }
-  const name = parseTableName(
-    cursor,
-    dropType === DropType.TABLE ? "a table name" : "an index name",
-  );
+  const dropType = parseDropType(cursor);
+  const hasIfExists = parseIfExists(cursor);
+  const what = dropType === DropType.TABLE ? "a table name" : "an index name";
+  const name = cursor.objectName(what);
   return {
     type: StatementType.DROP_STATEMENT,
     dropType,
     name,
-    ifExists: isConditional,
+    ifExists: hasIfExists,
   };
+}
+
+function parseDropType(cursor: Cursor): DropType {
+  if (cursor.matchKeyword("TABLE")) return DropType.TABLE;
+  if (cursor.matchKeyword("INDEX")) return DropType.INDEX;
+  rejectOtherObjects(cursor, "DROP");
+  return cursor.fail("TABLE or INDEX");
 }
 
 /** `IF NOT EXISTS`; IF alone is a name. */
 function parseIfNotExists(cursor: Cursor): boolean {
-  if (!cursor.isKeyword("IF") || !cursor.isKeyword("NOT", 1)) return false;
+  const isClause = cursor.isKeyword("IF") && cursor.isKeyword("NOT", 1);
+  if (!isClause) return false;
   cursor.next();
   cursor.next();
   cursor.expectKeyword("EXISTS");
+  return true;
+}
+
+/** `IF EXISTS`; IF alone is a name. */
+function parseIfExists(cursor: Cursor): boolean {
+  const isClause = cursor.isKeyword("IF") && cursor.isKeyword("EXISTS", 1);
+  if (!isClause) return false;
+  cursor.next();
+  cursor.next();
   return true;
 }
 
@@ -291,8 +244,5 @@ const OTHER_OBJECTS: ReadonlySet<string> = new Set([
 ]);
 
 function rejectOtherObjects(cursor: Cursor, verb: "CREATE" | "DROP"): void {
-  const word = cursor.wordAt();
-  if (word !== undefined && OTHER_OBJECTS.has(word)) {
-    throw new NotSupportedError(`${verb} ${word}`);
-  }
+  cursor.rejectWordIn(OTHER_OBJECTS, (word) => `${verb} ${word}`);
 }

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { MAX_DEPTH, parse } from "../index.js";
+import { StatementType } from "../types.js";
 import {
   expression,
   items,
   notSupported,
-  select,
+  render,
   syntaxError,
 } from "./helpers.js";
 
@@ -66,7 +67,8 @@ describe("operators", () => {
     ["a IS NOT NULL", "(IS NOT NULL a)"],
     ["a == b", "(= a b)"],
     ["a != b", "(<> a b)"],
-    ["a NOT LIKE 'x%'", "(NOT LIKE a 'x%')"],
+    ["a NOT LIKE 'x%'", "(NOT (LIKE a 'x%'))"],
+    ["a NOT BETWEEN 1 AND 2", "(NOT (BETWEEN a 1 2))"],
     ["a IN (1, 2, 3)", "(IN a 1 2 3)"],
     ["a NOT IN (1)", "(NOT IN a 1)"],
     ["a IN (SELECT b FROM t)", "(= ANY a <query>)"],
@@ -240,7 +242,7 @@ describe("calls and *", () => {
     "SELECT * FROM t WHERE * = 1",
     "SELECT count(t.*) FROM t",
   ])("rejects * outside the select list and count(*): %s", (sql) => {
-    expect(() => parse(sql)).toThrow();
+    expect(syntaxError(sql).code).toBe("SYNTAX_ERROR");
   });
 
   it("names the rule when * is misplaced", () => {
@@ -253,11 +255,7 @@ describe("calls and *", () => {
 });
 
 describe("CASE", () => {
-  it("keeps the operand of a simple CASE once", () => {
-    const [item] = select(
-      "SELECT CASE f(x) WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'c' END",
-    ).selectList;
-    expect(item?.expressionClass).toBe("CASE");
+  it("keeps the operand of a simple CASE apart from its WHEN values", () => {
     expect(
       expression("CASE f(x) WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'c' END"),
     ).toBe("(CASE (f x) (WHEN 1 'a') (WHEN 2 'b') (ELSE 'c'))");
@@ -309,9 +307,13 @@ describe("parameters", () => {
   });
 
   it("numbers each statement on its own", () => {
-    const statements = parse("SELECT ?; SELECT ?");
-    expect(statements).toHaveLength(2);
-    expect(JSON.stringify(statements[1])).toContain('"index":0');
+    const selectLists = parse("SELECT ?; SELECT ?").map((statement) => {
+      if (statement.type !== StatementType.SELECT_STATEMENT) return [];
+      const { body } = statement;
+      if (body.type !== "SELECT_NODE") return [];
+      return body.selectList.map((item) => render(item));
+    });
+    expect(selectLists).toEqual([["$1"], ["$1"]]);
   });
 
   it("rejects parameter numbers out of range", () => {
@@ -326,10 +328,13 @@ function deep(levels: number): string {
   return `SELECT ${"(".repeat(levels)}1${")".repeat(levels)}`;
 }
 
+/** The levels `deep` adds around its parentheses: the query and its item. */
+const OVERHEAD = 2;
+
 describe("nesting limit", () => {
   it(`allows ${String(MAX_DEPTH)} levels in all and no more`, () => {
-    expect(() => parse(deep(MAX_DEPTH - 2))).not.toThrow();
-    const error = syntaxError(deep(MAX_DEPTH));
+    expect(() => parse(deep(MAX_DEPTH - OVERHEAD))).not.toThrow();
+    const error = syntaxError(deep(MAX_DEPTH - OVERHEAD + 1));
     expect(error.message).toBe(
       `the statement nests more than ${String(MAX_DEPTH)} levels deep`,
     );

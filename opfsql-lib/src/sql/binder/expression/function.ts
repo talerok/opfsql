@@ -50,7 +50,7 @@ export function bindFunction(
     );
     return match ?? bound;
   }
-  if (expression.distinct || expression.isStar) {
+  if (expression.isDistinct || expression.isStar) {
     throw new SemanticError(`${name}() is not an aggregate function`);
   }
   const children = expression.children.map((child) => binding.bind(child));

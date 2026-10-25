@@ -18,20 +18,8 @@ export function bindComparison(
   const left = bindExpression(ctx, expr.left, scope, aggCtx);
   const right = bindExpression(ctx, expr.right, scope, aggCtx);
 
-  if (
-    expr.type === ExpressionType.COMPARE_LIKE ||
-    expr.type === ExpressionType.COMPARE_NOT_LIKE
-  ) {
-    const like = bindLike(left, right);
-    return expr.type === ExpressionType.COMPARE_LIKE
-      ? like
-      : {
-          expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-          operatorType: "NOT",
-          children: [like],
-          returnType: "BOOLEAN",
-        };
-  }
+  // The parser writes NOT LIKE as NOT around LIKE.
+  if (expr.type === ExpressionType.COMPARE_LIKE) return bindLike(left, right);
 
   checkTypeCompatibility(left.returnType, right.returnType);
   return {

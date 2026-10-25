@@ -13,14 +13,14 @@ export function bindStar(
 ): BoundColumnRefExpression[] {
   const result: BoundColumnRefExpression[] = [];
 
-  const entries = expr.tableName
-    ? ([scope.findByAlias(expr.tableName)].filter(Boolean) as Array<
+  const entries = expr.table
+    ? ([scope.findByAlias(expr.table)].filter(Boolean) as Array<
         NonNullable<ReturnType<typeof scope.findByAlias>>
       >)
     : scope.getAllBindings();
 
-  if (expr.tableName && entries.length === 0) {
-    throw new BindError(`Unknown table alias "${expr.tableName}"`);
+  if (expr.table && entries.length === 0) {
+    throw new BindError(`Unknown table alias "${expr.table}"`);
   }
 
   for (const entry of entries) {

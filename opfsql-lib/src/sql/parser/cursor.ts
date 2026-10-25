@@ -1,12 +1,17 @@
 // ---------------------------------------------------------------------------
 // The parser's position in the token list, and everything the grammar files
-// share: matching keywords and symbols, reading names, errors, the nesting
-// limit and parameter numbers. The grammar's two recursive entry points,
-// expressions and queries, are reached through the cursor so that the files
-// implementing them need not import each other.
+// share: matching keywords and symbols, names, optional clauses, subqueries,
+// errors, unsupported syntax, the nesting limit and parameter numbers. The
+// grammar's two recursive entry points, expressions and queries, are reached
+// through the cursor so that the files implementing them need not import
+// each other.
 // ---------------------------------------------------------------------------
 
-import { InternalError, SqlSyntaxError } from "../../errors.js";
+import {
+  InternalError,
+  NotSupportedError,
+  SqlSyntaxError,
+} from "../../errors.js";
 import { isReserved, upperAscii, type Keyword } from "./keywords.js";
 import { power } from "./precedence.js";
 import { describe, type SymbolText, type Token } from "./tokens.js";
@@ -14,12 +19,21 @@ import type { ParsedExpression, SelectStatement } from "./types.js";
 
 /**
  * How deeply expressions and queries may nest, counting each parenthesis,
- * subquery and prefix operator, and each operator in a chain like
- * `1 + 2 + 3`. SQLite allows 1000; a worker's stack is smaller than the main
- * thread's, and the binder and executor walk the tree recursively too, so
- * opfsql stops at 200 with a syntax error instead of a stack overflow.
+ * subquery and prefix operator, and each link of a chain (`1 + 2 + 3`, a
+ * join, a compound query, a CTE list). SQLite allows 1000; a worker's stack
+ * is smaller than the main thread's, and the binder and executor walk the
+ * tree recursively too, so opfsql stops at 200 with a syntax error instead
+ * of a stack overflow. The whole pipeline runs at this depth in 180 KB of
+ * stack.
  */
 export const MAX_DEPTH = 200;
+
+/** The keywords a query starts with; VALUES is refused where it would. */
+const QUERY_KEYWORDS: ReadonlySet<Keyword> = new Set<Keyword>([
+  "SELECT",
+  "WITH",
+  "VALUES",
+]);
 
 /** SQLite's largest parameter number (SQLITE_MAX_VARIABLE_NUMBER). */
 const MAX_PARAMETER = 32_766;
@@ -50,6 +64,54 @@ export class Cursor {
     return this.grammar.query(this);
   }
 
+  /** True if a query starts here: SELECT, WITH or VALUES. */
+  startsQuery(offset = 0): boolean {
+    const keyword = this.keywordAt(offset);
+    return keyword !== undefined && QUERY_KEYWORDS.has(keyword);
+  }
+
+  /** `( SELECT … )` */
+  subquery(): SelectStatement {
+    this.expectSymbol("(");
+    if (!this.startsQuery()) this.fail("a subquery");
+    const query = this.query();
+    this.expectSymbol(")");
+    return query;
+  }
+
+  /** The expression after `keyword`, or null when the keyword is absent. */
+  expressionAfter(keyword: Keyword): ParsedExpression | null {
+    return this.matchKeyword(keyword) ? this.expression() : null;
+  }
+
+  /**
+   * A left-deep chain: `first`, then for each operator `operator` finds,
+   * `combine` parses the right side and joins it on. Each link nests the
+   * tree one level deeper, so each counts toward MAX_DEPTH.
+   */
+  chain<Node, Operator>(
+    first: Node,
+    operator: () => Operator | undefined,
+    combine: (left: Node, operator: Operator) => Node,
+  ): Node {
+    let node = first;
+    let links = 0;
+    for (let next = operator(); next !== undefined; next = operator()) {
+      this.descend();
+      links++;
+      node = combine(node, next);
+    }
+    this.ascend(links);
+    return node;
+  }
+
+  /** One or more items separated by commas. */
+  list<T>(parse: () => T): T[] {
+    const items = [parse()];
+    while (this.matchSymbol(",")) items.push(parse());
+    return items;
+  }
+
   // --- Tokens ----------------------------------------------------------------
 
   peek(offset = 0): Token {
@@ -69,9 +131,20 @@ export class Cursor {
     return this.peek().kind === "end";
   }
 
-  isKeyword(keyword: Keyword, offset = 0): boolean {
+  /** The keyword at the token, or undefined if it is not one. */
+  keywordAt(offset = 0): Keyword | undefined {
     const token = this.peek(offset);
-    return token.kind === "keyword" && token.value === keyword;
+    return token.kind === "keyword" ? token.value : undefined;
+  }
+
+  /** What `table` holds for the keyword at the token, if anything. */
+  lookupKeyword<T>(table: ReadonlyMap<Keyword, T>, offset = 0): T | undefined {
+    const keyword = this.keywordAt(offset);
+    return keyword === undefined ? undefined : table.get(keyword);
+  }
+
+  isKeyword(keyword: Keyword, offset = 0): boolean {
+    return this.keywordAt(offset) === keyword;
   }
 
   matchKeyword(keyword: Keyword): boolean {
@@ -100,11 +173,15 @@ export class Cursor {
     return this.next();
   }
 
-  /** One or more items separated by commas. */
-  list<T>(parse: () => T): T[] {
-    const items = [parse()];
-    while (this.matchSymbol(",")) items.push(parse());
-    return items;
+  /** An identifier's word in upper case, if it is ASCII; for non-keywords. */
+  wordAt(offset = 0): string | undefined {
+    const token = this.peek(offset);
+    return token.kind === "identifier" ? upperAscii(token.value) : undefined;
+  }
+
+  /** True if the token is an identifier spelling `word` (in upper case). */
+  isWord(word: string, offset = 0): boolean {
+    return this.wordAt(offset) === word;
   }
 
   /** The SQL text between two offsets, as written. */
@@ -145,8 +222,8 @@ export class Cursor {
 
   /** A name after a dot, where even a reserved keyword is a name. */
   label(what: string): string {
-    const kind = this.peek().kind;
-    if (kind !== "keyword" && !this.isName()) this.fail(what);
+    const isLabel = this.peek().kind === "keyword" || this.isName();
+    if (!isLabel) this.fail(what);
     return nameOf(this.next());
   }
 
@@ -158,23 +235,22 @@ export class Cursor {
     return names;
   }
 
-  /** An identifier token's word in upper case, if it is ASCII. */
-  wordAt(offset = 0): string | undefined {
-    const token = this.peek(offset);
-    return token.kind === "identifier" ? upperAscii(token.value) : undefined;
+  /** The name of a table or index, which cannot have a schema: `main.t`. */
+  objectName(what: string): string {
+    const name = this.name(what);
+    this.rejectSymbol(".", "a schema name");
+    return name;
   }
 
-  /** True if the token is an identifier spelling `word` (in upper case). */
-  isWord(word: string, offset = 0): boolean {
-    return this.wordAt(offset) === word;
-  }
-
-  /** A bare alias: an identifier or a quoted name, never a keyword. */
-  matchAlias(): string | null {
+  /**
+   * `AS name`, or a bare alias, which is an identifier or a quoted name and
+   * never a keyword; null when there is neither.
+   */
+  optionalAlias(): string | null {
+    if (this.matchKeyword("AS")) return this.name("an alias");
     const kind = this.peek().kind;
-    return kind === "identifier" || kind === "quoted"
-      ? nameOf(this.next())
-      : null;
+    const isBareAlias = kind === "identifier" || kind === "quoted";
+    return isBareAlias ? nameOf(this.next()) : null;
   }
 
   // --- Errors ----------------------------------------------------------------
@@ -188,6 +264,35 @@ export class Cursor {
   /** Fails at a token, or from `start` (a sign before it, say) to its end. */
   failAt(token: Token, message: string, start = token.start): never {
     throw new SqlSyntaxError(message, start, token.end - start);
+  }
+
+  /** Valid SQL that opfsql does not implement starts with `keyword` here. */
+  rejectKeyword(keyword: Keyword, feature: string, offset = 0): void {
+    if (this.isKeyword(keyword, offset)) throw new NotSupportedError(feature);
+  }
+
+  rejectSymbol(symbol: SymbolText, feature: string, offset = 0): void {
+    if (this.isSymbol(symbol, offset)) throw new NotSupportedError(feature);
+  }
+
+  /** As rejectKeyword, for any name. */
+  rejectName(feature: string): void {
+    if (this.isName()) throw new NotSupportedError(feature);
+  }
+
+  /** As rejectKeyword, for a word that is not a keyword (`VIEW`, `PRAGMA`). */
+  rejectWord(word: string, feature: string): void {
+    if (this.isWord(word)) throw new NotSupportedError(feature);
+  }
+
+  /** As rejectWord, for any of `words`; `feature` names the one found. */
+  rejectWordIn(
+    words: ReadonlySet<string>,
+    feature: (word: string) => string,
+  ): void {
+    const word = this.wordAt();
+    const isRejected = word !== undefined && words.has(word);
+    if (isRejected) throw new NotSupportedError(feature(word));
   }
 
   // --- Nesting ---------------------------------------------------------------
@@ -218,7 +323,8 @@ export class Cursor {
   parameterIndex(token: Token): number {
     const number =
       token.value === "" ? this.highestParameter + 1 : Number(token.value);
-    if (number < 1 || number > MAX_PARAMETER) {
+    const isInRange = number >= 1 && number <= MAX_PARAMETER;
+    if (!isInRange) {
       this.failAt(
         token,
         `parameter numbers run from 1 to ${String(MAX_PARAMETER)}, got ${token.text}`,

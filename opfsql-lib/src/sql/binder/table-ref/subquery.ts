@@ -13,7 +13,7 @@ export function bindSubqueryRef(
   scope: BindScope,
 ): BT.LogicalOperator {
   const childScope = scope.createIsolatedScope();
-  const subplan = bindQueryNode(ctx, ref.subquery.node, childScope);
+  const subplan = bindQueryNode(ctx, ref.subquery, childScope);
 
   const alias = ref.alias ?? "__subquery";
   const inferredColumns = extractColumnsFromPlan(subplan, subplan.types);

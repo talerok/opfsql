@@ -166,7 +166,7 @@ function expressionOf(sql: string): ParsedExpression {
   if (statement.type !== StatementType.SELECT_STATEMENT) {
     throw new Error("expected a SELECT");
   }
-  const node = statement.node;
+  const node = statement.body;
   if (node.type !== "SELECT_NODE") throw new Error("expected a SELECT node");
   return node.selectList[0];
 }

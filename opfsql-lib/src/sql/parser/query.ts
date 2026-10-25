@@ -2,47 +2,44 @@
 // Queries: WITH, SELECT, compound operators, ORDER BY and LIMIT.
 // ---------------------------------------------------------------------------
 
-import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
 import { parseFrom } from "./from-clause.js";
-import { parseSubquery } from "./primary.js";
 import {
   ExpressionClass,
   OrderByNullType,
   OrderType,
-  ResultModifierType,
   SetOperationType,
   StatementType,
-  type CTEMap,
   type CTENode,
-  type LimitModifier,
+  type LimitClause,
   type OrderByNode,
   type ParsedExpression,
-  type ResultModifier,
   type SelectNode,
   type SelectStatement,
   type SetOperationNode,
-  type StarExpression,
+  type WithClause,
 } from "./types.js";
 
-const NO_CTES: CTEMap = { ctes: [], recursive: false };
-
-/** A whole query; WITH, ORDER BY and LIMIT attach to its outermost node. */
+/** A whole query: WITH, a body, and the ORDER BY and LIMIT of the body. */
 export function parseQuery(cursor: Cursor): SelectStatement {
   cursor.descend();
-  const cteMap = cursor.isKeyword("WITH") ? parseWith(cursor) : NO_CTES;
-  const node = parseCompound(cursor);
-  const modifiers = [...node.modifiers, ...parseTrailingModifiers(cursor)];
+  const withClause = cursor.isKeyword("WITH") ? parseWith(cursor) : null;
+  const body = parseCompound(cursor);
+  const orderBy = parseOrderBy(cursor);
+  const limit = parseLimit(cursor);
   cursor.ascend();
   return {
     type: StatementType.SELECT_STATEMENT,
-    node: { ...node, modifiers, cteMap },
+    with: withClause,
+    body,
+    orderBy,
+    limit,
   };
 }
 
 // --- WITH ----------------------------------------------------------------------
 
-function parseWith(cursor: Cursor): CTEMap {
+function parseWith(cursor: Cursor): WithClause {
   cursor.next();
   // `WITH recursive AS (…)` names a CTE "recursive".
   const isRecursive =
@@ -50,132 +47,104 @@ function parseWith(cursor: Cursor): CTEMap {
     !cursor.isKeyword("AS", 1) &&
     !cursor.isSymbol("(", 1);
   if (isRecursive) cursor.next();
-  // The binder nests one plan node per CTE, so each counts as a level.
-  let levels = 0;
+  // The binder nests a plan node per CTE, so each is a level.
   const ctes = cursor.list(() => {
     cursor.descend();
-    levels++;
     return parseCte(cursor);
   });
-  cursor.ascend(levels);
-  const next = cursor.peek();
-  if (next.kind === "keyword" && DML_KEYWORDS.has(next.value)) {
-    throw new NotSupportedError(`WITH before ${next.value}`);
-  }
-  return { ctes, recursive: isRecursive };
+  cursor.ascend(ctes.length);
+  cursor.rejectKeyword("INSERT", "WITH before INSERT");
+  cursor.rejectKeyword("UPDATE", "WITH before UPDATE");
+  cursor.rejectKeyword("DELETE", "WITH before DELETE");
+  return { isRecursive, ctes };
 }
-
-const DML_KEYWORDS: ReadonlySet<string> = new Set([
-  "INSERT",
-  "UPDATE",
-  "DELETE",
-]);
 
 function parseCte(cursor: Cursor): CTENode {
   const name = cursor.name("a name for the WITH query");
-  const aliases = cursor.isSymbol("(") ? cursor.nameList("a column name") : [];
+  const columnNames = cursor.isSymbol("(")
+    ? cursor.nameList("a column name")
+    : [];
   cursor.expectKeyword("AS");
-  if (cursor.isWord("MATERIALIZED") || cursor.isKeyword("NOT")) {
-    throw new NotSupportedError("[NOT] MATERIALIZED");
-  }
-  return { name, query: parseSubquery(cursor), aliases };
+  cursor.rejectWord("MATERIALIZED", "[NOT] MATERIALIZED");
+  cursor.rejectKeyword("NOT", "[NOT] MATERIALIZED");
+  return { name, columnNames, query: cursor.subquery() };
 }
 
 // --- Compound queries ------------------------------------------------------------
 
 function parseCompound(cursor: Cursor): SelectNode | SetOperationNode {
-  let node: SelectNode | SetOperationNode = parseSelectCore(cursor);
-  let levels = 0;
-  for (let type = parseSetOperator(cursor); type !== undefined;) {
-    // A chain of compound operators makes a tree as deep as a nesting would.
-    cursor.descend();
-    levels++;
-    node = {
+  return cursor.chain<SelectNode | SetOperationNode, SetOperationType>(
+    parseSelectCore(cursor),
+    () => parseSetOperator(cursor),
+    (left, operator) => ({
       type: "SET_OPERATION_NODE",
-      setOperationType: type,
-      left: node,
+      setOperationType: operator,
+      left,
       right: parseSelectCore(cursor),
-      modifiers: [],
-      cteMap: NO_CTES,
-    };
-    type = parseSetOperator(cursor);
-  }
-  cursor.ascend(levels);
-  return node;
+    }),
+  );
 }
 
+/** UNION [ALL], INTERSECT or EXCEPT; the last two without ALL. */
 function parseSetOperator(cursor: Cursor): SetOperationType | undefined {
   if (cursor.matchKeyword("UNION")) {
     return cursor.matchKeyword("ALL")
       ? SetOperationType.UNION_ALL
       : SetOperationType.UNION;
   }
-  let type: SetOperationType | undefined;
   if (cursor.matchKeyword("INTERSECT")) {
-    type = SetOperationType.INTERSECT;
-  } else if (cursor.matchKeyword("EXCEPT")) {
-    type = SetOperationType.EXCEPT;
+    cursor.rejectKeyword("ALL", "INTERSECT ALL");
+    return SetOperationType.INTERSECT;
   }
-  if (type !== undefined && cursor.isKeyword("ALL")) {
-    throw new NotSupportedError(`${type} ALL`);
+  if (cursor.matchKeyword("EXCEPT")) {
+    cursor.rejectKeyword("ALL", "EXCEPT ALL");
+    return SetOperationType.EXCEPT;
   }
-  return type;
+  return undefined;
 }
 
 // --- SELECT ----------------------------------------------------------------------
 
 function parseSelectCore(cursor: Cursor): SelectNode {
-  if (cursor.isKeyword("VALUES"))
-    throw new NotSupportedError("VALUES as a query");
+  cursor.rejectKeyword("VALUES", "VALUES as a query");
   cursor.expectKeyword("SELECT");
   const isDistinct = cursor.matchKeyword("DISTINCT");
   if (!isDistinct) cursor.matchKeyword("ALL");
   const selectList = cursor.list(() => parseSelectItem(cursor));
-  const fromTable = cursor.matchKeyword("FROM") ? parseFrom(cursor) : null;
-  const whereClause = parseOptional(cursor, "WHERE");
-  const groupExpressions = parseGroupBy(cursor);
-  const having = parseOptional(cursor, "HAVING");
-  if (cursor.isKeyword("WINDOW")) throw new NotSupportedError("WINDOW");
-  const modifiers: ResultModifier[] = isDistinct
-    ? [{ type: ResultModifierType.DISTINCT_MODIFIER }]
-    : [];
+  const from = cursor.matchKeyword("FROM") ? parseFrom(cursor) : null;
+  const where = cursor.expressionAfter("WHERE");
+  const groupBy = parseGroupBy(cursor);
+  const having = cursor.expressionAfter("HAVING");
+  cursor.rejectKeyword("WINDOW", "WINDOW");
   return {
     type: "SELECT_NODE",
+    isDistinct,
     selectList,
-    fromTable,
-    whereClause,
-    groups: { groupExpressions },
+    from,
+    where,
+    groupBy,
     having,
-    modifiers,
-    cteMap: NO_CTES,
   };
-}
-
-function parseOptional(
-  cursor: Cursor,
-  keyword: "WHERE" | "HAVING",
-): ParsedExpression | null {
-  return cursor.matchKeyword(keyword) ? cursor.expression() : null;
 }
 
 /** `*`, `t.*`, or an expression with an optional alias. */
 function parseSelectItem(cursor: Cursor): ParsedExpression {
   if (cursor.matchSymbol("*")) return star(null);
-  if (cursor.isName() && cursor.isSymbol(".", 1) && cursor.isSymbol("*", 2)) {
+  const isTableStar =
+    cursor.isName() && cursor.isSymbol(".", 1) && cursor.isSymbol("*", 2);
+  if (isTableStar) {
     const table = cursor.name("a table name");
-    cursor.next();
-    cursor.next();
+    cursor.expectSymbol(".");
+    cursor.expectSymbol("*");
     return star(table);
   }
   const expression = cursor.expression();
-  const alias = cursor.matchKeyword("AS")
-    ? cursor.name("an alias")
-    : cursor.matchAlias();
+  const alias = cursor.optionalAlias();
   return alias === null ? expression : { ...expression, alias };
 }
 
-function star(tableName: string | null): StarExpression {
-  return { expressionClass: ExpressionClass.STAR, alias: null, tableName };
+function star(table: string | null): ParsedExpression {
+  return { expressionClass: ExpressionClass.STAR, alias: null, table };
 }
 
 function parseGroupBy(cursor: Cursor): readonly ParsedExpression[] {
@@ -186,57 +155,54 @@ function parseGroupBy(cursor: Cursor): readonly ParsedExpression[] {
 
 // --- ORDER BY and LIMIT --------------------------------------------------------------
 
-function parseTrailingModifiers(cursor: Cursor): ResultModifier[] {
-  const modifiers: ResultModifier[] = [];
-  if (cursor.matchKeyword("ORDER")) {
-    cursor.expectKeyword("BY");
-    const orders = cursor.list(() => parseOrderItem(cursor));
-    modifiers.push({ type: ResultModifierType.ORDER_MODIFIER, orders });
-  }
-  const limit = parseLimit(cursor);
-  if (limit !== undefined) modifiers.push(limit);
-  return modifiers;
+function parseOrderBy(cursor: Cursor): readonly OrderByNode[] {
+  if (!cursor.matchKeyword("ORDER")) return [];
+  cursor.expectKeyword("BY");
+  return cursor.list(() => parseOrderItem(cursor));
 }
 
 function parseOrderItem(cursor: Cursor): OrderByNode {
   const expression = cursor.expression();
   const isDescending = cursor.matchKeyword("DESC");
   if (!isDescending) cursor.matchKeyword("ASC");
-  let nullOrder: OrderByNullType | null = null;
-  if (cursor.matchKeyword("NULLS")) {
-    if (cursor.matchKeyword("FIRST")) {
-      nullOrder = OrderByNullType.NULLS_FIRST;
-    } else if (cursor.matchKeyword("LAST")) {
-      nullOrder = OrderByNullType.NULLS_LAST;
-    } else {
-      cursor.fail("FIRST or LAST");
-    }
-  }
   const type = isDescending ? OrderType.DESCENDING : OrderType.ASCENDING;
-  return { type, nullOrder, expression };
+  return { type, nullOrder: parseNullOrder(cursor), expression };
+}
+
+/** `NULLS FIRST`, `NULLS LAST`, or null when the item does not say. */
+function parseNullOrder(cursor: Cursor): OrderByNullType | null {
+  if (!cursor.matchKeyword("NULLS")) return null;
+  if (cursor.matchKeyword("FIRST")) return OrderByNullType.NULLS_FIRST;
+  if (cursor.matchKeyword("LAST")) return OrderByNullType.NULLS_LAST;
+  return cursor.fail("FIRST or LAST");
 }
 
 /**
  * `LIMIT n [OFFSET m]`, SQLite's `LIMIT m, n`, and PostgreSQL's `OFFSET m`
  * with or without a LIMIT after it.
  */
-function parseLimit(cursor: Cursor): LimitModifier | undefined {
-  let limit: ParsedExpression | null = null;
-  let offset: ParsedExpression | null = null;
-  if (cursor.matchKeyword("LIMIT")) {
-    limit = cursor.expression();
-    if (cursor.matchSymbol(",")) {
-      offset = limit;
-      limit = cursor.expression();
-    }
-  }
-  if (offset === null && cursor.matchKeyword("OFFSET")) {
-    offset = cursor.expression();
-    if (limit === null && cursor.matchKeyword("LIMIT")) {
-      limit = cursor.expression();
-    }
-  }
-  return limit === null && offset === null
-    ? undefined
-    : { type: ResultModifierType.LIMIT_MODIFIER, limit, offset };
+function parseLimit(cursor: Cursor): LimitClause | null {
+  if (cursor.matchKeyword("LIMIT")) return parseLimitFirst(cursor);
+  if (cursor.matchKeyword("OFFSET")) return parseOffsetFirst(cursor);
+  return null;
+}
+
+/** After LIMIT: `n`, `n OFFSET m`, or `m, n`, where m is the offset. */
+function parseLimitFirst(cursor: Cursor): LimitClause {
+  const first = cursor.expression();
+  if (cursor.matchSymbol(",")) return limitClause(cursor.expression(), first);
+  return limitClause(first, cursor.expressionAfter("OFFSET"));
+}
+
+/** After OFFSET: `m`, or `m LIMIT n`. */
+function parseOffsetFirst(cursor: Cursor): LimitClause {
+  const offset = cursor.expression();
+  return limitClause(cursor.expressionAfter("LIMIT"), offset);
+}
+
+function limitClause(
+  limit: ParsedExpression | null,
+  offset: ParsedExpression | null,
+): LimitClause {
+  return { limit, offset };
 }

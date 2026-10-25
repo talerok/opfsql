@@ -46,9 +46,7 @@ export function bindColumnRef(
   for (let i = extraNameStart; i < names.length; i++) {
     jsonPath.push({ type: "field", name: names[i] });
   }
-  if (expr.path) {
-    jsonPath.push(...expr.path);
-  }
+  jsonPath.push(...expr.path);
 
   // Handle aggregate context for the base column ref
   if (aggCtx && (aggCtx.groups.length > 0 || aggCtx.aggregates.length > 0)) {

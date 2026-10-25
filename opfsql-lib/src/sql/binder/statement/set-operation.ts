@@ -1,6 +1,6 @@
 import { NotSupportedError } from "../../../errors.js";
 import type { OrderByNode, SetOperationNode } from "../../parser/types.js";
-import { ResultModifierType, SetOperationType } from "../../parser/types.js";
+import { SetOperationType } from "../../parser/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
 import { makeLimit, makeOrderBy } from "../core/operators.js";
@@ -12,13 +12,15 @@ import { bindExpression } from "../expression/index.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";
 import { collectCTEs } from "./cte.js";
-import { bindQueryNode } from "./query-node.js";
+import { NO_CLAUSES, type QueryClauses } from "./query-clauses.js";
+import { bindQueryBody } from "./query-node.js";
 import { bindSelect } from "./select.js";
 
 export function bindSetOperation(
   ctx: BindContext,
   node: SetOperationNode,
   scope: BindScope,
+  clauses: QueryClauses,
 ): BT.LogicalOperator {
   if (
     node.setOperationType === SetOperationType.INTERSECT ||
@@ -26,12 +28,12 @@ export function bindSetOperation(
   ) {
     throw new NotSupportedError(node.setOperationType);
   }
-  const cteEntries = collectCTEs(ctx, node.cteMap, scope);
+  const cteEntries = collectCTEs(ctx, clauses.with, scope);
 
-  const left = bindQueryNode(ctx, node.left, scope);
+  const left = bindQueryBody(ctx, node.left, scope);
 
   const rightScope = scope.createIsolatedScope();
-  const right = bindSelect(ctx, node.right, rightScope);
+  const right = bindSelect(ctx, node.right, rightScope, NO_CLAUSES);
 
   if (left.types.length !== right.types.length) {
     throw new BindError(
@@ -52,18 +54,14 @@ export function bindSetOperation(
     columnBindings: left.columnBindings,
   } satisfies BT.LogicalUnion;
 
-  for (const mod of node.modifiers) {
-    switch (mod.type) {
-      case ResultModifierType.ORDER_MODIFIER:
-        plan = makeOrderBy(plan, bindOrders(ctx, mod.orders, scope));
-        break;
-      case ResultModifierType.LIMIT_MODIFIER: {
-        const limitVal = mod.limit !== null ? evalConstantInt(mod.limit) : null;
-        const offsetVal = mod.offset !== null ? evalConstantInt(mod.offset) : 0;
-        plan = makeLimit(plan, limitVal, offsetVal);
-        break;
-      }
-    }
+  if (clauses.orderBy.length > 0) {
+    plan = makeOrderBy(plan, bindOrders(ctx, clauses.orderBy, scope));
+  }
+  const limit = clauses.limit;
+  if (limit !== null) {
+    const limitVal = limit.limit !== null ? evalConstantInt(limit.limit) : null;
+    const offsetVal = limit.offset !== null ? evalConstantInt(limit.offset) : 0;
+    plan = makeLimit(plan, limitVal, offsetVal);
   }
 
   for (let i = cteEntries.length - 1; i >= 0; i--) {

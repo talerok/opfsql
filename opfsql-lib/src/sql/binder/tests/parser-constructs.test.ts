@@ -160,6 +160,30 @@ describe("CREATE TABLE", () => {
     );
   });
 
+  it("takes one primary key over several columns", () => {
+    expect(
+      columns(
+        "CREATE TABLE t (a INTEGER, b INTEGER, c INTEGER, PRIMARY KEY (a, b))",
+      ).map((column) => column[0]),
+    ).toEqual(["a", "b", "c"]);
+    const plan = bind(
+      "CREATE TABLE t (a INTEGER, b INTEGER, c INTEGER, PRIMARY KEY (a, b))",
+    ) as LogicalCreateTable;
+    expect(plan.schema.columns.map((column) => column.primaryKey)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("uses the last of several DEFAULTs, as SQLite does", () => {
+    expect(
+      columns("CREATE TABLE t (a INTEGER DEFAULT 1 DEFAULT 2)").map(
+        (column) => column[2],
+      ),
+    ).toEqual([2]);
+  });
+
   it("stores constant defaults, signs included", () => {
     expect(
       columns(

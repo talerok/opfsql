@@ -5,7 +5,7 @@ import type {
   SelectNode,
   StarExpression,
 } from "../../parser/types.js";
-import { ExpressionClass, ResultModifierType } from "../../parser/types.js";
+import { ExpressionClass } from "../../parser/types.js";
 import type { LogicalType } from "../../../store/types.js";
 import type { AggregateContext, BindContext } from "../core/context.js";
 import {
@@ -36,21 +36,23 @@ import { bindTableRef } from "../table-ref/index.js";
 import type * as BT from "../types.js";
 import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
 import { collectCTEs } from "./cte.js";
+import type { QueryClauses } from "./query-clauses.js";
 
 export function bindSelect(
   ctx: BindContext,
   node: SelectNode,
   scope: BindScope,
+  clauses: QueryClauses,
 ): BT.LogicalOperator {
-  const cteEntries = collectCTEs(ctx, node.cteMap, scope);
+  const cteEntries = collectCTEs(ctx, clauses.with, scope);
 
-  let plan: BT.LogicalOperator = node.fromTable
-    ? bindTableRef(ctx, node.fromTable, scope)
+  let plan: BT.LogicalOperator = node.from
+    ? bindTableRef(ctx, node.from, scope)
     : makeEmptyGet(ctx);
 
-  if (node.whereClause) {
-    checkNoAggregates(node.whereClause);
-    plan = makeFilter(plan, [bindExpression(ctx, node.whereClause, scope)]);
+  if (node.where) {
+    checkNoAggregates(node.where);
+    plan = makeFilter(plan, [bindExpression(ctx, node.where, scope)]);
   }
 
   const aggCtx = bindAggregation(ctx, node, scope, plan);
@@ -58,7 +60,8 @@ export function bindSelect(
 
   const proj = buildProjection(ctx, node, scope, plan, aggCtx.context);
 
-  plan = applyModifiers(ctx, node, scope, proj, aggCtx.context);
+  const modifiers = { ...clauses, isDistinct: node.isDistinct };
+  plan = applyModifiers(ctx, modifiers, scope, proj, aggCtx.context);
 
   return wrapCTEs(plan, cteEntries);
 }
@@ -78,7 +81,7 @@ function bindAggregation(
   scope: BindScope,
   plan: BT.LogicalOperator,
 ): AggregationResult {
-  const hasGroupBy = node.groups.groupExpressions.length > 0;
+  const hasGroupBy = node.groupBy.length > 0;
   const hasAggregates =
     detectAggregates(node.selectList) ||
     (node.having !== null && detectAggregates([node.having]));
@@ -87,13 +90,11 @@ function bindAggregation(
     return { aggregatePlan: null, context: undefined };
   }
 
-  for (const g of node.groups.groupExpressions) {
+  for (const g of node.groupBy) {
     checkNoAggregates(g, "GROUP BY clause");
   }
 
-  const groups = node.groups.groupExpressions.map((g) =>
-    bindExpression(ctx, g, scope),
-  );
+  const groups = node.groupBy.map((g) => bindExpression(ctx, g, scope));
   const aggregates = collectAllAggregates(
     ctx,
     node.selectList,
@@ -189,35 +190,27 @@ function buildProjection(
 // Modifiers (DISTINCT, ORDER BY, LIMIT)
 // ---------------------------------------------------------------------------
 
+/** DISTINCT, then ORDER BY, then LIMIT. */
 function applyModifiers(
   ctx: BindContext,
-  node: SelectNode,
+  modifiers: QueryClauses & { isDistinct: boolean },
   scope: BindScope,
   proj: ProjectionState,
   aggCtx: AggregateContext | undefined,
 ): BT.LogicalOperator {
   let plan = proj.plan;
-
-  for (const mod of node.modifiers) {
-    switch (mod.type) {
-      case ResultModifierType.DISTINCT_MODIFIER:
-        plan = makeDistinct(plan);
-        break;
-
-      case ResultModifierType.ORDER_MODIFIER:
-        plan = applyOrderBy(ctx, mod.orders, scope, proj, aggCtx, plan);
-        break;
-
-      case ResultModifierType.LIMIT_MODIFIER:
-        plan = makeLimit(
-          plan,
-          mod.limit !== null ? evalConstantInt(mod.limit) : null,
-          mod.offset !== null ? evalConstantInt(mod.offset) : 0,
-        );
-        break;
-    }
+  if (modifiers.isDistinct) plan = makeDistinct(plan);
+  if (modifiers.orderBy.length > 0) {
+    plan = applyOrderBy(ctx, modifiers.orderBy, scope, proj, aggCtx, plan);
   }
-
+  const limit = modifiers.limit;
+  if (limit !== null) {
+    plan = makeLimit(
+      plan,
+      limit.limit !== null ? evalConstantInt(limit.limit) : null,
+      limit.offset !== null ? evalConstantInt(limit.offset) : 0,
+    );
+  }
   return plan;
 }
 

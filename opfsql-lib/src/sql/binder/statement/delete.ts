@@ -16,8 +16,8 @@ export function bindDelete(
 
   let scan: BT.LogicalOperator = makeGet(entry, schema);
 
-  if (stmt.whereClause) {
-    const filter = bindExpression(ctx, stmt.whereClause, scope);
+  if (stmt.where) {
+    const filter = bindExpression(ctx, stmt.where, scope);
     scan = makeFilter(scan, [filter]);
   }
 
