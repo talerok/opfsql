@@ -161,6 +161,12 @@ export default config(
               message: "storage depends on nothing but values and errors.",
             },
             {
+              target: "./src/schema",
+              from: "./src",
+              except: ["./schema", "./values", "./errors.ts"],
+              message: "schema depends on nothing but values and errors.",
+            },
+            {
               target: "./src/errors.ts",
               from: "./src",
               except: ["./errors.ts"],
@@ -172,7 +178,6 @@ export default config(
 
       // Spreading a Uint8Array gives a number[]: .slice() is the copy.
       "unicorn/prefer-spread": "off",
-      // A ternary only where it reads as one line.
       // Guard returns read better than ternaries over several lines.
       "unicorn/prefer-ternary": "off",
       // SQL NULL is null; undefined means "absent", never a value.

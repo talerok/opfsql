@@ -242,8 +242,14 @@ The schema is stored in tables, read from the same snapshot as the data.
 | type       | TEXT    | `table` or `index`                                                        |
 | name       | TEXT    | the table's or index's name                                               |
 | table_name | TEXT    | the table an index belongs to; the table's own name for a table           |
-| root_page  | INTEGER | the root page of its B-tree; NULL for the primary key of a rowid table    |
+| root_page  | INTEGER | the root page of its B-tree                                               |
 | sql        | TEXT    | the canonical `CREATE` statement; NULL for indexes created by constraints |
+
+An `INTEGER PRIMARY KEY` is the table's rowid and has no index of its own.
+Every other `PRIMARY KEY` and every `UNIQUE` constraint has an index named
+`opfsql_autoindex_<table>_<n>`, with no `sql`: its definition is in the
+table's. Every change to `opfsql_schema` increments the schema version in
+the header, which is how a session sees that the schema it holds is stale.
 
 `opfsql_sequence` exists once a table has an `AUTOINCREMENT` column, with one
 row per such table: `name TEXT` (the table) and `seq INTEGER` (the largest id

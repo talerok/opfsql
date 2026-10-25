@@ -10,5 +10,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src/errors.ts", "src/values", "src/storage", "test/support"]
+  "include": [
+    "src/errors.ts",
+    "src/values",
+    "src/schema",
+    "src/storage",
+    "test/support"
+  ]
 }

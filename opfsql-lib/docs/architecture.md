@@ -143,15 +143,15 @@ holds the lock until this promise settles".
 
 ## Where the rebuild stands
 
-| Module             | State                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------- |
-| `values`, `errors` | rebuilt                                                                                       |
-| `storage`          | format 5 built up to rows and indexes; system tables next (the engine still uses `src/store`) |
-| `sql/parser`       | to rebuild: statement boundaries, name rules, precedence, literals                            |
-| `sql/binder`       | to rebuild: grouping model, scopes, types and conversions, output columns                     |
-| `sql/optimizer`    | to rebuild: pure passes, one access-path choice with residual filters, physical plan          |
-| `functions`        | to build: one registry for the binder and the executor                                        |
-| `executor`         | to rebuild: one expression compiler, join and subquery operators, DML through the planner     |
-| `table`            | to build: one write path for rows, indexes and constraints                                    |
-| `schema`           | to build: the model, separate from where it is stored                                         |
-| `engine`, `worker` | to rebuild: schema from the snapshot, session state machines, statement cache, result shape   |
+| Module             | State                                                                                                          |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `values`, `errors` | rebuilt                                                                                                        |
+| `storage`          | format 5 built: pages, WAL, B-trees, rows, index entries, the schema table (the engine still uses `src/store`) |
+| `sql/parser`       | to rebuild: statement boundaries, name rules, precedence, literals                                             |
+| `sql/binder`       | to rebuild: grouping model, scopes, types and conversions, output columns                                      |
+| `sql/optimizer`    | to rebuild: pure passes, one access-path choice with residual filters, physical plan                           |
+| `functions`        | to build: one registry for the binder and the executor                                                         |
+| `executor`         | to rebuild: one expression compiler, join and subquery operators, DML through the planner                      |
+| `table`            | to build: one write path for rows, indexes and constraints                                                     |
+| `schema`           | built: the model and name rules; loading it from the schema table belongs to `engine`                          |
+| `engine`, `worker` | to rebuild: schema from the snapshot, session state machines, statement cache, result shape                    |

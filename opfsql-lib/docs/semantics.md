@@ -25,6 +25,13 @@ A value is one of:
 SQLite. A string with a lone surrogate is rejected: it cannot be stored as
 UTF-8 without changing it.
 
+## Names
+
+Names of tables, columns and indexes are kept as written and compared
+without regard to the case of ASCII letters, as in SQLite: `Users` and
+`USERS` are the same table, while `Été` and `été` are two. Tables and indexes
+share one namespace. Names starting with `opfsql_` are reserved.
+
 ## Column types
 
 | Declared type                                     | Type    | Holds                                                        |
