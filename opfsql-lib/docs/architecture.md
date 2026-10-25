@@ -151,17 +151,17 @@ holds the lock until this promise settles".
 
 ## Where the rebuild stands
 
-| Module             | State                                                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------------- |
-| `values`, `errors` | rebuilt                                                                                         |
-| `schema`           | built: the model and name rules                                                                 |
-| `storage`          | built: format 5 — pages, WAL, B-trees, rows, index entries, the schema table, integrity check   |
-| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries            |
-| `sql/parser`       | rebuilt: Pratt expressions, one name rule, NOT_SUPPORTED for what is parsed but not implemented |
-| `functions`        | built: one registry for the binder and the compiler                                             |
-| `expressions`      | built as `executor/evaluate`: the one compiler; moves to its own module with the plan types     |
-| `sql/plan`         | contract written; binder, optimizer and executor move to it                                     |
-| `sql/binder`       | to rebuild on `sql/plan`: grouping model, scopes, DDL to the schema model                       |
-| `sql/optimizer`    | to rebuild on `sql/plan`: pure passes, access paths with residuals, physical plan               |
-| `executor`         | to rebuild on `sql/plan` and `table`: operators with rescan, DML through the planner            |
-| `engine`, `worker` | rebuilt on the old storage (branch `rebuild/engine`); to move to format 5 and the schema table  |
+| Module             | State                                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `values`, `errors` | rebuilt                                                                                                                 |
+| `schema`           | built: the model and name rules                                                                                         |
+| `storage`          | built: format 5 — pages, WAL, B-trees, rows, index entries, the schema table, integrity check                           |
+| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries                                    |
+| `sql/parser`       | rebuilt: Pratt expressions, one name rule, NOT_SUPPORTED for what is parsed but not implemented                         |
+| `functions`        | built: one registry for the binder and the compiler                                                                     |
+| `expressions`      | built as `executor/evaluate`: the one compiler; moves to its own module with the plan types                             |
+| `sql/plan`         | contract written; binder, optimizer and executor move to it                                                             |
+| `sql/binder`       | to rebuild on `sql/plan`: grouping model, scopes, DDL to the schema model                                               |
+| `sql/optimizer`    | to rebuild on `sql/plan`: pure passes, access paths with residuals, physical plan                                       |
+| `executor`         | to rebuild on `sql/plan` and `table`: operators with rescan, DML through the planner                                    |
+| `engine`, `worker` | rebuilt: snapshots, one write lock, queues, states, the worker API (docs/api.md); still on the old storage, `src/store` |
