@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import type { BTreeMeta, BTreeNode } from "../../store/index-btree/types.js";
 import { encodePage, type EncodedPage } from "../../store/page-codec.js";
+import { decodeRow, encodeRow } from "../../store/row-codec.js";
 import type { TableBTreeMeta, TableNode } from "../../store/table-btree.js";
-import type { CatalogData } from "../../types.js";
+import type { CatalogData, TableSchema } from "../../types.js";
 import { Engine } from "../engine.js";
 
 // Each test builds a healthy database, closes it, damages its file the way a
@@ -56,6 +57,7 @@ interface RawFile {
   read<T>(pageNo: number): T;
   write(pageNo: number, value: unknown): void;
   nextPageId: number;
+  table(name: string): TableSchema;
   tableMetaPage(name: string): number;
   indexMetaPage(name: string): number;
   leftmostLeaf(metaPageNo: number): number;
@@ -76,6 +78,7 @@ async function damage(edit: (file: RawFile) => void): Promise<void> {
     read,
     write: (pageNo, value) => pages.set(pageNo, encodePage(value)),
     nextPageId: storage.getNextPageId(),
+    table: (name) => catalog.tables.find((t) => t.name === name)!,
     tableMetaPage: (name) =>
       catalog.tables.find((t) => t.name === name)!.metaPageNo!,
     indexMetaPage: (name) =>
@@ -151,7 +154,7 @@ describe("checkIntegrity", () => {
       const pageNo = file.leftmostLeaf(file.tableMetaPage("t"));
       const leaf = file.read<TableNode & { kind: "leaf" }>(pageNo);
       [leaf.keys[0], leaf.keys[1]] = [leaf.keys[1], leaf.keys[0]];
-      [leaf.values[0], leaf.values[1]] = [leaf.values[1], leaf.values[0]];
+      [leaf.cells[0], leaf.cells[1]] = [leaf.cells[1], leaf.cells[0]];
       file.write(pageNo, leaf);
     });
     expect(await check()).toContainEqual(
@@ -187,7 +190,9 @@ describe("checkIntegrity", () => {
       const pageNo = file.leftmostLeaf(file.tableMetaPage("t"));
       const leaf = file.read<TableNode & { kind: "leaf" }>(pageNo);
       rowId = leaf.keys[0];
-      leaf.values[0] = { ...leaf.values[0], tag: 99 };
+      const schema = file.table("t");
+      const row = decodeRow(schema, leaf.cells[0]);
+      leaf.cells[0] = encodeRow(schema, { ...row, tag: 99 });
       file.write(pageNo, leaf);
     });
     expect(await check()).toEqual([

@@ -60,6 +60,7 @@ function mockRowManager(): SyncIRowManager {
     scanTable: vi.fn(() => []),
     readRow: vi.fn(() => null),
     deleteTableData: vi.fn(),
+    rewriteTable: vi.fn(),
     nextAutoIncrement: vi.fn(() => 1),
     observeAutoIncrement: vi.fn(),
   };

@@ -15,6 +15,7 @@ const EMPTY: ExecuteResult = { rows: [], rowsAffected: 0, catalogChanges: [] };
 export function executeAlterTable(
   op: LogicalAlterTable,
   catalog: ICatalog,
+  rowManager: SyncIRowManager,
 ): ExecuteResult {
   const before = catalog.getTable(op.tableName);
   if (!before) throw new ExecutorError(`Table "${op.tableName}" not found`);
@@ -27,6 +28,10 @@ export function executeAlterTable(
     columns = before.columns.filter((c) => c.name.toLowerCase() !== columnName);
   }
   const after = { ...before, columns };
+  // Rows store values by position; the dropped one must go from every row.
+  if (op.action.type !== "ADD_COLUMN") {
+    rowManager.rewriteTable(op.tableName, before, after);
+  }
 
   return {
     ...EMPTY,

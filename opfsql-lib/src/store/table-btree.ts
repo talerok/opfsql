@@ -1,4 +1,4 @@
-import type { Row, RowId, SyncIPageStore } from "./types.js";
+import type { RowId, SyncIPageStore } from "./types.js";
 
 const ORDER = 128;
 
@@ -6,7 +6,8 @@ export interface TableLeafNode {
   kind: "leaf";
   nodeId: number;
   keys: number[];
-  values: Row[];
+  /** Encoded rows (row-codec.ts), parallel to keys. */
+  cells: Uint8Array[];
   nextLeafId: number | null;
 }
 
@@ -34,7 +35,7 @@ export class SyncTableBTree {
     private readonly ps: SyncIPageStore,
   ) {}
 
-  insert(row: Row): RowId {
+  insert(cell: Uint8Array): RowId {
     const meta = { ...this.readMeta() };
     const rowId = meta.nextRowId++;
     const path = this.findLeafPath(meta, rowId);
@@ -44,7 +45,7 @@ export class SyncTableBTree {
     const newLeaf: TableLeafNode = {
       ...leaf,
       keys: [...leaf.keys.slice(0, pos), rowId, ...leaf.keys.slice(pos)],
-      values: [...leaf.values.slice(0, pos), row, ...leaf.values.slice(pos)],
+      cells: [...leaf.cells.slice(0, pos), cell, ...leaf.cells.slice(pos)],
     };
     meta.size++;
     path[path.length - 1] = newLeaf;
@@ -71,19 +72,19 @@ export class SyncTableBTree {
     }
   }
 
-  get(rowId: RowId): Row | null {
+  get(rowId: RowId): Uint8Array | null {
     const meta = this.readMeta();
     if (meta.size === 0) return null;
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
     if (pos < leaf.keys.length && leaf.keys[pos] === rowId) {
-      return leaf.values[pos];
+      return leaf.cells[pos];
     }
 
     return null;
   }
 
-  update(rowId: RowId, row: Row): void {
+  update(rowId: RowId, cell: Uint8Array): void {
     const meta = this.readMeta();
     const leaf = this.findLeafPath(meta, rowId).at(-1) as TableLeafNode;
     const pos = this.bisectLeft(leaf.keys, rowId);
@@ -93,7 +94,7 @@ export class SyncTableBTree {
 
     this.writeNode({
       ...leaf,
-      values: leaf.values.map((v, i) => (i === pos ? row : v)),
+      cells: leaf.cells.map((c, i) => (i === pos ? cell : c)),
     });
   }
 
@@ -108,19 +109,19 @@ export class SyncTableBTree {
     this.writeNode({
       ...leaf,
       keys: [...leaf.keys.slice(0, pos), ...leaf.keys.slice(pos + 1)],
-      values: [...leaf.values.slice(0, pos), ...leaf.values.slice(pos + 1)],
+      cells: [...leaf.cells.slice(0, pos), ...leaf.cells.slice(pos + 1)],
     });
     meta.size--;
     this.writeMeta(meta);
   }
 
-  *scan(): Generator<{ rowId: RowId; row: Row }> {
+  *scan(): Generator<{ rowId: RowId; cell: Uint8Array }> {
     const meta = this.readMeta();
     if (meta.size === 0) return;
     let leaf: TableLeafNode | null = this.findLeftmostLeaf(meta);
     while (leaf) {
       for (let i = 0; i < leaf.keys.length; i++) {
-        yield { rowId: leaf.keys[i], row: leaf.values[i] };
+        yield { rowId: leaf.keys[i], cell: leaf.cells[i] };
       }
 
       if (leaf.nextLeafId !== null) {
@@ -164,13 +165,13 @@ export class SyncTableBTree {
       kind: "leaf",
       nodeId: newPageNo,
       keys: leaf.keys.slice(mid),
-      values: leaf.values.slice(mid),
+      cells: leaf.cells.slice(mid),
       nextLeafId: leaf.nextLeafId,
     };
     const updatedLeaf: TableLeafNode = {
       ...leaf,
       keys: leaf.keys.slice(0, mid),
-      values: leaf.values.slice(0, mid),
+      cells: leaf.cells.slice(0, mid),
       nextLeafId: newLeaf.nodeId,
     };
     this.writeNode(updatedLeaf);

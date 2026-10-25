@@ -176,10 +176,12 @@ describe('DDL executors', () => {
         columnBindings: [],
       } as unknown as LogicalAlterTable;
 
-      const result = executeAlterTable(op, catalog);
+      const rm = mockRowManager();
+      const result = executeAlterTable(op, catalog, rm);
       const change = result.catalogChanges[0] as any;
       expect(change.type).toBe('ALTER_TABLE');
       expect(change.after.columns).toHaveLength(4);
+      expect(rm.rewriteTable).not.toHaveBeenCalled();
     });
 
     it('DROP COLUMN', () => {
@@ -195,10 +197,12 @@ describe('DDL executors', () => {
         columnBindings: [],
       } as unknown as LogicalAlterTable;
 
-      const result = executeAlterTable(op, catalog);
+      const rm = mockRowManager();
+      const result = executeAlterTable(op, catalog, rm);
       const change = result.catalogChanges[0] as any;
       expect(change.after.columns).toHaveLength(2);
       expect(change.after.columns.map((c: any) => c.name)).toEqual(['id', 'name']);
+      expect(rm.rewriteTable).toHaveBeenCalledWith('users', change.before, change.after);
     });
 
     it('throws if table not found', () => {
@@ -214,7 +218,7 @@ describe('DDL executors', () => {
         columnBindings: [],
       } as unknown as LogicalAlterTable;
 
-      expect(() => executeAlterTable(op, catalog)).toThrow('not found');
+      expect(() => executeAlterTable(op, catalog, mockRowManager())).toThrow('not found');
     });
   });
 
@@ -302,6 +306,7 @@ function mockRowManager(
     prepareDelete:    vi.fn(() => {}),
     readRow:          vi.fn(() => null),
     deleteTableData:  vi.fn(() => {}),
+    rewriteTable:     vi.fn(() => {}),
     createTable:      vi.fn((): number => 42),
     nextAutoIncrement:    vi.fn(() => ++lastAuto),
     observeAutoIncrement: vi.fn((_t: string, value: number) => {

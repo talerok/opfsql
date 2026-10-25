@@ -109,6 +109,8 @@ export interface SyncIRowManager {
   prepareDelete(tableId: string, rowId: RowId): void;
   scanTable(tableId: string): Iterable<{ rowId: RowId; row: Row }>;
   readRow(tableId: string, rowId: RowId): Row | null;
+  /** Re-encodes every row stored with `from`'s columns for `to`'s (DROP COLUMN). */
+  rewriteTable(tableId: string, from: TableSchema, to: TableSchema): void;
   deleteTableData(tableId: string): void;
   /** Reserves and returns the next value for the table's AUTOINCREMENT column. */
   nextAutoIncrement(tableId: string): number;

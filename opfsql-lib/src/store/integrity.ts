@@ -1,7 +1,8 @@
 import { compareIndexKeys, keyHasNull } from "./index-btree/compare.js";
 import type { BTreeMeta, IndexKey } from "./index-btree/types.js";
+import { decodeRow } from "./row-codec.js";
 import type { TableBTreeMeta } from "./table-btree.js";
-import type { ICatalog, Row, TableSchema } from "./types.js";
+import type { ICatalog, TableSchema } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Structural integrity check of everything stored in pages.
@@ -26,7 +27,7 @@ interface NodeLike<K> {
   nodeId: number;
   keys: K[];
   children?: number[];
-  values?: unknown[];
+  cells?: Uint8Array[];
   nextLeafId?: number | null;
 }
 
@@ -76,9 +77,9 @@ class IntegrityChecker {
     let rows = 0;
     for (const leaf of leaves) {
       rows += leaf.keys.length;
-      if (leaf.values?.length !== leaf.keys.length) {
+      if (leaf.cells?.length !== leaf.keys.length) {
         this.problems.push(
-          `${owner}: leaf ${leaf.nodeId} has ${leaf.keys.length} keys but ${leaf.values?.length} values`,
+          `${owner}: leaf ${leaf.nodeId} has ${leaf.keys.length} keys but ${leaf.cells?.length} rows`,
         );
       }
       for (const rowId of leaf.keys) {
@@ -89,8 +90,8 @@ class IntegrityChecker {
         }
       }
       if (autoIncrement === undefined) continue;
-      for (const row of (leaf.values ?? []) as Row[]) {
-        const id = row[autoIncrement];
+      for (const cell of leaf.cells ?? []) {
+        const id = decodeRow(table, cell)[autoIncrement];
         if (typeof id === "number" && id > meta.lastAutoIncrement) {
           this.problems.push(
             `${owner}: AUTOINCREMENT sequence ${meta.lastAutoIncrement} is behind id ${id}`,

@@ -31,9 +31,13 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
 
     // Create a table 't1' in the catalog
     const metaPageNo = rm.createTable();
+    const column = (name: string) => ({
+      name, type: 'ANY' as const, nullable: true, primaryKey: false,
+      unique: false, autoIncrement: false, defaultValue: null,
+    });
     const schema: TableSchema = {
       name: 't1',
-      columns: [],
+      columns: [column('id'), column('val')],
       metaPageNo,
     };
     catalog.addTable(schema);
@@ -50,7 +54,7 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
       rm.prepareInsert('t1', { id: 1 });
       const rows = collectScan('t1');
       expect(rows).toHaveLength(1);
-      expect(rows[0].row).toEqual({ id: 1 });
+      expect(rows[0].row).toEqual({ id: 1, val: null });
     });
 
     it('assigns sequential rowIds', () => {
@@ -116,8 +120,8 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
       rm.prepareInsert('t1', { id: 2 });
       const rows = collectScan('t1');
       expect(rows).toHaveLength(2);
-      expect(rows[0].row).toEqual({ id: 1 });
-      expect(rows[1].row).toEqual({ id: 2 });
+      expect(rows[0].row).toEqual({ id: 1, val: null });
+      expect(rows[1].row).toEqual({ id: 2, val: null });
     });
 
     it('skips deleted rows', () => {
@@ -126,7 +130,7 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
       rm.prepareDelete('t1', r1);
       const rows = collectScan('t1');
       expect(rows).toHaveLength(1);
-      expect(rows[0].row).toEqual({ id: 2 });
+      expect(rows[0].row).toEqual({ id: 2, val: null });
     });
   });
 
@@ -191,7 +195,7 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
 
       const rows = collectScan('t1');
       expect(rows).toHaveLength(1);
-      expect(rows[0].row).toEqual({ id: 1 });
+      expect(rows[0].row).toEqual({ id: 1, val: null });
     });
   });
 

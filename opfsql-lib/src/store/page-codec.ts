@@ -19,10 +19,19 @@ export interface EncodedPage {
 }
 
 export function encodePage(value: unknown): EncodedPage {
-  return { value, bytes: encoder.encode(value) };
+  return { value, bytes: encodeCbor(value) };
 }
 
 export function decodePage<T>(bytes: Uint8Array): T {
+  return decodeCbor<T>(bytes);
+}
+
+/** The one CBOR configuration for everything stored: pages and row cells. */
+export function encodeCbor(value: unknown): Uint8Array {
+  return encoder.encode(value);
+}
+
+export function decodeCbor<T>(bytes: Uint8Array): T {
   return decode(bytes) as T;
 }
 

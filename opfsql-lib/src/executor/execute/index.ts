@@ -38,7 +38,7 @@ const handlers = new Map<string, ExecuteHandler>([
   ],
   [
     LogicalOperatorType.LOGICAL_ALTER_TABLE,
-    (p, _rm, cat) => executeAlterTable(p as any, cat),
+    (p, rm, cat) => executeAlterTable(p as any, cat, rm),
   ],
   [
     LogicalOperatorType.LOGICAL_DROP,

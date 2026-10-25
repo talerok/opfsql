@@ -1,3 +1,4 @@
+import { decodeRow, encodeRow } from "./row-codec.js";
 import type { TableBTreeMeta, TableLeafNode } from "./table-btree.js";
 import { SyncTableBTree } from "./table-btree.js";
 import type {
@@ -6,6 +7,7 @@ import type {
   RowId,
   SyncIPageStore,
   SyncIRowManager,
+  TableSchema,
 } from "./types.js";
 
 export class SyncTableManager implements SyncIRowManager {
@@ -14,9 +16,13 @@ export class SyncTableManager implements SyncIRowManager {
     private readonly getCatalog: () => ICatalog,
   ) {}
 
-  private tree(tableName: string): SyncTableBTree {
+  private schema(tableName: string): TableSchema {
     const schema = this.getCatalog().getTable(tableName);
     if (!schema) throw new Error(`Table "${tableName}" not found in catalog`);
+    return schema;
+  }
+
+  private tree(schema: TableSchema): SyncTableBTree {
     return new SyncTableBTree(schema.metaPageNo!, this.ps);
   }
 
@@ -27,7 +33,7 @@ export class SyncTableManager implements SyncIRowManager {
       kind: "leaf",
       nodeId: rootPageNo,
       keys: [],
-      values: [],
+      cells: [],
       nextLeafId: null,
     };
     const meta: TableBTreeMeta = {
@@ -43,28 +49,41 @@ export class SyncTableManager implements SyncIRowManager {
   }
 
   prepareInsert(tableId: string, row: Row): RowId {
-    return this.tree(tableId).insert(row);
+    const schema = this.schema(tableId);
+    return this.tree(schema).insert(encodeRow(schema, row));
   }
   prepareUpdate(tableId: string, rowId: RowId, row: Row): RowId {
-    this.tree(tableId).update(rowId, row);
+    const schema = this.schema(tableId);
+    this.tree(schema).update(rowId, encodeRow(schema, row));
     return rowId;
   }
   prepareDelete(tableId: string, rowId: RowId): void {
-    this.tree(tableId).delete(rowId);
+    this.tree(this.schema(tableId)).delete(rowId);
   }
   *scanTable(tableId: string): Generator<{ rowId: RowId; row: Row }> {
-    yield* this.tree(tableId).scan();
+    const schema = this.schema(tableId);
+    for (const { rowId, cell } of this.tree(schema).scan()) {
+      yield { rowId, row: decodeRow(schema, cell) };
+    }
   }
   readRow(tableId: string, rowId: RowId): Row | null {
-    return this.tree(tableId).get(rowId);
+    const schema = this.schema(tableId);
+    const cell = this.tree(schema).get(rowId);
+    return cell && decodeRow(schema, cell);
+  }
+  rewriteTable(tableId: string, from: TableSchema, to: TableSchema): void {
+    const tree = this.tree(this.schema(tableId));
+    for (const { rowId, cell } of [...tree.scan()]) {
+      tree.update(rowId, encodeRow(to, decodeRow(from, cell)));
+    }
   }
   nextAutoIncrement(tableId: string): number {
-    return this.tree(tableId).nextAutoIncrement();
+    return this.tree(this.schema(tableId)).nextAutoIncrement();
   }
   observeAutoIncrement(tableId: string, value: number): void {
-    this.tree(tableId).observeAutoIncrement(value);
+    this.tree(this.schema(tableId)).observeAutoIncrement(value);
   }
   deleteTableData(tableId: string): void {
-    this.tree(tableId).drop();
+    this.tree(this.schema(tableId)).drop();
   }
 }
