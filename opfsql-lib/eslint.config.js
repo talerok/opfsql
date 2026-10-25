@@ -141,6 +141,12 @@ export default config(
               message: "values depends on nothing but errors.",
             },
             {
+              target: "./src/storage",
+              from: "./src",
+              except: ["./storage", "./values", "./errors.ts"],
+              message: "storage depends on nothing but values and errors.",
+            },
+            {
               target: "./src/errors.ts",
               from: "./src",
               except: ["./errors.ts"],
@@ -165,6 +171,22 @@ export default config(
       ],
       // SQL values are a union, and so is what most of the engine returns.
       "sonarjs/function-return-type": "off",
+      // A class reads from its public surface down to its details.
+      "unicorn/consistent-class-member-order": [
+        "error",
+        {
+          order: [
+            "static-field",
+            "static-block",
+            "public-field",
+            "private-field",
+            "constructor",
+            "static-method",
+            "public-method",
+            "private-method",
+          ],
+        },
+      ],
       // One-line /** */ and " * "-prefixed lines are the TSDoc conventions
       // that editors and type tooling read.
       "unicorn/single-line-block-comment-style": "off",

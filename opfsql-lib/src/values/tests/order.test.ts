@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../../../test/support/random.js";
+import { randomText, randomValue } from "../../../test/support/values.js";
 import { rowKey, valueKey } from "../key.js";
 import {
   areEqual,
@@ -11,56 +12,6 @@ import {
 import type { Value } from "../value.js";
 
 const encoder = new TextEncoder();
-
-/** Code points from every range that UTF-16 and UTF-8 order differently. */
-const CODE_POINTS = [
-  0x41, 0x61, 0x7f, 0xe9, 0x4_00, 0xd7_ff, 0xe0_00, 0xff_fd, 0x1_00_00,
-  0x1_f6_00, 0x10_ff_ff,
-];
-
-function randomText(random: () => number): string {
-  const length = Math.floor(random() * 4);
-  return Array.from({ length }, () =>
-    String.fromCodePoint(
-      CODE_POINTS[Math.floor(random() * CODE_POINTS.length)] ?? 0x41,
-    ),
-  ).join("");
-}
-
-function randomValue(random: () => number): Value {
-  const pick = Math.floor(random() * 9);
-  switch (pick) {
-    case 0: {
-      return null;
-    }
-    case 1: {
-      return random() < 0.5;
-    }
-    case 2: {
-      return Math.floor(random() * 7) - 3;
-    }
-    case 3: {
-      return (
-        [-Infinity, -0.5, 0.5, 2.25, Infinity][Math.floor(random() * 5)] ?? 0
-      );
-    }
-    case 4:
-    case 5: {
-      return randomText(random);
-    }
-    case 6: {
-      return Uint8Array.from({ length: Math.floor(random() * 3) }, () =>
-        Math.floor(random() * 3),
-      );
-    }
-    case 7: {
-      return { b: Math.floor(random() * 2), a: randomText(random) };
-    }
-    default: {
-      return [Math.floor(random() * 2), randomText(random)];
-    }
-  }
-}
 
 function sign(n: number): number {
   return Math.sign(n) + 0;

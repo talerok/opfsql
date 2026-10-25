@@ -246,9 +246,6 @@
     "unicorn/consistent-boolean-name": {
       "count": 2
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 13
     },
@@ -357,9 +354,6 @@
     },
     "unicorn/catch-error-name": {
       "count": 2
-    },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 3
@@ -1082,9 +1076,6 @@
     "no-param-reassign": {
       "count": 6
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 8
     },
@@ -1112,9 +1103,6 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
       "count": 1
     },
     "unicorn/name-replacements": {
@@ -1150,9 +1138,6 @@
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 3
     }
@@ -1165,9 +1150,6 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
       "count": 1
     },
     "unicorn/name-replacements": {
@@ -1195,9 +1177,6 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
-      "count": 2
     },
     "unicorn/name-replacements": {
       "count": 5
@@ -1261,9 +1240,6 @@
     "unicorn/consistent-boolean-name": {
       "count": 1
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/prefer-continue": {
       "count": 2
     }
@@ -1291,9 +1267,6 @@
       "count": 7
     },
     "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
       "count": 1
     },
     "unicorn/name-replacements": {
@@ -1736,9 +1709,6 @@
     },
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 4
-    },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 6
@@ -2764,9 +2734,6 @@
     "unicorn/consistent-boolean-name": {
       "count": 8
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/filename-case": {
       "count": 1
     },
@@ -3594,9 +3561,6 @@
     "sonarjs/different-types-comparison": {
       "count": 1
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/no-break-in-nested-loop": {
       "count": 18
     },
@@ -3752,9 +3716,6 @@
       "count": 1
     },
     "@typescript-eslint/switch-exhaustiveness-check": {
-      "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
       "count": 1
     },
     "unicorn/switch-case-braces": {
@@ -3918,9 +3879,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 1
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 6
     },
@@ -3949,9 +3907,6 @@
     },
     "unicorn/consistent-boolean-name": {
       "count": 3
-    },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 6
@@ -4121,6 +4076,9 @@
     "unicorn/consistent-boolean-name": {
       "count": 1
     },
+    "unicorn/consistent-class-member-order": {
+      "count": 1
+    },
     "unicorn/name-replacements": {
       "count": 1
     }
@@ -4145,9 +4103,6 @@
       "count": 1
     },
     "max-params": {
-      "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
       "count": 1
     },
     "unicorn/name-replacements": {
@@ -4198,9 +4153,6 @@
       "count": 1
     },
     "@typescript-eslint/prefer-readonly": {
-      "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
       "count": 1
     },
     "unicorn/prefer-early-return": {
@@ -4539,9 +4491,6 @@
     "sonarjs/no-unused-vars": {
       "count": 1
     },
-    "unicorn/consistent-class-member-order": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 2
     },
@@ -4611,9 +4560,6 @@
       "count": 3
     },
     "unicorn/catch-error-name": {
-      "count": 1
-    },
-    "unicorn/consistent-class-member-order": {
       "count": 1
     },
     "unicorn/name-replacements": {

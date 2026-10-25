@@ -115,6 +115,63 @@ export class IntegerOverflowError extends OpfsqlError {
   }
 }
 
+/** A row is larger than a page can hold, even with its values in overflow pages. */
+export class RowTooLargeError extends OpfsqlError {
+  override readonly name = "RowTooLargeError";
+
+  constructor(
+    readonly table: string,
+    readonly size: number,
+    readonly limit: number,
+  ) {
+    super(
+      "TOO_LARGE",
+      `row of table "${table}" is ${String(size)} bytes, exceeds the limit of ${String(limit)} bytes`,
+    );
+  }
+}
+
+/** An index key is larger than its index allows. */
+export class IndexKeyTooLargeError extends OpfsqlError {
+  override readonly name = "IndexKeyTooLargeError";
+
+  constructor(
+    readonly index: string,
+    readonly size: number,
+    readonly limit: number,
+  ) {
+    super(
+      "TOO_LARGE",
+      `key of index "${index}" is ${String(size)} bytes, exceeds the limit of ${String(limit)} bytes`,
+    );
+  }
+}
+
+/** The database files are damaged. */
+export class CorruptError extends OpfsqlError {
+  override readonly name = "CorruptError";
+
+  constructor(message: string) {
+    super("CORRUPT", message);
+  }
+}
+
+/** A file was written in a format this version of opfsql does not read. */
+export class UnsupportedFormatError extends OpfsqlError {
+  override readonly name = "UnsupportedFormatError";
+
+  constructor(
+    readonly file: string,
+    readonly version: number,
+    readonly supported: number,
+  ) {
+    super(
+      "UNSUPPORTED_FORMAT",
+      `"${file}" uses file format ${String(version)}, but this opfsql reads format ${String(supported)}`,
+    );
+  }
+}
+
 /** A bug: an invariant opfsql relies on does not hold. */
 export class InternalError extends OpfsqlError {
   override readonly name = "InternalError";
