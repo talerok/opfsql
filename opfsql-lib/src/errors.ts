@@ -30,6 +30,8 @@ export type ErrorCode =
   | "TRANSACTION_ABORTED"
   /** Another tab has the database open, and this browser allows one. */
   | "DATABASE_IN_USE"
+  /** The caller aborted the call, or closed what it ran on, while it waited. */
+  | "ABORTED"
   // Storage
   /** Reading or writing the database files failed. */
   | "IO_ERROR"
@@ -47,6 +49,12 @@ export type ErrorCode =
 
 export class OpfsqlError extends Error {
   override readonly name: string = "OpfsqlError";
+
+  /**
+   * In a script of several statements, the position of the one that failed,
+   * counting from zero. Set by the engine; absent everywhere else.
+   */
+  declare readonly statementIndex?: number;
 
   constructor(
     readonly code: ErrorCode,
@@ -121,5 +129,74 @@ export class InternalError extends OpfsqlError {
 
   constructor(message: string, options?: ErrorOptions) {
     super("INTERNAL", message, options);
+  }
+}
+
+/** The write lock was not granted within the busy timeout. */
+export class BusyError extends OpfsqlError {
+  override readonly name = "BusyError";
+
+  constructor(readonly timeout: number) {
+    super(
+      "BUSY",
+      `database is busy: the write lock was not granted within ${String(timeout)} ms`,
+    );
+  }
+}
+
+/**
+ * A transaction tried to write after another writer committed since its
+ * snapshot, so what it read may be stale. Roll back and run it again.
+ */
+export class SerializationError extends OpfsqlError {
+  override readonly name = "SerializationError";
+
+  constructor() {
+    super(
+      "SERIALIZATION_FAILURE",
+      "could not serialize: the database changed since this transaction began; roll back and retry",
+    );
+  }
+}
+
+/** A statement failed earlier in this transaction; only ROLLBACK works. */
+export class TransactionAbortedError extends OpfsqlError {
+  override readonly name = "TransactionAbortedError";
+
+  constructor(
+    message = "the transaction was aborted by an earlier error; roll it back",
+  ) {
+    super("TRANSACTION_ABORTED", message);
+  }
+}
+
+/**
+ * Another tab has the database open, and this browser lets only one tab open
+ * its files: only Chromium supports several tabs per database.
+ */
+export class DatabaseInUseError extends OpfsqlError {
+  override readonly name = "DatabaseInUseError";
+
+  constructor(
+    readonly database: string,
+    options?: ErrorOptions,
+  ) {
+    super(
+      "DATABASE_IN_USE",
+      `database "${database}" is open in another tab, and this browser allows only one tab per database`,
+      options,
+    );
+  }
+}
+
+/**
+ * The call was cancelled while it waited: its signal was aborted, or what it
+ * ran on was closed. Named like the DOM's AbortError, so either check works.
+ */
+export class AbortError extends OpfsqlError {
+  override readonly name = "AbortError";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super("ABORTED", message, options);
   }
 }
