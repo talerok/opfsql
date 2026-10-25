@@ -45,7 +45,7 @@ export {
   SqlSyntaxError,
   TransactionAbortedError,
 } from "./errors.js";
-export type { JsonValue, Value } from "./values/index.js";
+export type { JsonValue, SqlType, Value } from "./values/index.js";
 
 // --- In the worker ----------------------------------------------------------
 

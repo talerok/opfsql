@@ -13,12 +13,13 @@ import {
 /** The result column names of a bound plan, in order. */
 export function outputColumnNames(plan: LogicalOperator): string[] {
   const projection = findProjection(plan);
-  return projection === null
-    ? plan.types.map((_, index) => `column${String(index)}`)
-    : projection.expressions.map(
-        (expression, index) =>
-          projection.aliases[index] ?? expressionName(expression, index),
-      );
+  if (projection === null) {
+    return plan.types.map((_, index) => `column${String(index)}`);
+  }
+  return projection.expressions.map(
+    (expression, index) =>
+      projection.aliases[index] ?? expressionName(expression, index),
+  );
 }
 
 function expressionName(expression: BoundExpression, index: number): string {

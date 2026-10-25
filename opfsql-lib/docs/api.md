@@ -254,7 +254,7 @@ interface TableInfo {
 }
 interface ColumnInfo {
   readonly name: string;
-  readonly type: string; // the declared type: "INTEGER", "TEXT", …
+  readonly type: SqlType; // INTEGER, REAL, TEXT, BLOB, BOOLEAN, JSON or ANY
   readonly nullable: boolean;
   readonly primaryKey: boolean;
   readonly unique: boolean;
@@ -268,8 +268,10 @@ interface IndexInfo {
 }
 ```
 
-Indexes opfsql creates for primary keys are not listed: the columns say
-`primaryKey`.
+A column's `type` is its type as [semantics.md](semantics.md) defines
+types, whatever name declared it: `VARCHAR(20)` is TEXT, `BIGINT` is
+INTEGER. Indexes opfsql creates for primary keys are not listed: the
+columns say `primaryKey`.
 
 ## Errors
 

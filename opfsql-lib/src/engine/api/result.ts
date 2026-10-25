@@ -44,13 +44,13 @@ export class Result implements ResultData {
         `column name "${repeated}" appears more than once; alias the columns or read rows`,
       );
     }
-    return this.rows.map((row) => {
-      const object: Record<string, Value> = {};
-      for (const [index, name] of this.columns.entries()) {
-        object[name] = row[index] ?? null;
-      }
-      return object as T;
-    });
+    // fromEntries defines own properties: a column named __proto__ stays one.
+    return this.rows.map(
+      (row) =>
+        Object.fromEntries(
+          this.columns.map((name, index) => [name, row[index] ?? null]),
+        ) as T,
+    );
   }
 
   /** The plain data, for structured cloning. */

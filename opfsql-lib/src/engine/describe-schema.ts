@@ -1,3 +1,4 @@
+import { typeFromName } from "../values/index.js";
 import type { ColumnInfo, IndexInfo, Schema, TableInfo } from "./api/index.js";
 import type {
   ColumnDef as StoredColumn,
@@ -23,7 +24,7 @@ export function describeSchema(catalog: ICatalog): Schema {
 function describeColumn(column: StoredColumn): ColumnInfo {
   return {
     name: column.name,
-    type: column.type,
+    type: typeFromName(column.type) ?? "ANY",
     nullable: column.nullable,
     primaryKey: column.primaryKey,
     unique: column.unique,
@@ -183,19 +184,19 @@ function formatCase(expression: CaseExpression): string {
     (check) =>
       `WHEN ${formatExpression(check.when)} THEN ${formatExpression(check.then)}`,
   );
-  const otherwise =
-    expression.elseExpr === null
-      ? ""
-      : ` ELSE ${formatExpression(expression.elseExpr)}`;
-  return `CASE ${checks.join(" ")}${otherwise} END`;
+  const parts = ["CASE", ...checks];
+  if (expression.elseExpr !== null) {
+    parts.push(`ELSE ${formatExpression(expression.elseExpr)}`);
+  }
+  return [...parts, "END"].join(" ");
 }
 
 /** A sub-expression, in parentheses where precedence could misread it. */
 function operand(expression: IndexExpression): string {
   const text = formatExpression(expression);
-  return expression.type === "operator" || expression.type === "comparison"
-    ? `(${text})`
-    : text;
+  const isCompound =
+    expression.type === "operator" || expression.type === "comparison";
+  return isCompound ? `(${text})` : text;
 }
 
 function formatConstant(value: string | number | boolean | null): string {

@@ -57,24 +57,23 @@ export function toWireError(error: unknown, depth = 0): WireError {
     message: error.message,
     fields: fieldsOf(error),
   };
-  return cause === undefined || depth >= CAUSE_DEPTH
-    ? wire
-    : { ...wire, cause: toWireError(cause, depth + 1) };
+  const isChainEnd = cause === undefined || depth >= CAUSE_DEPTH;
+  if (isChainEnd) return wire;
+  return { ...wire, cause: toWireError(cause, depth + 1) };
 }
 
 /** The error a request failed with, as an OpfsqlError of its own class. */
 export function fromWireError(wire: WireError): OpfsqlError {
   const error = revive(wire);
-  return error instanceof OpfsqlError
-    ? error
-    : new InternalError(error.message, { cause: error });
+  if (error instanceof OpfsqlError) return error;
+  return new InternalError(error.message, { cause: error });
 }
 
 function kindOf(error: Error): WireError["kind"] {
   if (error instanceof OpfsqlError) return "opfsql";
-  return typeof DOMException === "function" && error instanceof DOMException
-    ? "dom"
-    : "error";
+  const isDomException =
+    typeof DOMException === "function" && error instanceof DOMException;
+  return isDomException ? "dom" : "error";
 }
 
 function fieldsOf(error: Error): Record<string, WireField> {

@@ -1,4 +1,4 @@
-import type { Value } from "../../values/index.js";
+import type { SqlType, Value } from "../../values/index.js";
 
 // What `schema()` returns: the tables and indexes a session sees, described
 // for people and tools, without the storage details behind them.
@@ -16,8 +16,11 @@ export interface TableInfo {
 
 export interface ColumnInfo {
   readonly name: string;
-  /** The declared type: "INTEGER", "TEXT", … */
-  readonly type: string;
+  /**
+   * The column's type: INTEGER, REAL, TEXT, BLOB, BOOLEAN, JSON or ANY — a
+   * column declared VARCHAR(20) is TEXT, one declared BIGINT is INTEGER.
+   */
+  readonly type: SqlType;
   readonly nullable: boolean;
   readonly primaryKey: boolean;
   readonly unique: boolean;
