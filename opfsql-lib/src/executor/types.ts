@@ -1,12 +1,8 @@
 import type { ColumnBinding } from "../sql/binder/types.js";
-import type {
-  IndexDef,
-  Row,
-  TableSchema,
-  Value as BaseValue,
-} from "../types.js";
+import type { IndexDef, Row, TableSchema } from "../types.js";
+import type { Value } from "../values/index.js";
 
-export type Value = BaseValue;
+export type { Value } from "../values/index.js";
 export type Tuple = Value[];
 
 export interface SyncPhysicalOperator {

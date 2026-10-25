@@ -1,5 +1,10 @@
 import { InternalError } from "../errors.js";
-import { numberOperand, textOperand, type Value } from "../values/index.js";
+import {
+  numberOperand,
+  textOperand,
+  typeFromName,
+  type Value,
+} from "../values/index.js";
 import type { ArgumentKind, Implementation, StaticType } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +30,14 @@ const ACCEPTED: Record<ArgumentKind, ReadonlySet<StaticType>> = {
   boolean: new Set(["BOOLEAN", "JSON", "ANY", "NULL"]),
   any: new Set([...TEXT_TYPES, "BLOB", "JSON"]),
 };
+
+/**
+ * The static type a type name stands for, as plans write them: `BIGINT` is
+ * INTEGER, `NULL` the type of the NULL literal, an unknown name ANY.
+ */
+export function staticType(name: string): StaticType {
+  return name === "NULL" ? "NULL" : (typeFromName(name) ?? "ANY");
+}
 
 /** True if an argument of `kind` may have the static type `type`. */
 export function accepts(kind: ArgumentKind, type: StaticType): boolean {

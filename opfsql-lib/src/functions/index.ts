@@ -1,5 +1,5 @@
 export { startAggregate } from "./aggregate.js";
-export { commonType } from "./arguments.js";
+export { commonType, staticType } from "./arguments.js";
 export {
   aggregateFunction,
   isAggregateFunction,

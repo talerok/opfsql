@@ -1,5 +1,6 @@
 import type * as BT from "../types.js";
 import type { BoundCaseExpression } from "../types.js";
+import { areEqual } from "../../../values/index.js";
 import { BoundExpressionClass } from "../types.js";
 
 export function sameExpression(
@@ -22,7 +23,7 @@ export function sameExpression(
     case BoundExpressionClass.BOUND_CONSTANT: {
       const ac = a as BT.BoundConstantExpression;
       const bc = b as BT.BoundConstantExpression;
-      return ac.value === bc.value && ac.returnType === bc.returnType;
+      return areEqual(ac.value, bc.value) && ac.returnType === bc.returnType;
     }
     case BoundExpressionClass.BOUND_COMPARISON: {
       const ac = a as BT.BoundComparisonExpression;
@@ -73,11 +74,15 @@ export function sameExpression(
     case BoundExpressionClass.BOUND_CASE: {
       const ac = a as BoundCaseExpression;
       const bc = b as BoundCaseExpression;
-      if (ac.caseChecks.length !== bc.caseChecks.length) return false;
+      if (
+        ac.caseChecks.length !== bc.caseChecks.length ||
+        !sameOptional(ac.operand, bc.operand)
+      )
+        return false;
       for (let i = 0; i < ac.caseChecks.length; i++) {
         if (!sameExpression(ac.caseChecks[i].when, bc.caseChecks[i].when))
           return false;
-        if (!sameExpression(ac.caseChecks[i].then, bc.caseChecks[i].then))
+        if (!sameExpression(ac.caseChecks[i].result, bc.caseChecks[i].result))
           return false;
       }
       if (ac.elseExpr === null && bc.elseExpr === null) return true;
@@ -111,6 +116,13 @@ function sameTaggedChildren<T extends { children: BT.BoundExpression[] }>(
   if (a[tagKey] !== b[tagKey]) return false;
   if (a.children.length !== b.children.length) return false;
   return a.children.every((c, i) => sameExpression(c, b.children[i]));
+}
+
+function sameOptional(
+  a: BT.BoundExpression | undefined,
+  b: BT.BoundExpression | undefined,
+): boolean {
+  return a === undefined || b === undefined ? a === b : sameExpression(a, b);
 }
 
 export function sameAggregate(

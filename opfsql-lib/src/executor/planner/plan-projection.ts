@@ -7,5 +7,5 @@ import type { PlannerContext } from "./types.js";
 
 export function planProjection(node: LogicalOperator, pc: PlannerContext) {
   const proj = node as LogicalProjection;
-  return new PhysicalProjection(pc.plan(proj.children[0]), proj, pc.ctx);
+  return new PhysicalProjection(pc.plan(proj.children[0]), proj, pc.context);
 }

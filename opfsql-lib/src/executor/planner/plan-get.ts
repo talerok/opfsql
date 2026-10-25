@@ -14,7 +14,7 @@ export function planGet(node: LogicalOperator, pc: PlannerContext) {
         pc.rowManager,
         pc.indexManager,
         get.indexHint,
-        pc.ctx,
+        pc.context,
       );
 
     if (get.indexHint.kind === "scan")
@@ -25,12 +25,12 @@ export function planGet(node: LogicalOperator, pc: PlannerContext) {
         get.indexHint.indexDef,
         get.indexHint.predicates,
         get.indexHint.residualFilters,
-        pc.ctx,
+        pc.context,
       );
   }
 
   if (get.children.length > 0)
-    return new PhysicalChildScan(get, pc.plan(get.children[0]), pc.ctx);
+    return new PhysicalChildScan(get, pc.plan(get.children[0]), pc.context);
 
-  return new PhysicalScan(get, pc.rowManager, pc.ctx);
+  return new PhysicalScan(get, pc.rowManager, pc.context);
 }

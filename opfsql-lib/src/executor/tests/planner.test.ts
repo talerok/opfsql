@@ -1,3 +1,4 @@
+import { aggregateFunction } from "../../functions/index.js";
 import { describe, it, expect, vi } from "vitest";
 import type {
   LogicalGet,
@@ -295,6 +296,7 @@ describe("createPhysicalPlan", () => {
     const aggExpr: BoundAggregateExpression = {
       expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
       functionName: "COUNT",
+      function: aggregateFunction("COUNT"),
       distinct: false,
       isStar: true,
       aggregateIndex: 0,
@@ -321,6 +323,7 @@ describe("createPhysicalPlan", () => {
     const aggExpr: BoundAggregateExpression = {
       expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
       functionName: "MIN",
+      function: aggregateFunction("MIN"),
       distinct: false,
       isStar: false,
       aggregateIndex: 0,

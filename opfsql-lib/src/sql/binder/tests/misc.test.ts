@@ -1,3 +1,4 @@
+import { SemanticError } from "../../../errors.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BindError } from "../core/errors.js";
 import type {
@@ -69,10 +70,10 @@ describe("Review fixes", () => {
     ).toThrow("same number of columns");
   });
 
-  it("UNION with incompatible types throws BindError", () => {
+  it("UNION with incompatible types throws SemanticError", () => {
     expect(() =>
       bind("SELECT name FROM users UNION SELECT id FROM orders"),
-    ).toThrow(BindError);
+    ).toThrow(SemanticError);
     expect(() =>
       bind("SELECT name FROM users UNION SELECT id FROM orders"),
     ).toThrow("Type mismatch");
@@ -332,8 +333,8 @@ describe("JSON", () => {
     expect(() => bind("CREATE INDEX idx ON docs(data)")).toThrow(BindError);
   });
 
-  it("arithmetic on JSON throws BindError", () => {
-    expect(() => bind("SELECT data + 1 FROM docs")).toThrow(BindError);
+  it("arithmetic on JSON throws SemanticError", () => {
+    expect(() => bind("SELECT data + 1 FROM docs")).toThrow(SemanticError);
   });
 
   it("LIKE on JSON throws BindError", () => {

@@ -1,15 +1,13 @@
 import type { TableSchema } from "../../../store/types.js";
-import { castJson } from "../../evaluate/utils/cast.js";
-import type { Value } from "../../types.js";
+import { assignValue, type Value } from "../../../values/index.js";
 
+/** Text stored in a JSON column is parsed as JSON text. */
 export function coerceJsonIfNeeded(
   value: Value,
   schema: TableSchema,
-  colIndex: number,
+  columnIndex: number,
 ): Value {
-  const col = schema.columns[colIndex];
-  if (col.type === "JSON" && typeof value === "string") {
-    return castJson(value);
-  }
-  return value;
+  return schema.columns[columnIndex]?.type === "JSON"
+    ? assignValue(value, "JSON")
+    : value;
 }

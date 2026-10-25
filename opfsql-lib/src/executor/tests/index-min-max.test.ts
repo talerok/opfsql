@@ -1,3 +1,4 @@
+import { aggregateFunction } from "../../functions/index.js";
 import { describe, it, expect, vi } from "vitest";
 import type {
   LogicalAggregate,
@@ -36,6 +37,7 @@ function makeAgg(hint: MinMaxHint): LogicalAggregate {
   const aggExpr: BoundAggregateExpression = {
     expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
     functionName: hint.functionName,
+    function: aggregateFunction(hint.functionName),
     distinct: false,
     isStar: false,
     aggregateIndex: 0,

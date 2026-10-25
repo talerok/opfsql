@@ -1,3 +1,4 @@
+import { SemanticError } from "../../../errors.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BindError } from "../core/errors.js";
 import type {
@@ -111,9 +112,9 @@ describe("SELECT", () => {
     expect(cmp.returnType).toBe("BOOLEAN");
   });
 
-  it("TEXT > INTEGER throws BindError", () => {
+  it("TEXT > INTEGER throws SemanticError", () => {
     expect(() => bind("SELECT * FROM users WHERE name > 18")).toThrow(
-      BindError,
+      SemanticError,
     );
     expect(() => bind("SELECT * FROM users WHERE name > 18")).toThrow(
       "Type mismatch",

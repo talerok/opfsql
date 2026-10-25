@@ -1,29 +1,33 @@
-import type {
-  BoundExpression,
-  BoundCaseExpression,
-} from "../../sql/binder/types.js";
-import type { Value, Tuple } from "../types.js";
-import type { Resolver } from "../resolve.js";
-import type { SyncEvalContext } from "./context.js";
-import { evaluateExpression } from "./index.js";
+import type { BoundCaseExpression } from "../../sql/binder/types.js";
+import { compareSql, truthOf, type Value } from "../../values/index.js";
+import type { CompiledExpression, Scope } from "./scope.js";
 
-export function evalCase(
-  expr: BoundExpression,
-  tuple: Tuple,
-  resolver: Resolver,
-  ctx: SyncEvalContext,
-): Value {
-  const cs = expr as BoundCaseExpression;
-
-  for (const check of cs.caseChecks) {
-    const when = evaluateExpression(check.when, tuple, resolver, ctx);
-    if (when === true) {
-      return evaluateExpression(check.then, tuple, resolver, ctx);
+/**
+ * CASE: the first WHEN that holds picks its THEN, else ELSE, else NULL.
+ * With an operand (`CASE x WHEN v …`) the operand is evaluated once and a
+ * WHEN holds when its value equals it — so a NULL operand matches nothing.
+ */
+export function compileCase(
+  expression: BoundCaseExpression,
+  scope: Scope,
+): CompiledExpression {
+  const checks = expression.caseChecks.map((check) => ({
+    when: scope.compile(check.when),
+    result: scope.compile(check.result),
+  }));
+  const otherwise =
+    expression.elseExpr === null ? null : scope.compile(expression.elseExpr);
+  const operand =
+    expression.operand === undefined ? null : scope.compile(expression.operand);
+  const holds =
+    operand === null
+      ? (when: Value) => truthOf(when) === true
+      : (when: Value, value: Value) => compareSql(value, when) === 0;
+  return (row) => {
+    const value = operand === null ? null : operand(row);
+    for (const check of checks) {
+      if (holds(check.when(row), value)) return check.result(row);
     }
-  }
-
-  if (cs.elseExpr) {
-    return evaluateExpression(cs.elseExpr, tuple, resolver, ctx);
-  }
-  return null;
+    return otherwise === null ? null : otherwise(row);
+  };
 }

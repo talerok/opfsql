@@ -5,7 +5,8 @@ import type {
 } from "../../sql/binder/types.js";
 import { BoundExpressionClass } from "../../sql/binder/types.js";
 import type { LogicalType } from "../../store/types.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import { scalarFunction } from "../../functions/index.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,7 @@ export function fnCall(
   return {
     expressionClass: BoundExpressionClass.BOUND_FUNCTION,
     functionName,
+    function: scalarFunction(functionName),
     children,
     returnType,
   };
@@ -158,7 +160,7 @@ export function cast(
 }
 
 export function caseExpr(
-  checks: Array<{ when: BoundExpression; then: BoundExpression }>,
+  checks: Array<{ when: BoundExpression; result: BoundExpression }>,
   elseExpr: BoundExpression | null = null,
   returnType: LogicalType = "INTEGER",
 ): BoundExpression {
@@ -197,6 +199,16 @@ export function layout(
 // Noop eval context (sync)
 // ---------------------------------------------------------------------------
 
-export const noopCtx: SyncEvalContext = {
-  executeSubplan: () => [],
+export const noopCtx: ExecutionContext = {
+  parameters: [],
+  outer: null,
+  runSubquery: () => [],
 };
+
+/** A context with statement parameters. */
+export function withParameters(parameters: unknown[]): ExecutionContext {
+  return {
+    ...noopCtx,
+    parameters: parameters as ExecutionContext["parameters"],
+  };
+}

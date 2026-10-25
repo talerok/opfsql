@@ -1,100 +1,88 @@
-import type {
-  BoundExpression,
-  ColumnBinding,
-  LogicalFilter,
-  LogicalGet,
-  LogicalOperator,
-} from "../../../sql/binder/types.js";
 import {
-  BoundExpressionClass,
+  type BoundExpression,
+  type LogicalGet,
+  type LogicalOperator,
   LogicalOperatorType,
 } from "../../../sql/binder/types.js";
-import type { Row } from "../../../store/types.js";
-import type { CompiledFilter } from "../../evaluate/compile.js";
-import { compileFilter } from "../../evaluate/compile.js";
-import type { SyncEvalContext } from "../../evaluate/context.js";
-import { isTruthy } from "../../evaluate/utils/compare.js";
-import { evaluateExpression } from "../../evaluate/index.js";
-import { passesCompiledFilters } from "../../operators/utils.js";
-import { buildResolver, type Resolver } from "../../resolve.js";
+import type {
+  ICatalog,
+  Row,
+  SyncIIndexManager,
+  SyncIRowManager,
+} from "../../../store/types.js";
+import {
+  compilePredicate,
+  type ExecutionContext,
+} from "../../evaluate/index.js";
 import { ExecutorError } from "../../errors.js";
+import {
+  compileTableFilters,
+  passesFilters,
+  type RowFilter,
+} from "../../operators/shared.js";
+import { buildResolver, type Resolver } from "../../resolve.js";
 import type { Tuple } from "../../types.js";
 
-export interface DmlScanInfo {
-  get: LogicalGet;
-  condition: BoundExpression | null;
-  layout: ColumnBinding[];
-  resolver: Resolver;
-  compiledFilters: CompiledFilter[];
+/** Where an UPDATE or DELETE runs: the storage and the statement. */
+export interface DmlTarget {
+  readonly rowManager: SyncIRowManager;
+  readonly context: ExecutionContext;
+  readonly catalog?: ICatalog;
+  readonly indexManager?: SyncIIndexManager;
+}
+
+/** The rows an UPDATE or DELETE touches: a table and conditions on it. */
+export interface DmlScan {
+  readonly get: LogicalGet;
+  /** Where the table's columns are in a row from `rowToTuple`. */
+  readonly resolver: Resolver;
+  /** Every condition — pushed-down table filters and WHERE — compiled. */
+  readonly filters: readonly RowFilter[];
 }
 
 export function extractDmlScan(
   child: LogicalOperator,
-  ctx: SyncEvalContext,
-): DmlScanInfo {
-  const { get, condition } = extractConditions(child);
-  const layout = get.schema.columns.map((_, i) => ({
-    tableIndex: get.tableIndex,
-    columnIndex: i,
-  }));
-  const resolver = buildResolver(layout);
-  const compiledFilters = get.tableFilters.map((f) =>
-    compileFilter(f, resolver, ctx),
+  context: ExecutionContext,
+): DmlScan {
+  const { get, conditions } = collectConditions(child);
+  const resolver = buildResolver(
+    get.schema.columns.map((_column, columnIndex) => ({
+      tableIndex: get.tableIndex,
+      columnIndex,
+    })),
   );
-  return { get, condition, layout, resolver, compiledFilters };
+  const filters = [
+    ...compileTableFilters(get.tableFilters, resolver, context),
+    ...conditions.map((condition) =>
+      compilePredicate(condition, resolver, context),
+    ),
+  ];
+  return { get, resolver, filters };
 }
 
-function extractConditions(child: LogicalOperator): {
+function collectConditions(child: LogicalOperator): {
   get: LogicalGet;
-  condition: BoundExpression | null;
+  conditions: BoundExpression[];
 } {
   if (child.type === LogicalOperatorType.LOGICAL_FILTER) {
-    const filter = child as LogicalFilter;
-    const inner = extractConditions(filter.children[0]);
-    const filterCond: BoundExpression =
-      filter.expressions.length === 1
-        ? filter.expressions[0]
-        : {
-            expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
-            conjunctionType: "AND" as const,
-            children: filter.expressions,
-            returnType: "BOOLEAN" as const,
-          };
-    if (inner.condition) {
-      const combined: BoundExpression = {
-        expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
-        conjunctionType: "AND" as const,
-        children: [filterCond, inner.condition],
-        returnType: "BOOLEAN" as const,
-      };
-      return { get: inner.get, condition: combined };
-    }
-    return { get: inner.get, condition: filterCond };
+    const inner = collectConditions(child.children[0]);
+    return {
+      get: inner.get,
+      conditions: [...child.expressions, ...inner.conditions],
+    };
   }
   if (child.type === LogicalOperatorType.LOGICAL_GET) {
-    return { get: child as LogicalGet, condition: null };
+    return { get: child, conditions: [] };
   }
   throw new ExecutorError(`Unexpected node ${child.type} in DML scan tree`);
 }
 
-export function rowToTuple(row: Row, get: LogicalGet): Tuple {
-  return get.schema.columns.map((col) => {
-    const val = row[col.name];
-    return val !== undefined ? val : (col.defaultValue ?? null);
-  });
+export function rowToTuple(row: Readonly<Row>, get: LogicalGet): Tuple {
+  return get.schema.columns.map((column) =>
+    Object.hasOwn(row, column.name) ? row[column.name] : column.defaultValue,
+  );
 }
 
-export function passesFilter(
-  tuple: Tuple,
-  scan: DmlScanInfo,
-  ctx: SyncEvalContext,
-): boolean {
-  if (!passesCompiledFilters(tuple, scan.compiledFilters, ctx.params)) {
-    return false;
-  }
-  if (scan.condition) {
-    const val = evaluateExpression(scan.condition, tuple, scan.resolver, ctx);
-    if (!isTruthy(val)) return false;
-  }
-  return true;
+export function passesFilter(row: Tuple, scan: DmlScan): boolean {
+  return passesFilters(row, scan.filters);
 }

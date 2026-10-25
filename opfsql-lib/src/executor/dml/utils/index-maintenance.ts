@@ -8,7 +8,10 @@ import type {
   SyncIIndexManager,
   TableSchema,
 } from "../../../store/types.js";
-import { compileExpression } from "../../evaluate/compile.js";
+import {
+  compileExpression,
+  type ExecutionContext,
+} from "../../evaluate/index.js";
 import { buildResolver } from "../../resolve.js";
 import type { Tuple, Value } from "../../types.js";
 
@@ -20,6 +23,13 @@ import type { Tuple, Value } from "../../types.js";
 type Evaluators = Array<(tuple: Tuple) => Value>;
 
 const prepared = new WeakMap<IndexDef, Evaluators>();
+
+/** Index keys depend on the row alone: no parameters, no subqueries. */
+const INDEX_KEY_CONTEXT: ExecutionContext = {
+  parameters: [],
+  outer: null,
+  runSubquery: () => [],
+};
 
 function prepare(schema: TableSchema, idx: IndexDef): Evaluators {
   let ev = prepared.get(idx);
@@ -33,11 +43,9 @@ function prepare(schema: TableSchema, idx: IndexDef): Evaluators {
     columnIndex: i,
   }));
   const resolver = buildResolver(layout);
-  const ctx = {
-    executeSubplan: () => [] as Value[][],
-    params: [] as Value[],
-  };
-  ev = boundExprs.map((expr) => compileExpression(expr, resolver, ctx));
+  ev = boundExprs.map((expr) =>
+    compileExpression(expr, resolver, INDEX_KEY_CONTEXT),
+  );
 
   prepared.set(idx, ev);
   return ev;

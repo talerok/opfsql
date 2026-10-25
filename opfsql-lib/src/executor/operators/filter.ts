@@ -1,19 +1,22 @@
 import type { BoundExpression, ColumnBinding } from "../../sql/binder/types.js";
-import { isTruthy } from "../evaluate/utils/compare.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
-import { evaluateExpression } from "../evaluate/index.js";
+import { compilePredicate, type ExecutionContext } from "../evaluate/index.js";
 import { buildResolver } from "../resolve.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
+import type { RowFilter } from "./shared.js";
 
 export class PhysicalFilter implements SyncPhysicalOperator {
-  private readonly resolver;
+  private readonly condition: RowFilter;
 
   constructor(
     private readonly child: SyncPhysicalOperator,
-    private readonly condition: BoundExpression,
-    private readonly ctx: SyncEvalContext,
+    condition: BoundExpression,
+    context: ExecutionContext,
   ) {
-    this.resolver = buildResolver(child.getLayout());
+    this.condition = compilePredicate(
+      condition,
+      buildResolver(child.getLayout()),
+      context,
+    );
   }
 
   getLayout(): ColumnBinding[] {
@@ -21,23 +24,15 @@ export class PhysicalFilter implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    while (true) {
-      const batch = this.child.next();
-      if (!batch) return null;
-
-      const result: Tuple[] = [];
-      for (const tuple of batch) {
-        const val = evaluateExpression(
-          this.condition,
-          tuple,
-          this.resolver,
-          this.ctx,
-        );
-        if (isTruthy(val)) result.push(tuple);
-      }
-
+    for (
+      let batch = this.child.next();
+      batch !== null;
+      batch = this.child.next()
+    ) {
+      const result = batch.filter((row) => this.condition(row));
       if (result.length > 0) return result;
     }
+    return null;
   }
 
   reset(): void {

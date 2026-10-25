@@ -20,5 +20,5 @@ export function planFilter(node: LogicalOperator, pc: PlannerContext) {
           returnType: "BOOLEAN" as const,
         } satisfies BoundConjunctionExpression);
 
-  return new PhysicalFilter(pc.plan(filter.children[0]), condition, pc.ctx);
+  return new PhysicalFilter(pc.plan(filter.children[0]), condition, pc.context);
 }

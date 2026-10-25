@@ -1,88 +1,129 @@
-import type {
-  BoundColumnRefExpression,
-  BoundConstantExpression,
-  BoundExpression,
-  BoundJsonAccessExpression,
-  BoundParameterExpression,
-  ComparisonType,
-  TableFilter,
+import { InternalError } from "../../errors.js";
+import {
+  type BoundAggregateExpression,
+  type BoundCastExpression,
+  type BoundExpression,
+  BoundExpressionClass,
 } from "../../sql/binder/types.js";
-import { BoundExpressionClass } from "../../sql/binder/types.js";
+import { castValue, truthOf, typeFromName } from "../../values/index.js";
 import type { Resolver } from "../resolve.js";
-import type { Tuple, Value } from "../types.js";
-import { evaluateExpression } from "./index.js";
-import type { SyncEvalContext } from "./context.js";
-import { traverseJsonPath } from "./json-access.js";
+import type { Tuple } from "../types.js";
+import { compileCase } from "./case.js";
+import { compileColumn, compileJsonAccess } from "./column.js";
+import type { ExecutionContext } from "./context.js";
+import { compileFunction } from "./function.js";
+import {
+  compileBetween,
+  compileComparison,
+  compileConjunction,
+} from "./logic.js";
+import { compileOperator } from "./operator.js";
+import { parameterValue } from "./parameter.js";
+import type { CompiledExpression, Scope } from "./scope.js";
+import { compileSubquery } from "./subquery.js";
 
 // ---------------------------------------------------------------------------
-// CompiledFilter — pre-compiled for scan-time hot path.
-// Expression tree is walked once at operator creation; at runtime only
-// closures execute — no tree walking, no switch dispatch per row.
+// The expression compiler: the one way opfsql evaluates an expression.
+// The tree is walked once, when a plan node is built; what runs per row is
+// a closure that already knows where its columns are and what its
+// operators and functions do. Closures, never generated source: a strict
+// Content Security Policy forbids `new Function`.
 // ---------------------------------------------------------------------------
 
-export interface CompiledFilter {
-  getValue: (tuple: Tuple) => Value;
-  comparisonType: ComparisonType;
-  getConstant: (params?: readonly Value[]) => Value;
-}
-
-// ---------------------------------------------------------------------------
-// compileExpression — walks the expression tree once, returns a closure
-// that captures resolved tuple positions.
-// ---------------------------------------------------------------------------
-
+/** Compiles `expression` for rows laid out as `resolver` describes. */
 export function compileExpression(
-  expr: BoundExpression,
+  expression: BoundExpression,
   resolver: Resolver,
-  ctx: SyncEvalContext,
-): (tuple: Tuple) => Value {
-  switch (expr.expressionClass) {
-    case BoundExpressionClass.BOUND_COLUMN_REF: {
-      const pos = resolver((expr as BoundColumnRefExpression).binding);
-      if (pos !== undefined) {
-        return (tuple) => tuple[pos] ?? null;
-      }
-      break;
-    }
-
-    case BoundExpressionClass.BOUND_CONSTANT:
-      return () => (expr as BoundConstantExpression).value;
-
-    case BoundExpressionClass.BOUND_JSON_ACCESS: {
-      const ja = expr as BoundJsonAccessExpression;
-      const childPos = resolver(ja.child.binding);
-      if (childPos !== undefined) {
-        const path = ja.path;
-        return (tuple) => traverseJsonPath(tuple[childPos], path);
-      }
-      break;
-    }
-  }
-
-  // Fallback: use the general evaluator
-  return (tuple) => evaluateExpression(expr, tuple, resolver, ctx);
+  context: ExecutionContext,
+): CompiledExpression {
+  const scope: Scope = {
+    resolver,
+    context,
+    compile: (child) => compileIn(child, scope),
+  };
+  return scope.compile(expression);
 }
 
-// ---------------------------------------------------------------------------
-// compileFilter — pre-compiles a TableFilter into a CompiledFilter
-// ---------------------------------------------------------------------------
-
-export function compileFilter(
-  filter: TableFilter,
+/**
+ * Compiles a condition (WHERE, ON, HAVING): true only when the condition
+ * is TRUE — not when it is FALSE or NULL.
+ */
+export function compilePredicate(
+  expression: BoundExpression,
   resolver: Resolver,
-  ctx: SyncEvalContext,
-): CompiledFilter {
-  const getValue = compileExpression(filter.expression, resolver, ctx);
-  const { comparisonType } = filter;
+  context: ExecutionContext,
+): (row: Tuple) => boolean {
+  const condition = compileExpression(expression, resolver, context);
+  return (row) => truthOf(condition(row)) === true;
+}
 
-  let getConstant: (params?: readonly Value[]) => Value;
-  if (filter.constant.expressionClass === BoundExpressionClass.BOUND_CONSTANT) {
-    const val = (filter.constant as BoundConstantExpression).value;
-    getConstant = () => val;
-  } else {
-    const paramIndex = (filter.constant as BoundParameterExpression).index;
-    getConstant = (params) => params?.[paramIndex] ?? null;
+function compileIn(
+  expression: BoundExpression,
+  scope: Scope,
+): CompiledExpression {
+  switch (expression.expressionClass) {
+    case BoundExpressionClass.BOUND_COLUMN_REF: {
+      return compileColumn(expression.binding, scope);
+    }
+    case BoundExpressionClass.BOUND_CONSTANT: {
+      const { value } = expression;
+      return () => value;
+    }
+    case BoundExpressionClass.BOUND_PARAMETER: {
+      const value = parameterValue(scope.context, expression.index);
+      return () => value;
+    }
+    case BoundExpressionClass.BOUND_COMPARISON: {
+      return compileComparison(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_CONJUNCTION: {
+      return compileConjunction(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_OPERATOR: {
+      return compileOperator(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_BETWEEN: {
+      return compileBetween(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_FUNCTION: {
+      return compileFunction(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_AGGREGATE: {
+      return compileAggregateResult(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_SUBQUERY: {
+      return compileSubquery(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_CASE: {
+      return compileCase(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_CAST: {
+      return compileCast(expression, scope);
+    }
+    case BoundExpressionClass.BOUND_JSON_ACCESS: {
+      return compileJsonAccess(expression, scope);
+    }
   }
+}
 
-  return { getValue, comparisonType, getConstant };
+/** An aggregate above its aggregation: a column of the aggregate's output. */
+function compileAggregateResult(
+  expression: BoundAggregateExpression,
+  scope: Scope,
+): CompiledExpression {
+  if (expression.binding === undefined) {
+    throw new InternalError(
+      `aggregate ${expression.functionName} has no output column`,
+    );
+  }
+  return compileColumn(expression.binding, scope);
+}
+
+function compileCast(
+  expression: BoundCastExpression,
+  scope: Scope,
+): CompiledExpression {
+  const child = scope.compile(expression.child);
+  const type = typeFromName(expression.castType) ?? "ANY";
+  return (row) => castValue(child(row), type);
 }

@@ -11,7 +11,7 @@ export function planComparisonJoin(node: LogicalOperator, pc: PlannerContext) {
     pc.plan(join.children[0]),
     pc.plan(join.children[1]),
     join,
-    pc.ctx,
+    pc.context,
   );
 }
 

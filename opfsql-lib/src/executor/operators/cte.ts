@@ -1,7 +1,8 @@
 import type { LogicalCTERef, ColumnBinding } from "../../sql/binder/types.js";
 import type { SyncPhysicalOperator, Tuple, CTECacheEntry } from "../types.js";
 import { ExecutorError } from "../errors.js";
-import { drainOperator, serializeKey, SCAN_BATCH } from "./utils.js";
+import { rowKey } from "../../values/index.js";
+import { drainOperator, SCAN_BATCH } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Materialize
@@ -124,7 +125,7 @@ export class PhysicalRecursiveCTE implements SyncPhysicalOperator {
 
     for (const row of anchorRows) {
       if (seen) {
-        const key = serializeKey(row);
+        const key = rowKey(row);
         if (seen.has(key)) continue;
         seen.add(key);
       }
@@ -147,7 +148,7 @@ export class PhysicalRecursiveCTE implements SyncPhysicalOperator {
       workingTable = [];
       for (const row of newRows) {
         if (seen) {
-          const key = serializeKey(row);
+          const key = rowKey(row);
           if (seen.has(key)) continue;
           seen.add(key);
         }

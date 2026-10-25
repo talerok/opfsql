@@ -1,5 +1,5 @@
 import type { Session } from "../../src/index.js";
-import { blobToHex } from "../../src/executor/evaluate/utils/cast.js";
+import { bytesToHex } from "../../src/values/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,7 +129,7 @@ export function parseSlt(source: string): SltBlock[] {
 
 function formatValue(v: unknown): string {
   if (v === null || v === undefined) return "NULL";
-  if (v instanceof Uint8Array) return blobToHex(v);
+  if (v instanceof Uint8Array) return bytesToHex(v).toUpperCase();
   return String(v);
 }
 

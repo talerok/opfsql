@@ -1,12 +1,12 @@
 import type { LogicalOperator } from "../../sql/binder/types.js";
 import type { SyncIIndexManager, SyncIRowManager } from "../../store/types.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import type { CTECacheEntry, SyncPhysicalOperator } from "../types.js";
 
 export interface PlannerContext {
   rowManager: SyncIRowManager;
   cteCache: Map<number, CTECacheEntry>;
-  ctx: SyncEvalContext;
+  context: ExecutionContext;
   indexManager?: SyncIIndexManager;
   plan: (child: LogicalOperator) => SyncPhysicalOperator;
 }

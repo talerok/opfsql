@@ -2,7 +2,7 @@ import type { LogicalOperator } from "../../sql/binder/types.js";
 import { LogicalOperatorType } from "../../sql/binder/types.js";
 import type { SyncIIndexManager, SyncIRowManager } from "../../store/types.js";
 import { ExecutorError } from "../errors.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import type { CTECacheEntry, SyncPhysicalOperator } from "../types.js";
 import { planAggregate } from "./plan-aggregate.js";
 import {
@@ -39,16 +39,16 @@ export function createPhysicalPlan(
   node: LogicalOperator,
   rowManager: SyncIRowManager,
   cteCache: Map<number, CTECacheEntry>,
-  ctx: SyncEvalContext,
+  context: ExecutionContext,
   indexManager?: SyncIIndexManager,
 ): SyncPhysicalOperator {
   const pc: PlannerContext = {
     rowManager,
     cteCache,
-    ctx,
+    context,
     indexManager,
     plan: (child) =>
-      createPhysicalPlan(child, rowManager, cteCache, ctx, indexManager),
+      createPhysicalPlan(child, rowManager, cteCache, context, indexManager),
   };
 
   const handler = handlers.get(node.type);

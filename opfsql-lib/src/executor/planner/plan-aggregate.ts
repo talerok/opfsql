@@ -12,5 +12,5 @@ export function planAggregate(node: LogicalOperator, pc: PlannerContext) {
   if (agg.minMaxHint && pc.indexManager)
     return new PhysicalIndexMinMax(agg, pc.indexManager, agg.minMaxHint);
 
-  return new PhysicalHashAggregate(pc.plan(agg.children[0]), agg, pc.ctx);
+  return new PhysicalHashAggregate(pc.plan(agg.children[0]), agg, pc.context);
 }

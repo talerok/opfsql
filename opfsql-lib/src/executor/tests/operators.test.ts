@@ -1,3 +1,4 @@
+import { aggregateFunction } from "../../functions/index.js";
 import { describe, it, expect } from "vitest";
 import { LogicalOperatorType } from "../../sql/binder/types.js";
 import type {
@@ -18,7 +19,7 @@ import { PhysicalSort } from "../operators/sort.js";
 import { PhysicalLimit as PhysicalLimitOp } from "../operators/limit.js";
 import { PhysicalDistinct, PhysicalUnion } from "../operators/set.js";
 import { PhysicalMaterialize, PhysicalCTEScan } from "../operators/cte.js";
-import { drainOperator } from "../operators/utils.js";
+import { drainOperator } from "../operators/shared.js";
 import type { CTECacheEntry } from "../types.js";
 import {
   MockOperator,
@@ -461,6 +462,7 @@ describe("PhysicalHashAggregate", () => {
     return {
       expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
       functionName: functionName as any,
+      function: aggregateFunction(functionName),
       children: isStar ? [] : [childExpr],
       distinct,
       isStar,

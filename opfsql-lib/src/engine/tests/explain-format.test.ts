@@ -1,3 +1,4 @@
+import { aggregateFunction, scalarFunction } from "../../functions/index.js";
 import { describe, expect, it } from "vitest";
 import {
   BoundExpressionClass,
@@ -157,6 +158,7 @@ describe("formatExpression", () => {
     const expr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,
       functionName: "UPPER",
+      function: scalarFunction("UPPER"),
       children: [colRef("t", "name")],
       returnType: "TEXT",
     };
@@ -167,6 +169,7 @@ describe("formatExpression", () => {
     const expr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
       functionName: "COUNT",
+      function: aggregateFunction("COUNT"),
       isStar: true,
       distinct: false,
       children: [],
@@ -180,6 +183,7 @@ describe("formatExpression", () => {
     const expr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
       functionName: "COUNT",
+      function: aggregateFunction("COUNT"),
       isStar: false,
       distinct: true,
       children: [colRef("t", "val")],

@@ -1,38 +1,87 @@
-import type { FunctionExpression } from "../../parser/types.js";
-import type { BoundExpression, BoundFunctionExpression } from "../types.js";
+import { SemanticError } from "../../../errors.js";
+import {
+  lookupFunction,
+  resolveCall,
+  type ScalarFunction,
+  scalarFunction,
+  staticType,
+} from "../../../functions/index.js";
+import type {
+  FunctionExpression,
+  ParsedExpression,
+} from "../../parser/types.js";
+import type { AggregateContext } from "../core/context.js";
+import type {
+  BoundAggregateExpression,
+  BoundExpression,
+  BoundFunctionExpression,
+} from "../types.js";
 import { BoundExpressionClass } from "../types.js";
-import type { BindContext, AggregateContext } from "../core/context.js";
-import type { BindScope } from "../core/scope.js";
-import { resolveScalarFunctionReturnType } from "../core/type-check.js";
-import { AGGREGATE_FUNCTIONS, bindAggregate } from "./aggregate.js";
 import { sameAggregate } from "./same-expression.js";
-import { bindExpression } from "./index.js";
 
+/** How a function call binds what it contains. */
+export interface FunctionBinding {
+  /** Binds an argument in the call's scope. */
+  readonly bind: (child: ParsedExpression) => BoundExpression;
+  /** Binds the call as an aggregate. */
+  readonly bindAggregate: () => BoundAggregateExpression;
+  /** The aggregates of the query, when binding above its aggregation. */
+  readonly aggregateContext?: AggregateContext;
+}
+
+/**
+ * A function call, resolved through the function registry: an unknown
+ * name, a wrong number of arguments or an argument type the function does
+ * not take is a SemanticError here, at bind time.
+ */
 export function bindFunction(
-  ctx: BindContext,
-  expr: FunctionExpression,
-  scope: BindScope,
-  aggCtx?: AggregateContext,
+  expression: FunctionExpression,
+  binding: FunctionBinding,
 ): BoundExpression {
-  const name = expr.function_name.toUpperCase();
-
-  if (AGGREGATE_FUNCTIONS.has(name)) {
-    const bound = bindAggregate(ctx, expr, scope);
-    if (aggCtx) {
-      const match = aggCtx.aggregates.find((a) => sameAggregate(a, bound));
-      return match ?? bound;
-    }
-    return bound;
+  const name = expression.function_name;
+  const definition = lookupFunction(name);
+  if (definition === undefined) {
+    throw new SemanticError(`no such function: ${name}`);
   }
+  if (definition.kind === "aggregate") {
+    const bound = binding.bindAggregate();
+    const match = binding.aggregateContext?.aggregates.find((aggregate) =>
+      sameAggregate(aggregate, bound),
+    );
+    return match ?? bound;
+  }
+  if (expression.distinct || expression.is_star) {
+    throw new SemanticError(`${name}() is not an aggregate function`);
+  }
+  const children = expression.children.map((child) => binding.bind(child));
+  return bindCall(definition, children, name);
+}
 
-  const children = expr.children.map((c) =>
-    bindExpression(ctx, c, scope, aggCtx),
+/** A call of a scalar function on bound arguments, type-checked. */
+export function bindCall(
+  definition: ScalarFunction,
+  children: BoundExpression[],
+  name: string = definition.name,
+): BoundFunctionExpression {
+  const returnType = resolveCall(
+    definition,
+    children.map((child) => staticType(child.returnType)),
   );
-  const returnType = resolveScalarFunctionReturnType(name, children);
   return {
     expressionClass: BoundExpressionClass.BOUND_FUNCTION,
-    functionName: name,
+    functionName: name.toUpperCase(),
+    function: definition,
     children,
     returnType,
-  } satisfies BoundFunctionExpression;
+  };
+}
+
+/** `text LIKE pattern [ESCAPE escape]`: SQLite's like(pattern, text, escape). */
+export function bindLike(
+  text: BoundExpression,
+  pattern: BoundExpression,
+  escape?: BoundExpression,
+): BoundFunctionExpression {
+  const children = [pattern, text, ...(escape === undefined ? [] : [escape])];
+  return bindCall(scalarFunction("like"), children);
 }

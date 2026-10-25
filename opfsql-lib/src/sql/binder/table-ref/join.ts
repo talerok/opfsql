@@ -19,6 +19,7 @@ import { bindExpression } from "../expression/index.js";
 import type * as BT from "../types.js";
 import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
 import { bindTableRef } from "./index.js";
+import { caseChildren } from "../expression/case-children.js";
 
 export function bindJoinRef(
   ctx: BindContext,
@@ -213,11 +214,7 @@ function gatherTables(expr: BT.BoundExpression, out: Set<number>): void {
       break;
     case BoundExpressionClass.BOUND_CASE: {
       const cs = expr as BT.BoundCaseExpression;
-      for (const check of cs.caseChecks) {
-        gatherTables(check.when, out);
-        gatherTables(check.then, out);
-      }
-      if (cs.elseExpr) gatherTables(cs.elseExpr, out);
+      for (const child of caseChildren(cs)) gatherTables(child, out);
       break;
     }
   }

@@ -87,10 +87,16 @@ export function mapExpression(
       const cs = expr as BoundCaseExpression;
       const caseChecks = cs.caseChecks.map((cc) => ({
         when: mapExpression(cc.when, fn),
-        then: mapExpression(cc.then, fn),
+        result: mapExpression(cc.result, fn),
       }));
       const elseExpr = cs.elseExpr ? mapExpression(cs.elseExpr, fn) : null;
-      return fn({ ...cs, caseChecks, elseExpr });
+      const { operand } = cs;
+      return fn({
+        ...cs,
+        ...(operand !== undefined && { operand: mapExpression(operand, fn) }),
+        caseChecks,
+        elseExpr,
+      });
     }
 
     case BoundExpressionClass.BOUND_CAST: {

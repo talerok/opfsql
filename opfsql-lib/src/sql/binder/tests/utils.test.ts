@@ -1,3 +1,4 @@
+import { aggregateFunction } from "../../../functions/index.js";
 import { describe, it, expect, vi } from "vitest";
 import {
   findColumnIndex,
@@ -378,6 +379,7 @@ describe("extractColumnsFromPlan", () => {
         {
           expressionClass: BoundExpressionClass.BOUND_AGGREGATE,
           functionName: "COUNT",
+          function: aggregateFunction("COUNT"),
           isStar: true,
           distinct: false,
           aggregateIndex: 0,

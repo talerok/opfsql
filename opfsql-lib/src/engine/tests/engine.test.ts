@@ -955,7 +955,7 @@ describe("BLOB type", () => {
     );
   });
 
-  it("CAST blob to TEXT returns hex", async () => {
+  it("CAST blob to TEXT returns lowercase hex", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
     await session.execute("INSERT INTO t VALUES (1, x'CAFE')");
@@ -963,7 +963,7 @@ describe("BLOB type", () => {
     const [result] = await session.execute(
       "SELECT CAST(data AS TEXT) AS hex FROM t",
     );
-    expect(result.rows![0].hex).toBe("CAFE");
+    expect(result.rows![0].hex).toBe("cafe");
   });
 
   it("CAST text to BLOB", async () => {

@@ -9,6 +9,7 @@ import type {
   BoundJsonAccessExpression,
   BoundOperatorExpression,
 } from "../sql/binder/types.js";
+import { scalarFunction } from "../functions/index.js";
 import { BoundExpressionClass } from "../sql/binder/types.js";
 import type { IndexExpression, TableSchema } from "../types.js";
 
@@ -112,11 +113,23 @@ export function boundToIndexExpression(
     }
     case BoundExpressionClass.BOUND_CASE: {
       const cs = expr as BoundCaseExpression;
+      // Stored without an operand: CASE x WHEN v is CASE WHEN x = v.
+      const operand = cs.operand === undefined ? undefined : conv(cs.operand);
+      const condition = (when: IndexExpression): IndexExpression =>
+        operand === undefined
+          ? when
+          : {
+              type: "comparison",
+              comparisonType: "EQUAL",
+              left: operand,
+              right: when,
+              returnType: "BOOLEAN",
+            };
       return {
         type: "case",
         checks: cs.caseChecks.map((ch) => ({
-          when: conv(ch.when),
-          then: conv(ch.then),
+          when: condition(conv(ch.when)),
+          then: conv(ch.result),
         })),
         elseExpr: cs.elseExpr ? conv(cs.elseExpr) : null,
         returnType: rt,
@@ -170,6 +183,7 @@ export function bindIndexExpression(
       return {
         expressionClass: BoundExpressionClass.BOUND_FUNCTION,
         functionName: expr.name,
+        function: scalarFunction(expr.name),
         children: expr.args.map(bind),
         returnType: expr.returnType,
       };
@@ -204,7 +218,7 @@ export function bindIndexExpression(
         expressionClass: BoundExpressionClass.BOUND_CASE,
         caseChecks: expr.checks.map((ch) => ({
           when: bind(ch.when),
-          then: bind(ch.then),
+          result: bind(ch.then),
         })),
         elseExpr: expr.elseExpr ? bind(expr.elseExpr) : null,
         returnType: expr.returnType,

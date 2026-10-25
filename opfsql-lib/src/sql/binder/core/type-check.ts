@@ -1,6 +1,11 @@
+import { SemanticError } from "../../../errors.js";
+import { commonType, staticType } from "../../../functions/index.js";
 import type { LogicalType } from "../../../store/types.js";
-import type { BoundExpression } from "../types.js";
-import { BindError } from "./errors.js";
+
+// ---------------------------------------------------------------------------
+// Static types of operators. Function types come from the function
+// registry (src/functions); these are the rules for what is not a function.
+// ---------------------------------------------------------------------------
 
 const NUMERIC_TYPES: ReadonlySet<LogicalType> = new Set<LogicalType>([
   "INTEGER",
@@ -8,137 +13,54 @@ const NUMERIC_TYPES: ReadonlySet<LogicalType> = new Set<LogicalType>([
   "REAL",
 ]);
 
-const NON_SCALAR_TYPES: ReadonlySet<LogicalType> = new Set<LogicalType>([
-  "BLOB",
-  "JSON",
-]);
+/** Types that say nothing about the value: it may be anything. */
+const UNTYPED: ReadonlySet<LogicalType> = new Set<LogicalType>(["NULL", "ANY"]);
 
+/** The type of two operands compared or combined by UNION; fails if none. */
 export function checkTypeCompatibility(
   left: LogicalType,
   right: LogicalType,
 ): LogicalType {
-  if (left === "NULL" || left === "ANY") return right;
-  if (right === "NULL" || right === "ANY") return left;
-  if (left === right) return left;
-
+  if (UNTYPED.has(left)) return right;
+  if (left === right || UNTYPED.has(right)) return left;
   if (NUMERIC_TYPES.has(left) && NUMERIC_TYPES.has(right)) {
-    if (left === "REAL" || right === "REAL") return "REAL";
-    if (left === "BIGINT" || right === "BIGINT") return "BIGINT";
-    return "INTEGER";
+    return numericType(left, right);
   }
-
-  // JSON path access returns JSON but may contain scalar values at runtime
-  if (left === "JSON" || right === "JSON") {
-    return "JSON";
-  }
-
-  // BLOB can only be compared with BLOB
-  if (left === "BLOB" || right === "BLOB") {
-    if (left === "BLOB" && right === "BLOB") return "BLOB";
-    throw new BindError(`Type mismatch: cannot compare ${left} and ${right}`);
-  }
-
-  throw new BindError(`Type mismatch: cannot compare ${left} and ${right}`);
+  // JSON access may hold a scalar of any kind at run time.
+  if (left === "JSON" || right === "JSON") return "JSON";
+  throw new SemanticError(`Type mismatch: cannot compare ${left} and ${right}`);
 }
 
+/**
+ * The type of `left <op> right` for + - * / %: INTEGER for two INTEGERs,
+ * REAL with a REAL, ANY when an operand's type is only known at run time
+ * (the values then decide, see docs/semantics.md, Arithmetic).
+ */
 export function resolveArithmeticType(
   left: LogicalType,
   right: LogicalType,
 ): LogicalType {
-  if (left === "NULL" || left === "ANY") return right;
-  if (right === "NULL" || right === "ANY") return left;
-
-  if (left === "JSON" || right === "JSON") {
-    throw new BindError(`Cannot perform arithmetic on JSON type`);
+  for (const type of [left, right]) {
+    if (!NUMERIC_TYPES.has(type) && !UNTYPED.has(type)) {
+      throw new SemanticError(`Cannot perform arithmetic on ${type} type`);
+    }
   }
-
-  if (left === "BLOB" || right === "BLOB") {
-    throw new BindError(`Cannot perform arithmetic on BLOB type`);
-  }
-
-  if (NUMERIC_TYPES.has(left) && NUMERIC_TYPES.has(right)) {
-    if (left === "REAL" || right === "REAL") return "REAL";
-    if (left === "BIGINT" || right === "BIGINT") return "BIGINT";
-    return "INTEGER";
-  }
-
-  throw new BindError(
-    `Type mismatch: cannot perform arithmetic on ${left} and ${right}`,
+  const [first = "NULL", second = first] = [left, right].filter(
+    (type) => type !== "NULL",
   );
+  if (first === "ANY" || second === "ANY") return "ANY";
+  return first === "NULL" ? "NULL" : numericType(first, second);
 }
 
-export function resolveScalarFunctionReturnType(
-  name: string,
-  children: BoundExpression[],
-): LogicalType {
-  switch (name) {
-    case "UPPER":
-    case "LOWER":
-    case "TRIM":
-    case "LTRIM":
-    case "RTRIM":
-    case "SUBSTR":
-    case "SUBSTRING":
-    case "REPLACE":
-      return requireTextArg(name, children);
-    case "CONCAT":
-      return requireTextArgs(name, children);
-    case "LENGTH":
-      return "INTEGER";
-    case "ABS":
-      return resolveAbsType(children);
-    case "ROUND":
-    case "FLOOR":
-    case "CEIL":
-    case "CEILING":
-      return requireNumericArg(name, children);
-    case "COALESCE":
-      return resolveCoalesceType(children);
-    case "TYPEOF":
-    case "MD5":
-      return "TEXT";
-    default:
-      return inferFromFirst(children);
-  }
+/** The type of one of several expressions: CASE branches, COALESCE. */
+export function resultType(types: readonly LogicalType[]): LogicalType {
+  return commonType(types.map((type) => staticType(type)));
 }
 
-function requireTextArg(name: string, children: BoundExpression[]): "TEXT" {
-  if (children.length > 0 && NON_SCALAR_TYPES.has(children[0].returnType)) {
-    throw new BindError(
-      `Cannot apply ${name} to ${children[0].returnType} type`,
-    );
-  }
-  return "TEXT";
+/** The wider of two numeric types: REAL over BIGINT over INTEGER. */
+function numericType(left: LogicalType, right: LogicalType): LogicalType {
+  const types = new Set([left, right]);
+  return WIDEST_FIRST.find((type) => types.has(type)) ?? "INTEGER";
 }
 
-function requireTextArgs(name: string, children: BoundExpression[]): "TEXT" {
-  const bad = children.find((c) => NON_SCALAR_TYPES.has(c.returnType));
-  if (bad)
-    throw new BindError(`Cannot apply ${name} to ${bad.returnType} type`);
-  return "TEXT";
-}
-
-function requireNumericArg(name: string, children: BoundExpression[]): "REAL" {
-  if (children.length > 0 && NON_SCALAR_TYPES.has(children[0].returnType)) {
-    throw new BindError(
-      `Cannot apply ${name} to ${children[0].returnType} type`,
-    );
-  }
-  return "REAL";
-}
-
-function resolveAbsType(children: BoundExpression[]): LogicalType {
-  const t = children.length > 0 ? children[0].returnType : "ANY";
-  if (NON_SCALAR_TYPES.has(t)) {
-    throw new BindError(`Cannot apply ABS to ${t} type`);
-  }
-  return t !== "NULL" && t !== "ANY" ? t : "INTEGER";
-}
-
-function resolveCoalesceType(children: BoundExpression[]): LogicalType {
-  return children.find((c) => c.returnType !== "NULL")?.returnType ?? "ANY";
-}
-
-function inferFromFirst(children: BoundExpression[]): LogicalType {
-  return children.length > 0 ? children[0].returnType : "ANY";
-}
+const WIDEST_FIRST: readonly LogicalType[] = ["REAL", "BIGINT"];

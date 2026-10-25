@@ -1,36 +1,38 @@
 import type { LogicalOperator } from "../../sql/binder/types.js";
-import type {
-  ICatalog,
-  SyncIIndexManager,
-  SyncIRowManager,
-} from "../../store/types.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
-import { drainOperator } from "../operators/utils.js";
+import type { SyncIIndexManager, SyncIRowManager } from "../../store/types.js";
+import type { Value } from "../../values/index.js";
+import type { ExecutionContext, OuterRow } from "../evaluate/index.js";
+import { drainOperator } from "../operators/shared.js";
 import { createPhysicalPlan } from "../planner/index.js";
-import type { Resolver } from "../resolve.js";
-import type { CTECacheEntry, ExecuteResult, Tuple, Value } from "../types.js";
+import type { CTECacheEntry, ExecuteResult, Tuple } from "../types.js";
 import { extractColumnNames, tuplesToRows } from "./result.js";
 
-export function createEvalContext(
+/**
+ * The context a statement's expressions run in: its parameters, and how
+ * its subqueries run — each for one outer row, on a fresh physical plan.
+ */
+export function createExecutionContext(
   rowManager: SyncIRowManager,
-  catalog: ICatalog,
-  params?: readonly Value[],
-  outerTuple?: Tuple,
-  outerResolver?: Resolver,
-): SyncEvalContext {
+  parameters: readonly Value[],
+  outer: OuterRow | null = null,
+): ExecutionContext {
   return {
-    executeSubplan: (sub, ot, or_, lim) =>
-      executeSubplan(sub, rowManager, catalog, ot, or_, lim, params),
-    outerTuple,
-    outerResolver,
-    params,
+    parameters,
+    outer,
+    runSubquery: (plan, outerRow, limit) =>
+      runSubplan(
+        plan,
+        rowManager,
+        createExecutionContext(rowManager, parameters, outerRow),
+        limit,
+      ),
   };
 }
 
 export function executeSelect(
   plan: LogicalOperator,
   rowManager: SyncIRowManager,
-  ctx: SyncEvalContext,
+  context: ExecutionContext,
   indexManager?: SyncIIndexManager,
 ): ExecuteResult {
   const cteCache = new Map<number, CTECacheEntry>();
@@ -38,7 +40,7 @@ export function executeSelect(
     plan,
     rowManager,
     cteCache,
-    ctx,
+    context,
     indexManager,
   );
   const tuples = drainOperator(physical);
@@ -48,37 +50,23 @@ export function executeSelect(
   return { rows, rowsAffected: 0, catalogChanges: [] };
 }
 
-export function executeSubplan(
+/** Runs a subquery's plan, stopping after `limit` rows. */
+function runSubplan(
   plan: LogicalOperator,
   rowManager: SyncIRowManager,
-  catalog: ICatalog,
-  outerTuple?: Tuple,
-  outerResolver?: Resolver,
+  context: ExecutionContext,
   limit?: number,
-  params?: readonly Value[],
 ): Tuple[] {
-  const ctx = createEvalContext(
-    rowManager,
-    catalog,
-    params,
-    outerTuple,
-    outerResolver,
-  );
-  const cteCache = new Map<number, CTECacheEntry>();
-  const physical = createPhysicalPlan(plan, rowManager, cteCache, ctx);
-
-  if (limit === undefined) {
-    return drainOperator(physical);
-  }
+  const physical = createPhysicalPlan(plan, rowManager, new Map(), context);
+  if (limit === undefined) return drainOperator(physical);
 
   const result: Tuple[] = [];
-  while (result.length < limit) {
-    const batch = physical.next();
-    if (!batch) break;
-    for (const tuple of batch) {
-      result.push(tuple);
-      if (result.length >= limit) break;
-    }
+  for (
+    let batch = physical.next();
+    batch !== null && result.length < limit;
+    batch = physical.next()
+  ) {
+    result.push(...batch.slice(0, limit - result.length));
   }
   return result;
 }

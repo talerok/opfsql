@@ -15,8 +15,8 @@ import type {
   IndexDef,
 } from "../../store/types.js";
 import { PhysicalIndexScan } from "../operators/index-scan.js";
-import { drainOperator } from "../operators/utils.js";
-import type { SyncEvalContext } from "../evaluate/context.js";
+import { drainOperator } from "../operators/shared.js";
+import type { ExecutionContext } from "../evaluate/index.js";
 import { colRef, noopCtx } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -278,7 +278,7 @@ describe("PhysicalIndexScan", () => {
       },
     ];
 
-    const ctx: SyncEvalContext = { ...noopCtx, params: [25] };
+    const ctx: ExecutionContext = { ...noopCtx, parameters: [25] };
     const scan = new PhysicalIndexScan(
       makeGet(),
       rm,

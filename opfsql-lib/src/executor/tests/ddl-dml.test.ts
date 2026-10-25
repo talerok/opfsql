@@ -488,7 +488,7 @@ describe("DML executors", () => {
         columnBindings: [],
       } as unknown as LogicalUpdate;
 
-      const result = executeUpdate(op, rm, noopCtx);
+      const result = executeUpdate(op, { rowManager: rm, context: noopCtx });
       expect(result.rowsAffected).toBe(2);
       expect(rm.prepareUpdate).toHaveBeenCalledTimes(2);
     });
@@ -519,7 +519,7 @@ describe("DML executors", () => {
         columnBindings: [],
       } as unknown as LogicalUpdate;
 
-      const result = executeUpdate(op, rm, noopCtx);
+      const result = executeUpdate(op, { rowManager: rm, context: noopCtx });
       expect(result.rowsAffected).toBe(1);
       expect(rm.prepareUpdate).toHaveBeenCalledWith(
         "users",
@@ -547,7 +547,7 @@ describe("DML executors", () => {
         columnBindings: [],
       } as unknown as LogicalDelete;
 
-      const result = executeDelete(op, rm, noopCtx);
+      const result = executeDelete(op, { rowManager: rm, context: noopCtx });
       expect(result.rowsAffected).toBe(2);
       expect(rm.prepareDelete).toHaveBeenCalledTimes(2);
     });
@@ -577,7 +577,7 @@ describe("DML executors", () => {
         columnBindings: [],
       } as unknown as LogicalDelete;
 
-      const result = executeDelete(op, rm, noopCtx);
+      const result = executeDelete(op, { rowManager: rm, context: noopCtx });
       expect(result.rowsAffected).toBe(1);
       expect(rm.prepareDelete).toHaveBeenCalledWith("users", 1);
     });
@@ -1172,7 +1172,7 @@ describe("DML with multi-expression filter", () => {
       columnBindings: [],
     } as unknown as LogicalDelete;
 
-    const result = executeDelete(op, rm, noopCtx);
+    const result = executeDelete(op, { rowManager: rm, context: noopCtx });
     expect(result.rowsAffected).toBe(1);
     expect(rm.prepareDelete).toHaveBeenCalledTimes(1);
     expect(rm.prepareDelete).toHaveBeenCalledWith("users", 0);
@@ -1208,7 +1208,7 @@ describe("DML with multi-expression filter", () => {
       columnBindings: [],
     } as unknown as LogicalUpdate;
 
-    const result = executeUpdate(op, rm, noopCtx);
+    const result = executeUpdate(op, { rowManager: rm, context: noopCtx });
     expect(result.rowsAffected).toBe(1);
     expect(rm.prepareUpdate).toHaveBeenCalledWith(
       "users",
