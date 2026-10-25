@@ -124,9 +124,19 @@ const KEYWORDS: ReadonlyMap<string, Keyword> = new Map<string, Keyword>(
 
 const RESERVED_KEYWORDS: ReadonlySet<Keyword> = new Set<Keyword>(RESERVED);
 
-/** The keyword a word spells, in any letter case, or undefined. */
+/**
+ * A word in upper case if it is made of ASCII letters, digits and
+ * underscores, else undefined. Only such words spell keywords: the Unicode
+ * case mapping would read `ſelect` as SELECT.
+ */
+export function upperAscii(word: string): string | undefined {
+  return /^\w+$/.test(word) ? word.toUpperCase() : undefined;
+}
+
+/** The keyword a word spells, in any ASCII letter case, or undefined. */
 export function keywordOf(word: string): Keyword | undefined {
-  return KEYWORDS.get(word.toUpperCase());
+  const upper = upperAscii(word);
+  return upper === undefined ? undefined : KEYWORDS.get(upper);
 }
 
 export function isReserved(keyword: Keyword): boolean {

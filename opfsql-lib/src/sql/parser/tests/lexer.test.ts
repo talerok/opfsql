@@ -89,10 +89,23 @@ describe("tokens", () => {
     );
   });
 
-  it("skips comments", () => {
+  it("skips comments; an open block comment runs to the end, as in SQLite", () => {
     expect(kinds("a -- line\n/* block\n */ b")).toEqual([
       "identifier:a",
       "identifier:b",
+    ]);
+    expect(kinds("SELECT 1 /* never closed")).toEqual([
+      "keyword:SELECT",
+      "integer:1",
+    ]);
+  });
+
+  it("reads keywords only from ASCII words", () => {
+    expect(kinds("ſelect ıs ﬁrst SELECT")).toEqual([
+      "identifier:ſelect",
+      "identifier:ıs",
+      "identifier:ﬁrst",
+      "keyword:SELECT",
     ]);
   });
 });
@@ -135,6 +148,11 @@ describe("strings, names and blobs", () => {
     ]);
   });
 
+  it("reads `name` as a quoted name, as SQLite does", () => {
+    expect(kinds("`a``b` `x`")).toEqual(["quoted:a`b", "quoted:x"]);
+    expect(lexError("``").message).toBe("a quoted name cannot be empty");
+  });
+
   it("reads blobs as hex digits", () => {
     expect(kinds("x'CAFE' X'00' x''")).toEqual([
       "blob:CAFE",
@@ -158,7 +176,7 @@ describe("strings, names and blobs", () => {
   it.each([
     ["SELECT 'abc", "unterminated string", 7, 4],
     ['SELECT "abc', "unterminated quoted name", 7, 4],
-    ["SELECT 1 /* never closed", "unterminated comment", 9, 15],
+    ["SELECT x'ab", "unterminated blob literal", 7, 4],
     ["SELECT #", "unexpected character '#'", 7, 1],
     ["SELECT !", "unexpected character '!'", 7, 1],
     ["SELECT ^", "unexpected character '^'", 7, 1],
@@ -183,7 +201,7 @@ describe("parameters", () => {
   });
 
   it("does not support named parameters", () => {
-    for (const sql of [":name", "@name", "$name"]) {
+    for (const sql of [":name", "@name", "$name", ":1", "@1", "$1abc"]) {
       expect(() => tokenize(sql)).toThrow(NotSupportedError);
     }
   });

@@ -200,6 +200,7 @@ function inRule(isNegated: boolean): InfixRule {
       if (cursor.isSymbol("(") && cursor.isSymbol(")", 1)) {
         throw new NotSupportedError("an empty IN list");
       }
+      if (cursor.isName()) throw new NotSupportedError("IN with a table name");
       if (cursor.isSymbol("(") && startsQuery(cursor, 1)) {
         const test = quantified(
           left,
@@ -244,7 +245,8 @@ function betweenRule(isNegated: boolean): InfixRule {
     power: power.equality,
     parse(cursor, left) {
       skipOperator(cursor, isNegated);
-      const lower = cursor.expression(above(power.equality));
+      // As in SQLite, the lower bound may hold `=`, IS, IN, LIKE, BETWEEN.
+      const lower = cursor.expression(power.equality);
       cursor.expectKeyword("AND");
       const upper = cursor.expression(above(power.equality));
       const between: ParsedExpression = {

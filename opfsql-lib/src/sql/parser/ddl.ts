@@ -54,6 +54,7 @@ function parseCreateTable(cursor: Cursor): CreateTableStatement {
     }
     cursor.expectKeyword("KEY");
     primaryKey = cursor.nameList("a column name");
+    rejectKeyword(cursor, COLUMN_CONSTRAINTS);
   } while (cursor.matchSymbol(","));
   cursor.expectSymbol(")");
   if (cursor.isWord("STRICT")) throw new NotSupportedError("STRICT");
@@ -87,6 +88,9 @@ const COLUMN_CONSTRAINTS: ReadonlyMap<Keyword, string> = new Map<
   ["REFERENCES", "REFERENCES"],
   ["GENERATED", "a generated column"],
   ["AS", "a generated column"],
+  ["ASC", "ASC or DESC on a PRIMARY KEY"],
+  ["DESC", "ASC or DESC on a PRIMARY KEY"],
+  ["ON", "ON CONFLICT in a constraint"],
 ]);
 
 function rejectTableConstraint(cursor: Cursor): void {
@@ -162,6 +166,8 @@ function parseColumnConstraint(cursor: Cursor): ColumnConstraint | undefined {
  * its NOT NULL constraint. Anything else goes in parentheses.
  */
 function parseDefault(cursor: Cursor): ParsedExpression {
+  // A prefix NOT would take a following NOT NULL as its operand.
+  if (cursor.isKeyword("NOT")) cursor.fail("a default value");
   return cursor.expression(power.bitwise);
 }
 
@@ -234,9 +240,9 @@ export function parseAlterTable(cursor: Cursor): AlterTableStatement {
   return cursor.fail("ADD or DROP");
 }
 
-/** COLUMN is optional, and is a column's name when no name follows it. */
+/** COLUMN is optional; as in SQLite, `ADD column INT` adds a column INT. */
 function skipColumnKeyword(cursor: Cursor): void {
-  if (cursor.isKeyword("COLUMN") && cursor.isName(1)) cursor.next();
+  cursor.matchKeyword("COLUMN");
 }
 
 export function parseDrop(cursor: Cursor): DropStatement {
@@ -285,9 +291,8 @@ const OTHER_OBJECTS: ReadonlySet<string> = new Set([
 ]);
 
 function rejectOtherObjects(cursor: Cursor, verb: "CREATE" | "DROP"): void {
-  const token = cursor.peek();
-  const word = token.value.toUpperCase();
-  if (token.kind === "identifier" && OTHER_OBJECTS.has(word)) {
+  const word = cursor.wordAt();
+  if (word !== undefined && OTHER_OBJECTS.has(word)) {
     throw new NotSupportedError(`${verb} ${word}`);
   }
 }

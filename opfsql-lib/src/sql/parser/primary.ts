@@ -29,7 +29,7 @@ export function parsePrefix(cursor: Cursor): ParsedExpression {
   switch (token.kind) {
     case "integer":
     case "real": {
-      return parseNumber(cursor, false);
+      return parseNumber(cursor, null);
     }
     case "string": {
       cursor.next();
@@ -76,14 +76,15 @@ export function parseSubquery(cursor: Cursor): SelectStatement {
 
 // --- Literals ----------------------------------------------------------------
 
-/** A number, negated if a `-` came before it: `-1` is a literal. */
-function parseNumber(cursor: Cursor, isNegative: boolean): ParsedExpression {
+/** A number, with the sign written before it if any: `-1` is a literal. */
+function parseNumber(cursor: Cursor, sign: Token | null): ParsedExpression {
   const token = cursor.next();
+  const isNegative = sign?.value === "-";
   if (token.kind === "real") {
     const value = Number(token.value);
     return constantNode("REAL", isNegative ? 0 - value : value);
   }
-  const value = integerValue(cursor, token, isNegative);
+  const value = integerValue(cursor, token, sign);
   return constantNode("INTEGER", isNegative ? 0 - value : value);
 }
 
@@ -95,7 +96,7 @@ function parseNumber(cursor: Cursor, isNegative: boolean): ParsedExpression {
 function integerValue(
   cursor: Cursor,
   token: Token,
-  isNegative = false,
+  sign: Token | null = null,
 ): number {
   const isHex = /^0x/i.test(token.text);
   // SQLite allows 16 hex digits after any leading zeros.
@@ -106,10 +107,11 @@ function integerValue(
     isHex ? BigInt.asIntN(64, BigInt(token.text)) : token.text,
   );
   if (!Number.isSafeInteger(value)) {
-    const written = `${isNegative ? "-" : ""}${token.text}`;
+    const written = `${sign?.value ?? ""}${token.text}`;
     cursor.failAt(
       token,
       `integer ${written} is outside the safe range ±(2^53 - 1)`,
+      sign?.start,
     );
   }
   return value;
@@ -143,6 +145,7 @@ function parseSymbol(cursor: Cursor, symbol: SymbolText): ParsedExpression {
   if (symbol === "(") return parseParenthesized(cursor);
   if (symbol === "-" || symbol === "+") return parseSigned(cursor);
   if (symbol === "~") throw new NotSupportedError("the ~ operator");
+  if (symbol === "[") throw new NotSupportedError("a name in brackets");
   if (symbol === "*") {
     cursor.failAt(
       cursor.peek(),
@@ -168,11 +171,10 @@ function unsupported(feature: string): () => never {
 
 /** `-x`, `+x`; a sign before a number is folded into the literal. */
 function parseSigned(cursor: Cursor): ParsedExpression {
-  const isNegative = cursor.next().value === "-";
+  const sign = cursor.next();
+  const isNegative = sign.value === "-";
   const kind = cursor.peek().kind;
-  if (kind === "integer" || kind === "real") {
-    return parseNumber(cursor, isNegative);
-  }
+  if (kind === "integer" || kind === "real") return parseNumber(cursor, sign);
   const operand = cursor.expression(power.unary);
   return isNegative
     ? operatorNode(ExpressionType.OPERATOR_NEGATE, [operand])
@@ -308,10 +310,14 @@ function parseCall(cursor: Cursor, name: string): FunctionExpression {
   const functionName = name.toLowerCase();
   const isStar = functionName === "count" && cursor.matchSymbol("*");
   const isDistinct = !isStar && cursor.matchKeyword("DISTINCT");
-  const children =
-    isStar || (!isDistinct && cursor.isSymbol(")"))
-      ? []
-      : cursor.list(() => cursor.expression());
+  // ALL is the default, as in SELECT ALL.
+  const isAll = !isStar && !isDistinct && cursor.matchKeyword("ALL");
+  const hasArguments =
+    !isStar && (isDistinct || isAll || !cursor.isSymbol(")"));
+  const children = hasArguments ? cursor.list(() => cursor.expression()) : [];
+  if (cursor.isKeyword("ORDER")) {
+    throw new NotSupportedError("ORDER BY in a function call");
+  }
   cursor.expectSymbol(")");
   if (cursor.isKeyword("OVER")) {
     throw new NotSupportedError("OVER (window functions)");

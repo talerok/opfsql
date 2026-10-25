@@ -38,7 +38,9 @@ export function parseTableName(cursor: Cursor, what = "a table name"): string {
 
 function parseTableOrSubquery(cursor: Cursor): TableReference {
   if (cursor.isSymbol("(")) {
-    if (cursor.isName(1)) throw new NotSupportedError("a parenthesized join");
+    if (cursor.isName(1) || cursor.isSymbol("(", 1)) {
+      throw new NotSupportedError("parentheses around a FROM item");
+    }
     if (cursor.isKeyword("VALUES", 1)) {
       throw new NotSupportedError("VALUES as a query");
     }
@@ -96,7 +98,10 @@ function parseJoinOperator(cursor: Cursor): JoinType | undefined {
   return type;
 }
 
-/** The right side of a join and its ON or USING; a CROSS join has neither. */
+/**
+ * The right side of a join and its ON or USING. As in SQLite, a CROSS
+ * join or a comma with ON or USING is an inner join.
+ */
 function parseJoin(
   cursor: Cursor,
   left: TableReference,
@@ -105,19 +110,19 @@ function parseJoin(
   const right = parseTableOrSubquery(cursor);
   let condition: ParsedExpression | null = null;
   let usingColumns: readonly string[] = [];
-  if (joinType !== JoinType.CROSS) {
-    if (cursor.matchKeyword("ON")) {
-      condition = cursor.expression();
-    } else if (cursor.matchKeyword("USING")) {
-      usingColumns = cursor.nameList("a column name");
-    }
+  if (cursor.matchKeyword("ON")) {
+    condition = cursor.expression();
+  } else if (cursor.matchKeyword("USING")) {
+    usingColumns = cursor.nameList("a column name");
   }
+  const isConstrained = condition !== null || usingColumns.length > 0;
   return {
     type: TableReferenceType.JOIN,
     left,
     right,
     condition,
-    joinType,
+    joinType:
+      isConstrained && joinType === JoinType.CROSS ? JoinType.INNER : joinType,
     usingColumns,
   };
 }

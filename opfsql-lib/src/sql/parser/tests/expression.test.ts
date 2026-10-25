@@ -15,6 +15,11 @@ describe("precedence (SQLite's)", () => {
     ["name = 'a' || 'b'", "(= name (|| 'a' 'b'))"],
     ["'a' || 'b' = name", "(= (|| 'a' 'b') name)"],
     ["a BETWEEN 1 + 1 AND 2 * 3", "(BETWEEN a (+ 1 1) (* 2 3))"],
+    // The lower bound of BETWEEN takes equality-level operators.
+    ["1 BETWEEN 0 = 0 AND 2", "(BETWEEN 1 (= 0 0) 2)"],
+    ["x BETWEEN a IS NULL AND b", "(BETWEEN x (IS NULL a) b)"],
+    ["x BETWEEN y BETWEEN 0 AND 1 AND 2", "(BETWEEN x (BETWEEN y 0 1) 2)"],
+    ["a BETWEEN 1 AND 2 = b", "(= (BETWEEN a 1 2) b)"],
     ["a NOT BETWEEN b AND c", "(NOT (BETWEEN a b c))"],
     // Equality-level operators associate to the left.
     ["a = b IS NULL", "(IS NULL (= a b))"],
@@ -99,6 +104,11 @@ describe("operators", () => {
     ["CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP"],
     ["count(*) OVER ()", "OVER (window functions)"],
     ["count(*) FILTER (WHERE a)", "FILTER"],
+    ["group_concat(v ORDER BY v)", "ORDER BY in a function call"],
+    ["a IN t", "IN with a table name"],
+    ["[a]", "a name in brackets"],
+    ['CAST(a AS "INTEGER")', "a quoted type name"],
+    ['CAST(a AS VARYING "CHAR")', "a quoted type name"],
   ])("does not support %s", (sql, feature) => {
     expect(notSupported(`SELECT ${sql}`).feature).toBe(feature);
   });
@@ -151,7 +161,8 @@ describe("literals", () => {
     ]) {
       const error = syntaxError(`SELECT ${literal}`);
       expect(error.message).toMatch(/is outside the safe range/);
-      expect(error.offset).toBe(literal.startsWith("-") ? 8 : 7);
+      // The span covers the sign, which is part of the literal.
+      expect([error.offset, error.length]).toEqual([7, literal.length]);
     }
   });
 
@@ -207,8 +218,19 @@ describe("names", () => {
 describe("calls and *", () => {
   it("reads calls", () => {
     expect(
-      items("count(*), COUNT(DISTINCT a), now(), coalesce(a, b, 1)"),
-    ).toEqual(["(count *)", "(count DISTINCT a)", "(now)", "(coalesce a b 1)"]);
+      items(
+        "count(*), COUNT(DISTINCT a), now(), coalesce(a, b, 1), count(ALL a)",
+      ),
+    ).toEqual([
+      "(count *)",
+      "(count DISTINCT a)",
+      "(now)",
+      "(coalesce a b 1)",
+      "(count a)",
+    ]);
+    expect(syntaxError("SELECT count(ALL)").message).toBe(
+      "expected an expression, got ')'",
+    );
   });
 
   it.each([

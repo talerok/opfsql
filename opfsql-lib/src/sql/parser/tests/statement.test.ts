@@ -229,6 +229,9 @@ describe("FROM", () => {
       "(INNER (CROSS a AS x b) c ON (= x.i c.i))",
     ],
     ["SELECT * FROM a CROSS JOIN b", "(CROSS a b)"],
+    // As in SQLite, a CROSS join or a comma with ON is an inner join.
+    ["SELECT * FROM a CROSS JOIN b ON a.i = b.i", "(INNER a b ON (= a.i b.i))"],
+    ["SELECT * FROM a, b USING (i)", "(INNER a b USING i)"],
     ["SELECT * FROM a JOIN b", "(INNER a b)"],
     ["SELECT * FROM a INNER JOIN b USING (i, j)", "(INNER a b USING i,j)"],
     [
@@ -263,7 +266,8 @@ describe("FROM", () => {
   it.each([
     ["SELECT * FROM main.t", "a schema name"],
     ["SELECT * FROM json_each(x)", "a table-valued function"],
-    ["SELECT * FROM (a JOIN b)", "a parenthesized join"],
+    ["SELECT * FROM (a JOIN b)", "parentheses around a FROM item"],
+    ["SELECT * FROM ((SELECT 1))", "parentheses around a FROM item"],
     ["SELECT * FROM (VALUES (1))", "VALUES as a query"],
     ["SELECT * FROM t INDEXED BY i", "INDEXED BY"],
   ])("does not support %s", (sql, feature) => {
@@ -325,6 +329,24 @@ describe("compound queries and WITH", () => {
       "recursive",
       "__proto__",
     ]);
+  });
+
+  it("does not support MATERIALIZED hints", () => {
+    for (const hint of ["MATERIALIZED", "NOT MATERIALIZED"]) {
+      expect(
+        notSupported(`WITH a AS ${hint} (SELECT 1) SELECT * FROM a`).feature,
+      ).toBe("[NOT] MATERIALIZED");
+    }
+  });
+
+  it("counts each CTE toward the nesting limit", () => {
+    const ctes = Array.from(
+      { length: 300 },
+      (_, index) => `c${String(index)} AS (SELECT 1)`,
+    );
+    expect(syntaxError(`WITH ${ctes.join(", ")} SELECT 1`).message).toMatch(
+      /nests more than/,
+    );
   });
 
   it("does not support WITH before DML", () => {
@@ -399,6 +421,13 @@ describe("INSERT, UPDATE, DELETE", () => {
     ["UPDATE t SET a = 1 FROM s", "UPDATE … FROM"],
     ["UPDATE t SET (a, b) = (1, 2)", "assigning to a list of columns"],
     ["DELETE FROM t RETURNING a", "RETURNING"],
+    ["INSERT INTO t AS x VALUES (1)", "a table alias in INSERT"],
+    ["UPDATE t AS x SET a = 1", "a table alias in UPDATE"],
+    ["DELETE FROM t AS x", "a table alias in DELETE"],
+    [
+      "INSERT INTO t VALUES (1) ON CONFLICT (a) WHERE a > 0 DO NOTHING",
+      "ON CONFLICT … WHERE",
+    ],
     ["REPLACE INTO t VALUES (1)", "the REPLACE statement"],
   ])("does not support %s", (sql, feature) => {
     expect(notSupported(sql).feature).toBe(feature);
@@ -456,6 +485,21 @@ describe("CREATE TABLE", () => {
     expect(table.columns[0]?.isNotNull).toBe(true);
   });
 
+  it("does not let DEFAULT take a NOT NULL constraint as its value", () => {
+    expect(syntaxError("CREATE TABLE t (a INT DEFAULT NOT NULL)").message).toBe(
+      "expected a default value, got 'NOT'",
+    );
+  });
+
+  it("does not read non-ASCII look-alikes as keywords", () => {
+    expect(createTable("CREATE TABLE ıs (ſelect INT)").columns[0]?.name).toBe(
+      "ſelect",
+    );
+    expect(syntaxError("ſelect 1").message).toBe(
+      "expected a statement, got 'ſelect'",
+    );
+  });
+
   it("reads a table PRIMARY KEY, once", () => {
     expect(
       createTable("CREATE TABLE t (a INT, b INT, PRIMARY KEY (a, b))")
@@ -473,10 +517,23 @@ describe("CREATE TABLE", () => {
     ["CREATE TABLE t (a INT, UNIQUE (a))", "a table UNIQUE constraint"],
     ["CREATE TABLE t (a INT CONSTRAINT pk PRIMARY KEY)", "CONSTRAINT"],
     ["CREATE TABLE t (a TEXT COLLATE nocase)", "COLLATE"],
+    [
+      "CREATE TABLE t (a INTEGER PRIMARY KEY DESC)",
+      "ASC or DESC on a PRIMARY KEY",
+    ],
+    [
+      "CREATE TABLE t (a INT NOT NULL ON CONFLICT IGNORE)",
+      "ON CONFLICT in a constraint",
+    ],
+    [
+      "CREATE TABLE t (a INT, PRIMARY KEY (a) ON CONFLICT FAIL)",
+      "ON CONFLICT in a constraint",
+    ],
     ["CREATE TABLE t (a INT DEFAULT CURRENT_TIMESTAMP)", "CURRENT_TIMESTAMP"],
     ["CREATE TABLE t (a INT GENERATED ALWAYS AS (1))", "a generated column"],
     ["CREATE TABLE t (a INT) WITHOUT ROWID", "WITHOUT ROWID"],
     ["CREATE TABLE t (a INT) STRICT", "STRICT"],
+    ['CREATE TABLE t (a "INTEGER")', "a quoted type name"],
     ["CREATE TABLE t AS SELECT 1", "CREATE TABLE … AS"],
     ["CREATE VIEW v AS SELECT 1", "CREATE VIEW"],
     ["CREATE TEMP TABLE t (a INT)", "CREATE TEMP"],
@@ -520,6 +577,21 @@ describe("other DDL", () => {
     );
   });
 
+  it("always reads COLUMN after ADD and DROP as the keyword", () => {
+    expect(only("ALTER TABLE t ADD column INT")).toMatchObject({
+      columnDefinition: { name: "INT", type: null },
+    });
+    expect(syntaxError("ALTER TABLE t ADD COLUMN").message).toBe(
+      "expected a column name, got end of input",
+    );
+    expect(syntaxError("ALTER TABLE t ADD COLUMN NOT NULL").message).toBe(
+      "expected a column name, got 'NOT'",
+    );
+    expect(syntaxError("ALTER TABLE t DROP COLUMN").message).toBe(
+      "expected a column name, got end of input",
+    );
+  });
+
   it("reads DROP", () => {
     expect(only("DROP TABLE IF EXISTS t")).toEqual({
       type: StatementType.DROP_STATEMENT,
@@ -559,6 +631,9 @@ describe("transactions and EXPLAIN", () => {
 
   it.each([
     ["BEGIN IMMEDIATE", "BEGIN IMMEDIATE"],
+    ["BEGIN TRANSACTION t1", "a transaction name"],
+    ["COMMIT TRANSACTION t1", "a transaction name"],
+    ["ROLLBACK TRANSACTION TO s", "ROLLBACK TO"],
     ["ROLLBACK TO s", "ROLLBACK TO"],
     ["SAVEPOINT s", "the SAVEPOINT statement"],
     ["PRAGMA table_info(t)", "the PRAGMA statement"],

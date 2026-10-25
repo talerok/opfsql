@@ -76,11 +76,8 @@ function parseStatement(cursor: Cursor): Statement {
   const parser =
     token.kind === "keyword" ? STATEMENTS.get(token.value) : undefined;
   if (parser !== undefined) return parser(cursor);
-  const word = token.value.toUpperCase();
-  if (
-    (token.kind === "identifier" || token.kind === "keyword") &&
-    OTHER_STATEMENTS.has(word)
-  ) {
+  const word = token.kind === "keyword" ? token.value : cursor.wordAt();
+  if (word !== undefined && OTHER_STATEMENTS.has(word)) {
     throw new NotSupportedError(`the ${word} statement`);
   }
   return cursor.fail("a statement");
@@ -98,15 +95,23 @@ function parseBegin(cursor: Cursor): TransactionStatement {
   for (const mode of ["DEFERRED", "IMMEDIATE", "EXCLUSIVE"]) {
     if (cursor.isWord(mode)) throw new NotSupportedError(`BEGIN ${mode}`);
   }
-  cursor.matchKeyword("TRANSACTION");
+  parseTransactionKeyword(cursor);
   return transaction(TransactionType.BEGIN);
 }
 
 /** `COMMIT [TRANSACTION]` or `END [TRANSACTION]`. */
 function parseEnd(cursor: Cursor, type: TransactionType): TransactionStatement {
   cursor.next();
-  cursor.matchKeyword("TRANSACTION");
+  parseTransactionKeyword(cursor);
   return transaction(type);
+}
+
+/** `[TRANSACTION]`; SQLite allows a name after it, which it ignores. */
+function parseTransactionKeyword(cursor: Cursor): void {
+  if (!cursor.matchKeyword("TRANSACTION")) return;
+  if (cursor.isName() && !cursor.isWord("TO")) {
+    throw new NotSupportedError("a transaction name");
+  }
 }
 
 /** `ROLLBACK [TRANSACTION]`; ROLLBACK TO a savepoint is not supported. */

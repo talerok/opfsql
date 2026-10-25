@@ -60,6 +60,13 @@ describe("compound queries", () => {
     ).toThrow("must use UNION or UNION ALL");
   });
 
+  it("lets the anchor of a recursive CTE see a WITH in its body", () => {
+    const plan = bind(
+      "WITH RECURSIVE r(n) AS (WITH s AS (SELECT 1) SELECT * FROM s UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+    );
+    expect(find(plan, LogicalOperatorType.LOGICAL_RECURSIVE_CTE)).toBeDefined();
+  });
+
   it("refuses a WITH name used twice", () => {
     expect(() =>
       bind("WITH a AS (SELECT 1), A AS (SELECT 2) SELECT * FROM a"),

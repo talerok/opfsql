@@ -50,7 +50,14 @@ function parseWith(cursor: Cursor): CTEMap {
     !cursor.isKeyword("AS", 1) &&
     !cursor.isSymbol("(", 1);
   if (isRecursive) cursor.next();
-  const ctes = cursor.list(() => parseCte(cursor));
+  // The binder nests one plan node per CTE, so each counts as a level.
+  let levels = 0;
+  const ctes = cursor.list(() => {
+    cursor.descend();
+    levels++;
+    return parseCte(cursor);
+  });
+  cursor.ascend(levels);
   const next = cursor.peek();
   if (next.kind === "keyword" && DML_KEYWORDS.has(next.value)) {
     throw new NotSupportedError(`WITH before ${next.value}`);
@@ -68,6 +75,9 @@ function parseCte(cursor: Cursor): CTENode {
   const name = cursor.name("a name for the WITH query");
   const aliases = cursor.isSymbol("(") ? cursor.nameList("a column name") : [];
   cursor.expectKeyword("AS");
+  if (cursor.isWord("MATERIALIZED") || cursor.isKeyword("NOT")) {
+    throw new NotSupportedError("[NOT] MATERIALIZED");
+  }
   return { name, query: parseSubquery(cursor), aliases };
 }
 

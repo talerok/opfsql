@@ -20,6 +20,7 @@ export function parseInsert(cursor: Cursor): InsertStatement {
   if (cursor.isKeyword("OR")) throw new NotSupportedError("INSERT OR …");
   cursor.expectKeyword("INTO");
   const table = parseTableName(cursor);
+  rejectAlias(cursor, "INSERT");
   const columns = cursor.isSymbol("(") ? cursor.nameList("a column name") : [];
   const { values, selectStatement } = parseInsertSource(cursor);
   const onConflict = cursor.isKeyword("ON") ? parseOnConflict(cursor) : null;
@@ -60,6 +61,9 @@ function parseOnConflict(cursor: Cursor): OnConflictClause {
   const conflictTarget = cursor.isSymbol("(")
     ? cursor.nameList("a column name")
     : null;
+  if (cursor.isKeyword("WHERE")) {
+    throw new NotSupportedError("ON CONFLICT … WHERE");
+  }
   cursor.expectKeyword("DO");
   if (cursor.matchKeyword("NOTHING"))
     return { conflictTarget, action: "NOTHING" };
@@ -77,6 +81,7 @@ export function parseUpdate(cursor: Cursor): UpdateStatement {
   cursor.next();
   if (cursor.isKeyword("OR")) throw new NotSupportedError("UPDATE OR …");
   const table = parseTableName(cursor);
+  rejectAlias(cursor, "UPDATE");
   cursor.expectKeyword("SET");
   const assignments = parseAssignments(cursor);
   if (cursor.isKeyword("FROM")) throw new NotSupportedError("UPDATE … FROM");
@@ -94,6 +99,7 @@ export function parseDelete(cursor: Cursor): DeleteStatement {
   cursor.next();
   cursor.expectKeyword("FROM");
   const table = parseTableName(cursor);
+  rejectAlias(cursor, "DELETE");
   const whereClause = cursor.matchKeyword("WHERE") ? cursor.expression() : null;
   rejectReturning(cursor);
   return { type: StatementType.DELETE_STATEMENT, table, whereClause };
@@ -109,6 +115,15 @@ function parseAssignments(cursor: Cursor): readonly UpdateSetClause[] {
     cursor.expectSymbol("=");
     return { column, value: cursor.expression() };
   });
+}
+
+function rejectAlias(
+  cursor: Cursor,
+  statement: "INSERT" | "UPDATE" | "DELETE",
+): void {
+  if (cursor.isKeyword("AS")) {
+    throw new NotSupportedError(`a table alias in ${statement}`);
+  }
 }
 
 function rejectReturning(cursor: Cursor): void {

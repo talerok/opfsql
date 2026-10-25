@@ -303,3 +303,36 @@ query I nosort
 WITH recursive AS (SELECT 5 AS x) SELECT x FROM recursive
 ----
 5
+
+query I nosort
+WITH RECURSIVE r(n) AS (WITH s AS (SELECT 1) SELECT * FROM s UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r
+----
+1
+2
+3
+
+# ============================================================================
+# A CROSS join or a comma with ON is an inner join, as in SQLite
+# ============================================================================
+
+query TT rowsort
+SELECT name, pet FROM people CROSS JOIN pets ON people.id = pets.owner
+----
+Alice|cat
+Charlie|dog
+
+query TT rowsort
+SELECT name, pet FROM people, pets ON people.id = pets.owner
+----
+Alice|cat
+Charlie|dog
+
+# ============================================================================
+# ALTER TABLE … ADD COLUMN needs a name after COLUMN
+# ============================================================================
+
+statement error
+ALTER TABLE people ADD COLUMN NOT NULL DEFAULT 0
+
+statement error
+CREATE TABLE bad_default (a INTEGER DEFAULT NOT NULL)

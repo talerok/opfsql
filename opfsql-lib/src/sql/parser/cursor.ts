@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import { InternalError, SqlSyntaxError } from "../../errors.js";
-import { isReserved, type Keyword } from "./keywords.js";
+import { isReserved, upperAscii, type Keyword } from "./keywords.js";
 import { power } from "./precedence.js";
 import { describe, type SymbolText, type Token } from "./tokens.js";
 import type { ParsedExpression, SelectStatement } from "./types.js";
@@ -158,10 +158,15 @@ export class Cursor {
     return names;
   }
 
-  /** True if the token is an identifier spelling `word`, in any case. */
-  isWord(word: string, offset = 0): boolean {
+  /** An identifier token's word in upper case, if it is ASCII. */
+  wordAt(offset = 0): string | undefined {
     const token = this.peek(offset);
-    return token.kind === "identifier" && token.value.toUpperCase() === word;
+    return token.kind === "identifier" ? upperAscii(token.value) : undefined;
+  }
+
+  /** True if the token is an identifier spelling `word` (in upper case). */
+  isWord(word: string, offset = 0): boolean {
+    return this.wordAt(offset) === word;
   }
 
   /** A bare alias: an identifier or a quoted name, never a keyword. */
@@ -180,8 +185,9 @@ export class Cursor {
     this.failAt(token, `expected ${expected}, got ${describe(token)}`);
   }
 
-  failAt(token: Token, message: string): never {
-    throw new SqlSyntaxError(message, token.start, token.end - token.start);
+  /** Fails at a token, or from `start` (a sign before it, say) to its end. */
+  failAt(token: Token, message: string, start = token.start): never {
+    throw new SqlSyntaxError(message, start, token.end - start);
   }
 
   // --- Nesting ---------------------------------------------------------------

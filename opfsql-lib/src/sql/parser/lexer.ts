@@ -1,7 +1,8 @@
 // ---------------------------------------------------------------------------
 // The lexer: SQL text to tokens, as SQLite's tokenizer reads it. Every token
 // keeps its offsets and its text as written. A number that runs into a
-// letter (`1e3x`, `0x1g`, `1_000`) is an error, never two tokens.
+// letter (`1e3x`, `0x1g`, `1_000`) is an error, never two tokens. As in
+// SQLite, a block comment left open runs to the end of the text.
 // ---------------------------------------------------------------------------
 
 import { NotSupportedError, SqlSyntaxError } from "../../errors.js";
@@ -25,16 +26,17 @@ class Pattern {
 
 const SPACE = new Pattern(/[\t\n\f\r ]+/y);
 const LINE_COMMENT = new Pattern(/--[^\n]*/y);
-const BLOCK_COMMENT = new Pattern(/\/\*[\s\S]*?\*\//y);
+const BLOCK_COMMENT = new Pattern(/\/\*[\s\S]*?(?:\*\/|$)/y);
 const HEX_NUMBER = new Pattern(/0x[\da-f]+/iy);
 const DECIMAL_NUMBER = new Pattern(/(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?/iy);
 const WORD = new Pattern(/[a-z_\u{80}-\u{10FFFF}][\w$\u{80}-\u{10FFFF}]*/iuy);
 const WORD_CHARACTERS = new Pattern(/[\w$\u{80}-\u{10FFFF}]*/uy);
 const STRING = new Pattern(/'(?:[^']|'')*'/y);
 const QUOTED = new Pattern(/"(?:[^"]|"")*"/y);
+const BACKQUOTED = new Pattern(/`(?:[^`]|``)*`/y);
 const BLOB = new Pattern(/x'([^']*)'/iy);
 const PARAMETER = new Pattern(/\$\d+|\?\d*/y);
-const NAMED_PARAMETER = new Pattern(/[$:@][a-z_]/iy);
+const NAMED_PARAMETER = new Pattern(/[$:@][\w$\u{80}-\u{10FFFF}]/uy);
 const HEX_DIGITS = /^(?:[\da-f]{2})*$/i;
 
 // Longest first, so that `<=` is not read as `<` and `=`.
@@ -88,19 +90,12 @@ class Lexer {
   private skipSpace(): void {
     for (;;) {
       const skipped =
-        this.match(SPACE) ?? this.match(LINE_COMMENT) ?? this.blockComment();
+        this.match(SPACE) ??
+        this.match(LINE_COMMENT) ??
+        this.match(BLOCK_COMMENT);
       if (skipped === undefined) return;
       this.position += skipped.length;
     }
-  }
-
-  private blockComment(): string | undefined {
-    if (!this.sql.startsWith("/*", this.position)) return undefined;
-    const comment = this.match(BLOCK_COMMENT);
-    if (comment === undefined) {
-      this.fail("unterminated comment", this.sql.length);
-    }
-    return comment;
   }
 
   private number(): Token {
@@ -123,20 +118,22 @@ class Lexer {
     return this.token({ kind: "string", value }, this.position + text.length);
   }
 
-  private quoted(): Token {
-    const text = this.match(QUOTED);
+  /** `"name"`, or `` `name` `` as SQLite also allows; doubling escapes. */
+  private quoted(pattern: Pattern, quote: string): Token {
+    const text = this.match(pattern);
     if (text === undefined) {
       this.fail("unterminated quoted name", this.sql.length);
     }
     const end = this.position + text.length;
-    if (text === '""') this.fail("a quoted name cannot be empty", end);
-    const value = text.slice(1, -1).replaceAll('""', '"');
+    if (text.length === 2) this.fail("a quoted name cannot be empty", end);
+    const value = text.slice(1, -1).replaceAll(quote + quote, () => quote);
     return this.token({ kind: "quoted", value }, end);
   }
 
   private blob(): Token | undefined {
+    if (!/^x'/i.test(this.ahead(2))) return undefined;
     const found = BLOB.execAt(this.sql, this.position);
-    if (found === null) return undefined;
+    if (found === null) this.fail("unterminated blob literal", this.sql.length);
     const digits = found[1] ?? "";
     const end = this.position + found[0].length;
     if (!HEX_DIGITS.test(digits)) {
@@ -157,14 +154,16 @@ class Lexer {
 
   private parameter(): Token {
     const text = this.match(PARAMETER);
-    if (text !== undefined) {
-      const end = this.position + text.length;
-      return this.token({ kind: "parameter", value: text.slice(1) }, end);
-    }
-    if (this.match(NAMED_PARAMETER) !== undefined) {
-      throw new NotSupportedError("a named parameter");
-    }
-    return this.symbol();
+    const end = this.position + (text?.length ?? 0);
+    // SQLite reads `$1abc`, `$x`, `:1` and `@x` as named parameters.
+    const isNamed =
+      text === undefined
+        ? this.match(NAMED_PARAMETER) !== undefined
+        : text.startsWith("$") && WORD_CHARACTERS.at(this.sql, end) !== "";
+    if (isNamed) throw new NotSupportedError("a named parameter");
+    return text === undefined
+      ? this.symbol()
+      : this.token({ kind: "parameter", value: text.slice(1) }, end);
   }
 
   private symbol(): Token {
@@ -217,7 +216,10 @@ class Lexer {
         return this.string();
       }
       case '"': {
-        return this.quoted();
+        return this.quoted(QUOTED, '"');
+      }
+      case "`": {
+        return this.quoted(BACKQUOTED, "`");
       }
       case "$":
       case "?":

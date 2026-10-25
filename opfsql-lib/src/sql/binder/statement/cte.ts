@@ -84,21 +84,21 @@ function bindRecursiveCTE(
   scope: BindScope,
 ): LogicalOperator {
   const body = cteNode.query.node;
-  if (body.type !== "SET_OPERATION_NODE") {
-    throw new BindError(`Recursive CTE "${name}" must use UNION or UNION ALL`);
-  }
-  const setOp = body as SetOperationNode;
   if (
-    setOp.setOperationType !== SetOperationType.UNION &&
-    setOp.setOperationType !== SetOperationType.UNION_ALL
+    body.type !== "SET_OPERATION_NODE" ||
+    (body.setOperationType !== SetOperationType.UNION &&
+      body.setOperationType !== SetOperationType.UNION_ALL)
   ) {
     throw new BindError(`Recursive CTE "${name}" must use UNION or UNION ALL`);
   }
+  const setOp = body as SetOperationNode;
   const isUnionAll = setOp.setOperationType === SetOperationType.UNION_ALL;
 
-  // 1. Bind anchor (left side) — no self-reference visible
+  // 1. Bind anchor (left side) — no self-reference visible; it sees a WITH
+  // in the body, which belongs to the body's outermost node.
   const anchorScope = scope.createChildScope();
-  const anchorPlan = bindQueryNode(ctx, setOp.left, anchorScope);
+  const anchor = { ...setOp.left, cteMap: setOp.cteMap };
+  const anchorPlan = bindQueryNode(ctx, anchor, anchorScope);
 
   // 2. Register CTE in scope with anchor types so recursive term can reference it
   scope.addCTE(name, anchorPlan, cteIndex, cteNode.aliases);
