@@ -119,13 +119,21 @@ export class Engine implements EngineContract, AsyncDisposable {
     };
   }
 
+  /**
+   * Closes the files whatever closing the sessions ran into, then reports
+   * the first failure: a failed rollback must not keep them open.
+   */
   private async shutdown(): Promise<void> {
     this.state = "closing";
-    await Promise.all([...this.sessions].map(async (core) => core.close()));
+    const closed = await Promise.allSettled(
+      [...this.sessions].map(async (core) => core.close()),
+    );
     this.lifetime.abort(new AbortError("the database was closed"));
     await this.tasks.idle();
     this.storage.close();
     this.state = "closed";
+    const failure = closed.find((outcome) => outcome.status === "rejected");
+    if (failure !== undefined) throw toOpfsqlError(failure.reason);
   }
 
   private assertOpen(): void {

@@ -85,10 +85,12 @@ export class SessionStore implements SyncIPageStore {
     return this.readSnapshot !== null;
   }
 
+  /** The session lets go of its snapshot even if publishing that fails. */
   endSnapshot(): void {
-    if (this.readSnapshot === null) return;
-    this.storage.releaseSnapshot(this.readSnapshot);
+    const snapshot = this.readSnapshot;
+    if (snapshot === null) return;
     this.readSnapshot = null;
+    this.storage.releaseSnapshot(snapshot);
   }
 
   /** True when something has committed since this session's snapshot. */

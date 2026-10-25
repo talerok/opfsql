@@ -57,8 +57,11 @@ export class Transaction {
       const schema = context.host.schemas.load(context.store, position);
       return new Transaction(context, schema, lease);
     } catch (error) {
-      context.store.endSnapshot();
-      lease?.release();
+      try {
+        context.store.endSnapshot();
+      } finally {
+        lease?.release();
+      }
       throw error;
     }
   }
@@ -84,16 +87,19 @@ export class Transaction {
     }
   }
 
-  /** Maintenance runs after the snapshot is gone and before the lock is. */
+  /**
+   * Maintenance runs after the snapshot is gone and before the lock is; the
+   * lock goes whatever fails before it, or every writer in every tab would
+   * wait for it until this tab died.
+   */
   private release(): void {
-    this.context.store.endSnapshot();
     const lease = this.lease;
-    if (lease === null) return;
     this.lease = null;
     try {
-      this.context.host.maintain();
+      this.context.store.endSnapshot();
+      if (lease !== null) this.context.host.maintain();
     } finally {
-      lease.release();
+      lease?.release();
     }
   }
 

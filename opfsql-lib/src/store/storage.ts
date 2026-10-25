@@ -40,7 +40,7 @@ export class Storage {
   private readonly onCheckpointError: (err: unknown) => void;
 
   /** Open snapshots: commit position → number of sessions reading at it. */
-  private readonly pins = new Map<number, number>();
+  private pins: ReadonlyMap<number, number> = new Map();
 
   constructor(
     private readonly backend: SyncIPageStorage,
@@ -92,29 +92,37 @@ export class Storage {
    */
   tryPinSnapshot(): number | null {
     const snapshot = this.latestCommit();
-    this.addPin(snapshot, 1);
-    if (this.backend.isSnapshotSafe?.(snapshot) ?? true) return snapshot;
-    this.addPin(snapshot, -1);
+    this.pin(snapshot);
+    let isSafe: boolean;
+    try {
+      isSafe = this.backend.isSnapshotSafe?.(snapshot) ?? true;
+    } catch (error) {
+      this.releaseSnapshot(snapshot);
+      throw error;
+    }
+    if (isSafe) return snapshot;
+    this.releaseSnapshot(snapshot);
     return null;
   }
 
-  releaseSnapshot(snapshot: number): void {
-    this.addPin(snapshot, -1);
+  /**
+   * Counts the pin only once the backend has published it, so a failed
+   * publish leaves no pin behind to hold checkpoints back.
+   */
+  private pin(snapshot: number): void {
+    const pins = withCount(this.pins, snapshot, 1);
+    this.backend.setOldestSnapshot?.(oldestOf(pins));
+    this.pins = pins;
   }
 
-  private addPin(snapshot: number, delta: 1 | -1): void {
-    const count = (this.pins.get(snapshot) ?? 0) + delta;
-    if (count > 0) this.pins.set(snapshot, count);
-    else this.pins.delete(snapshot);
-    this.backend.setOldestSnapshot?.(this.oldestPin());
+  /** Forgets the pin before publishing, so a failed publish cannot keep it. */
+  releaseSnapshot(snapshot: number): void {
+    this.pins = withCount(this.pins, snapshot, -1);
+    this.backend.setOldestSnapshot?.(oldestOf(this.pins));
   }
 
   private oldestPin(): number | null {
-    let oldest: number | null = null;
-    for (const snapshot of this.pins.keys()) {
-      if (oldest === null || snapshot < oldest) oldest = snapshot;
-    }
-    return oldest;
+    return oldestOf(this.pins);
   }
 
   /** Oldest pinned snapshot, or the latest commit when nothing is pinned. */
@@ -268,4 +276,25 @@ export class Storage {
     this.nextPageId = this.backend.getNextPageId();
     this.freeList = this.backend.readPage<number[]>(FREELIST_PAGE_NO) ?? [];
   }
+}
+
+/** `pins` with the count of `snapshot` moved by `delta`. */
+function withCount(
+  pins: ReadonlyMap<number, number>,
+  snapshot: number,
+  delta: 1 | -1,
+): ReadonlyMap<number, number> {
+  const next = new Map(pins);
+  const count = (next.get(snapshot) ?? 0) + delta;
+  if (count > 0) next.set(snapshot, count);
+  else next.delete(snapshot);
+  return next;
+}
+
+function oldestOf(pins: ReadonlyMap<number, number>): number | null {
+  let oldest: number | null = null;
+  for (const snapshot of pins.keys()) {
+    if (oldest === null || snapshot < oldest) oldest = snapshot;
+  }
+  return oldest;
 }
