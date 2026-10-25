@@ -1,5 +1,6 @@
 import { CorruptError } from "../errors.js";
-import { nameKey } from "../schema/index.js";
+import type { TableShape } from "../schema/index.js";
+import { createTableSql, nameKey } from "../schema/index.js";
 import type { PageWriter, SchemaPages, StoredRow } from "../storage/index.js";
 import { SchemaTableWriter, TableWriter } from "../storage/index.js";
 
@@ -10,7 +11,16 @@ import { SchemaTableWriter, TableWriter } from "../storage/index.js";
 // ---------------------------------------------------------------------------
 
 export const SEQUENCE_TABLE_NAME = "opfsql_sequence";
-const SEQUENCE_TABLE_SQL = `CREATE TABLE ${SEQUENCE_TABLE_NAME} (name TEXT, seq INTEGER)`;
+
+const SEQUENCE_TABLE: TableShape = {
+  name: SEQUENCE_TABLE_NAME,
+  columns: [
+    { name: "name", type: "TEXT", isNotNull: false, defaultValue: null },
+    { name: "seq", type: "INTEGER", isNotNull: false, defaultValue: null },
+  ],
+  rowidColumn: null,
+  isAutoincrement: false,
+};
 
 const NAME = 0;
 const SEQ = 1;
@@ -36,7 +46,7 @@ export class Sequences {
       name: SEQUENCE_TABLE_NAME,
       tableName: SEQUENCE_TABLE_NAME,
       rootPage: root,
-      sql: SEQUENCE_TABLE_SQL,
+      sql: createTableSql(SEQUENCE_TABLE, []),
     });
     return root;
   }
