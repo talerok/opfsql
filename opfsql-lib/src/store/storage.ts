@@ -1,3 +1,4 @@
+import { encodePage, type EncodedPage } from "./page-codec.js";
 import { SessionStore } from "./session-store.js";
 import type { CatalogData, SyncIPageStorage } from "./types.js";
 
@@ -13,6 +14,21 @@ export interface CatchUpResult {
   data: boolean;
 }
 
+export interface StorageOptions {
+  /**
+   * Called when the checkpoint that follows a commit fails. The commit itself
+   * has already succeeded; the checkpoint is retried after the next commit.
+   */
+  onCheckpointError?: (err: unknown) => void;
+}
+
+function warnCheckpointError(err: unknown): void {
+  console.warn(
+    "[opfsql] checkpoint failed; it will be retried after the next commit",
+    err,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Storage — single entry point for all page I/O and allocation
 // ---------------------------------------------------------------------------
@@ -20,8 +36,14 @@ export interface CatchUpResult {
 export class Storage {
   private nextPageId!: number;
   private freeList!: number[];
+  private readonly onCheckpointError: (err: unknown) => void;
 
-  constructor(private readonly backend: SyncIPageStorage) {}
+  constructor(
+    private readonly backend: SyncIPageStorage,
+    options: StorageOptions = {},
+  ) {
+    this.onCheckpointError = options.onCheckpointError ?? warnCheckpointError;
+  }
 
   async open(): Promise<void> {
     await this.backend.open();
@@ -73,23 +95,29 @@ export class Storage {
   // Commit — write dirty pages + allocator state to backend
   // -------------------------------------------------------------------------
 
-  commitPages(dirtyPages: Map<number, unknown>, allocatorDirty: boolean): void {
+  /**
+   * Encodes every dirty page once and hands the batch to the backend in one
+   * call. backend.commit() returning is the commit point: anything that throws
+   * before it leaves storage untouched, nothing after it may fail the commit.
+   */
+  commitPages(
+    dirtyPages: ReadonlyMap<number, unknown>,
+    allocatorDirty: boolean,
+  ): void {
     if (dirtyPages.size === 0 && !allocatorDirty) {
       return;
     }
 
+    const pages = new Map<number, EncodedPage>();
     for (const [pageNo, value] of dirtyPages) {
-      if (value !== null) {
-        this.backend.writePage(pageNo, value);
-      }
+      pages.set(pageNo, encodePage(value));
     }
-
     if (allocatorDirty) {
-      this.backend.writePage(FREELIST_PAGE_NO, this.freeList);
-      this.backend.writeHeader(this.nextPageId);
+      pages.set(FREELIST_PAGE_NO, encodePage(this.freeList));
     }
 
-    this.backend.flush();
+    this.backend.commit(pages, this.nextPageId);
+    this.checkpointIfNeeded();
   }
 
   // -------------------------------------------------------------------------
@@ -137,6 +165,24 @@ export class Storage {
   // -------------------------------------------------------------------------
   // Internal
   // -------------------------------------------------------------------------
+
+  /** Runs after the commit point, so nothing in here may throw. */
+  private checkpointIfNeeded(): void {
+    if (!this.backend.needsCheckpoint?.()) return;
+    try {
+      this.backend.checkpoint?.();
+    } catch (err) {
+      this.reportCheckpointError(err);
+    }
+  }
+
+  private reportCheckpointError(err: unknown): void {
+    try {
+      this.onCheckpointError(err);
+    } catch (callbackErr) {
+      console.error("[opfsql] onCheckpointError threw", callbackErr);
+    }
+  }
 
   private refreshFromStorage(): void {
     this.nextPageId = this.backend.getNextPageId();

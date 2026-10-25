@@ -1,4 +1,4 @@
-import { Encoder, decode } from "cbor-x";
+import { assertPagesFit, decodePage, type EncodedPage } from "../page-codec.js";
 import type { SyncIPageStorage } from "../types.js";
 
 interface FileSystemSyncAccessHandle {
@@ -17,8 +17,6 @@ declare global {
     }): Promise<FileSystemSyncAccessHandle>;
   }
 }
-
-const encoder = new Encoder({ structuredClone: false, useRecords: true });
 
 // ---------------------------------------------------------------------------
 // File format (OPFSQL03)
@@ -46,14 +44,43 @@ const encoder = new Encoder({ structuredClone: false, useRecords: true });
 
 const MAGIC = new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x33]); // "OPFSQL03"
 const HEADER_SIZE = 16;
+const PAGE_LENGTH_PREFIX = 4;
 const DEFAULT_PAGE_SIZE = 32768; // 32 KB
+const MIN_PAGE_SIZE = 4096;
+const MAX_PAGE_SIZE = 1048576;
+
+export interface OPFSStorageOptions {
+  /** Page size for newly created files. Existing files keep the size in their header. */
+  pageSize?: number;
+}
+
+function isValidPageSize(size: number): boolean {
+  return (
+    size >= MIN_PAGE_SIZE && size <= MAX_PAGE_SIZE && (size & (size - 1)) === 0
+  );
+}
 
 export class OPFSSyncStorage implements SyncIPageStorage {
   private handle!: FileSystemSyncAccessHandle;
-  private pageSize = DEFAULT_PAGE_SIZE;
+  private pageSize: number;
   private nextPageId = 3; // pages 0-2 reserved
 
-  constructor(private readonly dbName: string) {}
+  constructor(
+    private readonly dbName: string,
+    options: OPFSStorageOptions = {},
+  ) {
+    this.pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+    if (!isValidPageSize(this.pageSize)) {
+      throw new Error(
+        `Invalid pageSize ${this.pageSize}: must be a power of two between ` +
+          `${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE}`,
+      );
+    }
+  }
+
+  get pageCapacity(): number {
+    return this.pageSize - PAGE_LENGTH_PREFIX;
+  }
 
   async open(): Promise<void> {
     if (this.handle) return; // already opened
@@ -81,22 +108,8 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     const length = new DataView(lenBuf.buffer).getUint32(0, false);
     if (length === 0) return null;
     const data = new Uint8Array(length);
-    this.handle.read(data, { at: offset + 4 });
-    return decode(data) as T;
-  }
-
-  writePage(pageNo: number, value: unknown): void {
-    const data = encoder.encode(value);
-    if (data.length + 4 > this.pageSize) {
-      throw new Error(
-        `OPFSSyncStorage: value for page ${pageNo} is ${data.length} bytes, ` +
-          `exceeds page capacity ${this.pageSize - 4}. Increase PAGE_SIZE.`,
-      );
-    }
-    const buf = new Uint8Array(4 + data.length);
-    new DataView(buf.buffer).setUint32(0, data.length, false);
-    buf.set(data, 4);
-    this.handle.write(buf, { at: pageNo * this.pageSize });
+    this.handle.read(data, { at: offset + PAGE_LENGTH_PREFIX });
+    return decodePage<T>(data);
   }
 
   getNextPageId(): number {
@@ -106,7 +119,33 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     return this.nextPageId;
   }
 
-  writeHeader(nextPageId: number): void {
+  /**
+   * Writes pages in place, then the header. Every page is size-checked before
+   * anything is written, but the writes themselves are not atomic — crash
+   * safety comes from WalStorage, which is the only caller in production.
+   */
+  commit(pages: ReadonlyMap<number, EncodedPage>, nextPageId: number): void {
+    assertPagesFit(pages, this.pageCapacity);
+    for (const [pageNo, page] of pages) this.writePage(pageNo, page.bytes);
+    this.writeHeader(nextPageId);
+    this.handle.flush();
+  }
+
+  /** Shrink file to match nextPageId. Safe only after commit(). */
+  truncateToSize(): void {
+    this.handle.truncate(this.nextPageId * this.pageSize);
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private writePage(pageNo: number, bytes: Uint8Array): void {
+    const buf = new Uint8Array(PAGE_LENGTH_PREFIX + bytes.length);
+    new DataView(buf.buffer).setUint32(0, bytes.length, false);
+    buf.set(bytes, PAGE_LENGTH_PREFIX);
+    this.handle.write(buf, { at: pageNo * this.pageSize });
+  }
+
+  private writeHeader(nextPageId: number): void {
     this.nextPageId = nextPageId;
     const buf = new Uint8Array(HEADER_SIZE);
     const v = new DataView(buf.buffer);
@@ -115,17 +154,6 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     v.setUint32(12, this.nextPageId, false);
     this.handle.write(buf, { at: 0 });
   }
-
-  /** Shrink file to match nextPageId. Safe only after flush(). */
-  truncateToSize(): void {
-    this.handle.truncate(this.nextPageId * this.pageSize);
-  }
-
-  flush(): void {
-    this.handle.flush();
-  }
-
-  // ---------------------------------------------------------------------------
 
   private initNewFile(): void {
     this.nextPageId = 3;
@@ -148,11 +176,7 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     }
     const v = new DataView(buf.buffer);
     const pageSize = v.getUint32(8, false);
-    if (
-      pageSize < 4096 ||
-      pageSize > 1048576 ||
-      (pageSize & (pageSize - 1)) !== 0
-    ) {
+    if (!isValidPageSize(pageSize)) {
       throw new Error(`Invalid OPFSQL file: bad pageSize ${pageSize}`);
     }
     this.pageSize = pageSize;

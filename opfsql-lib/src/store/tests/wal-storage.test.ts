@@ -1,8 +1,11 @@
 import { resetMockOPFS } from 'opfs-mock';
-import { beforeEach, describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { WalStorage } from '../wal/wal-storage.js';
 import { OPFSSyncStorage } from '../backend/opfs-storage.js';
 import { MemoryFileHandle } from '../wal/file-handle.js';
+import { PageOverflowError, WalUnknownStateError } from '../errors.js';
+import type { EncodedPage } from '../page-codec.js';
+import { commitBatch } from './helpers.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -11,6 +14,58 @@ import { MemoryFileHandle } from '../wal/file-handle.js';
 let seq = 0;
 
 beforeEach(() => { resetMockOPFS(); });
+
+/** Commit record = frame header (16) + nextPageId payload (4). */
+const COMMIT_RECORD_SIZE = 20;
+
+type FileOp = 'write' | 'flush' | 'truncate';
+
+/** MemoryFileHandle that fails chosen operations. A failed write is torn: half of it lands. */
+class FaultyFileHandle extends MemoryFileHandle {
+  private readonly failures = new Map<FileOp, number>();
+
+  fail(op: FileOp, times = 1): void {
+    this.failures.set(op, times);
+  }
+
+  override write(buffer: Uint8Array, options?: { at?: number }): number {
+    if (this.consume('write')) {
+      super.write(buffer.subarray(0, buffer.length >> 1), options);
+      throw new Error('injected write failure');
+    }
+    return super.write(buffer, options);
+  }
+
+  override flush(): void {
+    if (this.consume('flush')) throw new Error('injected flush failure');
+    super.flush();
+  }
+
+  override truncate(size: number): void {
+    if (this.consume('truncate')) throw new Error('injected truncate failure');
+    super.truncate(size);
+  }
+
+  private consume(op: FileOp): boolean {
+    const left = this.failures.get(op) ?? 0;
+    if (left === 0) return false;
+    this.failures.set(op, left - 1);
+    return true;
+  }
+}
+
+/** Main file whose commit (i.e. checkpoint target) can be made to fail. */
+class FlakyMain extends OPFSSyncStorage {
+  failCommits = 0;
+
+  override commit(pages: ReadonlyMap<number, EncodedPage>, nextPageId: number): void {
+    if (this.failCommits > 0) {
+      this.failCommits--;
+      throw new Error('injected checkpoint failure');
+    }
+    super.commit(pages, nextPageId);
+  }
+}
 
 async function createMain(): Promise<OPFSSyncStorage> {
   const s = new OPFSSyncStorage(`wal-main-${seq++}`);
@@ -36,29 +91,21 @@ async function opened(
 
 describe('WalStorage', () => {
   describe('basic commit', () => {
-    it('write → flush → read returns committed value', async () => {
+    it('commit → read returns committed value', async () => {
       const { wal } = await opened();
-      wal.writePage(5, { hello: 'world' });
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 5: { hello: 'world' } }, 4);
       expect(wal.readPage(5)).toEqual({ hello: 'world' });
     });
 
-    it('flush updates getNextPageId', async () => {
+    it('commit updates getNextPageId', async () => {
       const { wal } = await opened();
-      wal.writePage(3, { a: 1 });
-      wal.writeHeader(10);
-      wal.flush();
+      commitBatch(wal, { 3: { a: 1 } }, 10);
       expect(wal.getNextPageId()).toBe(10);
     });
 
     it('multiple pages in one commit', async () => {
       const { wal } = await opened();
-      wal.writePage(3, 'page3');
-      wal.writePage(4, 'page4');
-      wal.writePage(5, 'page5');
-      wal.writeHeader(6);
-      wal.flush();
+      commitBatch(wal, { 3: 'page3', 4: 'page4', 5: 'page5' }, 6);
       expect(wal.readPage(3)).toBe('page3');
       expect(wal.readPage(4)).toBe('page4');
       expect(wal.readPage(5)).toBe('page5');
@@ -68,53 +115,96 @@ describe('WalStorage', () => {
   describe('read merging', () => {
     it('WAL overrides main DB', async () => {
       const main = await createMain();
-      main.writePage(3, 'original');
-      main.flush();
+      commitBatch(main, { 3: 'original' });
       const { wal } = await opened(main);
 
       expect(wal.readPage(3)).toBe('original');
 
-      wal.writePage(3, 'updated');
-      wal.writeHeader(main.getNextPageId());
-      wal.flush();
+      commitBatch(wal, { 3: 'updated' }, main.getNextPageId());
 
       expect(wal.readPage(3)).toBe('updated');
     });
 
     it('non-WAL pages fall through to main', async () => {
       const main = await createMain();
-      main.writePage(3, 'from-main');
-      main.flush();
+      commitBatch(main, { 3: 'from-main' });
       const { wal } = await opened(main);
 
-      wal.writePage(4, 'from-wal');
-      wal.writeHeader(5);
-      wal.flush();
+      commitBatch(wal, { 4: 'from-wal' }, 5);
 
       expect(wal.readPage(3)).toBe('from-main');
       expect(wal.readPage(4)).toBe('from-wal');
     });
   });
 
-  describe('uncommitted writes', () => {
-    it('pending writes are not visible via readPage before flush', async () => {
-      const { wal } = await opened();
-      wal.writePage(5, { pending: true });
-      // Not flushed — readPage should NOT see it (walIndex not updated)
-      expect(wal.readPage(5)).toBeNull();
-    });
-
-    it('uncommitted writes lost after reopen', async () => {
+  describe('failed commit', () => {
+    it('a torn write leaves nothing visible and nothing to recover', async () => {
       const main = await createMain();
-      const walHandle = new MemoryFileHandle();
+      const walHandle = new FaultyFileHandle();
       const { wal } = await opened(main, walHandle);
+      commitBatch(wal, { 3: 'tx1' }, 4);
+      const sizeAfterTx1 = walHandle.getSize();
 
-      wal.writePage(5, 'uncommitted');
-      // No flush — "crash"
-      // Reopen with same handles
+      walHandle.fail('write');
+      expect(() => commitBatch(wal, { 5: 'tx2' }, 6)).toThrow(/injected write/);
+      expect(wal.readPage(5)).toBeNull();
+      expect(wal.getNextPageId()).toBe(4);
+      expect(walHandle.getSize()).toBe(sizeAfterTx1);
+
+      commitBatch(wal, { 4: 'tx3' }, 5);
       const wal2 = new WalStorage(main, walHandle);
       await wal2.open();
+      expect(wal2.readPage(3)).toBe('tx1');
+      expect(wal2.readPage(4)).toBe('tx3');
       expect(wal2.readPage(5)).toBeNull();
+    });
+
+    it('a failed flush rolls the append back', async () => {
+      const main = await createMain();
+      const walHandle = new FaultyFileHandle();
+      const { wal } = await opened(main, walHandle);
+      commitBatch(wal, { 3: 'tx1' }, 4);
+
+      walHandle.fail('flush');
+      expect(() => commitBatch(wal, { 5: 'tx2' }, 6)).toThrow(/injected flush/);
+      expect(wal.readPage(5)).toBeNull();
+
+      const wal2 = new WalStorage(main, walHandle);
+      await wal2.open();
+      expect(wal2.readPage(3)).toBe('tx1');
+      expect(wal2.readPage(5)).toBeNull();
+    });
+
+    it('refuses further commits when a failed append cannot be undone', async () => {
+      const main = await createMain();
+      const walHandle = new FaultyFileHandle();
+      const { wal } = await opened(main, walHandle);
+      commitBatch(wal, { 3: 'tx1' }, 4);
+
+      walHandle.fail('flush');
+      walHandle.fail('truncate');
+      expect(() => commitBatch(wal, { 5: 'tx2' }, 6)).toThrow(/injected flush/);
+      expect(() => commitBatch(wal, { 4: 'tx3' }, 5)).toThrow(WalUnknownStateError);
+
+      // Disk is the truth: the write itself completed, so recovery finds tx2's
+      // commit record. The caller saw an error for a durable transaction — which
+      // is exactly why the WAL stops accepting commits instead of guessing.
+      const wal2 = new WalStorage(main, walHandle);
+      await wal2.open();
+      expect(wal2.readPage(3)).toBe('tx1');
+      expect(wal2.readPage(5)).toBe('tx2');
+      commitBatch(wal2, { 4: 'tx3' }, 6);
+      expect(wal2.readPage(4)).toBe('tx3');
+    });
+
+    it('rejects a page that checkpoint could not write to the main file', async () => {
+      const { wal, walHandle } = await opened();
+      const sizeBefore = walHandle.getSize();
+      expect(() => commitBatch(wal, { 3: 'x'.repeat(40000) }, 4)).toThrow(
+        PageOverflowError,
+      );
+      expect(walHandle.getSize()).toBe(sizeBefore);
+      expect(wal.readPage(3)).toBeNull();
     });
   });
 
@@ -124,10 +214,7 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, { recovered: true });
-      wal.writePage(4, [1, 2, 3]);
-      wal.writeHeader(5);
-      wal.flush();
+      commitBatch(wal, { 3: { recovered: true }, 4: [1, 2, 3] }, 5);
 
       // "Crash" — don't call close() (which would checkpoint)
       // Reopen
@@ -145,14 +232,10 @@ describe('WalStorage', () => {
       const { wal } = await opened(main, walHandle);
 
       // tx1
-      wal.writePage(3, 'tx1');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'tx1' }, 4);
 
       // tx2
-      wal.writePage(4, 'tx2');
-      wal.writeHeader(5);
-      wal.flush();
+      commitBatch(wal, { 4: 'tx2' }, 5);
 
       // Reopen
       const wal2 = new WalStorage(main, walHandle);
@@ -167,13 +250,9 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'v1');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'v1' }, 4);
 
-      wal.writePage(3, 'v2');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'v2' }, 4);
 
       const wal2 = new WalStorage(main, walHandle);
       await wal2.open();
@@ -185,13 +264,9 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'a');
-      wal.writeHeader(10);
-      wal.flush();
+      commitBatch(wal, { 3: 'a' }, 10);
 
-      wal.writePage(4, 'b');
-      wal.writeHeader(20);
-      wal.flush();
+      commitBatch(wal, { 4: 'b' }, 20);
 
       const wal2 = new WalStorage(main, walHandle);
       await wal2.open();
@@ -203,18 +278,14 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'before-crash');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'before-crash' }, 4);
 
       // Reopen
       const wal2 = new WalStorage(main, walHandle);
       await wal2.open();
 
       // New commit after recovery
-      wal2.writePage(4, 'after-crash');
-      wal2.writeHeader(5);
-      wal2.flush();
+      commitBatch(wal2, { 4: 'after-crash' }, 5);
 
       expect(wal2.readPage(3)).toBe('before-crash');
       expect(wal2.readPage(4)).toBe('after-crash');
@@ -228,9 +299,7 @@ describe('WalStorage', () => {
       const { wal } = await opened(main, walHandle);
 
       // Committed tx
-      wal.writePage(3, 'committed');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'committed' }, 4);
 
       // Simulate partial write: append a few bytes (incomplete frame header)
       const garbage = new Uint8Array([0x01, 0x02, 0x03]);
@@ -247,14 +316,10 @@ describe('WalStorage', () => {
       const { wal } = await opened(main, walHandle);
 
       // tx1 — committed
-      wal.writePage(3, 'good');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'good' }, 4);
 
       // tx2 — committed
-      wal.writePage(4, 'also-good');
-      wal.writeHeader(5);
-      wal.flush();
+      commitBatch(wal, { 4: 'also-good' }, 5);
 
       // Corrupt a byte in tx2's first frame (after tx1's commit record)
       // tx1: data frame (16 + payload) + commit record (20) = some offset
@@ -285,15 +350,11 @@ describe('WalStorage', () => {
       const { wal } = await opened(main, walHandle);
 
       // tx1 committed
-      wal.writePage(3, 'committed');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'committed' }, 4);
 
-      // tx2 — write frames but don't flush (simulates crash before commit record)
-      wal.writePage(5, 'uncommitted');
-      // Manually append the frame to WAL file but NOT the commit record
-      // The pending frames are in memory, not flushed to WAL file yet,
-      // so on reopen they simply don't exist.
+      // tx2 — crash after its data frames hit the file, before its commit record
+      commitBatch(wal, { 5: 'uncommitted' }, 6);
+      walHandle.truncate(walHandle.getSize() - COMMIT_RECORD_SIZE);
 
       const wal2 = new WalStorage(main, walHandle);
       await wal2.open();
@@ -308,9 +369,7 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'checkpointed');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'checkpointed' }, 4);
 
       wal.checkpoint();
 
@@ -324,9 +383,7 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'data');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'data' }, 4);
 
       wal.checkpoint();
 
@@ -339,9 +396,7 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'persisted');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'persisted' }, 4);
       wal.checkpoint();
 
       expect(wal.readPage(3)).toBe('persisted');
@@ -352,9 +407,7 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'via-close');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'via-close' }, 4);
 
       wal.close();
 
@@ -365,66 +418,70 @@ describe('WalStorage', () => {
 
     it('idempotent: checkpoint after checkpoint is no-op', async () => {
       const { wal } = await opened();
-      wal.writePage(3, 'x');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'x' }, 4);
       wal.checkpoint();
       wal.checkpoint(); // should not throw
     });
   });
 
-  describe('auto-checkpoint', () => {
-    it('triggers checkpoint when frame count reaches threshold', async () => {
+  describe('checkpoint threshold', () => {
+    it('needsCheckpoint turns on when frame count reaches threshold', async () => {
       const main = await createMain();
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle, 3); // threshold = 3
 
-      // tx1: 1 frame
-      wal.writePage(3, 'a');
-      wal.writeHeader(4);
-      wal.flush();
-      expect(main.readPage(3)).toBeNull(); // not checkpointed yet
+      commitBatch(wal, { 3: 'a' }, 4);
+      commitBatch(wal, { 4: 'b' }, 5);
+      expect(wal.needsCheckpoint()).toBe(false);
 
-      // tx2: 1 frame (total = 2)
-      wal.writePage(4, 'b');
-      wal.writeHeader(5);
-      wal.flush();
-      expect(main.readPage(3)).toBeNull(); // still not
-
-      // tx3: 1 frame (total = 3 → triggers checkpoint)
-      wal.writePage(5, 'c');
-      wal.writeHeader(6);
-      wal.flush();
-      expect(main.readPage(3)).toBe('a'); // checkpointed!
-      expect(main.readPage(4)).toBe('b');
-      expect(main.readPage(5)).toBe('c');
+      commitBatch(wal, { 5: 'c' }, 6);
+      expect(wal.needsCheckpoint()).toBe(true);
     });
 
-    it('continues working after auto-checkpoint', async () => {
+    it('commit never checkpoints by itself', async () => {
       const main = await createMain();
       const walHandle = new MemoryFileHandle();
-      const { wal } = await opened(main, walHandle, 2);
+      const { wal } = await opened(main, walHandle, 1);
 
-      // 2 frames → checkpoint
-      wal.writePage(3, 'x');
-      wal.writePage(4, 'y');
-      wal.writeHeader(5);
-      wal.flush();
+      commitBatch(wal, { 3: 'a', 4: 'b' }, 5);
+      expect(main.readPage(3)).toBeNull();
+      expect(wal.readPage(3)).toBe('a');
+    });
 
-      // New commit after auto-checkpoint
-      wal.writePage(5, 'z');
-      wal.writeHeader(6);
-      wal.flush();
+    it('checkpoint resets the frame count', async () => {
+      const { wal } = await opened(undefined, undefined, 2);
+      commitBatch(wal, { 3: 'x', 4: 'y' }, 5);
+      expect(wal.needsCheckpoint()).toBe(true);
 
+      wal.checkpoint();
+      expect(wal.needsCheckpoint()).toBe(false);
+
+      commitBatch(wal, { 5: 'z' }, 6);
       expect(wal.readPage(5)).toBe('z');
+    });
+
+    it('a failed checkpoint keeps the WAL authoritative and can be retried', async () => {
+      const main = new FlakyMain(`wal-main-${seq++}`);
+      await main.open();
+      const { wal, walHandle } = await opened(main);
+      commitBatch(wal, { 3: 'a' }, 4);
+      const sizeBefore = walHandle.getSize();
+
+      main.failCommits = 1;
+      expect(() => wal.checkpoint()).toThrow(/injected checkpoint/);
+      expect(wal.readPage(3)).toBe('a');
+      expect(walHandle.getSize()).toBe(sizeBefore);
+
+      wal.checkpoint();
+      expect(main.readPage(3)).toBe('a');
     });
   });
 
   describe('empty WAL', () => {
-    it('flush with no pending frames is no-op', async () => {
+    it('empty commit is a no-op', async () => {
       const { wal, walHandle } = await opened();
       const sizeBefore = walHandle.getSize();
-      wal.flush();
+      wal.commit(new Map(), wal.getNextPageId());
       expect(walHandle.getSize()).toBe(sizeBefore);
     });
 
@@ -442,16 +499,12 @@ describe('WalStorage', () => {
 
     it('epoch increments on checkpoint', async () => {
       const { wal } = await opened();
-      wal.writePage(3, 'data');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'data' }, 4);
 
       wal.checkpoint();
       expect(wal.getEpoch()).toBe(1);
 
-      wal.writePage(3, 'data2');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'data2' }, 4);
 
       wal.checkpoint();
       expect(wal.getEpoch()).toBe(2);
@@ -462,16 +515,12 @@ describe('WalStorage', () => {
       const walHandle = new MemoryFileHandle();
       const { wal } = await opened(main, walHandle);
 
-      wal.writePage(3, 'data');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'data' }, 4);
       wal.checkpoint();
       expect(wal.getEpoch()).toBe(1);
 
       // Write more after checkpoint so WAL is non-empty for recovery
-      wal.writePage(3, 'data2');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'data2' }, 4);
 
       // Re-open: should recover epoch from WAL header
       const wal2 = new WalStorage(main, walHandle);
@@ -488,9 +537,7 @@ describe('WalStorage', () => {
       // Writer opens and writes
       const writer = new WalStorage(main, walHandle);
       await writer.open();
-      writer.writePage(3, 'from-writer');
-      writer.writeHeader(4);
-      writer.flush();
+      commitBatch(writer, { 3: 'from-writer' }, 4);
 
       // Reader opens same WAL — sees frames from recovery
       const reader = new WalStorage(main, walHandle);
@@ -498,9 +545,7 @@ describe('WalStorage', () => {
       expect(reader.readPage(3)).toBe('from-writer');
 
       // Writer writes more
-      writer.writePage(5, 'second-write');
-      writer.writeHeader(6);
-      writer.flush();
+      commitBatch(writer, { 5: 'second-write' }, 6);
 
       // Reader doesn't see it yet (no catchUp)
       expect(reader.readPage(5)).toBeNull();
@@ -519,9 +564,7 @@ describe('WalStorage', () => {
 
       const writer = new WalStorage(main, walHandle);
       await writer.open();
-      writer.writePage(3, 'v1');
-      writer.writeHeader(4);
-      writer.flush();
+      commitBatch(writer, { 3: 'v1' }, 4);
 
       const reader = new WalStorage(main, walHandle);
       await reader.open();
@@ -529,9 +572,7 @@ describe('WalStorage', () => {
 
       // Writer checkpoints and writes new data
       writer.checkpoint();
-      writer.writePage(3, 'v2');
-      writer.writeHeader(4);
-      writer.flush();
+      commitBatch(writer, { 3: 'v2' }, 4);
 
       // Reader catches up — detects epoch change, rebuilds
       const changed = reader.catchUp();
@@ -547,9 +588,7 @@ describe('WalStorage', () => {
 
       const wal = new WalStorage(main, walHandle);
       await wal.open();
-      wal.writePage(3, 'data');
-      wal.writeHeader(4);
-      wal.flush();
+      commitBatch(wal, { 3: 'data' }, 4);
 
       // No new writes — catchUp returns null
       const changed = wal.catchUp();
@@ -564,17 +603,16 @@ describe('WalStorage', () => {
       await writer.open();
 
       // Writer commits one frame
-      writer.writePage(3, 'committed');
-      writer.writeHeader(4);
-      writer.flush();
+      commitBatch(writer, { 3: 'committed' }, 4);
 
-      // Writer starts another frame but doesn't flush (no commit record in file)
-      writer.writePage(5, 'pending');
+      // Writer is mid-append: data frame in the file, commit record not yet
+      commitBatch(writer, { 5: 'pending' }, 6);
+      walHandle.truncate(walHandle.getSize() - COMMIT_RECORD_SIZE);
 
       const reader = new WalStorage(main, walHandle);
       await reader.open();
       expect(reader.readPage(3)).toBe('committed');
-      expect(reader.readPage(5)).toBeNull(); // pending frames not in WAL file
+      expect(reader.readPage(5)).toBeNull(); // no commit record → not visible
     });
   });
 
@@ -611,6 +649,90 @@ describe('WalStorage', () => {
       expect(main.readPage(p1)).toEqual({ row: 'hello' });
 
       walStorage.close();
+    });
+
+    it('Storage checkpoints after a commit once the WAL asks for it', async () => {
+      const { Storage } = await import('../storage.js');
+      const main = await createMain();
+      // Each commit below writes 2 frames: the data page + the freelist page.
+      const { wal } = await opened(main, undefined, 3);
+      const storage = new Storage(wal);
+      await storage.open();
+      const ss = storage.createSession();
+
+      const p1 = ss.allocPage();
+      ss.writePage(p1, 'first');
+      ss.commit();
+      expect(main.readPage(p1)).toBeNull();
+
+      const p2 = ss.allocPage();
+      ss.writePage(p2, 'second');
+      ss.commit();
+      expect(main.readPage(p1)).toBe('first');
+      expect(main.readPage(p2)).toBe('second');
+    });
+
+    it('a failing checkpoint is reported and never fails the commit', async () => {
+      const { Storage } = await import('../storage.js');
+      const main = new FlakyMain(`wal-main-${seq++}`);
+      await main.open();
+      const { wal } = await opened(main, undefined, 1);
+      const errors: unknown[] = [];
+      const storage = new Storage(wal, { onCheckpointError: (e) => errors.push(e) });
+      await storage.open();
+      const ss = storage.createSession();
+
+      main.failCommits = 1;
+      const p1 = ss.allocPage();
+      ss.writePage(p1, 'committed');
+      expect(() => ss.commit()).not.toThrow();
+      expect(errors).toHaveLength(1);
+      expect(ss.readPage(p1)).toBe('committed');
+      expect(main.readPage(p1)).toBeNull();
+
+      // Retried after the next commit
+      const p2 = ss.allocPage();
+      ss.writePage(p2, 'next');
+      ss.commit();
+      expect(errors).toHaveLength(1);
+      expect(main.readPage(p1)).toBe('committed');
+      expect(main.readPage(p2)).toBe('next');
+    });
+
+    it('a throwing onCheckpointError still never fails the commit', async () => {
+      const { Storage } = await import('../storage.js');
+      const main = new FlakyMain(`wal-main-${seq++}`);
+      await main.open();
+      const { wal } = await opened(main, undefined, 1);
+      const storage = new Storage(wal, {
+        onCheckpointError: () => { throw new Error('reporter broke'); },
+      });
+      await storage.open();
+      const ss = storage.createSession();
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      main.failCommits = 1;
+      const p = ss.allocPage();
+      ss.writePage(p, 'committed');
+      expect(() => ss.commit()).not.toThrow();
+      expect(ss.readPage(p)).toBe('committed');
+      expect(consoleError).toHaveBeenCalledOnce();
+      consoleError.mockRestore();
+    });
+
+    it('an oversized page fails the commit before anything reaches the WAL', async () => {
+      const { Storage } = await import('../storage.js');
+      const { wal, walHandle } = await opened();
+      const storage = new Storage(wal);
+      await storage.open();
+      const ss = storage.createSession();
+      const sizeBefore = walHandle.getSize();
+
+      ss.writePage(10, 'x'.repeat(40000));
+      expect(() => ss.commit()).toThrow(PageOverflowError);
+      ss.rollback();
+      expect(walHandle.getSize()).toBe(sizeBefore);
+      expect(ss.readPage(10)).toBeNull();
     });
   });
 });

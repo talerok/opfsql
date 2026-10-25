@@ -1,9 +1,8 @@
-import { Encoder, decode } from "cbor-x";
+import { WalUnknownStateError } from "../errors.js";
+import { assertPagesFit, decodePage, type EncodedPage } from "../page-codec.js";
 import type { SyncIPageStorage } from "../types.js";
 import { crc32 } from "./crc32.js";
 import type { ISyncFileHandle } from "./file-handle.js";
-
-const encoder = new Encoder({ structuredClone: false, useRecords: true });
 
 // ---------------------------------------------------------------------------
 // WAL file format
@@ -44,18 +43,12 @@ const FRAME_HEADER_SIZE = 16;
 const COMMIT_SENTINEL = 0xffffffff;
 const COMMIT_PAYLOAD_SIZE = 4;
 
-interface PendingFrame {
-  pageNo: number;
-  cbor: Uint8Array;
-  value: unknown;
-}
-
 export class WalStorage implements SyncIPageStorage {
-  /** Committed WAL pages: pageNo → decoded value. */
-  private walIndex = new Map<number, unknown>();
+  /** Committed WAL pages: pageNo → page (decoded value for reads, bytes for checkpoint). */
+  private walIndex = new Map<number, EncodedPage>();
 
-  /** Frames buffered during current uncommitted batch (between writePage calls and flush). */
-  private pendingFrames: PendingFrame[] = [];
+  /** Set when a failed append could not be undone: the WAL tail is unknown until reopen. */
+  private unknownState: WalUnknownStateError | null = null;
 
   /** Current write position in WAL file. */
   private walOffset = WAL_HEADER_SIZE;
@@ -82,6 +75,10 @@ export class WalStorage implements SyncIPageStorage {
   // SyncIPageStorage
   // -------------------------------------------------------------------------
 
+  get pageCapacity(): number {
+    return this.main.pageCapacity;
+  }
+
   async open(): Promise<void> {
     await this.main.open();
     this.nextPageId = this.main.getNextPageId();
@@ -97,54 +94,48 @@ export class WalStorage implements SyncIPageStorage {
     this.main.close();
   }
 
-  /** Returns committed data only. Pending (unflushed) writes are not visible. */
+  /** Returns committed data only. */
   readPage<T>(pageNo: number): T | null {
-    const val = this.walIndex.get(pageNo);
-    if (val !== undefined) return val as T;
+    const page = this.walIndex.get(pageNo);
+    if (page !== undefined) return page.value as T;
     return this.main.readPage<T>(pageNo);
-  }
-
-  writePage(pageNo: number, value: unknown): void {
-    const cbor = encoder.encode(value);
-    this.pendingFrames.push({ pageNo, cbor, value });
   }
 
   getNextPageId(): number {
     return this.nextPageId;
   }
 
-  writeHeader(nextPageId: number): void {
+  /**
+   * Appends the batch as one transaction: data frames + commit record, one
+   * write, one flush. The flush is the commit point — once it returns, the
+   * batch is durable and visible; if anything before it throws, the appended
+   * bytes are truncated away and nothing becomes visible.
+   */
+  commit(pages: ReadonlyMap<number, EncodedPage>, nextPageId: number): void {
+    if (this.unknownState) throw this.unknownState;
+    if (pages.size === 0 && nextPageId === this.nextPageId) return;
+
+    // Never let the WAL hold a page that checkpoint could not write to main.
+    assertPagesFit(pages, this.pageCapacity);
+
+    const buf = this.buildCommitBuffer(pages, this.currentTxId, nextPageId);
+    try {
+      this.walHandle.write(buf, { at: this.walOffset });
+      this.walHandle.flush();
+    } catch (err) {
+      this.discardTail();
+      throw err;
+    }
+
+    this.walOffset += buf.length;
+    for (const [pageNo, page] of pages) this.walIndex.set(pageNo, page);
+    this.walFrameCount += pages.size;
     this.nextPageId = nextPageId;
+    this.currentTxId++;
   }
 
-  flush(): void {
-    if (this.pendingFrames.length === 0) return;
-
-    // 1. Build single buffer: all data frames + commit record
-    const buf = this.buildCommitBuffer(
-      this.pendingFrames,
-      this.currentTxId,
-      this.nextPageId,
-    );
-
-    // 2. Single write + durability point
-    this.walHandle.write(buf, { at: this.walOffset });
-    this.walHandle.flush();
-    this.walOffset += buf.length;
-
-    // 3. Promote to walIndex (already decoded — no decode overhead)
-    for (const f of this.pendingFrames) {
-      this.walIndex.set(f.pageNo, f.value);
-    }
-
-    this.walFrameCount += this.pendingFrames.length;
-    this.pendingFrames = [];
-    this.currentTxId++;
-
-    // 4. Auto-checkpoint
-    if (this.walFrameCount >= this.checkpointThreshold) {
-      this.checkpoint();
-    }
+  needsCheckpoint(): boolean {
+    return this.walFrameCount >= this.checkpointThreshold;
   }
 
   // -------------------------------------------------------------------------
@@ -162,14 +153,11 @@ export class WalStorage implements SyncIPageStorage {
   checkpoint(): void {
     if (this.walIndex.size === 0) return;
 
-    // 1. Apply all committed WAL pages to main DB
-    for (const [pageNo, value] of this.walIndex) {
-      this.main.writePage(pageNo, value);
-    }
-    this.main.writeHeader(this.nextPageId);
-    this.main.flush();
+    // 1. Apply all committed WAL pages to main DB. If this throws, the WAL is
+    //    untouched and still authoritative, so a later checkpoint can retry.
+    this.main.commit(this.walIndex, this.nextPageId);
 
-    // 2. Shrink main DB file (safe — data already on disk after flush)
+    // 2. Shrink main DB file (safe — data already on disk after commit)
     this.main.truncateToSize?.();
 
     // 3. Reset WAL file with incremented epoch
@@ -310,7 +298,10 @@ export class WalStorage implements SyncIPageStorage {
     const changedPages = new Set<number>();
     for (const frame of allFrames) {
       if (committedTxIds.has(frame.txId)) {
-        this.walIndex.set(frame.pageNo, decode(frame.payload));
+        this.walIndex.set(frame.pageNo, {
+          value: decodePage(frame.payload),
+          bytes: frame.payload,
+        });
         this.walFrameCount++;
         changedPages.add(frame.pageNo);
       }
@@ -331,32 +322,31 @@ export class WalStorage implements SyncIPageStorage {
 
   /** Build a single buffer containing all data frames + commit record. */
   private buildCommitBuffer(
-    frames: PendingFrame[],
+    pages: ReadonlyMap<number, EncodedPage>,
     txId: number,
     nextPageId: number,
   ): Uint8Array {
     // Calculate total size
     let totalSize = FRAME_HEADER_SIZE + COMMIT_PAYLOAD_SIZE; // commit record
-    for (const f of frames) totalSize += FRAME_HEADER_SIZE + f.cbor.length;
+    for (const page of pages.values()) {
+      totalSize += FRAME_HEADER_SIZE + page.bytes.length;
+    }
 
     const buf = new Uint8Array(totalSize);
     const view = new DataView(buf.buffer);
     let off = 0;
 
     // Data frames
-    for (const f of frames) {
-      view.setUint32(off, f.pageNo, false);
-      view.setUint32(off + 4, f.cbor.length, false);
+    for (const [pageNo, { bytes }] of pages) {
+      view.setUint32(off, pageNo, false);
+      view.setUint32(off + 4, bytes.length, false);
       view.setUint32(off + 8, txId, false);
 
-      const checksum = this.computeChecksum(
-        buf.subarray(off, off + 12),
-        f.cbor,
-      );
+      const checksum = this.computeChecksum(buf.subarray(off, off + 12), bytes);
 
       view.setUint32(off + 12, checksum, false);
-      buf.set(f.cbor, off + FRAME_HEADER_SIZE);
-      off += FRAME_HEADER_SIZE + f.cbor.length;
+      buf.set(bytes, off + FRAME_HEADER_SIZE);
+      off += FRAME_HEADER_SIZE + bytes.length;
     }
 
     // Commit record
@@ -376,6 +366,20 @@ export class WalStorage implements SyncIPageStorage {
     buf.set(commitPayload, off + FRAME_HEADER_SIZE);
 
     return buf;
+  }
+
+  /**
+   * Undo a failed append, so a torn or unflushed commit can never be recovered
+   * as committed. If even that fails, the tail is unknown: refuse further
+   * commits until the WAL is reopened and recovered from disk.
+   */
+  private discardTail(): void {
+    try {
+      this.walHandle.truncate(this.walOffset);
+      this.walHandle.flush();
+    } catch (err) {
+      this.unknownState = new WalUnknownStateError(err);
+    }
   }
 
   private initWalHeader(): void {

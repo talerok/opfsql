@@ -1,7 +1,7 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import { Engine, EngineError, PreparedStatement, Session } from "../index.js";
+import { openTestEngine } from "./test-engine.js";
 
 let engine: Engine;
 let session: Session;
@@ -13,7 +13,7 @@ function newDbName(): string {
 
 async function createEngine(name?: string): Promise<Engine> {
   const dbName = name ?? newDbName();
-  engine = await Engine.create(new OPFSSyncStorage(dbName));
+  engine = await openTestEngine(dbName);
   session = engine.createSession();
   return engine;
 }
@@ -46,7 +46,7 @@ describe("initialization", () => {
     s.close();
     e.close();
 
-    engine = await Engine.create(new OPFSSyncStorage(name));
+    engine = await openTestEngine(name);
     session = engine.createSession();
     const [result] = await session.execute("SELECT * FROM t");
     expect(result.type).toBe("rows");
@@ -99,7 +99,7 @@ describe("autocommit", () => {
     s.close();
     e.close();
 
-    engine = await Engine.create(new OPFSSyncStorage(name));
+    engine = await openTestEngine(name);
     session = engine.createSession();
     const [result] = await session.execute("SELECT * FROM t");
     expect(result.type).toBe("rows");
@@ -192,7 +192,7 @@ describe("DROP TABLE", () => {
     s.close();
     e.close();
 
-    engine = await Engine.create(new OPFSSyncStorage(name));
+    engine = await openTestEngine(name);
     session = engine.createSession();
     await expect(session.execute("SELECT * FROM t")).rejects.toThrow();
   });
@@ -608,7 +608,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     s.close();
     e.close();
 
-    engine = await Engine.create(new OPFSSyncStorage(name));
+    engine = await openTestEngine(name);
     session = engine.createSession();
     const [result] = await session.execute("SELECT id, val FROM t");
     expect(result.rows).toEqual([{ id: 1, val: 99 }]);
@@ -1075,7 +1075,7 @@ describe("catalog versioning", () => {
     s.close();
     e.close();
 
-    engine = await Engine.create(new OPFSSyncStorage(name));
+    engine = await openTestEngine(name);
     session = engine.createSession();
     expect(session.getSchema().version).toBe(v1);
   });

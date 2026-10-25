@@ -7,6 +7,22 @@ import { WalStorage } from "../store/wal/wal-storage.js";
 import { Session } from "./session.js";
 import { EngineError } from "./types.js";
 
+export interface EngineOptions {
+  /**
+   * Called when a background checkpoint fails. The commit that triggered it
+   * has already succeeded; the checkpoint is retried after the next commit.
+   * Defaults to console.warn.
+   */
+  onCheckpointError?: (err: unknown) => void;
+}
+
+export interface OpenOptions extends EngineOptions {
+  /** Page size in bytes for a newly created database. Default 32 KB. */
+  pageSize?: number;
+  /** Number of WAL frames after which a commit triggers a checkpoint. Default 1000. */
+  checkpointThreshold?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Engine — session factory + write lock + Web Lock
 // ---------------------------------------------------------------------------
@@ -21,8 +37,13 @@ export class Engine {
   private constructor(private readonly storage: Storage) {}
 
   /** Open a named OPFS database with WAL. Use inside a worker. */
-  static async open(dbName: string): Promise<Engine> {
-    const mainStorage = new OPFSSyncStorage(dbName);
+  static async open(
+    dbName: string,
+    options: OpenOptions = {},
+  ): Promise<Engine> {
+    const mainStorage = new OPFSSyncStorage(dbName, {
+      pageSize: options.pageSize,
+    });
     const root = await navigator.storage.getDirectory();
     const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
       create: true,
@@ -31,15 +52,24 @@ export class Engine {
       mode: "readwrite-unsafe",
     });
 
-    const wal = new WalStorage(mainStorage, walHandle);
-    const engine = await Engine.create(wal);
+    const wal = new WalStorage(
+      mainStorage,
+      walHandle,
+      options.checkpointThreshold,
+    );
+    const engine = await Engine.create(wal, options);
     engine.dbName = dbName;
     return engine;
   }
 
   /** Create engine with a custom storage backend. */
-  static async create(backend: SyncIPageStorage): Promise<Engine> {
-    const storage = new Storage(backend);
+  static async create(
+    backend: SyncIPageStorage,
+    options: EngineOptions = {},
+  ): Promise<Engine> {
+    const storage = new Storage(backend, {
+      onCheckpointError: options.onCheckpointError,
+    });
     await storage.open();
     const engine = new Engine(storage);
     engine.catalog = engine.readCatalog();

@@ -156,11 +156,7 @@ export class Session {
       const result = this.runPipeline(stmt, params);
 
       if (autocommit) {
-        if (this.catalogDirty) {
-          this.commitCatalog();
-        }
-
-        this.sessionStore.commit();
+        this.commitWrites();
         this.catalogSnapshot = null;
         this.catalogDirty = false;
         this.tryReleaseWriteLock();
@@ -228,11 +224,13 @@ export class Session {
       );
     }
 
-    if (this.catalogDirty) {
-      this.commitCatalog();
+    try {
+      this.commitWrites();
+    } catch (err) {
+      this.rollbackTransaction();
+      throw err;
     }
 
-    this.sessionStore.commit();
     this.endTransaction();
     return { type: "ok", rowsAffected: 0 };
   }
@@ -341,9 +339,18 @@ export class Session {
     }
   }
 
-  private commitCatalog(): void {
+  /** Persist buffered writes; catalog changes reach the engine only once durable. */
+  private commitWrites(): void {
+    const catalogData = this.catalogDirty ? this.writeCatalog() : null;
+    this.sessionStore.commit();
+    if (catalogData) {
+      this.onCatalogCommit(catalogData);
+    }
+  }
+
+  private writeCatalog(): CatalogData {
     const data = this.catalog.prepareCommit();
     this.sessionStore.writeCatalog(data);
-    this.onCatalogCommit(data);
+    return data;
   }
 }

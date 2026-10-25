@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Storage } from '../storage.js';
 import type { SessionStore } from '../session-store.js';
 import { OPFSSyncStorage } from '../backend/opfs-storage.js';
+import { commitBatch } from './helpers.js';
 
 let seq = 0;
 
@@ -151,14 +152,14 @@ describe('Storage + SessionStore', () => {
     });
 
     it('allocPage from freelist reads fresh data from backend', () => {
-      backend.writePage(10, 'stale');
+      commitBatch(backend, { 10: 'stale' });
       expect(ss.readPage(10)).toBe('stale');
 
       ss.freePage(10);
       const reused = ss.allocPage();
       expect(reused).toBe(10);
 
-      backend.writePage(10, 'fresh');
+      commitBatch(backend, { 10: 'fresh' });
       expect(ss.readPage(10)).toBe('fresh');
     });
   });

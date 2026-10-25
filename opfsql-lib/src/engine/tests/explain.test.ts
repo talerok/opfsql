@@ -1,14 +1,14 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import { Engine, Session } from "../index.js";
+import { openTestEngine } from "./test-engine.js";
 
 let engine: Engine;
 let session: Session;
 let seq = 0;
 
 async function createEngine(): Promise<Engine> {
-  engine = await Engine.create(new OPFSSyncStorage(`explain-test-${seq++}`));
+  engine = await openTestEngine(`explain-test-${seq++}`);
   session = engine.createSession();
   return engine;
 }

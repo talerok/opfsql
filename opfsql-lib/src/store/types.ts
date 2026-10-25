@@ -22,6 +22,7 @@ import type {
 } from "../types.js";
 import type { SearchPredicate } from "./index-btree/search-bounds.js";
 import type { IndexKey } from "./index-btree/types.js";
+import type { EncodedPage } from "./page-codec.js";
 
 // ---------------------------------------------------------------------------
 // Catalog interface
@@ -49,17 +50,26 @@ export interface ICatalog {
 export interface SyncIPageStorage {
   open(): Promise<void>;
   close(): void;
+  /** Largest encoded page payload, in bytes. Valid after open(). */
+  readonly pageCapacity: number;
   readPage<T>(pageNo: number): T | null;
-  writePage(pageNo: number, value: unknown): void;
   getNextPageId(): number;
-  writeHeader(nextPageId: number): void;
-  flush(): void;
-  /** Shrink backing file to match nextPageId. Safe only after flush(). */
+  /**
+   * Persist a batch of pages together with the new nextPageId. Rejects the
+   * whole batch with PageOverflowError before writing if any page exceeds
+   * pageCapacity. Crash atomicity is backend-specific: WalStorage is
+   * all-or-nothing (durable once commit() returns, invisible if it throws);
+   * OPFSSyncStorage writes in place and relies on running under WalStorage.
+   */
+  commit(pages: ReadonlyMap<number, EncodedPage>, nextPageId: number): void;
+  /** Shrink backing file to match nextPageId. Safe only after commit(). */
   truncateToSize?(): void;
   /** Catch up with changes made by other writers. Returns set of changed page numbers, or null if nothing changed. */
   catchUp?(): Set<number> | null;
   /** Merge WAL into main DB and reset WAL. */
   checkpoint?(): void;
+  /** True when the backend wants checkpoint() to be called. */
+  needsCheckpoint?(): boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -2,9 +2,8 @@ import { beforeEach, describe, it } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { resetMockOPFS } from 'opfs-mock';
-import { Engine } from '../../src/index.js';
-import { OPFSSyncStorage } from '../../src/store/backend/opfs-storage.js';
 import { parseSlt, runSlt } from './runner.js';
+import { openTestEngine } from '../../src/engine/tests/test-engine.js';
 
 const sltDir = new URL('.', import.meta.url).pathname;
 const sltFiles = readdirSync(sltDir).filter((f) => f.endsWith('.slt'));
@@ -18,7 +17,7 @@ describe('SLT', () => {
     it(file, async () => {
       const source = readFileSync(join(sltDir, file), 'utf-8');
       const blocks = parseSlt(source);
-      const engine = await Engine.create(new OPFSSyncStorage(`slt-${file}`));
+      const engine = await openTestEngine(`slt-${file}`);
       const session = engine.createSession();
       try {
         const result = await runSlt(session, blocks);
