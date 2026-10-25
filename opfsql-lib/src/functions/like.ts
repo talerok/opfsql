@@ -61,36 +61,45 @@ function wildcardOrLiteral(character: string): string {
 
 function literal(character: string): string {
   if (REGEX_SPECIAL.test(character)) return `\\${character}`;
-  return ASCII_LETTER.test(character)
-    ? `[${character.toLowerCase()}${character.toUpperCase()}]`
-    : character;
+  if (!ASCII_LETTER.test(character)) return character;
+  return `[${character.toLowerCase()}${character.toUpperCase()}]`;
 }
 
 /**
  * Compiles the pattern once when it is the same for every row; otherwise
- * keeps the last one, which helps when consecutive rows share a pattern.
+ * remembers the last one, which helps when consecutive rows share it.
  */
-function implementLike({ constants }: CallSite): Implementation {
+function implementLike({ argumentTypes, constants }: CallSite): Implementation {
   const [patternConstant, , escapeConstant] = constants;
-  const hasFixedEscape = constants.length < 3 || escapeConstant !== undefined;
-  if (
-    typeof patternConstant === "string" &&
-    hasFixedEscape &&
-    escapeConstant !== null
-  ) {
+  const hasEscapeArgument = argumentTypes.length === 3;
+  const isPatternFixed = typeof patternConstant === "string";
+  // A NULL escape makes every answer NULL, which the per-row path gives.
+  const isEscapeFixed =
+    !hasEscapeArgument ||
+    (escapeConstant !== undefined && escapeConstant !== null);
+  if (isPatternFixed && isEscapeFixed) {
     const matches = likeMatcher(patternConstant, escapeText(escapeConstant));
     return strict(([, input]) => matches(text(input)));
   }
+  const matcherFor = cachedMatcher();
+  return strict(([pattern, input, escape]) =>
+    matcherFor(text(pattern), escapeText(escape))(text(input)),
+  );
+}
+
+/** likeMatcher that keeps the matcher of the last pattern it was asked for. */
+function cachedMatcher(): (
+  pattern: string,
+  escape: string | undefined,
+) => (input: string) => boolean {
   let last: { key: string; matches: (input: string) => boolean } | null = null;
-  return strict(([pattern, input, escape]) => {
-    const patternText = text(pattern);
-    const escapeCharacter = escapeText(escape);
-    const key = `${escapeCharacter ?? ""}\0${patternText}`;
+  return (pattern, escape) => {
+    const key = `${escape ?? ""}\0${pattern}`;
     if (last?.key !== key) {
-      last = { key, matches: likeMatcher(patternText, escapeCharacter) };
+      last = { key, matches: likeMatcher(pattern, escape) };
     }
-    return last.matches(text(input));
-  });
+    return last.matches;
+  };
 }
 
 function escapeText(escape: Value | undefined): string | undefined {

@@ -173,6 +173,22 @@ export function caseExpr(
   };
 }
 
+/** `CASE operand WHEN … THEN … [ELSE …] END`. */
+export function simpleCase(
+  operand: BoundExpression,
+  checks: { when: BoundExpression; result: BoundExpression }[],
+  otherwise: BoundExpression | null = null,
+  returnType: LogicalType = "INTEGER",
+): BoundExpression {
+  return {
+    expressionClass: BoundExpressionClass.BOUND_CASE,
+    operand,
+    caseChecks: checks,
+    elseExpr: otherwise,
+    returnType,
+  };
+}
+
 export function jsonAccess(
   child: BoundExpression,
   path: Array<

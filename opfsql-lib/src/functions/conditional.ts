@@ -1,4 +1,4 @@
-import { compareSql, kindOf, truthOf, type Value } from "../values/index.js";
+import { areEqual, kindOf, truthOf, type Value } from "../values/index.js";
 import { commonType, eager, firstArgumentType, returns } from "./arguments.js";
 import type { Argument, Implementation, ScalarFunction } from "./types.js";
 
@@ -42,7 +42,7 @@ const nullif: ScalarFunction = {
   returnType: firstArgumentType,
   implement: () =>
     eager(([value = null, other = null]) =>
-      compareSql(value, other) === 0 ? null : value,
+      areEqual(value, other) ? null : value,
     ),
 };
 

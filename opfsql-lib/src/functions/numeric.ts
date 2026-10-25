@@ -1,5 +1,6 @@
 import { withoutNegativeZero } from "../values/index.js";
 import {
+  eager,
   firstArgumentType,
   integer,
   number,
@@ -101,7 +102,27 @@ const ceil: ScalarFunction = {
     strict(([value]) => withoutNegativeZero(Math.ceil(number(value)))),
 };
 
+/** RANDOM(): a random INTEGER from -2^52 to 2^52, new for every row. */
+const random: ScalarFunction = {
+  kind: "scalar",
+  name: "random",
+  isVolatile: true,
+  signature: { required: [] },
+  returnType: returns("INTEGER"),
+  implement: () => eager(randomInteger),
+};
+
+/**
+ * 53 random bits from the platform's generator, centred on zero. (Math.random
+ * is not used: its low bits are not random — V8's are always even.)
+ */
+function randomInteger(): number {
+  const [high = 0, low = 0] = crypto.getRandomValues(new Uint32Array(2));
+  return (high >>> 11) * 2 ** 32 + low - 2 ** 52;
+}
+
 export const numericFunctions: readonly ScalarFunction[] = [
+  random,
   abs,
   sign,
   round,

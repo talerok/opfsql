@@ -637,10 +637,7 @@
       "count": 1
     },
     "@typescript-eslint/strict-boolean-expressions": {
-      "count": 4
-    },
-    "max-depth": {
-      "count": 1
+      "count": 2
     },
     "max-params": {
       "count": 1
@@ -1198,17 +1195,11 @@
     "max-lines-per-function": {
       "count": 1
     },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
-      "count": 4
-    },
-    "unicorn/no-useless-recursion": {
-      "count": 1
+      "count": 3
     },
     "unicorn/prefer-combined-guards": {
-      "count": 3
+      "count": 2
     },
     "unicorn/switch-case-braces": {
       "count": 5

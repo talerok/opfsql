@@ -82,9 +82,8 @@ export function followPath(
 
 function followStep(value: JsonValue, step: PathStep): JsonValue | undefined {
   if (step.type === "key") {
-    return isObject(value) && Object.hasOwn(value, step.key)
-      ? value[step.key]
-      : undefined;
+    const hasKey = isObject(value) && Object.hasOwn(value, step.key);
+    return hasKey ? value[step.key] : undefined;
   }
   if (!Array.isArray(value)) return undefined;
   return value[step.fromEnd ? value.length - step.index : step.index];

@@ -38,6 +38,7 @@ export function isFoldable(expr: BoundExpression): boolean {
     }
     case BoundExpressionClass.BOUND_FUNCTION: {
       const func = expr as BoundFunctionExpression;
+      if (func.function.isVolatile === true) return false;
       return func.children.every(isFoldable);
     }
     case BoundExpressionClass.BOUND_CASE: {

@@ -14,10 +14,9 @@ import {
 import { executeDelete, executeInsert, executeUpdate } from "../dml/index.js";
 import type { ExecutionContext } from "../evaluate/index.js";
 import type { ExecuteResult, Value } from "../types.js";
-import { checkParameters } from "./parameters.js";
+import { createExecutionContext, executeSelect } from "./select.js";
 
 export { checkParameters } from "./parameters.js";
-import { createExecutionContext, executeSelect } from "./select.js";
 
 type ExecuteHandler = (
   plan: LogicalOperator,
@@ -79,10 +78,8 @@ export function execute(
   params?: readonly Value[],
 ): ExecuteResult {
   const handler = handlers.get(plan.type);
-  const context = createExecutionContext(
-    rowManager,
-    checkParameters(plan, params ?? []),
-  );
+  // The session checked and normalized the parameters before optimizing.
+  const context = createExecutionContext(rowManager, params ?? []);
 
   if (handler) {
     return handler(plan, rowManager, catalog, context, indexManager);

@@ -25,3 +25,16 @@ SELECT CASE x + 1 WHEN 2 THEN 'two' WHEN 3 THEN 'three' END FROM c ORDER BY id
 two
 three
 NULL
+
+# The operand is evaluated once per row: with random() as the operand, an
+# evaluation per WHEN would leave a quarter of the rows matching no WHEN.
+query I nosort
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200) SELECT COUNT(*) FROM n WHERE CASE abs(random()) % 2 WHEN 0 THEN 'even' WHEN 1 THEN 'odd' ELSE 'neither' END = 'neither'
+----
+0
+
+# random() is not folded to one value for the whole statement
+query I nosort
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200) SELECT COUNT(DISTINCT random()) > 1 FROM n
+----
+true

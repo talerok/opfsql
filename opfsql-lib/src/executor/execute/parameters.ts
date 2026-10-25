@@ -7,6 +7,10 @@ import {
   LogicalOperatorType,
   type TableFilter,
 } from "../../sql/binder/types.js";
+import {
+  caseChildren,
+  childList,
+} from "../../sql/binder/expression/case-children.js";
 import { normalizeValue, type Value } from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
@@ -24,7 +28,7 @@ export function checkParameters(
   const needed = parameterCount(plan);
   if (parameters.length < needed) {
     throw new MisuseError(
-      `the statement uses ${String(needed)} parameter${needed === 1 ? "" : "s"}, but ${String(parameters.length)} ${parameters.length === 1 ? "was" : "were"} given`,
+      `the statement uses ${plural(needed, "parameter")}; ${String(parameters.length)} given`,
     );
   }
   return parameters.map((value) => normalizeValue(value));
@@ -33,20 +37,36 @@ export function checkParameters(
 /** One more than the largest parameter index in the plan, or 0. */
 export function parameterCount(plan: LogicalOperator): number {
   let count = 0;
-  const visit = (expression: BoundExpression): void => {
-    if (expression.expressionClass === BoundExpressionClass.BOUND_PARAMETER) {
-      count = Math.max(count, expression.index + 1);
-    }
-    if (expression.expressionClass === BoundExpressionClass.BOUND_SUBQUERY) {
-      count = Math.max(count, parameterCount(expression.subplan));
-    }
-    for (const child of childExpressions(expression)) visit(child);
-  };
-  for (const expression of operatorExpressions(plan)) visit(expression);
-  for (const child of plan.children) {
-    count = Math.max(count, parameterCount(child));
+  for (const index of parameterIndexes(plan)) {
+    count = Math.max(count, index + 1);
   }
   return count;
+}
+
+/** Every parameter index a plan uses, in its subqueries too. */
+function* parameterIndexes(plan: LogicalOperator): Generator<number> {
+  for (const expression of operatorExpressions(plan)) {
+    yield* expressionParameterIndexes(expression);
+  }
+  for (const child of plan.children) yield* parameterIndexes(child);
+}
+
+function* expressionParameterIndexes(
+  expression: BoundExpression,
+): Generator<number> {
+  if (expression.expressionClass === BoundExpressionClass.BOUND_PARAMETER) {
+    yield expression.index;
+  }
+  if (expression.expressionClass === BoundExpressionClass.BOUND_SUBQUERY) {
+    yield* parameterIndexes(expression.subplan);
+  }
+  for (const child of childExpressions(expression)) {
+    yield* expressionParameterIndexes(child);
+  }
+}
+
+function plural(count: number, word: string): string {
+  return `${String(count)} ${word}${count === 1 ? "" : "s"}`;
 }
 
 /** Every expression a plan node holds, not those of its children. */
@@ -73,13 +93,15 @@ function extraExpressions(operator: LogicalOperator): BoundExpression[] {
       return operator.orders.map((order) => order.expression);
     }
     case LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY: {
-      return [...operator.groups, ...present(operator.havingExpression)];
+      return [...operator.groups, ...childList(operator.havingExpression)];
     }
     case LogicalOperatorType.LOGICAL_INSERT: {
       const conflict = operator.onConflict;
-      return conflict === undefined
-        ? []
-        : [...conflict.updateExpressions, ...present(conflict.whereExpression)];
+      if (conflict === undefined) return [];
+      return [
+        ...conflict.updateExpressions,
+        ...childList(conflict.whereExpression),
+      ];
     }
     case LogicalOperatorType.LOGICAL_FILTER:
     case LogicalOperatorType.LOGICAL_PROJECTION:
@@ -99,12 +121,6 @@ function extraExpressions(operator: LogicalOperator): BoundExpression[] {
       return [];
     }
   }
-}
-
-function present(
-  expression: BoundExpression | null | undefined,
-): BoundExpression[] {
-  return expression === null || expression === undefined ? [] : [expression];
 }
 
 function filterExpressions(filters: readonly TableFilter[]): BoundExpression[] {
@@ -148,14 +164,10 @@ function childExpressions(expression: BoundExpression): BoundExpression[] {
       return [expression.input, expression.lower, expression.upper];
     }
     case BoundExpressionClass.BOUND_SUBQUERY: {
-      return present(expression.child);
+      return childList(expression.child ?? null);
     }
     case BoundExpressionClass.BOUND_CASE: {
-      return [
-        ...present(expression.operand),
-        ...expression.caseChecks.flatMap((check) => [check.when, check.result]),
-        ...present(expression.elseExpr),
-      ];
+      return caseChildren(expression);
     }
     case BoundExpressionClass.BOUND_CAST: {
       return [expression.child];

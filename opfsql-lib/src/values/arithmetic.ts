@@ -78,9 +78,8 @@ export function negate(value: Value): Value {
 
 /** `left || right`: text of both sides, NULL if either is NULL. */
 export function concatenate(left: Value, right: Value): Value {
-  return left === null || right === null
-    ? null
-    : textOperand(left) + textOperand(right);
+  if (left === null || right === null) return null;
+  return textOperand(left) + textOperand(right);
 }
 
 /**

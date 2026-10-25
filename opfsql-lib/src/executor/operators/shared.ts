@@ -81,9 +81,8 @@ export function rowToTuple(
   return columnIds.map((columnId) => {
     const column = schema.columns[columnId];
     // A column added after the row was written has its default.
-    return Object.hasOwn(row, column.name)
-      ? row[column.name]
-      : column.defaultValue;
+    if (!Object.hasOwn(row, column.name)) return column.defaultValue;
+    return row[column.name];
   });
 }
 
@@ -94,8 +93,17 @@ export function* rowsOf(operator: SyncPhysicalOperator): Generator<Tuple> {
   }
 }
 
+/**
+ * Every row an operator produces, in one array. Not `[...rowsOf(...)]`:
+ * this runs for every row of every query, and a generator costs several
+ * times a loop per row.
+ */
 export function drainOperator(operator: SyncPhysicalOperator): Tuple[] {
-  return [...rowsOf(operator)];
+  const rows: Tuple[] = [];
+  for (let batch = operator.next(); batch !== null; batch = operator.next()) {
+    for (const row of batch) rows.push(row);
+  }
+  return rows;
 }
 
 /** The next batch of up to `size` rows from `rows`; null when they end. */

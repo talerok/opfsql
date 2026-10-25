@@ -38,19 +38,17 @@ const length: ScalarFunction = {
   signature: { required: ["text-or-blob"] },
   returnType: returns("INTEGER"),
   implement: () =>
-    strict(([value]) =>
-      value instanceof Uint8Array
-        ? value.length
-        : characters(text(value)).length,
-    ),
+    strict(([value]) => {
+      if (value instanceof Uint8Array) return value.length;
+      return characters(text(value)).length;
+    }),
 };
 
+/** Which ends TRIM, LTRIM and RTRIM remove characters from. */
+type Ends = "start" | "end" | "both";
+
 /** TRIM, LTRIM, RTRIM: remove characters (spaces by default) from the ends. */
-function trimFunction(
-  name: string,
-  shouldTrimStart: boolean,
-  shouldTrimEnd: boolean,
-): ScalarFunction {
+function trimFunction(name: string, ends: Ends): ScalarFunction {
   return {
     kind: "scalar",
     name,
@@ -58,27 +56,26 @@ function trimFunction(
     returnType: returns("TEXT"),
     implement: () =>
       strict(([value, set = " "]) => {
-        const removable = new Set(characters(text(set)));
         const chars = characters(text(value));
-        let from = 0;
-        let to = chars.length;
-        while (
-          shouldTrimStart &&
-          from < to &&
-          removable.has(chars[from] ?? "")
-        ) {
-          from++;
-        }
-        while (
-          shouldTrimEnd &&
-          to > from &&
-          removable.has(chars[to - 1] ?? "")
-        ) {
-          to--;
-        }
+        const removable = new Set(characters(text(set)));
+        const [from, to] = trimmedRange(chars, removable, ends);
         return chars.slice(from, to).join("");
       }),
   };
+}
+
+/** The range of `chars` left once `removable` ones are taken off `ends`. */
+function trimmedRange(
+  chars: readonly string[],
+  removable: ReadonlySet<string>,
+  ends: Ends,
+): [number, number] {
+  const first = chars.findIndex((character) => !removable.has(character));
+  if (first === -1) return [0, 0];
+  const last = chars.findLastIndex((character) => !removable.has(character));
+  const from = ends === "end" ? 0 : first;
+  const to = ends === "start" ? chars.length : last + 1;
+  return [from, to];
 }
 
 const substr: ScalarFunction = {
@@ -105,36 +102,35 @@ function substrType(type: StaticType): StaticType {
 
 /**
  * SQLite's substr(X, start, count) as a range [from, to) of positions:
- * `start` is 1-based, negative counts from the end, 0 is just before the
- * first character; a negative `count` takes the characters before `start`.
+ * `count` characters from `start`, or the `-count` characters before it,
+ * clipped to the text. `count` absent means to the end.
  */
 export function substringRange(
   total: number,
   start: number,
   count: number | undefined,
 ): [number, number] {
-  let size = count === undefined ? Infinity : Math.abs(count);
-  let from = start;
-  if (from < 0) {
-    from += total;
-    if (from < 0) {
-      size = Math.max(0, size + from);
-      from = 0;
-    }
-  } else if (from > 0) {
-    from--;
-  } else if (size > 0) {
-    size--;
-  }
-  if (count !== undefined && count < 0) {
-    [from, size] = takeBefore(from, size);
-  }
-  return [from, from + size];
+  const position = zeroBasedStart(start, total);
+  const size = count ?? Infinity;
+  const low = size < 0 ? position + size : position;
+  const high = size < 0 ? position : position + size;
+  const from = clamp(low, 0, total);
+  return [from, clamp(high, from, total)];
 }
 
-function takeBefore(position: number, size: number): [number, number] {
-  const from = position - size;
-  return from < 0 ? [0, size + from] : [from, size];
+/**
+ * `start` as a 0-based position: 1-based from the front, negative from the
+ * back, and 0 just before the first character — so `substr(x, 0, 2)` is one
+ * character, as in SQLite.
+ */
+function zeroBasedStart(start: number, total: number): number {
+  if (start > 0) return start - 1;
+  if (start < 0) return total + start;
+  return -1;
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(Math.max(value, low), high);
 }
 
 const replace: ScalarFunction = {
@@ -146,10 +142,9 @@ const replace: ScalarFunction = {
     strict(([value, pattern, replacement]) => {
       const original = text(value);
       const search = text(pattern);
+      if (search === "") return original;
       // split/join, not replaceAll: "$&" in the replacement is plain text.
-      return search === ""
-        ? original
-        : original.split(search).join(text(replacement));
+      return original.split(search).join(text(replacement));
     }),
 };
 
@@ -168,11 +163,10 @@ const concatWithSeparator: ScalarFunction = {
   signature: { required: ["text", "text"], rest: "text" },
   returnType: returns("TEXT"),
   implement: () =>
-    eager(([separator, ...operands]) =>
-      separator === null || separator === undefined
-        ? null
-        : join(operands, text(separator)),
-    ),
+    eager(([separator = null, ...operands]) => {
+      if (separator === null) return null;
+      return join(operands, text(separator));
+    }),
 };
 
 function join(operands: readonly Value[], separator: string): string {
@@ -188,11 +182,12 @@ const instr: ScalarFunction = {
   signature: { required: ["text-or-blob", "text-or-blob"] },
   returnType: returns("INTEGER"),
   implement: () =>
-    strict(([haystack, needle]) =>
-      haystack instanceof Uint8Array && needle instanceof Uint8Array
-        ? bytePosition(haystack, needle)
-        : characterPosition(text(haystack), text(needle)),
-    ),
+    strict(([haystack, needle]) => {
+      const areBytes =
+        haystack instanceof Uint8Array && needle instanceof Uint8Array;
+      if (areBytes) return bytePosition(haystack, needle);
+      return characterPosition(text(haystack), text(needle));
+    }),
 };
 
 function characterPosition(haystack: string, needle: string): number {
@@ -229,9 +224,9 @@ export const textFunctions: readonly ScalarFunction[] = [
   upper,
   lower,
   length,
-  trimFunction("trim", true, true),
-  trimFunction("ltrim", true, false),
-  trimFunction("rtrim", false, true),
+  trimFunction("trim", "both"),
+  trimFunction("ltrim", "start"),
+  trimFunction("rtrim", "end"),
   substr,
   { ...substr, name: "substring" },
   replace,

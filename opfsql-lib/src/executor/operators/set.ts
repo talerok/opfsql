@@ -1,5 +1,5 @@
 import type { ColumnBinding } from "../../sql/binder/types.js";
-import { rowKey } from "../../values/index.js";
+import { firstSighting } from "../../values/index.js";
 import type { SyncPhysicalOperator, Tuple } from "../types.js";
 import { nextNonEmpty } from "./shared.js";
 
@@ -7,7 +7,7 @@ import { nextNonEmpty } from "./shared.js";
 // equality of compareValues, with NULLs equal to each other.
 
 export class PhysicalDistinct implements SyncPhysicalOperator {
-  private readonly seen = new Set<string>();
+  private isFirstSighting = firstSighting();
 
   constructor(private readonly child: SyncPhysicalOperator) {}
 
@@ -16,11 +16,13 @@ export class PhysicalDistinct implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    return nextNonEmpty(this.child, (batch) => keepUnseen(batch, this.seen));
+    return nextNonEmpty(this.child, (batch) =>
+      batch.filter((row) => this.isFirstSighting(row)),
+    );
   }
 
   reset(): void {
-    this.seen.clear();
+    this.isFirstSighting = firstSighting();
     this.child.reset();
   }
 }
@@ -28,15 +30,13 @@ export class PhysicalDistinct implements SyncPhysicalOperator {
 export class PhysicalUnion implements SyncPhysicalOperator {
   private isLeftDone = false;
 
-  private readonly seen: Set<string> | null;
+  private isFirstSighting = firstSighting();
 
   constructor(
     private readonly left: SyncPhysicalOperator,
     private readonly right: SyncPhysicalOperator,
-    isAll: boolean,
-  ) {
-    this.seen = isAll ? null : new Set();
-  }
+    private readonly isAll: boolean,
+  ) {}
 
   getLayout(): ColumnBinding[] {
     return this.left.getLayout();
@@ -54,22 +54,13 @@ export class PhysicalUnion implements SyncPhysicalOperator {
 
   reset(): void {
     this.isLeftDone = false;
-    this.seen?.clear();
+    this.isFirstSighting = firstSighting();
     this.left.reset();
     this.right.reset();
   }
 
   private deduplicate(batch: Tuple[]): Tuple[] {
-    return this.seen === null ? batch : keepUnseen(batch, this.seen);
+    if (this.isAll) return batch;
+    return batch.filter((row) => this.isFirstSighting(row));
   }
-}
-
-/** The rows of `batch` whose key is not in `seen`, adding their keys. */
-function keepUnseen(batch: readonly Tuple[], seen: Set<string>): Tuple[] {
-  return batch.filter((row) => {
-    const key = rowKey(row);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }

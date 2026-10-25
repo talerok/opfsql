@@ -67,6 +67,11 @@ export interface ScalarFunction {
   readonly kind: "scalar";
   /** The name as SQL writes it, lowercase. */
   readonly name: string;
+  /**
+   * True for a function whose result varies between calls with the same
+   * arguments (random): it runs for every row, never folded to a constant.
+   */
+  readonly isVolatile?: boolean;
   readonly signature: Signature;
   /** Result type for argument types that passed the signature. */
   readonly returnType: (argumentTypes: readonly StaticType[]) => StaticType;

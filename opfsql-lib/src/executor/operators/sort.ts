@@ -67,10 +67,7 @@ export class PhysicalSort implements SyncPhysicalOperator {
   }
 
   next(): Tuple[] | null {
-    this.sorted ??=
-      this.operator.topN === undefined
-        ? this.sortAll()
-        : this.sortFirst(this.operator.topN);
+    this.sorted ??= this.sortRows();
     if (this.offset >= this.sorted.length) return null;
     const batch = this.sorted.slice(this.offset, this.offset + SCAN_BATCH);
     this.offset += batch.length;
@@ -82,6 +79,11 @@ export class PhysicalSort implements SyncPhysicalOperator {
     this.offset = 0;
     this.arrivals = 0;
     this.child.reset();
+  }
+
+  private sortRows(): Tuple[] {
+    const { topN } = this.operator;
+    return topN === undefined ? this.sortAll() : this.sortFirst(topN);
   }
 
   private keyed(row: Tuple): KeyedRow {
