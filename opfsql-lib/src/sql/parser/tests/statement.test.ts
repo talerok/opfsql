@@ -5,7 +5,9 @@ import {
   DropType,
   StatementType,
   TransactionType,
+  type BeginMode,
   type ColumnDefinition,
+  type TransactionStatement,
 } from "../types.js";
 import {
   notSupported,
@@ -39,6 +41,20 @@ function renderColumn(column: ColumnDefinition): string {
       : constraint.type,
   );
   return [column.name, column.type ?? "-", ...constraints].join(" ");
+}
+
+function begin(mode: BeginMode): TransactionStatement {
+  return {
+    type: StatementType.TRANSACTION_STATEMENT,
+    transactionType: TransactionType.BEGIN,
+    mode,
+  };
+}
+
+function transactionEnd(
+  transactionType: TransactionType.COMMIT | TransactionType.ROLLBACK,
+): TransactionStatement {
+  return { type: StatementType.TRANSACTION_STATEMENT, transactionType };
 }
 
 function columns(sql: string): string[] {
@@ -570,18 +586,19 @@ describe("other DDL", () => {
 });
 
 describe("transactions and EXPLAIN", () => {
-  it.each<[string, TransactionType]>([
-    ["BEGIN", TransactionType.BEGIN],
-    ["BEGIN TRANSACTION", TransactionType.BEGIN],
-    ["COMMIT", TransactionType.COMMIT],
-    ["END TRANSACTION", TransactionType.COMMIT],
-    ["ROLLBACK", TransactionType.ROLLBACK],
-    ["ROLLBACK TRANSACTION", TransactionType.ROLLBACK],
-  ])("%s", (sql, transactionType) => {
-    expect(statementOf(sql, StatementType.TRANSACTION_STATEMENT)).toEqual({
-      type: StatementType.TRANSACTION_STATEMENT,
-      transactionType,
-    });
+  it.each<[string, TransactionStatement]>([
+    ["BEGIN", begin("DEFERRED")],
+    ["BEGIN TRANSACTION", begin("DEFERRED")],
+    ["BEGIN DEFERRED", begin("DEFERRED")],
+    ["BEGIN IMMEDIATE TRANSACTION", begin("IMMEDIATE")],
+    ["COMMIT", transactionEnd(TransactionType.COMMIT)],
+    ["END TRANSACTION", transactionEnd(TransactionType.COMMIT)],
+    ["ROLLBACK", transactionEnd(TransactionType.ROLLBACK)],
+    ["ROLLBACK TRANSACTION", transactionEnd(TransactionType.ROLLBACK)],
+  ])("%s", (sql, expected) => {
+    expect(statementOf(sql, StatementType.TRANSACTION_STATEMENT)).toEqual(
+      expected,
+    );
   });
 
   it("wraps a statement in EXPLAIN", () => {
@@ -596,7 +613,7 @@ describe("transactions and EXPLAIN", () => {
   });
 
   it.each([
-    ["BEGIN IMMEDIATE", "BEGIN IMMEDIATE"],
+    ["BEGIN EXCLUSIVE", "BEGIN EXCLUSIVE"],
     ["BEGIN TRANSACTION t1", "a transaction name"],
     ["COMMIT TRANSACTION t1", "a transaction name"],
     ["ROLLBACK TRANSACTION t1", "a transaction name"],

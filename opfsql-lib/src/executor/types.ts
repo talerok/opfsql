@@ -1,5 +1,5 @@
 import type { ColumnBinding } from "../sql/binder/types.js";
-import type { IndexDef, Row, TableSchema } from "../types.js";
+import type { IndexDef, TableSchema } from "../types.js";
 import type { Value } from "../values/index.js";
 
 export type { Value } from "../values/index.js";
@@ -17,7 +17,8 @@ export interface CTECacheEntry {
 }
 
 export interface ExecuteResult {
-  rows: Row[];
+  /** The result rows, values in column order; outputColumnNames names them. */
+  rows: Tuple[];
   rowsAffected: number;
   catalogChanges: CatalogChange[];
 }

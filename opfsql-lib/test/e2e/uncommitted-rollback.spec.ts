@@ -1,13 +1,13 @@
 import { test, expect } from "./infra/fixtures";
 import {
   openTab,
-  initDb,
-  openDb,
+  initDatabase,
+  openDatabase,
   exec,
-  closeDb,
+  closeDatabase,
   crashTab,
   cleanOpfs,
-} from "./infra/db";
+} from "./infra/database";
 
 test.describe("Uncommitted data not visible", () => {
   test(
@@ -15,7 +15,7 @@ test.describe("Uncommitted data not visible", () => {
     { tag: "@multi-tab" },
     async ({ context }) => {
       const tabA = await openTab(context);
-      await initDb(tabA);
+      await initDatabase(tabA);
       await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
       await exec(tabA, "INSERT INTO t VALUES (1, 'committed')");
 
@@ -26,13 +26,13 @@ test.describe("Uncommitted data not visible", () => {
 
       // Tab B should NOT see uncommitted rows
       const tabB = await openTab(context);
-      await openDb(tabB);
+      await openDatabase(tabB);
 
       const results = await exec(tabB, "SELECT * FROM t ORDER BY id");
-      expect(results[0].rows).toEqual([{ id: 1, val: "committed" }]);
+      expect(results[0].objects).toEqual([{ id: 1, val: "committed" }]);
 
-      await closeDb(tabB);
-      await closeDb(tabA);
+      await closeDatabase(tabB);
+      await closeDatabase(tabA);
       await cleanOpfs(tabA);
     },
   );
@@ -41,7 +41,7 @@ test.describe("Uncommitted data not visible", () => {
     context,
   }) => {
     const tabA = await openTab(context);
-    await initDb(tabA);
+    await initDatabase(tabA);
     await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
     await exec(tabA, "INSERT INTO t VALUES (1, 'committed')");
 
@@ -53,18 +53,18 @@ test.describe("Uncommitted data not visible", () => {
 
     // New tab should only see committed data
     const tabB = await openTab(context);
-    await openDb(tabB);
+    await openDatabase(tabB);
 
     const results = await exec(tabB, "SELECT * FROM t ORDER BY id");
-    expect(results[0].rows).toEqual([{ id: 1, val: "committed" }]);
+    expect(results[0].objects).toEqual([{ id: 1, val: "committed" }]);
 
-    await closeDb(tabB);
+    await closeDatabase(tabB);
     await cleanOpfs(tabB);
   });
 
   test("ROLLBACK discards data", { tag: "@multi-tab" }, async ({ context }) => {
     const tabA = await openTab(context);
-    await initDb(tabA);
+    await initDatabase(tabA);
     await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await exec(tabA, "INSERT INTO t VALUES (1)");
 
@@ -73,13 +73,13 @@ test.describe("Uncommitted data not visible", () => {
     await exec(tabA, "ROLLBACK");
 
     const tabB = await openTab(context);
-    await openDb(tabB);
+    await openDatabase(tabB);
 
     const results = await exec(tabB, "SELECT * FROM t");
-    expect(results[0].rows).toHaveLength(1);
+    expect(results[0].objects).toHaveLength(1);
 
-    await closeDb(tabB);
-    await closeDb(tabA);
+    await closeDatabase(tabB);
+    await closeDatabase(tabA);
     await cleanOpfs(tabA);
   });
 });

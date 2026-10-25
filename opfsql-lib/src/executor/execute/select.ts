@@ -5,7 +5,6 @@ import type { ExecutionContext, OuterRow } from "../evaluate/index.js";
 import { drainOperator } from "../operators/shared.js";
 import { createPhysicalPlan } from "../planner/index.js";
 import type { CTECacheEntry, ExecuteResult, Tuple } from "../types.js";
-import { extractColumnNames, tuplesToRows } from "./result.js";
 
 /**
  * The context a statement's expressions run in: its parameters, and how
@@ -43,10 +42,7 @@ export function executeSelect(
     context,
     indexManager,
   );
-  const tuples = drainOperator(physical);
-  const columnNames = extractColumnNames(plan);
-  const rows = tuplesToRows(tuples, columnNames);
-
+  const rows = drainOperator(physical);
   return { rows, rowsAffected: 0, catalogChanges: [] };
 }
 

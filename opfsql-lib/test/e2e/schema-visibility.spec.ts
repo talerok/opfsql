@@ -1,5 +1,12 @@
 import { test, expect } from "./infra/fixtures";
-import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
+import {
+  openTab,
+  initDatabase,
+  openDatabase,
+  exec,
+  closeDatabase,
+  cleanOpfs,
+} from "./infra/database";
 
 test.describe(
   "Schema changes visibility across tabs",
@@ -7,10 +14,10 @@ test.describe(
   () => {
     test("CREATE TABLE visible to Tab B", async ({ context }) => {
       const tabA = await openTab(context);
-      await initDb(tabA);
+      await initDatabase(tabA);
 
       const tabB = await openTab(context);
-      await openDb(tabB);
+      await openDatabase(tabB);
 
       await exec(
         tabA,
@@ -22,18 +29,18 @@ test.describe(
       );
 
       const results = await exec(tabB, "SELECT * FROM users");
-      expect(results[0].rows).toEqual([
+      expect(results[0].objects).toEqual([
         { id: 1, name: "Alice", email: "alice@test.com" },
       ]);
 
-      await closeDb(tabB);
-      await closeDb(tabA);
+      await closeDatabase(tabB);
+      await closeDatabase(tabA);
       await cleanOpfs(tabA);
     });
 
     test("CREATE INDEX visible to Tab B", async ({ context }) => {
       const tabA = await openTab(context);
-      await initDb(tabA);
+      await initDatabase(tabA);
       await exec(
         tabA,
         "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)",
@@ -41,7 +48,7 @@ test.describe(
       await exec(tabA, "INSERT INTO products VALUES (1, 'Widget', 9.99)");
 
       const tabB = await openTab(context);
-      await openDb(tabB);
+      await openDatabase(tabB);
 
       await exec(tabA, "CREATE INDEX idx_price ON products (price)");
 
@@ -50,47 +57,47 @@ test.describe(
         tabB,
         "SELECT name FROM products WHERE price < 10.00",
       );
-      expect(results[0].rows).toEqual([{ name: "Widget" }]);
+      expect(results[0].objects).toEqual([{ name: "Widget" }]);
 
-      await closeDb(tabB);
-      await closeDb(tabA);
+      await closeDatabase(tabB);
+      await closeDatabase(tabA);
       await cleanOpfs(tabA);
     });
 
     test("ALTER TABLE ADD COLUMN visible to Tab B", async ({ context }) => {
       const tabA = await openTab(context);
-      await initDb(tabA);
+      await initDatabase(tabA);
       await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
       await exec(tabA, "INSERT INTO t VALUES (1, 'Alice')");
 
       const tabB = await openTab(context);
-      await openDb(tabB);
+      await openDatabase(tabB);
 
       await exec(tabA, "ALTER TABLE t ADD COLUMN age INTEGER DEFAULT 25");
 
       const results = await exec(tabB, "SELECT id, name, age FROM t");
-      expect(results[0].rows).toEqual([{ id: 1, name: "Alice", age: 25 }]);
+      expect(results[0].objects).toEqual([{ id: 1, name: "Alice", age: 25 }]);
 
-      await closeDb(tabB);
-      await closeDb(tabA);
+      await closeDatabase(tabB);
+      await closeDatabase(tabA);
       await cleanOpfs(tabA);
     });
 
     test("DROP TABLE visible to Tab B", async ({ context }) => {
       const tabA = await openTab(context);
-      await initDb(tabA);
+      await initDatabase(tabA);
       await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY)");
 
       const tabB = await openTab(context);
-      await openDb(tabB);
+      await openDatabase(tabB);
 
       await exec(tabA, "DROP TABLE t");
 
       // Tab B should get an error trying to query dropped table
       await expect(exec(tabB, "SELECT * FROM t")).rejects.toThrow();
 
-      await closeDb(tabB);
-      await closeDb(tabA);
+      await closeDatabase(tabB);
+      await closeDatabase(tabA);
       await cleanOpfs(tabA);
     });
   },

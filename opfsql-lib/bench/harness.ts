@@ -1,4 +1,4 @@
-import { Engine } from "../src/index.js";
+import { Engine } from "../src/worker-entry.js";
 import type { Scenario } from "./scenarios.js";
 
 export interface BenchHost {
@@ -74,19 +74,19 @@ async function measure(
     if (!db) {
       const dbName = `bench-${Date.now()}-${i}`;
       const engine = await host.open(dbName);
-      const session = engine.createSession();
+      const session = engine.connect();
       await scenario.setup(session);
-      session.close();
+      await session.close();
       db = { engine, dbName };
       if (scenario.readOnly) shared = db;
     }
 
-    const session = db.engine.createSession();
+    const session = db.engine.connect();
     collectGarbage();
     const start = performance.now();
     await scenario.run(session);
     if (i >= warmup) runs.push(performance.now() - start);
-    session.close();
+    await session.close();
 
     if (!scenario.readOnly) await dispose(db, host);
   }
@@ -95,7 +95,7 @@ async function measure(
 }
 
 async function dispose(db: OpenDatabase, host: BenchHost): Promise<void> {
-  db.engine.close();
+  await db.engine.close();
   await host.remove(db.dbName);
 }
 

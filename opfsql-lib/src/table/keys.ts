@@ -1,3 +1,4 @@
+import { ConstraintError } from "../errors.js";
 import type { Index, IndexKey, Table } from "../schema/index.js";
 import { encodeKey } from "../storage/index.js";
 import type { Value } from "../values/index.js";
@@ -53,4 +54,23 @@ function keyPart(
       return compile(key.sql, table);
     }
   }
+}
+
+/** The error for a row whose key in a unique index another row already has. */
+export function uniqueViolation(table: Table, index: Index): ConstraintError {
+  const kind = index.origin === "primary-key" ? "primary-key" : "unique";
+  const columns = keyColumnNames(table, index);
+  return new ConstraintError(kind, table.name, columns, index.name);
+}
+
+/** The columns an index covers; none if any key part is an expression. */
+function keyColumnNames(table: Table, index: Index): string[] {
+  const names: string[] = [];
+  for (const key of index.keys) {
+    const column =
+      key.kind === "column" ? table.columns[key.column] : undefined;
+    if (column === undefined) return [];
+    names.push(column.name);
+  }
+  return names;
 }

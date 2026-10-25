@@ -15,7 +15,7 @@ import {
 import type { Value } from "../values/index.js";
 import { assignValue, compareBytes } from "../values/index.js";
 import type { KeyedIndex } from "./keys.js";
-import { entryOf } from "./keys.js";
+import { entryOf, uniqueViolation } from "./keys.js";
 import { TableRows } from "./rows.js";
 import type { Sequences } from "./sequences.js";
 
@@ -269,10 +269,7 @@ export class TableEditor extends TableRows {
   }
 
   private uniqueConflict({ keyed }: IndexEditor): ConstraintError {
-    const { index } = keyed;
-    const kind = index.origin === "primary-key" ? "primary-key" : "unique";
-    const columns = keyColumnNames(this.table, keyed);
-    return new ConstraintError(kind, this.table.name, columns, index.name);
+    return uniqueViolation(this.table, keyed.index);
   }
 }
 
@@ -293,16 +290,4 @@ function moveEntry(index: IndexEditor, from: Uint8Array, to: Uint8Array): void {
   if (compareBytes(from, to) === 0) return;
   index.entries.delete(from);
   index.entries.insert(to);
-}
-
-/** The columns an index covers; none if any key part is an expression. */
-function keyColumnNames(table: Table, keyed: KeyedIndex): string[] {
-  const names: string[] = [];
-  for (const key of keyed.index.keys) {
-    const column =
-      key.kind === "column" ? table.columns[key.column] : undefined;
-    if (column === undefined) return [];
-    names.push(column.name);
-  }
-  return names;
 }

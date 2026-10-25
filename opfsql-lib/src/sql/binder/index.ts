@@ -29,8 +29,14 @@ export class Binder {
     this.ctx = createBindContext(catalog);
   }
 
+  /** How many parameters the statement bound last takes: its highest $n. */
+  get parameterCount(): number {
+    return this.ctx.parameterCount();
+  }
+
   bindStatement(stmt: Statement): LogicalOperator {
     this.ctx.resetTableIndex();
+    this.ctx.resetParameters();
 
     switch (stmt.type) {
       case StatementType.SELECT_STATEMENT: {

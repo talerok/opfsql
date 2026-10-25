@@ -1,13 +1,17 @@
-import type { CatalogData, ICatalog, IndexDef, TableSchema } from "./types.js";
+import type {
+  CatalogContents,
+  ICatalog,
+  IndexDef,
+  TableSchema,
+} from "./types.js";
 
+/**
+ * Tables and indexes. Its schema version is not its business: the commit
+ * that stores it assigns one (engine/schema.ts).
+ */
 export class Catalog implements ICatalog {
-  private _version = 0;
   private tables = new Map<string, TableSchema>();
   private indexes = new Map<string, IndexDef>();
-
-  get version(): number {
-    return this._version;
-  }
 
   private key(name: string): string {
     return name.toLowerCase();
@@ -66,33 +70,21 @@ export class Catalog implements ICatalog {
     this.indexes.delete(this.key(name));
   }
 
-  prepareCommit(): CatalogData {
-    this._version++;
-    return this.serialize();
-  }
-
-  serialize(): CatalogData {
+  serialize(): CatalogContents {
     return {
-      version: this.version,
       tables: [...this.tables.values()],
       indexes: [...this.indexes.values()],
     };
-  }
-
-  snapshot(): CatalogData {
-    const data = this.serialize();
-    return structuredClone(data);
   }
 
   clone(): Catalog {
     return Catalog.deserialize(this.serialize());
   }
 
-  static deserialize(data: CatalogData): Catalog {
+  static deserialize(data: CatalogContents): Catalog {
     const catalog = new Catalog();
     for (const table of data.tables) catalog.addTable(table);
     for (const index of data.indexes) catalog.addIndex(index);
-    catalog._version = data.version ?? 0;
     return catalog;
   }
 }

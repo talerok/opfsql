@@ -14,6 +14,8 @@ import { parseQuery } from "./query.js";
 import {
   StatementType,
   TransactionType,
+  type BeginMode,
+  type BeginStatement,
   type Statement,
   type TransactionStatement,
 } from "./types.js";
@@ -89,25 +91,34 @@ function parseStatement(cursor: Cursor): Statement {
 
 // --- Transactions and EXPLAIN ---------------------------------------------------------
 
-function transaction(transactionType: TransactionType): TransactionStatement {
-  return { type: StatementType.TRANSACTION_STATEMENT, transactionType };
+/** `BEGIN [DEFERRED | IMMEDIATE] [TRANSACTION]`. */
+function parseBegin(cursor: Cursor): BeginStatement {
+  cursor.next();
+  const mode = parseBeginMode(cursor);
+  parseTransactionKeyword(cursor);
+  return {
+    type: StatementType.TRANSACTION_STATEMENT,
+    transactionType: TransactionType.BEGIN,
+    mode,
+  };
 }
 
-/** `BEGIN [TRANSACTION]`; DEFERRED, IMMEDIATE and EXCLUSIVE are not supported. */
-function parseBegin(cursor: Cursor): TransactionStatement {
-  cursor.next();
-  cursor.rejectWord("DEFERRED", "BEGIN DEFERRED");
-  cursor.rejectWord("IMMEDIATE", "BEGIN IMMEDIATE");
+/** DEFERRED, the default, or IMMEDIATE; EXCLUSIVE is not supported. */
+function parseBeginMode(cursor: Cursor): BeginMode {
   cursor.rejectWord("EXCLUSIVE", "BEGIN EXCLUSIVE");
-  parseTransactionKeyword(cursor);
-  return transaction(TransactionType.BEGIN);
+  if (cursor.isWord("IMMEDIATE")) {
+    cursor.next();
+    return "IMMEDIATE";
+  }
+  if (cursor.isWord("DEFERRED")) cursor.next();
+  return "DEFERRED";
 }
 
 /** `COMMIT [TRANSACTION]` or `END [TRANSACTION]`. */
 function parseTransactionEnd(cursor: Cursor): TransactionStatement {
   cursor.next();
   parseTransactionKeyword(cursor);
-  return transaction(TransactionType.COMMIT);
+  return transactionEnd(TransactionType.COMMIT);
 }
 
 /** `ROLLBACK [TRANSACTION]`; ROLLBACK TO a savepoint is not supported. */
@@ -116,7 +127,13 @@ function parseRollback(cursor: Cursor): TransactionStatement {
   const hasKeyword = cursor.matchKeyword("TRANSACTION");
   cursor.rejectWord("TO", "ROLLBACK TO");
   if (hasKeyword) rejectTransactionName(cursor);
-  return transaction(TransactionType.ROLLBACK);
+  return transactionEnd(TransactionType.ROLLBACK);
+}
+
+type EndType = TransactionType.COMMIT | TransactionType.ROLLBACK;
+
+function transactionEnd(transactionType: EndType): TransactionStatement {
+  return { type: StatementType.TRANSACTION_STATEMENT, transactionType };
 }
 
 /** `[TRANSACTION]` */

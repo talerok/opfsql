@@ -12,29 +12,44 @@ let seq = 0;
 beforeEach(async () => {
   resetMockOPFS();
   engine = await openTestEngine(`large-rows-${seq++}`);
-  session = engine.createSession();
+  session = engine.connect();
   await session.execute(
     "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)",
   );
 });
 
-afterEach(() => {
-  session.close();
-  engine.close();
+afterEach(async () => {
+  await session.close();
+  await engine.close();
 });
 
 const BIG = "x".repeat(40 * 1024);
 
+/** An oversized row fails with TOO_LARGE, the storage's details as its cause. */
+async function expectTooLarge(work: Promise<unknown>): Promise<void> {
+  await expect(work).rejects.toMatchObject({ code: "TOO_LARGE" });
+  expect(await causeOf(work)).toBeInstanceOf(RowTooLargeError);
+}
+
+async function causeOf(work: Promise<unknown>): Promise<unknown> {
+  try {
+    await work;
+  } catch (error) {
+    return (error as Error).cause;
+  }
+  return null;
+}
+
 async function bodies(table: string): Promise<unknown[]> {
   const [r] = await session.execute(`SELECT body FROM ${table} ORDER BY id`);
-  return r.type === "rows" ? r.rows.map((row) => row.body) : [];
+  return r.objects().map((row) => row.body);
 }
 
 describe("large rows", () => {
   it("an oversized row is rejected and leaves no trace", async () => {
-    await expect(
-      session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]),
-    ).rejects.toThrow(RowTooLargeError);
+    await expectTooLarge(
+      session.query("INSERT INTO t (body) VALUES ($1)", [BIG]),
+    );
     expect(await bodies("t")).toEqual([]);
 
     await session.execute("INSERT INTO t (body) VALUES ('small')");
@@ -46,9 +61,9 @@ describe("large rows", () => {
     await session.execute(
       "CREATE TABLE w (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)",
     );
-    await expect(
-      session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]),
-    ).rejects.toThrow(RowTooLargeError);
+    await expectTooLarge(
+      session.query("INSERT INTO t (body) VALUES ($1)", [BIG]),
+    );
 
     for (let i = 0; i < 200; i++) {
       await session.execute("INSERT INTO t (body) VALUES ('t')");
@@ -61,12 +76,12 @@ describe("large rows", () => {
   it("an oversized row aborts the transaction it is in", async () => {
     await session.execute("BEGIN");
     await session.execute("INSERT INTO t (body) VALUES ('a')");
-    await expect(
-      session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]),
-    ).rejects.toThrow(RowTooLargeError);
-    await expect(session.execute("COMMIT")).rejects.toThrow(
-      "COMMIT treated as ROLLBACK",
+    await expectTooLarge(
+      session.query("INSERT INTO t (body) VALUES ($1)", [BIG]),
     );
+    await expect(session.execute("COMMIT")).rejects.toMatchObject({
+      code: "TRANSACTION_ABORTED",
+    });
 
     expect(await bodies("t")).toEqual([]);
     await session.execute("INSERT INTO t (body) VALUES ('b')");
@@ -76,7 +91,7 @@ describe("large rows", () => {
   it("stores many medium rows in one table", async () => {
     const medium = "y".repeat(500);
     for (let i = 0; i < 300; i++) {
-      await session.execute("INSERT INTO t (body) VALUES ($1)", [medium]);
+      await session.query("INSERT INTO t (body) VALUES ($1)", [medium]);
     }
     expect(await bodies("t")).toEqual(Array(300).fill(medium));
   });
@@ -84,7 +99,7 @@ describe("large rows", () => {
   // A known limit, lifted by overflow pages. it.fails passes while the limit
   // holds and flags the test once it is lifted.
   it.fails("stores rows larger than a page", async () => {
-    await session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]);
+    await session.query("INSERT INTO t (body) VALUES ($1)", [BIG]);
     expect(await bodies("t")).toEqual([BIG]);
   });
 });
