@@ -87,6 +87,17 @@ export class AllocationMapReader {
     return 0;
   }
 
+  /** Every page below `pageCount` marked in use, in order. */
+  markedPages(pageCount: number): number[] {
+    return groupStarts(0, pageCount, this.size).flatMap((start) => {
+      const bits = setBitsBelow(
+        this.mapOf(start),
+        this.endBit(start, pageCount),
+      );
+      return bits.map((bit) => start + bit);
+    });
+  }
+
   /** True if a page at or past `pageCount`, which cannot be in use, is marked so. */
   hasBitsPast(pageCount: number): boolean {
     const lastStart = groupStartOf(pageCount - 1, this.size);
@@ -179,6 +190,14 @@ function firstClearBit(
     bit++;
   }
   return null;
+}
+
+function setBitsBelow(map: Uint8Array, end: number): number[] {
+  const bits: number[] = [];
+  for (let bit = 0; bit < end; bit++) {
+    if (isBitSet(map, bit)) bits.push(bit);
+  }
+  return bits;
 }
 
 /** The last set bit below `end`, or null. */

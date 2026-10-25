@@ -30,6 +30,11 @@ export class ReadTransaction implements PageReader {
     return this.pager.pageSize;
   }
 
+  /** Pages in the database as of the snapshot. */
+  get pageCount(): number {
+    return this.pager.pageCount(this.snapshot);
+  }
+
   /** Incremented by every transaction that changes the schema. */
   get schemaVersion(): number {
     return schemaVersionOf(this.read(HEADER_PAGE));
@@ -61,15 +66,20 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   private readonly dirty = new Map<number, Uint8Array>();
   private readonly map: AllocationMap;
   private readonly initialPageCount: number;
-  private pageCount: number;
+  private currentPageCount: number;
   /** No page below this one is free. */
   private freeHint = FIRST_ALLOCATABLE;
 
   constructor(pager: Pager, snapshot: number) {
     super(pager, snapshot);
     this.initialPageCount = pager.pageCount(snapshot);
-    this.pageCount = this.initialPageCount;
+    this.currentPageCount = this.initialPageCount;
     this.map = new AllocationMap(this);
+  }
+
+  /** Pages in the database with this transaction's changes. */
+  override get pageCount(): number {
+    return this.currentPageCount;
   }
 
   override read(pageNo: number): Uint8Array {
@@ -89,7 +99,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   allocate(): number {
     this.ensureOpen();
     const pageNo =
-      this.map.findFree(this.freeHint, this.pageCount) ?? this.extend();
+      this.map.findFree(this.freeHint, this.currentPageCount) ?? this.extend();
     this.map.markInUse(pageNo);
     this.dirty.set(pageNo, new Uint8Array(this.pageSize));
     this.freeHint = pageNo + 1;
@@ -117,7 +127,8 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     this.ensureOpen();
     try {
       this.ensureNoOtherCommit();
-      if (this.hasChanges()) this.pager.append(this.dirty, this.pageCount);
+      if (this.hasChanges())
+        this.pager.append(this.dirty, this.currentPageCount);
     } finally {
       this.dirty.clear();
       this.end();
@@ -141,13 +152,15 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   }
 
   private hasChanges(): boolean {
-    return this.dirty.size > 0 || this.pageCount !== this.initialPageCount;
+    return (
+      this.dirty.size > 0 || this.currentPageCount !== this.initialPageCount
+    );
   }
 
   /** Adds a page at the end of the file. */
   private extend(): number {
-    const pageNo = this.pageCount;
-    this.pageCount = pageNo + 1;
+    const pageNo = this.currentPageCount;
+    this.currentPageCount = pageNo + 1;
     if (isGroupStart(pageNo, this.pageSize)) this.addMapPage(pageNo + 1);
     return pageNo;
   }
@@ -155,6 +168,6 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   /** A new group's allocation map, which follows the group's first page. */
   private addMapPage(mapPageNo: number): void {
     this.dirty.set(mapPageNo, newMapPage(this.pageSize, mapPageNo));
-    this.pageCount = mapPageNo + 1;
+    this.currentPageCount = mapPageNo + 1;
   }
 }

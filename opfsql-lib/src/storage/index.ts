@@ -3,6 +3,7 @@
 // schema entries stored in them.
 
 export type { PageReader, PageWriter } from "./btree/page-store.js";
+export { checkStorage, type SnapshotPages } from "./check.js";
 export { decodeKey, encodeKey, keyRowid, prefixEnd } from "./format/key.js";
 export {
   openOpfsFiles,
