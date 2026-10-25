@@ -6,14 +6,16 @@ import {
 } from "../core/utils/find-column.js";
 import {
   evalConstantInt,
-  evalConstantValue,
+  evalDefaultValue,
 } from "../core/utils/eval-constant.js";
 import {
   findProjection,
   extractColumnsFromPlan,
 } from "../core/utils/extract-columns.js";
 import { requireTable } from "../core/utils/require-table.js";
-import { ExpressionClass } from "../../parser/types.js";
+import { NotSupportedError, SemanticError } from "../../../errors.js";
+import { parse } from "../../parser/index.js";
+import { StatementType, type ParsedExpression } from "../../parser/types.js";
 import type { TableSchema } from "../../../store/types.js";
 import type { ColumnDef } from "../../../types.js";
 import { BoundExpressionClass, LogicalOperatorType } from "../types.js";
@@ -157,53 +159,57 @@ describe("getPrimaryKeyColumns", () => {
 // eval-constant
 // ---------------------------------------------------------------------------
 
+/** The first select list item of `SELECT <sql>`. */
+function expressionOf(sql: string): ParsedExpression {
+  const [statement] = parse(`SELECT ${sql}`);
+  if (statement.type !== StatementType.SELECT_STATEMENT) {
+    throw new Error("expected a SELECT");
+  }
+  const node = statement.node;
+  if (node.type !== "SELECT_NODE") throw new Error("expected a SELECT node");
+  return node.selectList[0];
+}
+
 describe("evalConstantInt", () => {
   it("extracts integer from constant expression", () => {
-    const expr = {
-      expression_class: ExpressionClass.CONSTANT,
-      value: { type: "INTEGER" as const, value: 42 },
-    };
-    expect(evalConstantInt(expr as any)).toBe(42);
+    expect(evalConstantInt(expressionOf("42"))).toBe(42);
   });
 
   it("throws for negative integer", () => {
-    const expr = {
-      expression_class: ExpressionClass.CONSTANT,
-      value: { type: "INTEGER" as const, value: -5 },
-    };
-    expect(() => evalConstantInt(expr as any)).toThrow(BindError);
+    expect(() => evalConstantInt(expressionOf("-5"))).toThrow(BindError);
   });
 
   it("throws for non-constant expression", () => {
-    const expr = {
-      expression_class: ExpressionClass.COLUMN_REF,
-    };
-    expect(() => evalConstantInt(expr as any)).toThrow(BindError);
+    expect(() => evalConstantInt(expressionOf("a"))).toThrow(BindError);
   });
 
   it("throws for string constant", () => {
-    const expr = {
-      expression_class: ExpressionClass.CONSTANT,
-      value: { type: "TEXT" as const, value: "hello" },
-    };
-    expect(() => evalConstantInt(expr as any)).toThrow(BindError);
+    expect(() => evalConstantInt(expressionOf("'hello'"))).toThrow(BindError);
   });
 });
 
-describe("evalConstantValue", () => {
+describe("evalDefaultValue", () => {
   it("extracts value from constant expression", () => {
-    const expr = {
-      expression_class: ExpressionClass.CONSTANT,
-      value: { type: "TEXT" as const, value: "hello" },
-    };
-    expect(evalConstantValue(expr as any)).toBe("hello");
+    expect(evalDefaultValue("c", expressionOf("'hello'"))).toBe("hello");
+    expect(evalDefaultValue("c", expressionOf("-1"))).toBe(-1);
+    expect(evalDefaultValue("c", expressionOf("NULL"))).toBeNull();
+    expect(evalDefaultValue("c", expressionOf("(1)"))).toBe(1);
   });
 
-  it("returns null for non-constant expression", () => {
-    const expr = {
-      expression_class: ExpressionClass.COLUMN_REF,
-    };
-    expect(evalConstantValue(expr as any)).toBeNull();
+  it("rejects an expression that is not constant", () => {
+    for (const sql of ["a", "$1", "(SELECT 1)", "1 + a", "lower(a)"]) {
+      expect(() => evalDefaultValue("c", expressionOf(sql))).toThrow(
+        SemanticError,
+      );
+    }
+  });
+
+  it("does not evaluate a constant expression yet", () => {
+    for (const sql of ["1 + 2", "lower('A')", "CAST(1 AS TEXT)"]) {
+      expect(() => evalDefaultValue("c", expressionOf(sql))).toThrow(
+        NotSupportedError,
+      );
+    }
   });
 });
 

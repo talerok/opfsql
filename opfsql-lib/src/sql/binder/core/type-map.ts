@@ -1,30 +1,20 @@
-import { ExpressionType, LogicalTypeId } from "../../parser/types.js";
+import { SemanticError } from "../../../errors.js";
+import { typeFromName } from "../../../values/index.js";
+import { ExpressionType } from "../../parser/types.js";
 import type { LogicalType } from "../../../store/types.js";
 import type { ComparisonType, OperatorType } from "../types.js";
 import { BindError } from "./errors.js";
 
-export function mapParserType(parserType: { id: string }): LogicalType {
-  switch (parserType.id) {
-    case LogicalTypeId.INTEGER:
-      return "INTEGER";
-    case LogicalTypeId.BIGINT:
-      return "BIGINT";
-    case LogicalTypeId.SMALLINT:
-      return "INTEGER";
-    case LogicalTypeId.FLOAT:
-    case LogicalTypeId.DOUBLE:
-      return "REAL";
-    case LogicalTypeId.VARCHAR:
-      return "TEXT";
-    case LogicalTypeId.BLOB:
-      return "BLOB";
-    case LogicalTypeId.BOOLEAN:
-      return "BOOLEAN";
-    case LogicalTypeId.JSON:
-      return "JSON";
-    default:
-      return "ANY";
-  }
+/**
+ * The type a declared type name stands for (docs/semantics.md, Column
+ * types); no declared type is ANY. The store still tells BIGINT from
+ * INTEGER, so BIGINT keeps its own type here.
+ */
+export function mapTypeName(declared: string | null): LogicalType {
+  if (declared === null) return "ANY";
+  const type = typeFromName(declared);
+  if (type === null) throw new SemanticError(`unknown type ${declared}`);
+  return type === "INTEGER" && /^\s*bigint\b/i.test(declared) ? "BIGINT" : type;
 }
 
 export function mapComparisonType(exprType: ExpressionType): ComparisonType {

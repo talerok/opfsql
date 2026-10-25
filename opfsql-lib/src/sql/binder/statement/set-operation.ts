@@ -1,11 +1,13 @@
+import { NotSupportedError } from "../../../errors.js";
 import type { OrderByNode, SetOperationNode } from "../../parser/types.js";
-import { ResultModifierType } from "../../parser/types.js";
+import { ResultModifierType, SetOperationType } from "../../parser/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
 import { makeLimit, makeOrderBy } from "../core/operators.js";
 import type { BindScope } from "../core/scope.js";
 import { checkTypeCompatibility } from "../core/type-check.js";
 import { evalConstantInt } from "../core/utils/eval-constant.js";
+import { nullOrderOf } from "../core/utils/null-order.js";
 import { bindExpression } from "../expression/index.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";
@@ -18,7 +20,13 @@ export function bindSetOperation(
   node: SetOperationNode,
   scope: BindScope,
 ): BT.LogicalOperator {
-  const cteEntries = collectCTEs(ctx, node.cte_map, scope);
+  if (
+    node.setOperationType === SetOperationType.INTERSECT ||
+    node.setOperationType === SetOperationType.EXCEPT
+  ) {
+    throw new NotSupportedError(node.setOperationType);
+  }
+  const cteEntries = collectCTEs(ctx, node.cteMap, scope);
 
   const left = bindQueryNode(ctx, node.left, scope);
 
@@ -37,7 +45,7 @@ export function bindSetOperation(
   let plan: BT.LogicalOperator = {
     type: LogicalOperatorType.LOGICAL_UNION,
     children: [left, right],
-    all: node.set_op_type === "UNION_ALL",
+    all: node.setOperationType === "UNION_ALL",
     expressions: [],
     types: left.types,
     estimatedCardinality: 0,
@@ -78,12 +86,12 @@ export function bindSetOperation(
 
 function bindOrders(
   ctx: BindContext,
-  orders: OrderByNode[],
+  orders: readonly OrderByNode[],
   scope: BindScope,
 ): BT.BoundOrderByNode[] {
   return orders.map((o) => ({
     expression: bindExpression(ctx, o.expression, scope),
     orderType: o.type,
-    nullOrder: o.null_order,
+    nullOrder: nullOrderOf(o),
   }));
 }

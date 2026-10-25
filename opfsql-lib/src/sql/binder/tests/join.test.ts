@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { NotSupportedError } from "../../../errors.js";
 import { BindError } from "../core/errors.js";
 import type {
   BoundColumnRefExpression,
@@ -90,12 +91,12 @@ describe("JOIN — additional", () => {
     expect(rightCol.tableName).toBe("orders");
   });
 
-  it("RIGHT JOIN throws BindError", () => {
+  it("RIGHT JOIN throws NotSupportedError", () => {
     expect(() =>
       bind(
         "SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id",
       ),
-    ).toThrow(BindError);
+    ).toThrow(NotSupportedError);
     expect(() =>
       bind(
         "SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id",

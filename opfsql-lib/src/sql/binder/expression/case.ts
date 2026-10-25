@@ -1,4 +1,5 @@
-import type { CaseExpression } from "../../parser/types.js";
+import type { CaseExpression, ParsedExpression } from "../../parser/types.js";
+import { ExpressionClass, ExpressionType } from "../../parser/types.js";
 import type { LogicalType } from "../../../store/types.js";
 import type { AggregateContext, BindContext } from "../core/context.js";
 import type { BindScope } from "../core/scope.js";
@@ -13,12 +14,17 @@ export function bindCase(
   scope: BindScope,
   aggCtx?: AggregateContext,
 ): BoundCaseExpression {
-  const caseChecks = expr.case_checks.map((c) => ({
-    when: bindExpression(ctx, c.when_expr, scope, aggCtx),
-    then: bindExpression(ctx, c.then_expr, scope, aggCtx),
+  const caseChecks = expr.caseChecks.map((c) => ({
+    when: bindExpression(
+      ctx,
+      whenCondition(expr, c.whenExpression),
+      scope,
+      aggCtx,
+    ),
+    then: bindExpression(ctx, c.thenExpression, scope, aggCtx),
   }));
-  const elseExpr = expr.else_expr
-    ? bindExpression(ctx, expr.else_expr, scope, aggCtx)
+  const elseExpr = expr.elseExpression
+    ? bindExpression(ctx, expr.elseExpression, scope, aggCtx)
     : null;
 
   let returnType: LogicalType =
@@ -38,5 +44,20 @@ export function bindCase(
     caseChecks,
     elseExpr,
     returnType,
+  };
+}
+
+/** `CASE x WHEN v` tests `x = v`, binding the operand once per WHEN. */
+function whenCondition(
+  caseExpression: CaseExpression,
+  when: ParsedExpression,
+): ParsedExpression {
+  if (caseExpression.operand === null) return when;
+  return {
+    expressionClass: ExpressionClass.COMPARISON,
+    alias: null,
+    type: ExpressionType.COMPARE_EQUAL,
+    left: caseExpression.operand,
+    right: when,
   };
 }

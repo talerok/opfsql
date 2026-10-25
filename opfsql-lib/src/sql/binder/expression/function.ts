@@ -14,7 +14,7 @@ export function bindFunction(
   scope: BindScope,
   aggCtx?: AggregateContext,
 ): BoundExpression {
-  const name = expr.function_name.toUpperCase();
+  const name = expr.functionName.toUpperCase();
 
   if (AGGREGATE_FUNCTIONS.has(name)) {
     const bound = bindAggregate(ctx, expr, scope);

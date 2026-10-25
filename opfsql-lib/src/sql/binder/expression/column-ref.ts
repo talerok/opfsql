@@ -1,5 +1,5 @@
 import type {
-  ColumnRefExpression,
+  ColumnReferenceExpression,
   JsonPathSegment,
 } from "../../parser/types.js";
 import type {
@@ -14,11 +14,11 @@ import { BindError } from "../core/errors.js";
 import { sameExpression } from "./same-expression.js";
 
 export function bindColumnRef(
-  expr: ColumnRefExpression,
+  expr: ColumnReferenceExpression,
   scope: BindScope,
   aggCtx?: AggregateContext,
 ): BoundExpression {
-  const names = expr.column_names;
+  const names = expr.columnNames;
 
   // Resolve column: try first 2 as table.column, then first 1 as column
   let resolved: BoundColumnRefExpression;

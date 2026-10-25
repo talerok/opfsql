@@ -12,17 +12,17 @@ export function bindCreateIndex(
   ctx: BindContext,
   stmt: CreateIndexStatement,
 ): BT.LogicalCreateIndex {
-  const schema = requireTable(ctx, stmt.table_name);
+  const schema = requireTable(ctx, stmt.tableName);
 
-  if (stmt.index_name.toLowerCase().startsWith("__pk_")) {
+  if (stmt.indexName.toLowerCase().startsWith("__pk_")) {
     throw new BindError(
-      `Index name "${stmt.index_name}" uses reserved prefix "__pk_"`,
+      `Index name "${stmt.indexName}" uses reserved prefix "__pk_"`,
     );
   }
 
   // Create a mini bind scope with just the indexed table
   const scope = ctx.createScope();
-  scope.addTable(stmt.table_name, stmt.table_name, schema);
+  scope.addTable(stmt.tableName, stmt.tableName, schema);
 
   const indexExpressions: IndexExpression[] = [];
 
@@ -58,12 +58,12 @@ export function bindCreateIndex(
   return {
     type: LogicalOperatorType.LOGICAL_CREATE_INDEX,
     index: {
-      name: stmt.index_name,
-      tableName: stmt.table_name,
+      name: stmt.indexName,
+      tableName: stmt.tableName,
       expressions: indexExpressions,
-      unique: stmt.is_unique,
+      unique: stmt.isUnique,
     },
-    ifNotExists: stmt.if_not_exists,
+    ifNotExists: stmt.ifNotExists,
     children: [],
     expressions: [],
     types: [],

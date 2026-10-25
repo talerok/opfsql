@@ -1,4 +1,4 @@
-import type { BaseTableRef } from "../../parser/types.js";
+import type { BaseTableReference } from "../../parser/types.js";
 import type { TableSchema } from "../../../store/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
@@ -9,12 +9,12 @@ import { LogicalOperatorType } from "../types.js";
 
 export function bindBaseTableRef(
   ctx: BindContext,
-  ref: BaseTableRef,
+  ref: BaseTableReference,
   scope: BindScope,
 ): BT.LogicalOperator {
-  const alias = ref.alias ?? ref.table_name;
+  const alias = ref.alias ?? ref.tableName;
 
-  const cte = scope.getCTE(ref.table_name);
+  const cte = scope.getCTE(ref.tableName);
   if (cte) {
     const columns = extractColumnsFromPlan(cte.plan, cte.plan.types);
     if (cte.aliases.length > 0) {
@@ -22,12 +22,12 @@ export function bindBaseTableRef(
         columns[i] = { ...columns[i], name: cte.aliases[i] };
       }
     }
-    const virtualSchema: TableSchema = { name: ref.table_name, columns };
-    const entry = scope.addTable(ref.table_name, alias, virtualSchema);
+    const virtualSchema: TableSchema = { name: ref.tableName, columns };
+    const entry = scope.addTable(ref.tableName, alias, virtualSchema);
 
     return {
       type: LogicalOperatorType.LOGICAL_CTE_REF,
-      cteName: ref.table_name,
+      cteName: ref.tableName,
       cteIndex: cte.index,
       children: [],
       expressions: [],
@@ -40,12 +40,12 @@ export function bindBaseTableRef(
     } satisfies BT.LogicalCTERef;
   }
 
-  const schema = ctx.catalog.getTable(ref.table_name);
+  const schema = ctx.catalog.getTable(ref.tableName);
   if (!schema) {
-    throw new BindError(`Table "${ref.table_name}" not found`);
+    throw new BindError(`Table "${ref.tableName}" not found`);
   }
 
-  const entry = scope.addTable(ref.table_name, alias, schema);
+  const entry = scope.addTable(ref.tableName, alias, schema);
   const columnIds = schema.columns.map((_, i) => i);
   const types = schema.columns.map((c) => c.type);
 

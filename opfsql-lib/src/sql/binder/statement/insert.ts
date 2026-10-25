@@ -24,7 +24,7 @@ export function bindInsert(
   const columnIndices = resolveColumns(stmt, schema);
 
   let result: BT.LogicalInsert;
-  if (stmt.select_statement) {
+  if (stmt.selectStatement) {
     result = bindInsertSelect(ctx, stmt, schema, columnIndices);
   } else {
     result = bindInsertValues(ctx, stmt, schema, columnIndices);
@@ -63,7 +63,7 @@ function bindInsertSelect(
   columnIndices: number[],
 ): BT.LogicalInsert {
   const scope = ctx.createScope();
-  const selectPlan = bindQueryNode(ctx, stmt.select_statement!.node, scope);
+  const selectPlan = bindQueryNode(ctx, stmt.selectStatement!.node, scope);
 
   if (selectPlan.types.length !== columnIndices.length) {
     throw new BindError(

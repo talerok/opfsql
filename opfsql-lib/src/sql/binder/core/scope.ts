@@ -14,7 +14,7 @@ export interface BindingEntry {
 interface CTEEntry {
   plan: LogicalOperator;
   index: number;
-  aliases: string[];
+  aliases: readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ export class BindScope {
     name: string,
     plan: LogicalOperator,
     index: number,
-    aliases: string[] = [],
+    aliases: readonly string[] = [],
   ): void {
     this.ctes.set(name.toLowerCase(), { plan, index, aliases });
   }

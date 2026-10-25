@@ -2,8 +2,8 @@ import type { CreateTableStatement } from "../../parser/types.js";
 import type { ColumnDef, TableSchema } from "../../../store/types.js";
 import type { BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
-import { mapParserType } from "../core/type-map.js";
-import { evalConstantValue } from "../core/utils/eval-constant.js";
+import { mapTypeName } from "../core/type-map.js";
+import { evalDefaultValue } from "../core/utils/eval-constant.js";
 import type * as BT from "../types.js";
 import { LogicalOperatorType } from "../types.js";
 
@@ -13,11 +13,9 @@ export function bindCreateTable(
 ): BT.LogicalCreateTable {
   const columns: ColumnDef[] = stmt.columns.map((col) => {
     const isPk =
-      col.is_primary_key ||
-      stmt.primary_key.some(
-        (pk) => pk.toLowerCase() === col.name.toLowerCase(),
-      );
-    const colType = mapParserType(col.type);
+      col.isPrimaryKey ||
+      stmt.primaryKey.some((pk) => pk.toLowerCase() === col.name.toLowerCase());
+    const colType = mapTypeName(col.type);
 
     if (colType === "JSON" || colType === "BLOB") {
       if (isPk) {
@@ -25,12 +23,12 @@ export function bindCreateTable(
           `${colType} column "${col.name}" cannot be a PRIMARY KEY`,
         );
       }
-      if (col.is_unique) {
+      if (col.isUnique) {
         throw new BindError(`${colType} column "${col.name}" cannot be UNIQUE`);
       }
     }
 
-    if (col.is_autoincrement) {
+    if (col.isAutoincrement) {
       if (!isPk) {
         throw new BindError(
           `AUTOINCREMENT is only allowed on PRIMARY KEY columns`,
@@ -44,12 +42,12 @@ export function bindCreateTable(
     return {
       name: col.name,
       type: colType,
-      nullable: !col.is_not_null && !isPk,
+      nullable: !col.isNotNull && !isPk,
       primaryKey: isPk,
-      unique: col.is_unique,
-      autoIncrement: col.is_autoincrement,
-      defaultValue: col.default_value
-        ? evalConstantValue(col.default_value)
+      unique: col.isUnique,
+      autoIncrement: col.isAutoincrement,
+      defaultValue: col.defaultValue
+        ? evalDefaultValue(col.name, col.defaultValue)
         : null,
     };
   });
@@ -63,7 +61,7 @@ export function bindCreateTable(
   return {
     type: LogicalOperatorType.LOGICAL_CREATE_TABLE,
     schema,
-    ifNotExists: stmt.if_not_exists,
+    ifNotExists: stmt.ifNotExists,
     children: [],
     expressions: [],
     types: [],

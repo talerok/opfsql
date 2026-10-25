@@ -1,6 +1,6 @@
 import type {
   ParsedExpression,
-  ColumnRefExpression,
+  ColumnReferenceExpression,
   ConstantExpression,
   ParameterExpression,
   ComparisonExpression,
@@ -36,9 +36,9 @@ export function bindExpression(
   scope: BindScope,
   aggCtx?: AggregateContext,
 ): BoundExpression {
-  switch (expr.expression_class) {
+  switch (expr.expressionClass) {
     case ExpressionClass.COLUMN_REF:
-      return bindColumnRef(expr as ColumnRefExpression, scope, aggCtx);
+      return bindColumnRef(expr as ColumnReferenceExpression, scope, aggCtx);
     case ExpressionClass.CONSTANT:
       return bindConstant(expr as ConstantExpression);
     case ExpressionClass.PARAMETER:

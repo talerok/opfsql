@@ -1,7 +1,7 @@
 import type {
   ComparisonExpression,
   ConjunctionExpression,
-  JoinRef,
+  JoinReference,
   ParsedExpression,
 } from "../../parser/types.js";
 import {
@@ -9,8 +9,8 @@ import {
   ExpressionType,
   JoinType,
 } from "../../parser/types.js";
+import { NotSupportedError } from "../../../errors.js";
 import type { BindContext } from "../core/context.js";
-import { BindError } from "../core/errors.js";
 import type { BindScope } from "../core/scope.js";
 import { checkTypeCompatibility } from "../core/type-check.js";
 import { mapComparisonType } from "../core/type-map.js";
@@ -22,7 +22,7 @@ import { bindTableRef } from "./index.js";
 
 export function bindJoinRef(
   ctx: BindContext,
-  ref: JoinRef,
+  ref: JoinReference,
   scope: BindScope,
 ): BT.LogicalOperator {
   const bindingsBefore = scope.getAllBindings().length;
@@ -30,7 +30,7 @@ export function bindJoinRef(
   const bindingsAfterLeft = scope.getAllBindings().length;
   const right = bindTableRef(ctx, ref.right, scope);
 
-  if (ref.join_type === JoinType.CROSS) {
+  if (ref.joinType === JoinType.CROSS) {
     return {
       type: LogicalOperatorType.LOGICAL_CROSS_PRODUCT,
       children: [left, right],
@@ -41,21 +41,21 @@ export function bindJoinRef(
     } satisfies BT.LogicalCrossProduct;
   }
 
-  if (ref.join_type === JoinType.RIGHT) {
-    throw new BindError("RIGHT JOIN is not supported");
+  if (ref.joinType === JoinType.RIGHT) {
+    throw new NotSupportedError("RIGHT JOIN");
   }
 
   const joinType: "INNER" | "LEFT" =
-    ref.join_type === JoinType.LEFT ? "LEFT" : "INNER";
+    ref.joinType === JoinType.LEFT ? "LEFT" : "INNER";
 
   let conditions: BT.JoinCondition[] = [];
 
-  if (ref.using_columns.length > 0) {
+  if (ref.usingColumns.length > 0) {
     const allBindings = scope.getAllBindings();
     const leftEntries = allBindings.slice(bindingsBefore, bindingsAfterLeft);
     const rightEntries = allBindings.slice(bindingsAfterLeft);
 
-    for (const colName of ref.using_columns) {
+    for (const colName of ref.usingColumns) {
       conditions.push({
         left: scope.resolveColumnIn(colName, leftEntries),
         right: scope.resolveColumnIn(colName, rightEntries),
@@ -96,7 +96,7 @@ export function extractJoinConditions(
   expr: ParsedExpression,
   scope: BindScope,
 ): BT.JoinCondition[] {
-  if (expr.expression_class === ExpressionClass.CONJUNCTION) {
+  if (expr.expressionClass === ExpressionClass.CONJUNCTION) {
     const conj = expr as ConjunctionExpression;
     if (conj.type === ExpressionType.CONJUNCTION_AND) {
       const conditions: BT.JoinCondition[] = [];
@@ -107,7 +107,7 @@ export function extractJoinConditions(
     }
   }
 
-  if (expr.expression_class === ExpressionClass.COMPARISON) {
+  if (expr.expressionClass === ExpressionClass.COMPARISON) {
     const cmp = expr as ComparisonExpression;
     const left = bindExpression(ctx, cmp.left, scope);
     const right = bindExpression(ctx, cmp.right, scope);

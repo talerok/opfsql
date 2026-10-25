@@ -1,186 +1,12 @@
-// ============================================================================
-// Token types
-// ============================================================================
-
-export enum TokenType {
-  // Literals
-  INTEGER_LITERAL,
-  FLOAT_LITERAL,
-  STRING_LITERAL,
-  BLOB_LITERAL,
-  PARAMETER,
-
-  // Identifiers
-  IDENTIFIER,
-  QUOTED_IDENTIFIER,
-
-  // Operators
-  EQUALS,
-  NOT_EQUALS,
-  LESS_THAN,
-  LESS_THAN_EQUAL,
-  GREATER_THAN,
-  GREATER_THAN_EQUAL,
-  PLUS,
-  MINUS,
-  STAR,
-  SLASH,
-  PERCENT,
-  PIPE_PIPE,
-
-  // Punctuation
-  LEFT_PAREN,
-  RIGHT_PAREN,
-  LEFT_BRACKET,
-  RIGHT_BRACKET,
-  COMMA,
-  SEMICOLON,
-  DOT,
-
-  // Keywords
-  SELECT,
-  FROM,
-  WHERE,
-  JOIN,
-  LEFT,
-  RIGHT,
-  INNER,
-  OUTER,
-  CROSS,
-  ON,
-  USING,
-  AS,
-  DISTINCT,
-  ALL,
-  GROUP,
-  BY,
-  HAVING,
-  ORDER,
-  ASC,
-  DESC,
-  NULLS,
-  FIRST,
-  LAST,
-  LIMIT,
-  OFFSET,
-  UNION,
-  INSERT,
-  INTO,
-  VALUES,
-  UPDATE,
-  SET,
-  DELETE,
-  CREATE,
-  TABLE,
-  INDEX,
-  UNIQUE,
-  IF,
-  NOT,
-  EXISTS,
-  ALTER,
-  ADD,
-  DROP,
-  COLUMN,
-  BEGIN,
-  COMMIT,
-  ROLLBACK,
-  TRANSACTION,
-  WITH,
-  AND,
-  OR,
-  IN,
-  BETWEEN,
-  LIKE,
-  IS,
-  NULL_KW,
-  PRIMARY,
-  KEY,
-  FOREIGN,
-  REFERENCES,
-  DEFAULT,
-  CASE,
-  WHEN,
-  THEN,
-  ELSE,
-  END,
-  CAST,
-  TRUE_KW,
-  FALSE_KW,
-  CONFLICT,
-  DO,
-  NOTHING,
-  EXCLUDED,
-  AUTOINCREMENT,
-  EXPLAIN,
-
-  // Type keywords
-  INTEGER_KW,
-  INT_KW,
-  BIGINT_KW,
-  SMALLINT_KW,
-  REAL_KW,
-  FLOAT_KW,
-  DOUBLE_KW,
-  TEXT_KW,
-  VARCHAR_KW,
-  CHAR_KW,
-  BLOB_KW,
-  BOOLEAN_KW,
-  BOOL_KW,
-  JSON_KW,
-
-  EOF,
-}
-
-export interface Token {
-  type: TokenType;
-  value: string;
-  line: number;
-  column: number;
-}
+// ---------------------------------------------------------------------------
+// The syntax tree the parser builds. It records what the statement says, not
+// what it means: names are unresolved, types are the declared text, and
+// defaults the SQL leaves open (NULLS FIRST or LAST) stay open. Every node is
+// readonly; a pass that changes a tree builds a new one.
+// ---------------------------------------------------------------------------
 
 // ============================================================================
-// Logical types (DuckDB-style)
-// ============================================================================
-
-export enum LogicalTypeId {
-  INTEGER = "INTEGER",
-  BIGINT = "BIGINT",
-  SMALLINT = "SMALLINT",
-  FLOAT = "FLOAT",
-  DOUBLE = "DOUBLE",
-  VARCHAR = "VARCHAR",
-  BLOB = "BLOB",
-  BOOLEAN = "BOOLEAN",
-  JSON = "JSON",
-}
-
-export interface LogicalType {
-  id: LogicalTypeId;
-}
-
-// ============================================================================
-// Values
-// ============================================================================
-
-export interface Value {
-  type: LogicalType;
-  is_null: boolean;
-  value:
-    | string
-    | number
-    | boolean
-    | Uint8Array
-    | Record<string, unknown>
-    | unknown[]
-    | null;
-}
-
-import type { JsonPathSegment } from "../../types.js";
-export type { JsonPathSegment };
-
-// ============================================================================
-// Expression types (DuckDB-style enums)
+// Expressions
 // ============================================================================
 
 export enum ExpressionClass {
@@ -234,103 +60,137 @@ export enum ExpressionType {
   OPERATOR_CONCAT = "OPERATOR_CONCAT",
 }
 
-// ============================================================================
-// Parsed expressions (DuckDB-style)
-// ============================================================================
+/** A step into a JSON value after a column: `.field` or `[index]`. */
+export type JsonPathSegment =
+  | { readonly type: "field"; readonly name: string }
+  | { readonly type: "index"; readonly value: number };
 
-export interface ColumnRefExpression {
-  expression_class: ExpressionClass.COLUMN_REF;
-  alias: string | null;
-  column_names: string[];
-  path?: JsonPathSegment[];
+/**
+ * `a`, `t.a`, or a JSON path `t.a.b[0].c`. The dotted names come first, in
+ * `columnNames`; whether the first is a table is the binder's call. What
+ * follows the first bracket is `path`.
+ */
+export interface ColumnReferenceExpression {
+  readonly expressionClass: ExpressionClass.COLUMN_REF;
+  readonly alias: string | null;
+  readonly columnNames: readonly string[];
+  readonly path?: readonly JsonPathSegment[];
 }
 
+/** The type a literal has as written: `1` is INTEGER, `1.0` and `1e0` REAL. */
+export type LiteralType =
+  "INTEGER" | "REAL" | "TEXT" | "BLOB" | "BOOLEAN" | "NULL";
+
+export type LiteralValue = number | string | Uint8Array | boolean | null;
+
+/** A literal. A sign written before a number is part of it: `-1`. */
 export interface ConstantExpression {
-  expression_class: ExpressionClass.CONSTANT;
-  alias: string | null;
-  value: Value;
+  readonly expressionClass: ExpressionClass.CONSTANT;
+  readonly alias: string | null;
+  readonly type: LiteralType;
+  readonly value: LiteralValue;
 }
 
-/** $1-based parameter placeholder. index is 0-based internally. */
+/**
+ * `$1` or `?`, as a 0-based index: `$1` is 0, and each `?` is one more than
+ * the highest number used before it in the statement.
+ */
 export interface ParameterExpression {
-  expression_class: ExpressionClass.PARAMETER;
-  alias: string | null;
-  index: number;
+  readonly expressionClass: ExpressionClass.PARAMETER;
+  readonly alias: string | null;
+  readonly index: number;
 }
 
 export interface ComparisonExpression {
-  expression_class: ExpressionClass.COMPARISON;
-  alias: string | null;
-  type: ExpressionType;
-  left: ParsedExpression;
-  right: ParsedExpression;
+  readonly expressionClass: ExpressionClass.COMPARISON;
+  readonly alias: string | null;
+  readonly type: ExpressionType;
+  readonly left: ParsedExpression;
+  readonly right: ParsedExpression;
 }
 
+/** A chain of ANDs or of ORs, flattened: `a AND b AND c` has three children. */
 export interface ConjunctionExpression {
-  expression_class: ExpressionClass.CONJUNCTION;
-  alias: string | null;
-  type: ExpressionType;
-  children: ParsedExpression[];
+  readonly expressionClass: ExpressionClass.CONJUNCTION;
+  readonly alias: string | null;
+  readonly type: ExpressionType;
+  readonly children: readonly ParsedExpression[];
 }
 
+/** Arithmetic, NOT, IS [NOT] NULL, and IN with a list (the left side first). */
 export interface OperatorExpression {
-  expression_class: ExpressionClass.OPERATOR;
-  alias: string | null;
-  type: ExpressionType;
-  children: ParsedExpression[];
+  readonly expressionClass: ExpressionClass.OPERATOR;
+  readonly alias: string | null;
+  readonly type: ExpressionType;
+  readonly children: readonly ParsedExpression[];
 }
 
 export interface BetweenExpression {
-  expression_class: ExpressionClass.BETWEEN;
-  alias: string | null;
-  input: ParsedExpression;
-  lower: ParsedExpression;
-  upper: ParsedExpression;
+  readonly expressionClass: ExpressionClass.BETWEEN;
+  readonly alias: string | null;
+  readonly input: ParsedExpression;
+  readonly lower: ParsedExpression;
+  readonly upper: ParsedExpression;
 }
 
+/** A call; `count(*)` has `isStar` and no children. Names are lower case. */
 export interface FunctionExpression {
-  expression_class: ExpressionClass.FUNCTION;
-  alias: string | null;
-  function_name: string;
-  children: ParsedExpression[];
-  distinct: boolean;
-  is_star: boolean;
+  readonly expressionClass: ExpressionClass.FUNCTION;
+  readonly alias: string | null;
+  readonly functionName: string;
+  readonly children: readonly ParsedExpression[];
+  readonly distinct: boolean;
+  readonly isStar: boolean;
 }
 
+/**
+ * A subquery as a value (SCALAR), a test (EXISTS, NOT_EXISTS), or a
+ * quantified comparison `child <comparisonType> ANY|ALL (subquery)`;
+ * `x IN (subquery)` is `x = ANY (subquery)`.
+ */
 export interface SubqueryExpression {
-  expression_class: ExpressionClass.SUBQUERY;
-  alias: string | null;
-  subquery_type: "SCALAR" | "EXISTS" | "NOT_EXISTS" | "ANY" | "ALL";
-  subquery: SelectStatement;
-  child: ParsedExpression | null;
-  comparison_type?: ExpressionType;
+  readonly expressionClass: ExpressionClass.SUBQUERY;
+  readonly alias: string | null;
+  readonly subqueryType: "SCALAR" | "EXISTS" | "NOT_EXISTS" | "ANY" | "ALL";
+  readonly subquery: SelectStatement;
+  readonly child: ParsedExpression | null;
+  readonly comparisonType?: ExpressionType;
 }
 
+export interface CaseCheck {
+  readonly whenExpression: ParsedExpression;
+  readonly thenExpression: ParsedExpression;
+}
+
+/**
+ * `CASE [operand] WHEN … THEN … [ELSE …] END`. With an operand, each
+ * `whenExpression` is a value compared with it; without, a condition.
+ */
 export interface CaseExpression {
-  expression_class: ExpressionClass.CASE;
-  alias: string | null;
-  case_checks: Array<{
-    when_expr: ParsedExpression;
-    then_expr: ParsedExpression;
-  }>;
-  else_expr: ParsedExpression | null;
+  readonly expressionClass: ExpressionClass.CASE;
+  readonly alias: string | null;
+  readonly operand: ParsedExpression | null;
+  readonly caseChecks: readonly CaseCheck[];
+  readonly elseExpression: ParsedExpression | null;
 }
 
 export interface CastExpression {
-  expression_class: ExpressionClass.CAST;
-  alias: string | null;
-  child: ParsedExpression;
-  cast_type: LogicalType;
+  readonly expressionClass: ExpressionClass.CAST;
+  readonly alias: string | null;
+  readonly child: ParsedExpression;
+  /** The type as written, such as `varchar(10)`. */
+  readonly castType: string;
 }
 
+/** `*` or `t.*`; the parser builds it only as an item of a select list. */
 export interface StarExpression {
-  expression_class: ExpressionClass.STAR;
-  alias: string | null;
-  table_name: string | null;
+  readonly expressionClass: ExpressionClass.STAR;
+  readonly alias: string | null;
+  readonly tableName: string | null;
 }
 
 export type ParsedExpression =
-  | ColumnRefExpression
+  | ColumnReferenceExpression
   | ConstantExpression
   | ParameterExpression
   | ComparisonExpression
@@ -344,10 +204,10 @@ export type ParsedExpression =
   | StarExpression;
 
 // ============================================================================
-// Table references (DuckDB-style)
+// Table references
 // ============================================================================
 
-export enum TableRefType {
+export enum TableReferenceType {
   BASE_TABLE = "BASE_TABLE",
   JOIN = "JOIN",
   SUBQUERY = "SUBQUERY",
@@ -360,33 +220,33 @@ export enum JoinType {
   CROSS = "CROSS",
 }
 
-export interface BaseTableRef {
-  type: TableRefType.BASE_TABLE;
-  table_name: string;
-  alias: string | null;
-  schema_name: string | null;
+export interface BaseTableReference {
+  readonly type: TableReferenceType.BASE_TABLE;
+  readonly tableName: string;
+  readonly alias: string | null;
 }
 
-export interface JoinRef {
-  type: TableRefType.JOIN;
-  left: TableRef;
-  right: TableRef;
-  condition: ParsedExpression | null;
-  join_type: JoinType;
-  using_columns: string[];
+/** A join; `FROM a, b` is a CROSS join. */
+export interface JoinReference {
+  readonly type: TableReferenceType.JOIN;
+  readonly left: TableReference;
+  readonly right: TableReference;
+  readonly condition: ParsedExpression | null;
+  readonly joinType: JoinType;
+  readonly usingColumns: readonly string[];
 }
 
-export interface SubqueryRef {
-  type: TableRefType.SUBQUERY;
-  subquery: SelectStatement;
-  alias: string | null;
-  column_name_alias: string[];
+export interface SubqueryReference {
+  readonly type: TableReferenceType.SUBQUERY;
+  readonly subquery: SelectStatement;
+  readonly alias: string | null;
 }
 
-export type TableRef = BaseTableRef | JoinRef | SubqueryRef;
+export type TableReference =
+  BaseTableReference | JoinReference | SubqueryReference;
 
 // ============================================================================
-// Result modifiers (DuckDB-style)
+// Result modifiers
 // ============================================================================
 
 export enum ResultModifierType {
@@ -406,56 +266,81 @@ export enum OrderByNullType {
 }
 
 export interface OrderByNode {
-  type: OrderType;
-  null_order: OrderByNullType;
-  expression: ParsedExpression;
+  readonly type: OrderType;
+  /** NULLS FIRST or LAST as written; null when the query does not say. */
+  readonly nullOrder: OrderByNullType | null;
+  readonly expression: ParsedExpression;
 }
 
 export interface OrderModifier {
-  type: ResultModifierType.ORDER_MODIFIER;
-  orders: OrderByNode[];
+  readonly type: ResultModifierType.ORDER_MODIFIER;
+  readonly orders: readonly OrderByNode[];
 }
 
+/** LIMIT and OFFSET; `LIMIT a, b` is `LIMIT b OFFSET a`. */
 export interface LimitModifier {
-  type: ResultModifierType.LIMIT_MODIFIER;
-  limit: ParsedExpression | null;
-  offset: ParsedExpression | null;
+  readonly type: ResultModifierType.LIMIT_MODIFIER;
+  readonly limit: ParsedExpression | null;
+  readonly offset: ParsedExpression | null;
 }
 
 export interface DistinctModifier {
-  type: ResultModifierType.DISTINCT_MODIFIER;
-  distinct_on_targets: ParsedExpression[];
+  readonly type: ResultModifierType.DISTINCT_MODIFIER;
 }
 
+/** In the order they apply: DISTINCT, then ORDER BY, then LIMIT. */
 export type ResultModifier = OrderModifier | LimitModifier | DistinctModifier;
 
 // ============================================================================
-// Query nodes (DuckDB-style)
+// Queries
 // ============================================================================
 
 export interface GroupByNode {
-  group_expressions: ParsedExpression[];
+  readonly groupExpressions: readonly ParsedExpression[];
 }
 
 export interface CTENode {
-  query: SelectStatement;
-  aliases: string[];
+  readonly name: string;
+  readonly query: SelectStatement;
+  /** Column names given after the CTE's name, if any. */
+  readonly aliases: readonly string[];
 }
 
+/** The WITH clause of a query, in the order written. */
 export interface CTEMap {
-  map: Record<string, CTENode>;
-  recursive: boolean;
+  readonly ctes: readonly CTENode[];
+  readonly recursive: boolean;
 }
 
 export interface SelectNode {
-  type: "SELECT_NODE";
-  select_list: ParsedExpression[];
-  from_table: TableRef | null;
-  where_clause: ParsedExpression | null;
-  groups: GroupByNode;
-  having: ParsedExpression | null;
-  modifiers: ResultModifier[];
-  cte_map: CTEMap;
+  readonly type: "SELECT_NODE";
+  readonly selectList: readonly ParsedExpression[];
+  readonly fromTable: TableReference | null;
+  readonly whereClause: ParsedExpression | null;
+  readonly groups: GroupByNode;
+  readonly having: ParsedExpression | null;
+  readonly modifiers: readonly ResultModifier[];
+  readonly cteMap: CTEMap;
+}
+
+export enum SetOperationType {
+  UNION = "UNION",
+  UNION_ALL = "UNION_ALL",
+  INTERSECT = "INTERSECT",
+  EXCEPT = "EXCEPT",
+}
+
+/**
+ * A compound query. Its operators bind left to right with equal precedence,
+ * as in SQLite; WITH, ORDER BY and LIMIT belong to the outermost node.
+ */
+export interface SetOperationNode {
+  readonly type: "SET_OPERATION_NODE";
+  readonly setOperationType: SetOperationType;
+  readonly left: SelectNode | SetOperationNode;
+  readonly right: SelectNode;
+  readonly modifiers: readonly ResultModifier[];
+  readonly cteMap: CTEMap;
 }
 
 // ============================================================================
@@ -476,101 +361,75 @@ export enum StatementType {
 }
 
 export interface SelectStatement {
-  type: StatementType.SELECT_STATEMENT;
-  node: SelectNode | SetOperationNode;
+  readonly type: StatementType.SELECT_STATEMENT;
+  readonly node: SelectNode | SetOperationNode;
 }
 
-// SetOperation for UNION
-export enum SetOperationType {
-  UNION = "UNION",
-  UNION_ALL = "UNION_ALL",
-}
-
-export interface SetOperationNode {
-  type: "SET_OPERATION_NODE";
-  set_op_type: SetOperationType;
-  left: SelectNode | SetOperationNode;
-  right: SelectNode;
-  modifiers: ResultModifier[];
-  cte_map: CTEMap;
-}
-
-export interface SetOperationStatement {
-  type: StatementType.SELECT_STATEMENT;
-  node: SetOperationNode;
-}
-
-// Column definition for CREATE TABLE
 export interface ColumnDefinition {
-  name: string;
-  type: LogicalType;
-  is_primary_key: boolean;
-  is_not_null: boolean;
-  is_unique: boolean;
-  is_autoincrement: boolean;
-  default_value: ParsedExpression | null;
-}
-
-export interface ForeignKeyConstraint {
-  columns: string[];
-  ref_table: string;
-  ref_columns: string[];
-}
-
-export interface OnConflictUpdate {
-  type: "UPDATE";
-  setClauses: UpdateSetClause[];
-  whereClause: ParsedExpression | null;
-}
-
-export interface OnConflictClause {
-  conflictTarget: string[] | null;
-  action: "NOTHING" | OnConflictUpdate;
-}
-
-export interface InsertStatement {
-  type: StatementType.INSERT_STATEMENT;
-  table: string;
-  columns: string[];
-  values: ParsedExpression[][];
-  select_statement: SelectStatement | null;
-  onConflict: OnConflictClause | null;
+  readonly name: string;
+  /** The declared type as written (`varchar(255)`), or null if none. */
+  readonly type: string | null;
+  readonly isPrimaryKey: boolean;
+  readonly isNotNull: boolean;
+  readonly isUnique: boolean;
+  readonly isAutoincrement: boolean;
+  readonly defaultValue: ParsedExpression | null;
 }
 
 export interface UpdateSetClause {
-  column: string;
-  value: ParsedExpression;
+  readonly column: string;
+  readonly value: ParsedExpression;
+}
+
+export interface OnConflictUpdate {
+  readonly type: "UPDATE";
+  readonly setClauses: readonly UpdateSetClause[];
+  readonly whereClause: ParsedExpression | null;
+}
+
+export interface OnConflictClause {
+  readonly conflictTarget: readonly string[] | null;
+  readonly action: "NOTHING" | OnConflictUpdate;
+}
+
+export interface InsertStatement {
+  readonly type: StatementType.INSERT_STATEMENT;
+  readonly table: string;
+  readonly columns: readonly string[];
+  readonly values: readonly (readonly ParsedExpression[])[];
+  readonly selectStatement: SelectStatement | null;
+  readonly onConflict: OnConflictClause | null;
 }
 
 export interface UpdateStatement {
-  type: StatementType.UPDATE_STATEMENT;
-  table: string;
-  set_clauses: UpdateSetClause[];
-  where_clause: ParsedExpression | null;
+  readonly type: StatementType.UPDATE_STATEMENT;
+  readonly table: string;
+  readonly setClauses: readonly UpdateSetClause[];
+  readonly whereClause: ParsedExpression | null;
 }
 
 export interface DeleteStatement {
-  type: StatementType.DELETE_STATEMENT;
-  table: string;
-  where_clause: ParsedExpression | null;
+  readonly type: StatementType.DELETE_STATEMENT;
+  readonly table: string;
+  readonly whereClause: ParsedExpression | null;
 }
 
 export interface CreateTableStatement {
-  type: StatementType.CREATE_TABLE_STATEMENT;
-  table: string;
-  if_not_exists: boolean;
-  columns: ColumnDefinition[];
-  primary_key: string[];
-  foreign_keys: ForeignKeyConstraint[];
+  readonly type: StatementType.CREATE_TABLE_STATEMENT;
+  readonly table: string;
+  readonly ifNotExists: boolean;
+  readonly columns: readonly ColumnDefinition[];
+  /** Columns of a table-level PRIMARY KEY (…) constraint. */
+  readonly primaryKey: readonly string[];
 }
 
 export interface CreateIndexStatement {
-  type: StatementType.CREATE_INDEX_STATEMENT;
-  index_name: string;
-  table_name: string;
-  expressions: ParsedExpression[];
-  is_unique: boolean;
-  if_not_exists: boolean;
+  readonly type: StatementType.CREATE_INDEX_STATEMENT;
+  readonly indexName: string;
+  readonly tableName: string;
+  readonly expressions: readonly ParsedExpression[];
+  readonly isUnique: boolean;
+  readonly ifNotExists: boolean;
 }
 
 export enum AlterType {
@@ -579,11 +438,11 @@ export enum AlterType {
 }
 
 export interface AlterTableStatement {
-  type: StatementType.ALTER_TABLE_STATEMENT;
-  table: string;
-  alter_type: AlterType;
-  column_def: ColumnDefinition | null;
-  column_name: string | null;
+  readonly type: StatementType.ALTER_TABLE_STATEMENT;
+  readonly table: string;
+  readonly alterType: AlterType;
+  readonly columnDefinition: ColumnDefinition | null;
+  readonly columnName: string | null;
 }
 
 export enum DropType {
@@ -592,10 +451,10 @@ export enum DropType {
 }
 
 export interface DropStatement {
-  type: StatementType.DROP_STATEMENT;
-  drop_type: DropType;
-  name: string;
-  if_exists: boolean;
+  readonly type: StatementType.DROP_STATEMENT;
+  readonly dropType: DropType;
+  readonly name: string;
+  readonly ifExists: boolean;
 }
 
 export enum TransactionType {
@@ -605,18 +464,17 @@ export enum TransactionType {
 }
 
 export interface TransactionStatement {
-  type: StatementType.TRANSACTION_STATEMENT;
-  transaction_type: TransactionType;
+  readonly type: StatementType.TRANSACTION_STATEMENT;
+  readonly transactionType: TransactionType;
 }
 
 export interface ExplainStatement {
-  type: StatementType.EXPLAIN_STATEMENT;
-  statement: Statement;
+  readonly type: StatementType.EXPLAIN_STATEMENT;
+  readonly statement: Statement;
 }
 
 export type Statement =
   | SelectStatement
-  | SetOperationStatement
   | InsertStatement
   | UpdateStatement
   | DeleteStatement
@@ -626,19 +484,3 @@ export type Statement =
   | DropStatement
   | TransactionStatement
   | ExplainStatement;
-
-// ============================================================================
-// Parse error
-// ============================================================================
-
-export class ParseError extends Error {
-  constructor(
-    message: string,
-    public line: number,
-    public column: number,
-    public token: Token,
-  ) {
-    super(`Parse error at line ${line}, column ${column}: ${message}`);
-    this.name = "ParseError";
-  }
-}

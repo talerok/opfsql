@@ -17,14 +17,14 @@ export function bindUpdate(
 
   let scan: BT.LogicalOperator = makeGet(entry, schema);
 
-  if (stmt.where_clause) {
-    const filter = bindExpression(ctx, stmt.where_clause, scope);
+  if (stmt.whereClause) {
+    const filter = bindExpression(ctx, stmt.whereClause, scope);
     scan = makeFilter(scan, [filter]);
   }
 
   const updateColumns: number[] = [];
   const expressions: BT.BoundExpression[] = [];
-  for (const clause of stmt.set_clauses) {
+  for (const clause of stmt.setClauses) {
     updateColumns.push(findColumnIndexOrThrow(schema, clause.column));
     expressions.push(bindExpression(ctx, clause.value, scope));
   }
