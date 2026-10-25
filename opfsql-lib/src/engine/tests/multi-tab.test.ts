@@ -7,7 +7,7 @@ import { ReadMarks } from "../../store/wal/read-marks.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
 import { Engine } from "../engine.js";
 import type { Session } from "../session.js";
-import { mulberry32 } from "./random.js";
+import { mulberry32 } from "../../../test/support/random.js";
 
 // ---------------------------------------------------------------------------
 // Several engines ("tabs") on one database, coordinated the way real tabs

@@ -460,11 +460,6 @@
       "count": 2
     }
   },
-  "src/engine/tests/random.ts": {
-    "unicorn/numeric-separators-style": {
-      "count": 2
-    }
-  },
   "src/engine/tests/session.test.ts": {
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 1

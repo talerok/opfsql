@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mulberry32 } from "../../engine/tests/random.js";
+import { mulberry32 } from "../../../test/support/random.js";
 import { rowKey, valueKey } from "../key.js";
 import {
   areEqual,

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { RowTooLargeError } from "../../store/errors.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
-import { mulberry32 } from "./random.js";
+import { mulberry32 } from "../../../test/support/random.js";
 import { openTestEngine } from "./test-engine.js";
 
 // ---------------------------------------------------------------------------

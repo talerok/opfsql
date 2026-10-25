@@ -129,6 +129,26 @@ export default config(
       "import-x/no-extraneous-dependencies": "error",
       "import-x/no-mutable-exports": "error",
       "import-x/no-self-import": "error",
+      // docs/architecture.md, Modules: dependencies of rebuilt modules.
+      "import-x/no-restricted-paths": [
+        "error",
+        {
+          zones: [
+            {
+              target: "./src/values",
+              from: "./src",
+              except: ["./values", "./errors.ts"],
+              message: "values depends on nothing but errors.",
+            },
+            {
+              target: "./src/errors.ts",
+              from: "./src",
+              except: ["./errors.ts"],
+              message: "errors depends on nothing.",
+            },
+          ],
+        },
+      ],
 
       // SQL NULL is null; undefined means "absent", never a value.
       "unicorn/no-null": "off",

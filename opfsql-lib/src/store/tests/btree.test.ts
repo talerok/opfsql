@@ -1,6 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { mulberry32 } from "../../engine/tests/random.js";
+import { mulberry32 } from "../../../test/support/random.js";
 import { OPFSSyncStorage } from "../backend/opfs-storage.js";
 import { BTree, type BTreeLayout, type LeafNode, type Node } from "../btree.js";
 import { Catalog } from "../catalog.js";

@@ -6,7 +6,7 @@ import { WalStorage } from "../../store/wal/wal-storage.js";
 import { Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { SerializationError } from "../types.js";
-import { mulberry32 } from "./random.js";
+import { mulberry32 } from "../../../test/support/random.js";
 
 // Snapshot isolation between sessions of one engine. Page versions live in
 // the WAL, so these tests build the WAL stack themselves; a bare page file has
