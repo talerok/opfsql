@@ -65,4 +65,49 @@ describe("Web Locks polyfill", () => {
     );
     expect(free).toBe("exclusive");
   });
+
+  it("withdraws a waiting request when its signal aborts", async () => {
+    let release!: () => void;
+    const held = navigator.locks.request("signal-1", async () => {
+      await new Promise<void>((r) => (release = r));
+    });
+    const controller = new AbortController();
+    const waiting = navigator.locks.request(
+      "signal-1",
+      { signal: controller.signal },
+      () => "granted",
+    );
+    controller.abort(new Error("stop"));
+    await expect(waiting).rejects.toThrow("stop");
+
+    let hasRun = false;
+    const after = navigator.locks.request("signal-1", () => {
+      hasRun = true;
+    });
+    release();
+    await held;
+    await after;
+    expect(hasRun).toBe(true);
+  });
+
+  it("rejects at once when the signal has already aborted", async () => {
+    const signal = AbortSignal.abort(new Error("too late"));
+    await expect(
+      navigator.locks.request("signal-2", { signal }, () => "granted"),
+    ).rejects.toThrow("too late");
+  });
+
+  it("ignores an abort after the grant", async () => {
+    const controller = new AbortController();
+    const granted = navigator.locks.request(
+      "signal-3",
+      { signal: controller.signal },
+      async () => {
+        controller.abort();
+        await tick();
+        return "kept";
+      },
+    );
+    await expect(granted).resolves.toBe("kept");
+  });
 });

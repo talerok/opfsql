@@ -1,7 +1,8 @@
 // Node has no Web Locks API. Engines use it to coordinate tabs; tests run in
 // one thread, so an in-process lock manager with the spec's grant rules is a
 // faithful stand-in: shared and exclusive modes, a fair FIFO queue (a request
-// waits behind every earlier one it conflicts with), and ifAvailable.
+// waits behind every earlier one it conflicts with), ifAvailable, and signal
+// (aborting it withdraws a request that has not been granted).
 
 type Mode = "shared" | "exclusive";
 
@@ -52,10 +53,21 @@ function request(
     return Promise.resolve().then(() => callback(null));
   }
 
+  const signal = options.signal;
+  if (signal?.aborted === true) return Promise.reject(signal.reason as Error);
+
   return new Promise((resolve, reject) => {
-    state.queue.push({
+    const withdraw = () => {
+      const index = state.queue.indexOf(pending);
+      if (index === -1) return; // already granted: the signal no longer matters
+      state.queue.splice(index, 1);
+      reject(signal!.reason as Error);
+      pump(state);
+    };
+    const pending: Pending = {
       mode,
       grant() {
+        signal?.removeEventListener("abort", withdraw);
         state.held.push(mode);
         const release = () => {
           state.held.splice(state.held.indexOf(mode), 1);
@@ -74,7 +86,9 @@ function request(
             },
           );
       },
-    });
+    };
+    state.queue.push(pending);
+    signal?.addEventListener("abort", withdraw, { once: true });
     pump(state);
   });
 }
