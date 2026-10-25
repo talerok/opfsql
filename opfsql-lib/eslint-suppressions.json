@@ -624,9 +624,6 @@
     },
     "unicorn/no-for-loop": {
       "count": 1
-    },
-    "unicorn/no-useless-recursion": {
-      "count": 1
     }
   },
   "src/executor/operators/cte.ts": {
@@ -1060,9 +1057,6 @@
     },
     "unicorn/no-computed-property-existence-check": {
       "count": 1
-    },
-    "unicorn/no-useless-recursion": {
-      "count": 1
     }
   },
   "src/sql/binder/core/utils/find-column.ts": {
@@ -1203,9 +1197,6 @@
     },
     "unicorn/name-replacements": {
       "count": 4
-    },
-    "unicorn/no-useless-recursion": {
-      "count": 1
     },
     "unicorn/prefer-combined-guards": {
       "count": 3
@@ -1783,9 +1774,6 @@
     "unicorn/no-for-loop": {
       "count": 1
     },
-    "unicorn/no-useless-recursion": {
-      "count": 1
-    },
     "unicorn/prefer-continue": {
       "count": 2
     }
@@ -1919,9 +1907,6 @@
     "unicorn/no-for-loop": {
       "count": 1
     },
-    "unicorn/no-useless-recursion": {
-      "count": 1
-    },
     "unicorn/prefer-continue": {
       "count": 1
     }
@@ -2049,9 +2034,6 @@
     },
     "unicorn/no-array-callback-reference": {
       "count": 4
-    },
-    "unicorn/no-useless-recursion": {
-      "count": 1
     },
     "unicorn/numeric-separators-style": {
       "count": 1
@@ -2511,9 +2493,6 @@
     "unicorn/no-array-callback-reference": {
       "count": 3
     },
-    "unicorn/no-useless-recursion": {
-      "count": 1
-    },
     "unicorn/switch-case-braces": {
       "count": 4
     }
@@ -2807,9 +2786,6 @@
       "count": 5
     },
     "unicorn/no-thenable": {
-      "count": 1
-    },
-    "unicorn/no-useless-recursion": {
       "count": 1
     },
     "unicorn/switch-case-braces": {

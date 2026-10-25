@@ -28,37 +28,45 @@ The design follows from what the web platform allows:
 values ──────────────────────────────────────────┐
 errors ──────────────────────────────────────────┤ used by everything
                                                  │
-sql/parser   text → syntax tree                  │
-sql/binder   syntax tree → logical plan (types,  │
-             names, output columns)              │
+sql/parser    text → syntax tree                 │
+sql/binder    syntax tree → bound statement      │
+              (names, scopes, types)             │
+sql/plan      the types between the stages:      │
+              bound expressions, logical and     │
+              physical plans, bound statements   │
 sql/optimizer logical plan → physical plan       │
-functions    the function registry               │
-executor     physical plan → rows                │
-table        rows ↔ storage: constraints,        │
-             indexes, rowids                     │
-storage      pages, B-trees, records, keys, WAL, │
-             snapshots, read marks               │
-schema       the schema model                    │
-engine       sessions, transactions, statement   │
-             cache                               │
-worker       the worker host and the client      │
+expressions   bound expressions → closures       │
+functions     the function registry              │
+executor      physical plan → rows               │
+table         rows ↔ storage: constraints,       │
+              indexes, rowids                    │
+storage       pages, B-trees, records, keys,     │
+              WAL, snapshots, read marks         │
+schema        the schema model                   │
+engine        sessions, transactions, statement  │
+              cache, schema loading, DDL         │
+worker        the worker host and the client     │
 ```
+
+`docs/planning.md` is the contract between binder, optimizer and executor.
 
 Dependencies point down the request path and never back:
 
-| Module             | May use                                                                                                                      |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `values`, `errors` | nothing else                                                                                                                 |
-| `schema`           | `values`, `errors`                                                                                                           |
-| `storage`          | `values`, `errors`                                                                                                           |
-| `functions`        | `values`, `errors`                                                                                                           |
-| `sql/parser`       | `values`, `errors`                                                                                                           |
-| `sql/binder`       | `sql/parser`, `schema`, `functions`, `values`, `errors`                                                                      |
-| `sql/optimizer`    | `sql/binder`'s plan types, `schema`, `values`, `errors`                                                                      |
-| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries; expression keys compiled by the caller |
-| `executor`         | plan types, `table`, `functions`, `values`, `errors`                                                                         |
-| `engine`           | all of the above                                                                                                             |
-| `worker`           | `engine`, `errors`, `values`                                                                                                 |
+| Module             | May use                                                                       |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `values`, `errors` | nothing else                                                                  |
+| `schema`           | `values`, `errors`                                                            |
+| `storage`          | `values`, `errors`                                                            |
+| `functions`        | `values`, `errors`                                                            |
+| `sql/parser`       | `values`, `errors`                                                            |
+| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                     |
+| `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                   |
+| `sql/binder`       | `sql/parser`, `sql/plan`, `schema`, `functions`, `values`, `errors`           |
+| `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                       |
+| `table`            | `storage`, `schema`, `functions`, `values`, `errors`                          |
+| `executor`         | `sql/plan`, `expressions`, `table`, `functions`, `schema`, `values`, `errors` |
+| `engine`           | all of the above                                                              |
+| `worker`           | `engine`, `errors`, `values`                                                  |
 
 ESLint enforces the table for every module already rebuilt
 (`import-x/no-restricted-paths` in `eslint.config.js`); the rest join as they
@@ -143,15 +151,17 @@ holds the lock until this promise settles".
 
 ## Where the rebuild stands
 
-| Module             | State                                                                                                                        |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `values`, `errors` | rebuilt                                                                                                                      |
-| `storage`          | format 5 built: pages, WAL, B-trees, rows, index entries, the schema table (the engine still uses `src/store`)               |
-| `sql/parser`       | to rebuild: statement boundaries, name rules, precedence, literals                                                           |
-| `sql/binder`       | to rebuild: grouping model, scopes, types and conversions, output columns                                                    |
-| `sql/optimizer`    | to rebuild: pure passes, one access-path choice with residual filters, physical plan                                         |
-| `functions`        | to build: one registry for the binder and the executor                                                                       |
-| `executor`         | to rebuild: one expression compiler, join and subquery operators, DML through the planner                                    |
-| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries; expression keys compiled by the caller |
-| `schema`           | built: the model and name rules; loading it from the schema table belongs to `engine`                                        |
-| `engine`, `worker` | to rebuild: schema from the snapshot, session state machines, statement cache, result shape                                  |
+| Module             | State                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------- |
+| `values`, `errors` | rebuilt                                                                                         |
+| `schema`           | built: the model and name rules                                                                 |
+| `storage`          | built: format 5 — pages, WAL, B-trees, rows, index entries, the schema table, integrity check   |
+| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries            |
+| `sql/parser`       | rebuilt: Pratt expressions, one name rule, NOT_SUPPORTED for what is parsed but not implemented |
+| `functions`        | built: one registry for the binder and the compiler                                             |
+| `expressions`      | built as `executor/evaluate`: the one compiler; moves to its own module with the plan types     |
+| `sql/plan`         | contract written; binder, optimizer and executor move to it                                     |
+| `sql/binder`       | to rebuild on `sql/plan`: grouping model, scopes, DDL to the schema model                       |
+| `sql/optimizer`    | to rebuild on `sql/plan`: pure passes, access paths with residuals, physical plan               |
+| `executor`         | to rebuild on `sql/plan` and `table`: operators with rescan, DML through the planner            |
+| `engine`, `worker` | rebuilt on the old storage (branch `rebuild/engine`); to move to format 5 and the schema table  |
