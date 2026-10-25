@@ -155,9 +155,8 @@ function argumentReader(
 ): (row: Tuple) => readonly Value[] {
   const values: Value[] = [];
   return (row) => {
-    // A counted loop: this runs for every row and aggregate.
-    for (let position = 0; position < compiled.length; position++) {
-      values[position] = compiled[position](row);
+    for (const [position, argument] of compiled.entries()) {
+      values[position] = argument(row);
     }
     return values;
   };
