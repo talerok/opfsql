@@ -1,5 +1,5 @@
-import type { BoundExpression } from '../../binder/types.js';
-import { BoundExpressionClass } from '../../binder/types.js';
+import type { BoundExpression } from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
 
 export function makeConjunction(
   exprs: BoundExpression[],
@@ -8,8 +8,8 @@ export function makeConjunction(
   if (exprs.length === 1) return exprs[0];
   return {
     expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
-    conjunctionType: 'AND',
+    conjunctionType: "AND",
     children: exprs,
-    returnType: 'BOOLEAN',
+    returnType: "BOOLEAN",
   };
 }

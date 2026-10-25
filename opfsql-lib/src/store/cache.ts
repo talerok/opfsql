@@ -10,7 +10,7 @@ export class LRUCache<K, V> implements ICache<K, V> {
   private readonly map = new Map<K, V>();
 
   constructor(private readonly capacity: number) {
-    if (capacity <= 0) throw new Error('Capacity must be > 0');
+    if (capacity <= 0) throw new Error("Capacity must be > 0");
   }
 
   get(key: K): V | undefined {

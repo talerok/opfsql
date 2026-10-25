@@ -21,7 +21,10 @@ interface CTEEntry {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeColumnRef(entry: BindingEntry, colIdx: number): BoundColumnRefExpression {
+function makeColumnRef(
+  entry: BindingEntry,
+  colIdx: number,
+): BoundColumnRefExpression {
   const col = entry.schema.columns[colIdx];
   return {
     expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
@@ -41,11 +44,18 @@ export class BindScope {
   private ctes = new Map<string, CTEEntry>();
   private tableIndexCounter: () => number;
 
-  constructor(tableIndexCounter: () => number, private parent?: BindScope) {
+  constructor(
+    tableIndexCounter: () => number,
+    private parent?: BindScope,
+  ) {
     this.tableIndexCounter = tableIndexCounter;
   }
 
-  addTable(tableName: string, alias: string, schema: TableSchema): BindingEntry {
+  addTable(
+    tableName: string,
+    alias: string,
+    schema: TableSchema,
+  ): BindingEntry {
     const entry: BindingEntry = {
       tableIndex: this.tableIndexCounter(),
       tableName,
@@ -56,13 +66,19 @@ export class BindScope {
     return entry;
   }
 
-  resolveColumn(columnName: string, tableAlias?: string): BoundColumnRefExpression {
+  resolveColumn(
+    columnName: string,
+    tableAlias?: string,
+  ): BoundColumnRefExpression {
     return tableAlias
       ? this.resolveQualified(columnName, tableAlias)
       : this.resolveUnqualified(columnName);
   }
 
-  resolveColumnIn(columnName: string, entries: BindingEntry[]): BoundColumnRefExpression {
+  resolveColumnIn(
+    columnName: string,
+    entries: BindingEntry[],
+  ): BoundColumnRefExpression {
     for (const entry of entries) {
       const colIdx = findColumnIndex(entry.schema, columnName);
       if (colIdx !== -1) return makeColumnRef(entry, colIdx);
@@ -72,15 +88,22 @@ export class BindScope {
 
   findByAlias(alias: string): BindingEntry | undefined {
     const lower = alias.toLowerCase();
-    return this.bindings.find((b) => b.alias.toLowerCase() === lower)
-      ?? this.parent?.findByAlias(alias);
+    return (
+      this.bindings.find((b) => b.alias.toLowerCase() === lower) ??
+      this.parent?.findByAlias(alias)
+    );
   }
 
   getAllBindings(): BindingEntry[] {
     return this.bindings;
   }
 
-  addCTE(name: string, plan: LogicalOperator, index: number, aliases: string[] = []): void {
+  addCTE(
+    name: string,
+    plan: LogicalOperator,
+    index: number,
+    aliases: string[] = [],
+  ): void {
     this.ctes.set(name.toLowerCase(), { plan, index, aliases });
   }
 
@@ -102,13 +125,18 @@ export class BindScope {
   // Private
   // ---------------------------------------------------------------------------
 
-  private resolveQualified(columnName: string, tableAlias: string): BoundColumnRefExpression {
+  private resolveQualified(
+    columnName: string,
+    tableAlias: string,
+  ): BoundColumnRefExpression {
     const entry = this.findByAlias(tableAlias);
     if (!entry) throw new BindError(`Unknown table alias "${tableAlias}"`);
 
     const colIdx = findColumnIndex(entry.schema, columnName);
     if (colIdx === -1) {
-      throw new BindError(`Column "${columnName}" not found in table "${entry.tableName}"`);
+      throw new BindError(
+        `Column "${columnName}" not found in table "${entry.tableName}"`,
+      );
     }
     return makeColumnRef(entry, colIdx);
   }
@@ -122,13 +150,17 @@ export class BindScope {
     }
     if (matches.length > 1) {
       const tables = matches.map((m) => `"${m.entry.tableName}"`).join(" and ");
-      throw new BindError(`Column "${columnName}" is ambiguous — exists in ${tables}`);
+      throw new BindError(
+        `Column "${columnName}" is ambiguous — exists in ${tables}`,
+      );
     }
 
     return makeColumnRef(matches[0].entry, matches[0].colIdx);
   }
 
-  private findMatchingColumns(columnName: string): Array<{ entry: BindingEntry; colIdx: number }> {
+  private findMatchingColumns(
+    columnName: string,
+  ): Array<{ entry: BindingEntry; colIdx: number }> {
     const matches: Array<{ entry: BindingEntry; colIdx: number }> = [];
     for (const entry of this.bindings) {
       const colIdx = findColumnIndex(entry.schema, columnName);

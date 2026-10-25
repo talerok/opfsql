@@ -1,10 +1,15 @@
-import { BaseParser } from './base.js';
+import { BaseParser } from "./base.js";
 import {
-  TokenType, StatementType,
-  TransactionStatement, TransactionType,
-} from '../types.js';
+  TokenType,
+  StatementType,
+  TransactionStatement,
+  TransactionType,
+} from "../types.js";
 
-export function parseTransaction(p: BaseParser, txType: TransactionType): TransactionStatement {
+export function parseTransaction(
+  p: BaseParser,
+  txType: TransactionType,
+): TransactionStatement {
   p.advance(); // BEGIN, COMMIT, or ROLLBACK
   p.match(TokenType.TRANSACTION);
   return {

@@ -210,11 +210,18 @@ function matchIndex(
   let prefixMatched = 0;
 
   for (let i = 0; i < idx.expressions.length; i++) {
-    const boundIdxExpr = bindIndexExpression(idx.expressions[i], schema, tableIndex);
+    const boundIdxExpr = bindIndexExpression(
+      idx.expressions[i],
+      schema,
+      tableIndex,
+    );
     const matched = matchColumnFilters(tableFilters, boundIdxExpr, i);
     predicates.push(...matched.predicates);
     covered.push(...matched.covered);
-    if (matched.type === "eq") { prefixMatched++; continue; }
+    if (matched.type === "eq") {
+      prefixMatched++;
+      continue;
+    }
     break; // range or miss — can't continue prefix
   }
 
@@ -226,7 +233,13 @@ function matchIndex(
 
   return {
     score,
-    hint: { kind: "scan", indexDef: idx, predicates, residualFilters: residual, coveredFilters: covered },
+    hint: {
+      kind: "scan",
+      indexDef: idx,
+      predicates,
+      residualFilters: residual,
+      coveredFilters: covered,
+    },
   };
 }
 
@@ -235,14 +248,22 @@ function matchColumnFilters(
   tableFilters: TableFilter[],
   boundIdxExpr: BoundExpression,
   columnPosition: number,
-): { type: "eq" | "range" | "miss"; predicates: IndexSearchPredicate[]; covered: TableFilter[] } {
+): {
+  type: "eq" | "range" | "miss";
+  predicates: IndexSearchPredicate[];
+  covered: TableFilter[];
+} {
   const eqFilter = tableFilters.find(
-    (f) => f.comparisonType === "EQUAL" && sameExpression(f.expression, boundIdxExpr),
+    (f) =>
+      f.comparisonType === "EQUAL" &&
+      sameExpression(f.expression, boundIdxExpr),
   );
   if (eqFilter) {
     return {
       type: "eq",
-      predicates: [{ columnPosition, comparisonType: "EQUAL", value: eqFilter.constant }],
+      predicates: [
+        { columnPosition, comparisonType: "EQUAL", value: eqFilter.constant },
+      ],
       covered: [eqFilter],
     };
   }
@@ -253,13 +274,15 @@ function matchColumnFilters(
       f.comparisonType !== "EQUAL" &&
       f.comparisonType !== "NOT_EQUAL",
   );
-  if (rangeFilters.length === 0) return { type: "miss", predicates: [], covered: [] };
+  if (rangeFilters.length === 0)
+    return { type: "miss", predicates: [], covered: [] };
 
   return {
     type: "range",
     predicates: rangeFilters.map((rf) => ({
       columnPosition,
-      comparisonType: rf.comparisonType as IndexSearchPredicate["comparisonType"],
+      comparisonType:
+        rf.comparisonType as IndexSearchPredicate["comparisonType"],
       value: rf.constant,
     })),
     covered: rangeFilters,

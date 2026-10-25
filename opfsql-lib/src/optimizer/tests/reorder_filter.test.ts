@@ -114,7 +114,9 @@ describe("estimateCost", () => {
     const ref: BoundColumnRefExpression = {
       expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
       binding: { tableIndex: 0, columnIndex: 1 },
-      tableName: "", columnName: "", returnType: "TEXT",
+      tableName: "",
+      columnName: "",
+      returnType: "TEXT",
     };
     expect(estimateCost(ref)).toBe(40);
   });
@@ -123,7 +125,9 @@ describe("estimateCost", () => {
     const ref: BoundColumnRefExpression = {
       expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
       binding: { tableIndex: 0, columnIndex: 0 },
-      tableName: "", columnName: "", returnType: "REAL",
+      tableName: "",
+      columnName: "",
+      returnType: "REAL",
     };
     expect(estimateCost(ref)).toBe(16);
   });
@@ -132,7 +136,9 @@ describe("estimateCost", () => {
     const ref: BoundColumnRefExpression = {
       expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
       binding: { tableIndex: 0, columnIndex: 0 },
-      tableName: "", columnName: "", returnType: "BLOB",
+      tableName: "",
+      columnName: "",
+      returnType: "BLOB",
     };
     expect(estimateCost(ref)).toBe(40);
   });
@@ -159,7 +165,10 @@ describe("estimateCost", () => {
   });
 
   describe("BOUND_OPERATOR — operatorType variants", () => {
-    function makeOp(operatorType: string, children: BoundExpression[]): BoundOperatorExpression {
+    function makeOp(
+      operatorType: string,
+      children: BoundExpression[],
+    ): BoundOperatorExpression {
       return {
         expressionClass: BoundExpressionClass.BOUND_OPERATOR,
         operatorType: operatorType as BoundOperatorExpression["operatorType"],
@@ -169,23 +178,39 @@ describe("estimateCost", () => {
     }
 
     it("ADD base cost 5", () => {
-      expect(estimateCost(makeOp("ADD", [makeIntConstant(1), makeIntConstant(2)]))).toBe(5 + 1 + 1);
+      expect(
+        estimateCost(makeOp("ADD", [makeIntConstant(1), makeIntConstant(2)])),
+      ).toBe(5 + 1 + 1);
     });
 
     it("SUBTRACT base cost 5", () => {
-      expect(estimateCost(makeOp("SUBTRACT", [makeIntConstant(1), makeIntConstant(2)]))).toBe(5 + 1 + 1);
+      expect(
+        estimateCost(
+          makeOp("SUBTRACT", [makeIntConstant(1), makeIntConstant(2)]),
+        ),
+      ).toBe(5 + 1 + 1);
     });
 
     it("MULTIPLY base cost 10", () => {
-      expect(estimateCost(makeOp("MULTIPLY", [makeIntConstant(1), makeIntConstant(2)]))).toBe(10 + 1 + 1);
+      expect(
+        estimateCost(
+          makeOp("MULTIPLY", [makeIntConstant(1), makeIntConstant(2)]),
+        ),
+      ).toBe(10 + 1 + 1);
     });
 
     it("DIVIDE base cost 15", () => {
-      expect(estimateCost(makeOp("DIVIDE", [makeIntConstant(1), makeIntConstant(2)]))).toBe(15 + 1 + 1);
+      expect(
+        estimateCost(
+          makeOp("DIVIDE", [makeIntConstant(1), makeIntConstant(2)]),
+        ),
+      ).toBe(15 + 1 + 1);
     });
 
     it("MOD base cost 15", () => {
-      expect(estimateCost(makeOp("MOD", [makeIntConstant(1), makeIntConstant(2)]))).toBe(15 + 1 + 1);
+      expect(
+        estimateCost(makeOp("MOD", [makeIntConstant(1), makeIntConstant(2)])),
+      ).toBe(15 + 1 + 1);
     });
 
     it("NOT base cost 3", () => {
@@ -197,7 +222,9 @@ describe("estimateCost", () => {
     });
 
     it("IS_NOT_NULL base cost 3", () => {
-      expect(estimateCost(makeOp("IS_NOT_NULL", [makeColRef(0, 0)]))).toBe(3 + 8);
+      expect(estimateCost(makeOp("IS_NOT_NULL", [makeColRef(0, 0)]))).toBe(
+        3 + 8,
+      );
     });
 
     it("NEGATE base cost 3", () => {
@@ -205,22 +232,38 @@ describe("estimateCost", () => {
     });
 
     it("IN base cost (N-1)*100", () => {
-      const children = [makeColRef(0, 0), makeIntConstant(1), makeIntConstant(2), makeIntConstant(3)];
+      const children = [
+        makeColRef(0, 0),
+        makeIntConstant(1),
+        makeIntConstant(2),
+        makeIntConstant(3),
+      ];
       expect(estimateCost(makeOp("IN", children))).toBe(300 + 8 + 1 + 1 + 1);
     });
 
     it("NOT_IN base cost (N-1)*100", () => {
-      const children = [makeColRef(0, 0), makeIntConstant(1), makeIntConstant(2)];
+      const children = [
+        makeColRef(0, 0),
+        makeIntConstant(1),
+        makeIntConstant(2),
+      ];
       expect(estimateCost(makeOp("NOT_IN", children))).toBe(200 + 8 + 1 + 1);
     });
 
     it("CONCAT (default) base cost 10", () => {
-      expect(estimateCost(makeOp("CONCAT", [makeIntConstant(1), makeIntConstant(2)]))).toBe(10 + 1 + 1);
+      expect(
+        estimateCost(
+          makeOp("CONCAT", [makeIntConstant(1), makeIntConstant(2)]),
+        ),
+      ).toBe(10 + 1 + 1);
     });
   });
 
   describe("BOUND_FUNCTION — functionCost variants", () => {
-    function makeFunc(name: string, children: BoundExpression[] = [makeIntConstant(1)]): BoundFunctionExpression {
+    function makeFunc(
+      name: string,
+      children: BoundExpression[] = [makeIntConstant(1)],
+    ): BoundFunctionExpression {
       return {
         expressionClass: BoundExpressionClass.BOUND_FUNCTION,
         functionName: name,
@@ -230,25 +273,44 @@ describe("estimateCost", () => {
     }
 
     it("ABS costs 5", () => expect(estimateCost(makeFunc("ABS"))).toBe(5 + 1));
-    it("SIGN costs 5", () => expect(estimateCost(makeFunc("SIGN"))).toBe(5 + 1));
-    it("UPPER costs 200", () => expect(estimateCost(makeFunc("UPPER"))).toBe(200 + 1));
-    it("LOWER costs 200", () => expect(estimateCost(makeFunc("LOWER"))).toBe(200 + 1));
-    it("TRIM costs 200", () => expect(estimateCost(makeFunc("TRIM"))).toBe(200 + 1));
-    it("LTRIM costs 200", () => expect(estimateCost(makeFunc("LTRIM"))).toBe(200 + 1));
-    it("RTRIM costs 200", () => expect(estimateCost(makeFunc("RTRIM"))).toBe(200 + 1));
-    it("LENGTH costs 10", () => expect(estimateCost(makeFunc("LENGTH"))).toBe(10 + 1));
-    it("TYPEOF costs 10", () => expect(estimateCost(makeFunc("TYPEOF"))).toBe(10 + 1));
-    it("SUBSTR costs 200", () => expect(estimateCost(makeFunc("SUBSTR"))).toBe(200 + 1));
-    it("SUBSTRING costs 200", () => expect(estimateCost(makeFunc("SUBSTRING"))).toBe(200 + 1));
-    it("REPLACE costs 200", () => expect(estimateCost(makeFunc("REPLACE"))).toBe(200 + 1));
-    it("INSTR costs 200", () => expect(estimateCost(makeFunc("INSTR"))).toBe(200 + 1));
-    it("COALESCE costs 5", () => expect(estimateCost(makeFunc("COALESCE"))).toBe(5 + 1));
-    it("IFNULL costs 5", () => expect(estimateCost(makeFunc("IFNULL"))).toBe(5 + 1));
-    it("NULLIF costs 5", () => expect(estimateCost(makeFunc("NULLIF"))).toBe(5 + 1));
-    it("HEX costs 200", () => expect(estimateCost(makeFunc("HEX"))).toBe(200 + 1));
-    it("UNHEX costs 200", () => expect(estimateCost(makeFunc("UNHEX"))).toBe(200 + 1));
-    it("QUOTE costs 200", () => expect(estimateCost(makeFunc("QUOTE"))).toBe(200 + 1));
-    it("unknown function costs 100", () => expect(estimateCost(makeFunc("MY_FUNC"))).toBe(100 + 1));
+    it("SIGN costs 5", () =>
+      expect(estimateCost(makeFunc("SIGN"))).toBe(5 + 1));
+    it("UPPER costs 200", () =>
+      expect(estimateCost(makeFunc("UPPER"))).toBe(200 + 1));
+    it("LOWER costs 200", () =>
+      expect(estimateCost(makeFunc("LOWER"))).toBe(200 + 1));
+    it("TRIM costs 200", () =>
+      expect(estimateCost(makeFunc("TRIM"))).toBe(200 + 1));
+    it("LTRIM costs 200", () =>
+      expect(estimateCost(makeFunc("LTRIM"))).toBe(200 + 1));
+    it("RTRIM costs 200", () =>
+      expect(estimateCost(makeFunc("RTRIM"))).toBe(200 + 1));
+    it("LENGTH costs 10", () =>
+      expect(estimateCost(makeFunc("LENGTH"))).toBe(10 + 1));
+    it("TYPEOF costs 10", () =>
+      expect(estimateCost(makeFunc("TYPEOF"))).toBe(10 + 1));
+    it("SUBSTR costs 200", () =>
+      expect(estimateCost(makeFunc("SUBSTR"))).toBe(200 + 1));
+    it("SUBSTRING costs 200", () =>
+      expect(estimateCost(makeFunc("SUBSTRING"))).toBe(200 + 1));
+    it("REPLACE costs 200", () =>
+      expect(estimateCost(makeFunc("REPLACE"))).toBe(200 + 1));
+    it("INSTR costs 200", () =>
+      expect(estimateCost(makeFunc("INSTR"))).toBe(200 + 1));
+    it("COALESCE costs 5", () =>
+      expect(estimateCost(makeFunc("COALESCE"))).toBe(5 + 1));
+    it("IFNULL costs 5", () =>
+      expect(estimateCost(makeFunc("IFNULL"))).toBe(5 + 1));
+    it("NULLIF costs 5", () =>
+      expect(estimateCost(makeFunc("NULLIF"))).toBe(5 + 1));
+    it("HEX costs 200", () =>
+      expect(estimateCost(makeFunc("HEX"))).toBe(200 + 1));
+    it("UNHEX costs 200", () =>
+      expect(estimateCost(makeFunc("UNHEX"))).toBe(200 + 1));
+    it("QUOTE costs 200", () =>
+      expect(estimateCost(makeFunc("QUOTE"))).toBe(200 + 1));
+    it("unknown function costs 100", () =>
+      expect(estimateCost(makeFunc("MY_FUNC"))).toBe(100 + 1));
 
     it("is case-insensitive", () => {
       expect(estimateCost(makeFunc("abs"))).toBe(5 + 1);
@@ -262,7 +324,10 @@ describe("estimateCost", () => {
   });
 
   describe("BOUND_CAST", () => {
-    function makeCast(castType: "INTEGER" | "REAL" | "TEXT" | "BLOB", child: BoundExpression): BoundCastExpression {
+    function makeCast(
+      castType: "INTEGER" | "REAL" | "TEXT" | "BLOB",
+      child: BoundExpression,
+    ): BoundCastExpression {
       return {
         expressionClass: BoundExpressionClass.BOUND_CAST,
         child,
@@ -280,7 +345,9 @@ describe("estimateCost", () => {
     });
 
     it("CAST to INTEGER costs 5 + child", () => {
-      expect(estimateCost(makeCast("INTEGER", makeStrConstant("42")))).toBe(5 + 1);
+      expect(estimateCost(makeCast("INTEGER", makeStrConstant("42")))).toBe(
+        5 + 1,
+      );
     });
 
     it("CAST to REAL costs 5 + child", () => {
@@ -292,7 +359,14 @@ describe("estimateCost", () => {
     const expr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_SUBQUERY,
       subqueryType: "SCALAR",
-      subplan: { type: LogicalOperatorType.LOGICAL_GET, children: [], expressions: [], types: [], estimatedCardinality: 0, columnBindings: [] } as unknown as LogicalOperator,
+      subplan: {
+        type: LogicalOperatorType.LOGICAL_GET,
+        children: [],
+        expressions: [],
+        types: [],
+        estimatedCardinality: 0,
+        columnBindings: [],
+      } as unknown as LogicalOperator,
       returnType: "INTEGER",
     } as BoundExpression;
     expect(estimateCost(expr)).toBe(10000);
@@ -356,7 +430,9 @@ describe("estimateCost", () => {
     const textCol: BoundColumnRefExpression = {
       expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
       binding: { tableIndex: 0, columnIndex: 1 },
-      tableName: "", columnName: "", returnType: "TEXT",
+      tableName: "",
+      columnName: "",
+      returnType: "TEXT",
     };
     const upperFunc: BoundFunctionExpression = {
       expressionClass: BoundExpressionClass.BOUND_FUNCTION,

@@ -79,7 +79,9 @@ describe("DDL", () => {
     expect(plan.type).toBe(LogicalOperatorType.LOGICAL_CREATE_INDEX);
     const ci = plan as LogicalCreateIndex;
     expect(ci.index.tableName).toBe("users");
-    expect(ci.index.expressions).toEqual([{ type: 'column', name: 'name', returnType: 'TEXT' }]);
+    expect(ci.index.expressions).toEqual([
+      { type: "column", name: "name", returnType: "TEXT" },
+    ]);
   });
 
   it("CREATE INDEX on non-existent table throws BindError", () => {
@@ -164,12 +166,18 @@ describe("DDL — additional", () => {
 
 describe("CREATE INDEX — reserved prefix", () => {
   it("index name starting with __pk_ throws BindError", () => {
-    expect(() => bind("CREATE INDEX __pk_users ON users (name)")).toThrow(BindError);
-    expect(() => bind("CREATE INDEX __pk_users ON users (name)")).toThrow(/__pk_/);
+    expect(() => bind("CREATE INDEX __pk_users ON users (name)")).toThrow(
+      BindError,
+    );
+    expect(() => bind("CREATE INDEX __pk_users ON users (name)")).toThrow(
+      /__pk_/,
+    );
   });
 
   it("index name starting with __PK_ (case-insensitive) throws BindError", () => {
-    expect(() => bind("CREATE INDEX __PK_test ON users (name)")).toThrow(BindError);
+    expect(() => bind("CREATE INDEX __PK_test ON users (name)")).toThrow(
+      BindError,
+    );
   });
 
   it("index name not starting with __pk_ succeeds", () => {
@@ -183,18 +191,23 @@ describe("ALTER TABLE DROP COLUMN — index reference check", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: false,
     });
     expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(BindError);
-    expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(/referenced by index/);
+    expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(
+      /referenced by index/,
+    );
   });
 
   it("DROP COLUMN referenced by composite index throws BindError", () => {
     catalog.addIndex({
       name: "idx_name_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }, { type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [
+        { type: "column", name: "name", returnType: "TEXT" },
+        { type: "column", name: "age", returnType: "INTEGER" },
+      ],
       unique: false,
     });
     expect(() => bind("ALTER TABLE users DROP COLUMN age")).toThrow(BindError);
@@ -210,7 +223,7 @@ describe("ALTER TABLE DROP COLUMN — index reference check", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'Name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "Name", returnType: "TEXT" }],
       unique: false,
     });
     expect(() => bind("ALTER TABLE users DROP COLUMN name")).toThrow(BindError);
@@ -219,19 +232,39 @@ describe("ALTER TABLE DROP COLUMN — index reference check", () => {
 
 describe("BLOB column restrictions", () => {
   it("BLOB PRIMARY KEY throws BindError", () => {
-    expect(() => bind("CREATE TABLE bad (data BLOB PRIMARY KEY)")).toThrow(BindError);
+    expect(() => bind("CREATE TABLE bad (data BLOB PRIMARY KEY)")).toThrow(
+      BindError,
+    );
   });
 
   it("BLOB UNIQUE throws BindError", () => {
-    expect(() => bind("CREATE TABLE bad (id INTEGER, data BLOB UNIQUE)")).toThrow(BindError);
+    expect(() =>
+      bind("CREATE TABLE bad (id INTEGER, data BLOB UNIQUE)"),
+    ).toThrow(BindError);
   });
 
   it("CREATE INDEX on BLOB column throws BindError", () => {
     catalog.addTable({
       name: "blobs",
       columns: [
-        { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
-        { name: "data", type: "BLOB", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+        {
+          name: "id",
+          type: "INTEGER",
+          nullable: false,
+          primaryKey: true,
+          unique: true,
+          autoIncrement: false,
+          defaultValue: null,
+        },
+        {
+          name: "data",
+          type: "BLOB",
+          nullable: true,
+          primaryKey: false,
+          unique: false,
+          autoIncrement: false,
+          defaultValue: null,
+        },
       ],
     });
     expect(() => bind("CREATE INDEX idx ON blobs(data)")).toThrow(BindError);
@@ -242,10 +275,42 @@ describe("CREATE INDEX — expression-based", () => {
   const jsonSchema: TableSchema = {
     name: "docs",
     columns: [
-      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
-      { name: "data", type: "JSON", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
-      { name: "label", type: "TEXT", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
-      { name: "score", type: "INTEGER", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      {
+        name: "id",
+        type: "INTEGER",
+        nullable: false,
+        primaryKey: true,
+        unique: true,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "data",
+        type: "JSON",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "label",
+        type: "TEXT",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "score",
+        type: "INTEGER",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
     ],
   };
 
@@ -274,7 +339,9 @@ describe("CREATE INDEX — expression-based", () => {
 
   it("bare JSON column (data) is rejected", () => {
     expect(() => bind("CREATE INDEX idx ON docs (data)")).toThrow(BindError);
-    expect(() => bind("CREATE INDEX idx ON docs (data)")).toThrow(/JSON column directly/);
+    expect(() => bind("CREATE INDEX idx ON docs (data)")).toThrow(
+      /JSON column directly/,
+    );
   });
 
   // --- Function expressions ---
@@ -338,7 +405,9 @@ describe("CREATE INDEX — expression-based", () => {
   });
 
   it("composite with mixed types (data.name, MD5(label), score + id)", () => {
-    const plan = bind("CREATE INDEX idx ON docs (data.name, MD5(label), score + id)");
+    const plan = bind(
+      "CREATE INDEX idx ON docs (data.name, MD5(label), score + id)",
+    );
     const ci = plan as LogicalCreateIndex;
     expect(ci.index.expressions).toHaveLength(3);
     expect(ci.index.expressions[0].type).toBe("json_access");
@@ -358,14 +427,20 @@ describe("CREATE INDEX — expression-based", () => {
   // --- Validation: aggregates rejected ---
 
   it("aggregate in index expression is rejected", () => {
-    expect(() => bind("CREATE INDEX idx ON docs (COUNT(label))")).toThrow(BindError);
-    expect(() => bind("CREATE INDEX idx ON docs (COUNT(label))")).toThrow(/aggregate/);
+    expect(() => bind("CREATE INDEX idx ON docs (COUNT(label))")).toThrow(
+      BindError,
+    );
+    expect(() => bind("CREATE INDEX idx ON docs (COUNT(label))")).toThrow(
+      /aggregate/,
+    );
   });
 
   // --- Validation: non-existent column rejected ---
 
   it("non-existent column in expression is rejected", () => {
-    expect(() => bind("CREATE INDEX idx ON docs (nonexistent)")).toThrow(BindError);
+    expect(() => bind("CREATE INDEX idx ON docs (nonexistent)")).toThrow(
+      BindError,
+    );
   });
 
   // --- returnType preserved in IndexExpression ---

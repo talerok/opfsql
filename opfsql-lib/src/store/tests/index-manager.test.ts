@@ -1,12 +1,12 @@
-import { resetMockOPFS } from 'opfs-mock';
-import { beforeEach, describe, expect, it } from 'vitest';
-import type { IndexKey } from '../index-btree/types.js';
-import { SyncIndexManager } from '../index-manager.js';
-import { Storage } from '../storage.js';
-import type { SessionStore } from '../session-store.js';
-import type { ICatalog, IndexDef, RowId } from '../types.js';
-import { OPFSSyncStorage } from '../backend/opfs-storage.js';
-import { Catalog } from '../catalog.js';
+import { resetMockOPFS } from "opfs-mock";
+import { beforeEach, describe, expect, it } from "vitest";
+import type { IndexKey } from "../index-btree/types.js";
+import { SyncIndexManager } from "../index-manager.js";
+import { Storage } from "../storage.js";
+import type { SessionStore } from "../session-store.js";
+import type { ICatalog, IndexDef, RowId } from "../types.js";
+import { OPFSSyncStorage } from "../backend/opfs-storage.js";
+import { Catalog } from "../catalog.js";
 
 let seq = 0;
 
@@ -14,7 +14,7 @@ function rid(a: number, b: number): RowId {
   return a * 1000 + b;
 }
 
-describe('SyncIndexManager', () => {
+describe("SyncIndexManager", () => {
   let ps: SessionStore;
   let catalog: Catalog;
   let im: SyncIndexManager;
@@ -29,191 +29,246 @@ describe('SyncIndexManager', () => {
     im = new SyncIndexManager(ps, () => catalog);
 
     // Create a default non-unique index 'idx1' via bulkLoad
-    const rootPageNo = im.bulkLoad('idx1', [], false);
+    const rootPageNo = im.bulkLoad("idx1", [], false);
     catalog.addIndex({
-      name: 'idx1',
-      tableName: 'test',
-      expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
+      name: "idx1",
+      tableName: "test",
+      expressions: [{ type: "column", name: "col1", returnType: "INTEGER" }],
       unique: false,
       rootPageNo,
     });
   });
 
-  describe('insert and search', () => {
-    it('insert and find a single entry', () => {
-      im.insert('idx1', [10], rid(0, 0));
+  describe("insert and search", () => {
+    it("insert and find a single entry", () => {
+      im.insert("idx1", [10], rid(0, 0));
       ps.commit();
 
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 10 }])).toEqual([rid(0, 0)]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 10 },
+        ]),
+      ).toEqual([rid(0, 0)]);
     });
 
-    it('insert with unique=true enforces uniqueness', () => {
-      const rootPageNo = im.bulkLoad('idx_unique', [], true);
+    it("insert with unique=true enforces uniqueness", () => {
+      const rootPageNo = im.bulkLoad("idx_unique", [], true);
       catalog.addIndex({
-        name: 'idx_unique',
-        tableName: 'test',
-        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
+        name: "idx_unique",
+        tableName: "test",
+        expressions: [{ type: "column", name: "col1", returnType: "INTEGER" }],
         unique: true,
         rootPageNo,
       });
 
-      im.insert('idx_unique', [1], rid(0, 0));
-      expect(() => im.insert('idx_unique', [1], rid(0, 1))).toThrow('UNIQUE constraint failed');
+      im.insert("idx_unique", [1], rid(0, 0));
+      expect(() => im.insert("idx_unique", [1], rid(0, 1))).toThrow(
+        "UNIQUE constraint failed",
+      );
     });
 
-    it('different indexes are independent', () => {
+    it("different indexes are independent", () => {
       // Create second index
-      const rootPageNo = im.bulkLoad('idx_b', [], false);
+      const rootPageNo = im.bulkLoad("idx_b", [], false);
       catalog.addIndex({
-        name: 'idx_b',
-        tableName: 'test',
-        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
+        name: "idx_b",
+        tableName: "test",
+        expressions: [{ type: "column", name: "col1", returnType: "INTEGER" }],
         unique: false,
         rootPageNo,
       });
 
-      im.insert('idx1', [1], rid(0, 0));
-      im.insert('idx_b', [1], rid(0, 1));
+      im.insert("idx1", [1], rid(0, 0));
+      im.insert("idx_b", [1], rid(0, 1));
       ps.commit();
 
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
-      expect(im.search('idx_b', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 1)]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 1 },
+        ]),
+      ).toEqual([rid(0, 0)]);
+      expect(
+        im.search("idx_b", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 1 },
+        ]),
+      ).toEqual([rid(0, 1)]);
     });
   });
 
-  describe('delete', () => {
-    it('delete removes entry from index', () => {
-      im.insert('idx1', [5], rid(0, 0));
+  describe("delete", () => {
+    it("delete removes entry from index", () => {
+      im.insert("idx1", [5], rid(0, 0));
       ps.commit();
 
-      im.delete('idx1', [5], rid(0, 0));
+      im.delete("idx1", [5], rid(0, 0));
       ps.commit();
 
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 5 }])).toEqual([]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 5 },
+        ]),
+      ).toEqual([]);
     });
   });
 
-  describe('bulkLoad', () => {
-    it('bulk load creates searchable index', () => {
-      const entries = Array.from({ length: 20 }, (_, i) => ({ key: [i * 10] as IndexKey, rowId: rid(0, i) }));
-      const rootPageNo = im.bulkLoad('idx_bulk', entries, false);
+  describe("bulkLoad", () => {
+    it("bulk load creates searchable index", () => {
+      const entries = Array.from({ length: 20 }, (_, i) => ({
+        key: [i * 10] as IndexKey,
+        rowId: rid(0, i),
+      }));
+      const rootPageNo = im.bulkLoad("idx_bulk", entries, false);
       catalog.addIndex({
-        name: 'idx_bulk',
-        tableName: 'test',
-        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
+        name: "idx_bulk",
+        tableName: "test",
+        expressions: [{ type: "column", name: "col1", returnType: "INTEGER" }],
         unique: false,
         rootPageNo,
       });
       ps.commit();
 
-      expect(im.search('idx_bulk', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 50 }])).toEqual([rid(0, 5)]);
+      expect(
+        im.search("idx_bulk", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 50 },
+        ]),
+      ).toEqual([rid(0, 5)]);
     });
 
-    it('bulk load with unique=true rejects duplicates', () => {
+    it("bulk load with unique=true rejects duplicates", () => {
       const entries = [
         { key: [1] as IndexKey, rowId: rid(0, 0) },
         { key: [1] as IndexKey, rowId: rid(0, 1) },
       ];
-      expect(() => im.bulkLoad('idx_dup', entries, true)).toThrow('UNIQUE constraint failed');
+      expect(() => im.bulkLoad("idx_dup", entries, true)).toThrow(
+        "UNIQUE constraint failed",
+      );
     });
   });
 
-  describe('dropIndex', () => {
-    it('drop removes all index data', () => {
-      im.insert('idx1', [1], rid(0, 0));
-      im.insert('idx1', [2], rid(0, 1));
+  describe("dropIndex", () => {
+    it("drop removes all index data", () => {
+      im.insert("idx1", [1], rid(0, 0));
+      im.insert("idx1", [2], rid(0, 1));
       ps.commit();
 
-      im.dropIndex('idx1');
+      im.dropIndex("idx1");
       ps.commit();
     });
 
-    it('drop one index does not affect another', () => {
-      const rootPageNo = im.bulkLoad('idx_b', [], false);
+    it("drop one index does not affect another", () => {
+      const rootPageNo = im.bulkLoad("idx_b", [], false);
       catalog.addIndex({
-        name: 'idx_b',
-        tableName: 'test',
-        expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
+        name: "idx_b",
+        tableName: "test",
+        expressions: [{ type: "column", name: "col1", returnType: "INTEGER" }],
         unique: false,
         rootPageNo,
       });
 
-      im.insert('idx1', [1], rid(0, 0));
-      im.insert('idx_b', [1], rid(0, 1));
+      im.insert("idx1", [1], rid(0, 0));
+      im.insert("idx_b", [1], rid(0, 1));
       ps.commit();
 
-      im.dropIndex('idx1');
+      im.dropIndex("idx1");
       ps.commit();
 
-      expect(im.search('idx_b', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 1)]);
+      expect(
+        im.search("idx_b", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 1 },
+        ]),
+      ).toEqual([rid(0, 1)]);
     });
   });
 
-  describe('composite keys', () => {
-    it('prefix match on first column returns all entries with that prefix', () => {
-      im.insert('idx1', ['a', 1], rid(0, 0));
-      im.insert('idx1', ['a', 2], rid(0, 1));
-      im.insert('idx1', ['b', 1], rid(0, 2));
+  describe("composite keys", () => {
+    it("prefix match on first column returns all entries with that prefix", () => {
+      im.insert("idx1", ["a", 1], rid(0, 0));
+      im.insert("idx1", ["a", 2], rid(0, 1));
+      im.insert("idx1", ["b", 1], rid(0, 2));
       ps.commit();
 
-      const results = im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 'a' }]);
+      const results = im.search("idx1", [
+        { columnPosition: 0, comparisonType: "EQUAL", value: "a" },
+      ]);
       expect(results).toHaveLength(2);
       expect(results).toContainEqual(rid(0, 0));
       expect(results).toContainEqual(rid(0, 1));
     });
 
-    it('point lookup with all columns covered', () => {
-      im.insert('idx1', ['a', 1], rid(0, 0));
-      im.insert('idx1', ['a', 2], rid(0, 1));
+    it("point lookup with all columns covered", () => {
+      im.insert("idx1", ["a", 1], rid(0, 0));
+      im.insert("idx1", ["a", 2], rid(0, 1));
       ps.commit();
 
-      expect(im.search('idx1', [
-        { columnPosition: 0, comparisonType: 'EQUAL', value: 'a' },
-        { columnPosition: 1, comparisonType: 'EQUAL', value: 1 },
-      ])).toEqual([rid(0, 0)]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: "a" },
+          { columnPosition: 1, comparisonType: "EQUAL", value: 1 },
+        ]),
+      ).toEqual([rid(0, 0)]);
     });
   });
 
-  describe('rollback — no stale cache', () => {
-    it('index works correctly after rollback (no stale tree cache)', () => {
-      im.insert('idx1', [1], rid(0, 0));
-      im.insert('idx1', [2], rid(0, 1));
+  describe("rollback — no stale cache", () => {
+    it("index works correctly after rollback (no stale tree cache)", () => {
+      im.insert("idx1", [1], rid(0, 0));
+      im.insert("idx1", [2], rid(0, 1));
       ps.commit();
 
       // Start a new "transaction": insert, then rollback
-      im.insert('idx1', [3], rid(0, 2));
+      im.insert("idx1", [3], rid(0, 2));
       ps.rollback();
 
       // After rollback, key 3 should not exist
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 3 }])).toEqual([]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 3 },
+        ]),
+      ).toEqual([]);
 
       // Existing keys should still work
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 2 }])).toEqual([rid(0, 1)]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 1 },
+        ]),
+      ).toEqual([rid(0, 0)]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 2 },
+        ]),
+      ).toEqual([rid(0, 1)]);
     });
 
-    it('new inserts work after rollback', () => {
-      im.insert('idx1', [1], rid(0, 0));
+    it("new inserts work after rollback", () => {
+      im.insert("idx1", [1], rid(0, 0));
       ps.commit();
 
-      im.insert('idx1', [2], rid(0, 1));
+      im.insert("idx1", [2], rid(0, 1));
       ps.rollback();
 
       // Should be able to insert key 2 again after rollback
-      im.insert('idx1', [2], rid(0, 2));
+      im.insert("idx1", [2], rid(0, 2));
       ps.commit();
 
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 2 }])).toEqual([rid(0, 2)]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 2 },
+        ]),
+      ).toEqual([rid(0, 2)]);
     });
   });
 
-  describe('case insensitivity', () => {
-    it('index names are lowercased', () => {
+  describe("case insensitivity", () => {
+    it("index names are lowercased", () => {
       // idx1 already exists in lowercase
-      im.insert('IDX1', [1], rid(0, 0));
+      im.insert("IDX1", [1], rid(0, 0));
       ps.commit();
 
-      expect(im.search('idx1', [{ columnPosition: 0, comparisonType: 'EQUAL', value: 1 }])).toEqual([rid(0, 0)]);
+      expect(
+        im.search("idx1", [
+          { columnPosition: 0, comparisonType: "EQUAL", value: 1 },
+        ]),
+      ).toEqual([rid(0, 0)]);
     });
   });
 });

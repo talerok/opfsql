@@ -1,6 +1,6 @@
-import type { ColumnBinding } from '../../binder/types.js';
-import type { SyncPhysicalOperator, Tuple } from '../types.js';
-import { serializeKey } from './utils.js';
+import type { ColumnBinding } from "../../binder/types.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
+import { serializeKey } from "./utils.js";
 
 export class PhysicalDistinct implements SyncPhysicalOperator {
   private readonly seen = new Set<string>();
@@ -54,7 +54,10 @@ export class PhysicalUnion implements SyncPhysicalOperator {
   next(): Tuple[] | null {
     while (!this.leftDone) {
       const batch = this.left.next();
-      if (!batch) { this.leftDone = true; break; }
+      if (!batch) {
+        this.leftDone = true;
+        break;
+      }
       const result = this.dedup(batch);
       if (result) return result;
     }

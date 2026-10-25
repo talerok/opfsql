@@ -20,7 +20,12 @@ export function compareValues(a: Value, b: Value): number {
   if (a instanceof Uint8Array) return 1;
   if (b instanceof Uint8Array) return -1;
   // JSON object comparison via stringify (lexicographic for ordering)
-  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+  if (
+    typeof a === "object" &&
+    a !== null &&
+    typeof b === "object" &&
+    b !== null
+  ) {
     const sa = JSON.stringify(a);
     const sb = JSON.stringify(b);
     return sa < sb ? -1 : sa > sb ? 1 : 0;
@@ -37,8 +42,10 @@ export function compareValues(a: Value, b: Value): number {
     const na = Number(a);
     if (!Number.isNaN(na)) return na - b;
   }
-  const sa = typeof a === "object" && a !== null ? JSON.stringify(a) : String(a);
-  const sb = typeof b === "object" && b !== null ? JSON.stringify(b) : String(b);
+  const sa =
+    typeof a === "object" && a !== null ? JSON.stringify(a) : String(a);
+  const sb =
+    typeof b === "object" && b !== null ? JSON.stringify(b) : String(b);
   return sa < sb ? -1 : sa > sb ? 1 : 0;
 }
 

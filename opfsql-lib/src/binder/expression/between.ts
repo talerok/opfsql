@@ -1,10 +1,10 @@
-import type { BetweenExpression } from '../../parser/types.js';
-import type { BoundBetweenExpression } from '../types.js';
-import { BoundExpressionClass } from '../types.js';
-import type { BindContext, AggregateContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { checkTypeCompatibility } from '../core/type-check.js';
-import { bindExpression } from './index.js';
+import type { BetweenExpression } from "../../parser/types.js";
+import type { BoundBetweenExpression } from "../types.js";
+import { BoundExpressionClass } from "../types.js";
+import type { BindContext, AggregateContext } from "../core/context.js";
+import type { BindScope } from "../core/scope.js";
+import { checkTypeCompatibility } from "../core/type-check.js";
+import { bindExpression } from "./index.js";
 
 export function bindBetween(
   ctx: BindContext,
@@ -22,6 +22,6 @@ export function bindBetween(
     input,
     lower,
     upper,
-    returnType: 'BOOLEAN',
+    returnType: "BOOLEAN",
   };
 }

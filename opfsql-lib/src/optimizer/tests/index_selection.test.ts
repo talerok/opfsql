@@ -8,7 +8,12 @@ import type {
 import { LogicalOperatorType } from "../../binder/types.js";
 import { Catalog } from "../../store/catalog.js";
 import { optimize } from "../index.js";
-import { createTestContext, findNode, getGet, getScanHint } from "./test_helpers.js";
+import {
+  createTestContext,
+  findNode,
+  getGet,
+  getScanHint,
+} from "./test_helpers.js";
 
 let catalog: Catalog;
 let bind: (sql: string) => LogicalOperator;
@@ -24,7 +29,7 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE age = 30");
@@ -34,16 +39,16 @@ describe("IndexSelection", () => {
     expect(hint.indexDef.name).toBe("idx_age");
     expect(hint.predicates).toHaveLength(1);
     expect(hint.predicates[0].comparisonType).toBe("EQUAL");
-    expect(
-      (hint.predicates[0].value as BoundConstantExpression).value,
-    ).toBe(30);
+    expect((hint.predicates[0].value as BoundConstantExpression).value).toBe(
+      30,
+    );
   });
 
   it("annotates LogicalGet with indexHint for range filter", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE age > 18");
@@ -57,7 +62,7 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE name = 'Alice'");
@@ -70,7 +75,7 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users");
@@ -83,13 +88,13 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: false,
     });
     catalog.addIndex({
       name: "idx_name_uniq",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: true,
     });
     const plan = bind("SELECT * FROM users WHERE name = 'Alice'");
@@ -103,7 +108,10 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_comp",
       tableName: "orders",
-      expressions: [{ type: 'column', name: 'user_id', returnType: 'INTEGER' }, { type: 'column', name: 'status', returnType: 'TEXT' }],
+      expressions: [
+        { type: "column", name: "user_id", returnType: "INTEGER" },
+        { type: "column", name: "status", returnType: "TEXT" },
+      ],
       unique: false,
     });
     const plan = bind(
@@ -120,7 +128,7 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE age = 30 AND name = 'Alice'");
@@ -135,7 +143,10 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_comp",
       tableName: "orders",
-      expressions: [{ type: 'column', name: 'user_id', returnType: 'INTEGER' }, { type: 'column', name: 'status', returnType: 'TEXT' }],
+      expressions: [
+        { type: "column", name: "user_id", returnType: "INTEGER" },
+        { type: "column", name: "status", returnType: "TEXT" },
+      ],
       unique: false,
     });
     const plan = bind("SELECT * FROM orders WHERE user_id = 1");
@@ -150,7 +161,10 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_comp",
       tableName: "orders",
-      expressions: [{ type: 'column', name: 'user_id', returnType: 'INTEGER' }, { type: 'column', name: 'status', returnType: 'TEXT' }],
+      expressions: [
+        { type: "column", name: "user_id", returnType: "INTEGER" },
+        { type: "column", name: "status", returnType: "TEXT" },
+      ],
       unique: false,
     });
     const plan = bind("SELECT * FROM orders WHERE status = 'shipped'");
@@ -163,7 +177,7 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_amount",
       tableName: "orders",
-      expressions: [{ type: 'column', name: 'amount', returnType: 'REAL' }],
+      expressions: [{ type: "column", name: "amount", returnType: "REAL" }],
       unique: false,
     });
     const plan = bind(
@@ -179,18 +193,19 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_age_only",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     catalog.addIndex({
       name: "idx_age_active",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }, { type: 'column', name: 'active', returnType: 'BOOLEAN' }],
+      expressions: [
+        { type: "column", name: "age", returnType: "INTEGER" },
+        { type: "column", name: "active", returnType: "BOOLEAN" },
+      ],
       unique: false,
     });
-    const plan = bind(
-      "SELECT * FROM users WHERE age = 30 AND active = true",
-    );
+    const plan = bind("SELECT * FROM users WHERE age = 30 AND active = true");
     const optimized = optimize(plan, catalog);
     const get = getGet(optimized);
     const hint = getScanHint(get);
@@ -203,12 +218,14 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_data_name",
       tableName: "docs",
-      expressions: [{
-        type: 'json_access',
-        column: 'data',
-        path: [{ type: 'field', name: 'name' }],
-        returnType: 'JSON',
-      }],
+      expressions: [
+        {
+          type: "json_access",
+          column: "data",
+          path: [{ type: "field", name: "name" }],
+          returnType: "JSON",
+        },
+      ],
       unique: false,
     });
     const plan = bind("SELECT * FROM docs WHERE data.name = 'Alice'");
@@ -224,12 +241,14 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_data_age",
       tableName: "docs",
-      expressions: [{
-        type: 'json_access',
-        column: 'data',
-        path: [{ type: 'field', name: 'age' }],
-        returnType: 'JSON',
-      }],
+      expressions: [
+        {
+          type: "json_access",
+          column: "data",
+          path: [{ type: "field", name: "age" }],
+          returnType: "JSON",
+        },
+      ],
       unique: false,
     });
     const plan = bind("SELECT * FROM docs WHERE data.age > 20");
@@ -243,12 +262,14 @@ describe("IndexSelection", () => {
     catalog.addIndex({
       name: "idx_data_name",
       tableName: "docs",
-      expressions: [{
-        type: 'json_access',
-        column: 'data',
-        path: [{ type: 'field', name: 'name' }],
-        returnType: 'JSON',
-      }],
+      expressions: [
+        {
+          type: "json_access",
+          column: "data",
+          path: [{ type: "field", name: "name" }],
+          returnType: "JSON",
+        },
+      ],
       unique: false,
     });
     const plan = bind("SELECT * FROM docs WHERE data.age = 30");
@@ -267,13 +288,15 @@ describe("ORDER BY via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users ORDER BY age ASC");
     const optimized = optimize(plan, catalog);
     // Sort node should be removed
-    expect(findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY)).toBeNull();
+    expect(
+      findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY),
+    ).toBeNull();
     // LogicalGet should have scan hint with empty predicates (order scan)
     const get = getGet(optimized);
     const hint = getScanHint(get);
@@ -285,12 +308,14 @@ describe("ORDER BY via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users ORDER BY age DESC");
     const optimized = optimize(plan, catalog);
-    expect(findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY)).not.toBeNull();
+    expect(
+      findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY),
+    ).not.toBeNull();
   });
 
   it("eliminates Sort for composite index prefix", () => {
@@ -298,14 +323,16 @@ describe("ORDER BY via Index", () => {
       name: "idx_comp",
       tableName: "orders",
       expressions: [
-        { type: 'column', name: 'user_id', returnType: 'INTEGER' },
-        { type: 'column', name: 'status', returnType: 'TEXT' },
+        { type: "column", name: "user_id", returnType: "INTEGER" },
+        { type: "column", name: "status", returnType: "TEXT" },
       ],
       unique: false,
     });
     const plan = bind("SELECT * FROM orders ORDER BY user_id ASC, status ASC");
     const optimized = optimize(plan, catalog);
-    expect(findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY)).toBeNull();
+    expect(
+      findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY),
+    ).toBeNull();
     const hint = getScanHint(getGet(optimized));
     expect(hint.indexDef.name).toBe("idx_comp");
   });
@@ -315,26 +342,30 @@ describe("ORDER BY via Index", () => {
       name: "idx_comp",
       tableName: "orders",
       expressions: [
-        { type: 'column', name: 'user_id', returnType: 'INTEGER' },
-        { type: 'column', name: 'status', returnType: 'TEXT' },
+        { type: "column", name: "user_id", returnType: "INTEGER" },
+        { type: "column", name: "status", returnType: "TEXT" },
       ],
       unique: false,
     });
     const plan = bind("SELECT * FROM orders ORDER BY status ASC");
     const optimized = optimize(plan, catalog);
-    expect(findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY)).not.toBeNull();
+    expect(
+      findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY),
+    ).not.toBeNull();
   });
 
   it("eliminates Sort when filter and ORDER BY use the same index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE age > 5 ORDER BY age ASC");
     const optimized = optimize(plan, catalog);
-    expect(findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY)).toBeNull();
+    expect(
+      findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY),
+    ).toBeNull();
     const hint = getScanHint(getGet(optimized));
     expect(hint.indexDef.name).toBe("idx_age");
     // Should still have the filter predicate
@@ -345,13 +376,17 @@ describe("ORDER BY via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users ORDER BY age ASC LIMIT 10");
     const optimized = optimize(plan, catalog);
-    expect(findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY)).toBeNull();
-    expect(findNode(optimized, LogicalOperatorType.LOGICAL_LIMIT)).not.toBeNull();
+    expect(
+      findNode(optimized, LogicalOperatorType.LOGICAL_ORDER_BY),
+    ).toBeNull();
+    expect(
+      findNode(optimized, LogicalOperatorType.LOGICAL_LIMIT),
+    ).not.toBeNull();
   });
 });
 
@@ -364,12 +399,15 @@ describe("MIN/MAX via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT MIN(age) FROM users");
     const optimized = optimize(plan, catalog);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg).not.toBeNull();
     expect(agg.minMaxHint).toBeDefined();
     expect(agg.minMaxHint!.functionName).toBe("MIN");
@@ -380,12 +418,15 @@ describe("MIN/MAX via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT MAX(age) FROM users");
     const optimized = optimize(plan, catalog);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.minMaxHint).toBeDefined();
     expect(agg.minMaxHint!.functionName).toBe("MAX");
   });
@@ -394,12 +435,15 @@ describe("MIN/MAX via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT name, MIN(age) FROM users GROUP BY name");
     const optimized = optimize(plan, catalog);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.minMaxHint).toBeUndefined();
   });
 
@@ -407,12 +451,15 @@ describe("MIN/MAX via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT MIN(age), MAX(age) FROM users");
     const optimized = optimize(plan, catalog);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.minMaxHint).toBeUndefined();
   });
 
@@ -420,12 +467,15 @@ describe("MIN/MAX via Index", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT MIN(age) FROM users WHERE age > 5");
     const optimized = optimize(plan, catalog);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.minMaxHint).toBeUndefined();
   });
 
@@ -433,12 +483,15 @@ describe("MIN/MAX via Index", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: false,
     });
     const plan = bind("SELECT MIN(age) FROM users");
     const optimized = optimize(plan, catalog);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.minMaxHint).toBeUndefined();
   });
 });
@@ -452,13 +505,13 @@ describe("OR / Index Union", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: false,
     });
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE name = 'Alice' OR age = 30");
@@ -475,22 +528,24 @@ describe("OR / Index Union", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: false,
     });
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     catalog.addIndex({
       name: "idx_active",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'active', returnType: 'BOOLEAN' }],
+      expressions: [{ type: "column", name: "active", returnType: "BOOLEAN" }],
       unique: false,
     });
-    const plan = bind("SELECT * FROM users WHERE name = 'Alice' OR age = 30 OR active = true");
+    const plan = bind(
+      "SELECT * FROM users WHERE name = 'Alice' OR age = 30 OR active = true",
+    );
     const optimized = optimize(plan, catalog);
     const get = getGet(optimized);
     expect(get.indexHint?.kind).toBe("union");
@@ -503,7 +558,7 @@ describe("OR / Index Union", () => {
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE age = 10 OR age = 20");
@@ -521,7 +576,7 @@ describe("OR / Index Union", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: false,
     });
     // age has no index, so the OR cannot be fully covered
@@ -536,13 +591,13 @@ describe("OR / Index Union", () => {
     catalog.addIndex({
       name: "idx_name",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'name', returnType: 'TEXT' }],
+      expressions: [{ type: "column", name: "name", returnType: "TEXT" }],
       unique: false,
     });
     catalog.addIndex({
       name: "idx_age",
       tableName: "users",
-      expressions: [{ type: 'column', name: 'age', returnType: 'INTEGER' }],
+      expressions: [{ type: "column", name: "age", returnType: "INTEGER" }],
       unique: false,
     });
     const plan = bind("SELECT * FROM users WHERE name = 'Alice' OR age = 30");

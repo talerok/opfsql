@@ -8,21 +8,32 @@ import { collectColumnRefs } from "../utils/collect_column_refs.js";
 import { makeColRef, makeIntConstant } from "./test_helpers.js";
 
 describe("flipComparison", () => {
-  it("flips LESS to GREATER", () => expect(flipComparison("LESS")).toBe("GREATER"));
-  it("flips GREATER to LESS", () => expect(flipComparison("GREATER")).toBe("LESS"));
-  it("flips LESS_EQUAL to GREATER_EQUAL", () => expect(flipComparison("LESS_EQUAL")).toBe("GREATER_EQUAL"));
-  it("flips GREATER_EQUAL to LESS_EQUAL", () => expect(flipComparison("GREATER_EQUAL")).toBe("LESS_EQUAL"));
+  it("flips LESS to GREATER", () =>
+    expect(flipComparison("LESS")).toBe("GREATER"));
+  it("flips GREATER to LESS", () =>
+    expect(flipComparison("GREATER")).toBe("LESS"));
+  it("flips LESS_EQUAL to GREATER_EQUAL", () =>
+    expect(flipComparison("LESS_EQUAL")).toBe("GREATER_EQUAL"));
+  it("flips GREATER_EQUAL to LESS_EQUAL", () =>
+    expect(flipComparison("GREATER_EQUAL")).toBe("LESS_EQUAL"));
   it("EQUAL stays EQUAL", () => expect(flipComparison("EQUAL")).toBe("EQUAL"));
-  it("NOT_EQUAL stays NOT_EQUAL", () => expect(flipComparison("NOT_EQUAL")).toBe("NOT_EQUAL"));
+  it("NOT_EQUAL stays NOT_EQUAL", () =>
+    expect(flipComparison("NOT_EQUAL")).toBe("NOT_EQUAL"));
 });
 
 describe("negateComparison", () => {
-  it("negates LESS to GREATER_EQUAL", () => expect(negateComparison("LESS")).toBe("GREATER_EQUAL"));
-  it("negates GREATER to LESS_EQUAL", () => expect(negateComparison("GREATER")).toBe("LESS_EQUAL"));
-  it("negates LESS_EQUAL to GREATER", () => expect(negateComparison("LESS_EQUAL")).toBe("GREATER"));
-  it("negates GREATER_EQUAL to LESS", () => expect(negateComparison("GREATER_EQUAL")).toBe("LESS"));
-  it("negates EQUAL to NOT_EQUAL", () => expect(negateComparison("EQUAL")).toBe("NOT_EQUAL"));
-  it("negates NOT_EQUAL to EQUAL", () => expect(negateComparison("NOT_EQUAL")).toBe("EQUAL"));
+  it("negates LESS to GREATER_EQUAL", () =>
+    expect(negateComparison("LESS")).toBe("GREATER_EQUAL"));
+  it("negates GREATER to LESS_EQUAL", () =>
+    expect(negateComparison("GREATER")).toBe("LESS_EQUAL"));
+  it("negates LESS_EQUAL to GREATER", () =>
+    expect(negateComparison("LESS_EQUAL")).toBe("GREATER"));
+  it("negates GREATER_EQUAL to LESS", () =>
+    expect(negateComparison("GREATER_EQUAL")).toBe("LESS"));
+  it("negates EQUAL to NOT_EQUAL", () =>
+    expect(negateComparison("EQUAL")).toBe("NOT_EQUAL"));
+  it("negates NOT_EQUAL to EQUAL", () =>
+    expect(negateComparison("NOT_EQUAL")).toBe("EQUAL"));
 });
 
 describe("expressionReferencesTable", () => {

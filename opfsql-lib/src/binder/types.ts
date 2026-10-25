@@ -8,7 +8,15 @@ import type {
   JsonValue,
 } from "../types.js";
 
-export type { ColumnDef, IndexDef, IndexExpression, JsonPathSegment, LogicalType, TableSchema, JsonValue };
+export type {
+  ColumnDef,
+  IndexDef,
+  IndexExpression,
+  JsonPathSegment,
+  LogicalType,
+  TableSchema,
+  JsonValue,
+};
 
 // ============================================================================
 // Enums
@@ -95,12 +103,7 @@ export interface BoundParameterExpression {
 }
 
 export type ComparisonType =
-  | "EQUAL"
-  | "NOT_EQUAL"
-  | "LESS"
-  | "GREATER"
-  | "LESS_EQUAL"
-  | "GREATER_EQUAL";
+  "EQUAL" | "NOT_EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
 
 export interface BoundComparisonExpression {
   expressionClass: BoundExpressionClass.BOUND_COMPARISON;
@@ -236,7 +239,7 @@ export interface IndexSearchPredicate {
 }
 
 export interface IndexScanHint {
-  kind: 'scan';
+  kind: "scan";
   indexDef: IndexDef;
   predicates: IndexSearchPredicate[];
   /** Filters NOT covered by the index (need residual filtering in scan). */
@@ -246,7 +249,7 @@ export interface IndexScanHint {
 }
 
 export interface IndexUnionHint {
-  kind: 'union';
+  kind: "union";
   branches: IndexScanHint[];
   /** The original OR expression — used as residual filter on fetched rows. */
   originalFilter: BoundExpression;
@@ -305,7 +308,7 @@ export interface LogicalAggregate {
 
 export interface MinMaxHint {
   indexDef: IndexDef;
-  functionName: 'MIN' | 'MAX';
+  functionName: "MIN" | "MAX";
   keyPosition: number;
 }
 
@@ -372,7 +375,7 @@ export interface LogicalUnion {
 
 export interface BoundOnConflict {
   conflictColumns: number[];
-  action: 'NOTHING' | 'UPDATE';
+  action: "NOTHING" | "UPDATE";
   updateColumns: number[];
   updateExpressions: BoundExpression[];
   whereExpression: BoundExpression | null;

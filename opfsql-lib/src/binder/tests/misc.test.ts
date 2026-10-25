@@ -255,9 +255,33 @@ describe("JSON", () => {
   const jsonSchema: TableSchema = {
     name: "docs",
     columns: [
-      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
-      { name: "data", type: "JSON", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
-      { name: "label", type: "TEXT", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      {
+        name: "id",
+        type: "INTEGER",
+        nullable: false,
+        primaryKey: true,
+        unique: true,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "data",
+        type: "JSON",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "label",
+        type: "TEXT",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
     ],
   };
 
@@ -268,7 +292,9 @@ describe("JSON", () => {
   it("SELECT data.name resolves to BoundJsonAccessExpression", () => {
     const plan = bind("SELECT data.name FROM docs");
     const proj = plan as LogicalProjection;
-    expect(proj.expressions[0].expressionClass).toBe(BoundExpressionClass.BOUND_JSON_ACCESS);
+    expect(proj.expressions[0].expressionClass).toBe(
+      BoundExpressionClass.BOUND_JSON_ACCESS,
+    );
     const ja = proj.expressions[0] as BoundJsonAccessExpression;
     expect(ja.child.columnName).toBe("data");
     expect(ja.path).toEqual([{ type: "field", name: "name" }]);
@@ -278,7 +304,9 @@ describe("JSON", () => {
   it("SELECT docs.data.name with table alias", () => {
     const plan = bind("SELECT docs.data.name FROM docs");
     const proj = plan as LogicalProjection;
-    expect(proj.expressions[0].expressionClass).toBe(BoundExpressionClass.BOUND_JSON_ACCESS);
+    expect(proj.expressions[0].expressionClass).toBe(
+      BoundExpressionClass.BOUND_JSON_ACCESS,
+    );
   });
 
   it("field access on non-JSON column throws BindError", () => {
@@ -315,11 +343,15 @@ describe("JSON", () => {
   });
 
   it("JSON PRIMARY KEY throws BindError", () => {
-    expect(() => bind("CREATE TABLE bad (data JSON PRIMARY KEY)")).toThrow(BindError);
+    expect(() => bind("CREATE TABLE bad (data JSON PRIMARY KEY)")).toThrow(
+      BindError,
+    );
   });
 
   it("JSON UNIQUE throws BindError", () => {
-    expect(() => bind("CREATE TABLE bad (id INTEGER, data JSON UNIQUE)")).toThrow(BindError);
+    expect(() =>
+      bind("CREATE TABLE bad (id INTEGER, data JSON UNIQUE)"),
+    ).toThrow(BindError);
   });
 });
 
@@ -342,8 +374,24 @@ describe("type-check — BLOB comparison", () => {
   const blobSchema: TableSchema = {
     name: "blobs",
     columns: [
-      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
-      { name: "data", type: "BLOB", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      {
+        name: "id",
+        type: "INTEGER",
+        nullable: false,
+        primaryKey: true,
+        unique: true,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "data",
+        type: "BLOB",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
     ],
   };
 
@@ -358,21 +406,19 @@ describe("type-check — BLOB comparison", () => {
   });
 
   it("BLOB compared with TEXT throws type mismatch", () => {
-    expect(() =>
-      bind("SELECT * FROM blobs WHERE data = 'hello'"),
-    ).toThrow(/Type mismatch/);
+    expect(() => bind("SELECT * FROM blobs WHERE data = 'hello'")).toThrow(
+      /Type mismatch/,
+    );
   });
 
   it("LIKE on BLOB throws BindError", () => {
-    expect(() =>
-      bind("SELECT * FROM blobs WHERE data LIKE '%x%'"),
-    ).toThrow(/BLOB/);
+    expect(() => bind("SELECT * FROM blobs WHERE data LIKE '%x%'")).toThrow(
+      /BLOB/,
+    );
   });
 
   it("arithmetic on BLOB throws BindError", () => {
-    expect(() =>
-      bind("SELECT data + 1 FROM blobs"),
-    ).toThrow(/BLOB/);
+    expect(() => bind("SELECT data + 1 FROM blobs")).toThrow(/BLOB/);
   });
 });
 
@@ -380,8 +426,24 @@ describe("type-check — scalar function type restrictions", () => {
   const blobSchema: TableSchema = {
     name: "blobs",
     columns: [
-      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
-      { name: "data", type: "BLOB", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      {
+        name: "id",
+        type: "INTEGER",
+        nullable: false,
+        primaryKey: true,
+        unique: true,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "data",
+        type: "BLOB",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
     ],
   };
 
@@ -402,9 +464,7 @@ describe("type-check — scalar function type restrictions", () => {
   });
 
   it("CONCAT with BLOB throws BindError", () => {
-    expect(() =>
-      bind("SELECT CONCAT(data, 'x') FROM blobs"),
-    ).toThrow(/BLOB/);
+    expect(() => bind("SELECT CONCAT(data, 'x') FROM blobs")).toThrow(/BLOB/);
   });
 });
 
@@ -414,7 +474,9 @@ describe("ALTER TABLE ADD COLUMN — key validation", () => {
       bind("ALTER TABLE users ADD COLUMN seq INTEGER PRIMARY KEY"),
     ).toThrow(/Cannot add a PRIMARY KEY column/);
     expect(() =>
-      bind("ALTER TABLE users ADD COLUMN seq INTEGER PRIMARY KEY AUTOINCREMENT"),
+      bind(
+        "ALTER TABLE users ADD COLUMN seq INTEGER PRIMARY KEY AUTOINCREMENT",
+      ),
     ).toThrow(/Cannot add a PRIMARY KEY column/);
   });
 

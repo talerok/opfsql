@@ -7,8 +7,8 @@ import type {
   BoundFunctionExpression,
   BoundCaseExpression,
   BoundCastExpression,
-} from '../../binder/types.js';
-import { BoundExpressionClass } from '../../binder/types.js';
+} from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
 
 export function isFoldable(expr: BoundExpression): boolean {
   switch (expr.expressionClass) {
@@ -32,7 +32,9 @@ export function isFoldable(expr: BoundExpression): boolean {
     }
     case BoundExpressionClass.BOUND_BETWEEN: {
       const bt = expr as BoundBetweenExpression;
-      return isFoldable(bt.input) && isFoldable(bt.lower) && isFoldable(bt.upper);
+      return (
+        isFoldable(bt.input) && isFoldable(bt.lower) && isFoldable(bt.upper)
+      );
     }
     case BoundExpressionClass.BOUND_FUNCTION: {
       const func = expr as BoundFunctionExpression;
@@ -41,7 +43,9 @@ export function isFoldable(expr: BoundExpression): boolean {
     case BoundExpressionClass.BOUND_CASE: {
       const cs = expr as BoundCaseExpression;
       return (
-        cs.caseChecks.every((cc) => isFoldable(cc.when) && isFoldable(cc.then)) &&
+        cs.caseChecks.every(
+          (cc) => isFoldable(cc.when) && isFoldable(cc.then),
+        ) &&
         (cs.elseExpr === null || isFoldable(cs.elseExpr))
       );
     }

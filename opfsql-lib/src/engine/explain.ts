@@ -38,7 +38,12 @@ const CMP: Record<ComparisonType, string> = {
 };
 
 const BINARY_OP: Record<string, string> = {
-  ADD: "+", SUBTRACT: "-", MULTIPLY: "*", DIVIDE: "/", MOD: "%", CONCAT: "||",
+  ADD: "+",
+  SUBTRACT: "-",
+  MULTIPLY: "*",
+  DIVIDE: "/",
+  MOD: "%",
+  CONCAT: "||",
 };
 
 // ---------------------------------------------------------------------------
@@ -56,7 +61,9 @@ export function formatExpression(expr: BoundExpression): string {
     case BoundExpressionClass.BOUND_COMPARISON:
       return `${formatExpression(expr.left)} ${CMP[expr.comparisonType]} ${formatExpression(expr.right)}`;
     case BoundExpressionClass.BOUND_CONJUNCTION:
-      return expr.children.map(formatExpression).join(` ${expr.conjunctionType} `);
+      return expr.children
+        .map(formatExpression)
+        .join(` ${expr.conjunctionType} `);
     case BoundExpressionClass.BOUND_OPERATOR:
       return formatOperator(expr.operatorType, expr.children);
     case BoundExpressionClass.BOUND_BETWEEN:
@@ -64,7 +71,12 @@ export function formatExpression(expr: BoundExpression): string {
     case BoundExpressionClass.BOUND_FUNCTION:
       return `${expr.functionName}(${expr.children.map(formatExpression).join(", ")})`;
     case BoundExpressionClass.BOUND_AGGREGATE:
-      return formatAggregate(expr.functionName, expr.isStar, expr.distinct, expr.children);
+      return formatAggregate(
+        expr.functionName,
+        expr.isStar,
+        expr.distinct,
+        expr.children,
+      );
     case BoundExpressionClass.BOUND_SUBQUERY:
       return `(${expr.subqueryType} subquery)`;
     case BoundExpressionClass.BOUND_CASE:
@@ -72,9 +84,12 @@ export function formatExpression(expr: BoundExpression): string {
     case BoundExpressionClass.BOUND_CAST:
       return `CAST(${formatExpression(expr.child)} AS ${expr.castType})`;
     case BoundExpressionClass.BOUND_JSON_ACCESS:
-      return formatExpression(expr.child) + expr.path
-        .map((s) => (s.type === "field" ? `.${s.name}` : `[${s.value}]`))
-        .join("");
+      return (
+        formatExpression(expr.child) +
+        expr.path
+          .map((s) => (s.type === "field" ? `.${s.name}` : `[${s.value}]`))
+          .join("")
+      );
   }
 }
 
@@ -95,7 +110,12 @@ function formatOperator(op: string, ch: BoundExpression[]): string {
   return `${formatExpression(ch[0])} ${BINARY_OP[op] ?? op} ${formatExpression(ch[1])}`;
 }
 
-function formatAggregate(name: string, isStar: boolean, distinct: boolean, children: BoundExpression[]): string {
+function formatAggregate(
+  name: string,
+  isStar: boolean,
+  distinct: boolean,
+  children: BoundExpression[],
+): string {
   if (isStar) return `${name}(*)`;
   const prefix = distinct ? "DISTINCT " : "";
   return `${name}(${prefix}${children.map(formatExpression).join(", ")})`;
@@ -162,11 +182,14 @@ function formatNode(node: LogicalOperator): string {
 
 function formatGet(n: LogicalGet): string {
   let label: string;
-  if (n.indexHint?.kind === 'union') {
+  if (n.indexHint?.kind === "union") {
     const names = n.indexHint.branches.map((b) => b.indexDef.name).join(", ");
     label = `IndexUnionScan ${n.tableName} (${names})`;
-  } else if (n.indexHint?.kind === 'scan') {
-    if (n.indexHint.predicates.length === 0 && n.indexHint.coveredFilters.length === 0) {
+  } else if (n.indexHint?.kind === "scan") {
+    if (
+      n.indexHint.predicates.length === 0 &&
+      n.indexHint.coveredFilters.length === 0
+    ) {
       label = `IndexOrderScan ${n.tableName} (${n.indexHint.indexDef.name})`;
     } else {
       label = `IndexScan ${n.tableName} (${n.indexHint.indexDef.name})`;
@@ -176,7 +199,10 @@ function formatGet(n: LogicalGet): string {
   }
   if (n.tableFilters.length === 0) return label + cardinality(n);
   const filters = n.tableFilters
-    .map((f) => `${formatExpression(f.expression)} ${CMP[f.comparisonType]} ${formatExpression(f.constant)}`)
+    .map(
+      (f) =>
+        `${formatExpression(f.expression)} ${CMP[f.comparisonType]} ${formatExpression(f.constant)}`,
+    )
     .join(", ");
   return `${label} [${filters}]${cardinality(n)}`;
 }
@@ -199,14 +225,20 @@ function formatAgg(n: LogicalAggregate): string {
 
 function formatJoin(n: LogicalComparisonJoin): string {
   const conds = n.conditions
-    .map((c) => `${formatExpression(c.left)} ${CMP[c.comparisonType]} ${formatExpression(c.right)}`)
+    .map(
+      (c) =>
+        `${formatExpression(c.left)} ${CMP[c.comparisonType]} ${formatExpression(c.right)}`,
+    )
     .join(" AND ");
   return `HashJoin [${n.joinType}] (${conds})`;
 }
 
 function formatSort(n: LogicalOrderBy): string {
   const cols = n.orders
-    .map((o) => `${formatExpression(o.expression)} ${o.orderType === "ASCENDING" ? "ASC" : "DESC"}`)
+    .map(
+      (o) =>
+        `${formatExpression(o.expression)} ${o.orderType === "ASCENDING" ? "ASC" : "DESC"}`,
+    )
     .join(", ");
   return `Sort (${cols})${n.topN != null ? ` top=${n.topN}` : ""}`;
 }

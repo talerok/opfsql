@@ -6,9 +6,9 @@ import type {
   BoundJsonAccessExpression,
   LogicalOperator,
   ColumnBinding,
-} from '../../binder/types.js';
-import { BoundExpressionClass } from '../../binder/types.js';
-import { mapExpression } from './map_expression.js';
+} from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
+import { mapExpression } from "./map_expression.js";
 
 export function collectColumnRefs(expr: BoundExpression): ColumnBinding[] {
   const refs: ColumnBinding[] = [];
@@ -35,23 +35,26 @@ function collectRefsFromPlan(op: LogicalOperator, out: ColumnBinding[]): void {
   for (const expr of op.expressions) {
     out.push(...collectColumnRefs(expr));
   }
-  if ('conditions' in op && Array.isArray(op.conditions)) {
-    for (const c of op.conditions as { left: BoundExpression; right: BoundExpression }[]) {
+  if ("conditions" in op && Array.isArray(op.conditions)) {
+    for (const c of op.conditions as {
+      left: BoundExpression;
+      right: BoundExpression;
+    }[]) {
       out.push(...collectColumnRefs(c.left));
       out.push(...collectColumnRefs(c.right));
     }
   }
-  if ('orders' in op && Array.isArray(op.orders)) {
+  if ("orders" in op && Array.isArray(op.orders)) {
     for (const o of op.orders as { expression: BoundExpression }[]) {
       out.push(...collectColumnRefs(o.expression));
     }
   }
-  if ('groups' in op && Array.isArray(op.groups)) {
+  if ("groups" in op && Array.isArray(op.groups)) {
     for (const g of op.groups as BoundExpression[]) {
       out.push(...collectColumnRefs(g));
     }
   }
-  if ('havingExpression' in op && op.havingExpression) {
+  if ("havingExpression" in op && op.havingExpression) {
     out.push(...collectColumnRefs(op.havingExpression as BoundExpression));
   }
   for (const child of op.children) {

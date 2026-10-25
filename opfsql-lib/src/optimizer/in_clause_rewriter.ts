@@ -5,9 +5,13 @@ import type {
   BoundConstantExpression,
   BoundComparisonExpression,
   BoundConjunctionExpression,
-} from '../binder/types.js';
-import { BoundExpressionClass } from '../binder/types.js';
-import { mapExpression, mapOperatorExpressions, isConstant } from './utils/index.js';
+} from "../binder/types.js";
+import { BoundExpressionClass } from "../binder/types.js";
+import {
+  mapExpression,
+  mapOperatorExpressions,
+  isConstant,
+} from "./utils/index.js";
 
 // ============================================================================
 // IN Clause Rewriter
@@ -31,7 +35,7 @@ function rewriteInExpression(expr: BoundExpression): BoundExpression {
   if (expr.expressionClass !== BoundExpressionClass.BOUND_OPERATOR) return expr;
   const op = expr as BoundOperatorExpression;
 
-  if (op.operatorType !== 'IN' && op.operatorType !== 'NOT_IN') return expr;
+  if (op.operatorType !== "IN" && op.operatorType !== "NOT_IN") return expr;
   if (op.children.length < 2) return expr;
 
   const input = op.children[0];
@@ -40,8 +44,8 @@ function rewriteInExpression(expr: BoundExpression): BoundExpression {
   // Check all values are constants
   if (!values.every(isConstant)) return expr;
 
-  const isNot = op.operatorType === 'NOT_IN';
-  const compType = isNot ? 'NOT_EQUAL' : 'EQUAL';
+  const isNot = op.operatorType === "NOT_IN";
+  const compType = isNot ? "NOT_EQUAL" : "EQUAL";
 
   // Single value: x IN (5) → x = 5, x NOT IN (5) → x <> 5
   if (values.length === 1) {
@@ -50,7 +54,7 @@ function rewriteInExpression(expr: BoundExpression): BoundExpression {
       comparisonType: compType,
       left: input,
       right: values[0],
-      returnType: 'BOOLEAN',
+      returnType: "BOOLEAN",
     } as BoundComparisonExpression;
   }
 
@@ -58,20 +62,23 @@ function rewriteInExpression(expr: BoundExpression): BoundExpression {
   if (values.length > IN_EXPANSION_THRESHOLD) return expr;
 
   // Small lists: expand to OR (for IN) or AND (for NOT IN)
-  const comparisons: BoundExpression[] = values.map((val) => ({
-    expressionClass: BoundExpressionClass.BOUND_COMPARISON,
-    comparisonType: compType,
-    left: input,
-    right: val,
-    returnType: 'BOOLEAN',
-  } as BoundComparisonExpression));
+  const comparisons: BoundExpression[] = values.map(
+    (val) =>
+      ({
+        expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+        comparisonType: compType,
+        left: input,
+        right: val,
+        returnType: "BOOLEAN",
+      }) as BoundComparisonExpression,
+  );
 
-  const conjunctionType = isNot ? 'AND' : 'OR';
+  const conjunctionType = isNot ? "AND" : "OR";
 
   return {
     expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
     conjunctionType,
     children: comparisons,
-    returnType: 'BOOLEAN',
+    returnType: "BOOLEAN",
   } as BoundConjunctionExpression;
 }

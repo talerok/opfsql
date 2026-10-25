@@ -117,7 +117,8 @@ describe("DML", () => {
       "INSERT INTO users (id, name) VALUES (1, 'Alice') ON CONFLICT (id) DO UPDATE SET name = excluded.name",
     );
     const ins = plan as LogicalInsert;
-    const expr = ins.onConflict!.updateExpressions[0] as BoundColumnRefExpression;
+    const expr = ins.onConflict!
+      .updateExpressions[0] as BoundColumnRefExpression;
     expect(expr.expressionClass).toBe(BoundExpressionClass.BOUND_COLUMN_REF);
     expect(expr.binding.tableIndex).toBe(ins.onConflict!.excludedTableIndex);
     expect(expr.columnName).toBe("name");

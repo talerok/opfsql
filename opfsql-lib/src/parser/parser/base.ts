@@ -1,7 +1,10 @@
 import {
-  Token, TokenType, ParseError,
-  SelectStatement, SetOperationStatement,
-} from '../types.js';
+  Token,
+  TokenType,
+  ParseError,
+  SelectStatement,
+  SetOperationStatement,
+} from "../types.js";
 
 export class BaseParser {
   tokens: Token[] = [];
@@ -40,7 +43,8 @@ export class BaseParser {
   expect(type: TokenType, message?: string): Token {
     if (this.check(type)) return this.advance();
     const token = this.peek();
-    const msg = message ?? `Expected ${TokenType[type]}, got '${token.value || 'EOF'}'`;
+    const msg =
+      message ?? `Expected ${TokenType[type]}, got '${token.value || "EOF"}'`;
     throw new ParseError(msg, token.line, token.column, token);
   }
 
@@ -54,28 +58,43 @@ export class BaseParser {
   }
 
   checkIdentifier(): boolean {
-    return this.check(TokenType.IDENTIFIER) || this.check(TokenType.QUOTED_IDENTIFIER);
+    return (
+      this.check(TokenType.IDENTIFIER) ||
+      this.check(TokenType.QUOTED_IDENTIFIER)
+    );
   }
 
   expectIdentifier(message?: string): Token {
-    if (this.check(TokenType.IDENTIFIER) || this.check(TokenType.QUOTED_IDENTIFIER)) {
+    if (
+      this.check(TokenType.IDENTIFIER) ||
+      this.check(TokenType.QUOTED_IDENTIFIER)
+    ) {
       return this.advance();
     }
     const token = this.peek();
-    const msg = message ?? `Expected identifier, got '${token.value || 'EOF'}'`;
+    const msg = message ?? `Expected identifier, got '${token.value || "EOF"}'`;
     throw new ParseError(msg, token.line, token.column, token);
   }
 
   isClauseKeyword(): boolean {
     const t = this.peek().type;
-    return t === TokenType.FROM || t === TokenType.WHERE || t === TokenType.GROUP ||
-           t === TokenType.HAVING || t === TokenType.ORDER || t === TokenType.LIMIT ||
-           t === TokenType.OFFSET || t === TokenType.UNION || t === TokenType.SEMICOLON ||
-           t === TokenType.EOF || t === TokenType.RIGHT_PAREN;
+    return (
+      t === TokenType.FROM ||
+      t === TokenType.WHERE ||
+      t === TokenType.GROUP ||
+      t === TokenType.HAVING ||
+      t === TokenType.ORDER ||
+      t === TokenType.LIMIT ||
+      t === TokenType.OFFSET ||
+      t === TokenType.UNION ||
+      t === TokenType.SEMICOLON ||
+      t === TokenType.EOF ||
+      t === TokenType.RIGHT_PAREN
+    );
   }
 
   // Overridden by Parser — needed for subquery parsing in expressions
   parseSelectStatement(): SelectStatement | SetOperationStatement {
-    this.error('Unexpected subquery');
+    this.error("Unexpected subquery");
   }
 }

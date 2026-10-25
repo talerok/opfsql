@@ -8,7 +8,11 @@ import type {
 } from "../../binder/types.js";
 import { BoundExpressionClass } from "../../binder/types.js";
 import { FilterCombiner } from "../filter_combiner.js";
-import { makeColRef, makeIntConstant, makeStrConstant } from "./test_helpers.js";
+import {
+  makeColRef,
+  makeIntConstant,
+  makeStrConstant,
+} from "./test_helpers.js";
 
 describe("FilterCombiner", () => {
   it("detects redundant range filters: x > 5 AND x > 7 → x > 7", () => {
@@ -253,7 +257,9 @@ describe("FilterCombiner", () => {
 
     const tableFilters = combiner.generateTableFilters(0);
     expect(tableFilters).toHaveLength(2);
-    const colIndices = tableFilters.map((f) => (f.expression as any).binding.columnIndex).sort();
+    const colIndices = tableFilters
+      .map((f) => (f.expression as any).binding.columnIndex)
+      .sort();
     expect(colIndices).toEqual([0, 2]);
   });
 });
@@ -545,9 +551,11 @@ describe("FilterCombiner — boundary conditions", () => {
     });
     const filters = combiner.generateFilters();
     const table1Filters = filters.filter((f) => {
-      if (f.expressionClass !== BoundExpressionClass.BOUND_COMPARISON) return false;
+      if (f.expressionClass !== BoundExpressionClass.BOUND_COMPARISON)
+        return false;
       const cmp = f as BoundComparisonExpression;
-      if (cmp.left.expressionClass !== BoundExpressionClass.BOUND_COLUMN_REF) return false;
+      if (cmp.left.expressionClass !== BoundExpressionClass.BOUND_COLUMN_REF)
+        return false;
       return (cmp.left as BoundColumnRefExpression).binding.tableIndex === 1;
     });
     expect(table1Filters).toHaveLength(0);
@@ -650,6 +658,8 @@ describe("FilterCombiner — boundary conditions", () => {
     } as unknown as BoundExpression);
     const filters = combiner.generateFilters();
     expect(filters).toHaveLength(1);
-    expect(filters[0].expressionClass).toBe(BoundExpressionClass.BOUND_OPERATOR);
+    expect(filters[0].expressionClass).toBe(
+      BoundExpressionClass.BOUND_OPERATOR,
+    );
   });
 });

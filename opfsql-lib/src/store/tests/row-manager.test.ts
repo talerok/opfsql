@@ -1,22 +1,26 @@
-import { resetMockOPFS } from 'opfs-mock';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { SyncTableManager } from '../table-manager.js';
-import { Storage } from '../storage.js';
-import type { SessionStore } from '../session-store.js';
-import { OPFSSyncStorage } from '../backend/opfs-storage.js';
-import { Catalog } from '../catalog.js';
-import type { ICatalog, TableSchema } from '../types.js';
+import { resetMockOPFS } from "opfs-mock";
+import { describe, it, expect, beforeEach } from "vitest";
+import { SyncTableManager } from "../table-manager.js";
+import { Storage } from "../storage.js";
+import type { SessionStore } from "../session-store.js";
+import { OPFSSyncStorage } from "../backend/opfs-storage.js";
+import { Catalog } from "../catalog.js";
+import type { ICatalog, TableSchema } from "../types.js";
 
 let seq = 0;
 
-async function createStoreAndSession(): Promise<{ backend: OPFSSyncStorage; storage: Storage; ps: SessionStore }> {
+async function createStoreAndSession(): Promise<{
+  backend: OPFSSyncStorage;
+  storage: Storage;
+  ps: SessionStore;
+}> {
   const backend = new OPFSSyncStorage(`rm-test-${seq++}`);
   const storage = new Storage(backend);
   await storage.open();
   return { backend, storage, ps: storage.createSession() };
 }
 
-describe('SyncTableManager (row operations via SyncTableBTree)', () => {
+describe("SyncTableManager (row operations via SyncTableBTree)", () => {
   let backend: OPFSSyncStorage;
   let storage: Storage;
   let ps: SessionStore;
@@ -31,12 +35,17 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
 
     // Create a table 't1' in the catalog
     const column = (name: string) => ({
-      name, type: 'ANY' as const, nullable: true, primaryKey: false,
-      unique: false, autoIncrement: false, defaultValue: null,
+      name,
+      type: "ANY" as const,
+      nullable: true,
+      primaryKey: false,
+      unique: false,
+      autoIncrement: false,
+      defaultValue: null,
     });
     const schema: TableSchema = {
-      name: 't1',
-      columns: [column('id'), column('val')],
+      name: "t1",
+      columns: [column("id"), column("val")],
     };
     catalog.addTable({ ...schema, ...rm.createTable(schema) });
   });
@@ -47,163 +56,164 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
     return rows;
   }
 
-  describe('prepareInsert', () => {
-    it('inserts and reads back via scanTable', () => {
-      rm.prepareInsert('t1', { id: 1 });
-      const rows = collectScan('t1');
+  describe("prepareInsert", () => {
+    it("inserts and reads back via scanTable", () => {
+      rm.prepareInsert("t1", { id: 1 });
+      const rows = collectScan("t1");
       expect(rows).toHaveLength(1);
       expect(rows[0].row).toEqual({ id: 1, val: null });
     });
 
-    it('assigns sequential rowIds', () => {
-      const r1 = rm.prepareInsert('t1', { id: 1 });
-      const r2 = rm.prepareInsert('t1', { id: 2 });
+    it("assigns sequential rowIds", () => {
+      const r1 = rm.prepareInsert("t1", { id: 1 });
+      const r2 = rm.prepareInsert("t1", { id: 2 });
       expect(r1).toBe(1);
       expect(r2).toBe(2);
     });
 
-    it('inserts many rows (triggers B-tree splits)', () => {
-      for (let i = 0; i < 2000; i++) rm.prepareInsert('t1', { id: i });
-      expect(collectScan('t1')).toHaveLength(2000);
+    it("inserts many rows (triggers B-tree splits)", () => {
+      for (let i = 0; i < 2000; i++) rm.prepareInsert("t1", { id: i });
+      expect(collectScan("t1")).toHaveLength(2000);
     });
   });
 
-  describe('prepareUpdate', () => {
+  describe("prepareUpdate", () => {
     let rowId: number;
 
     beforeEach(() => {
-      rowId = rm.prepareInsert('t1', { id: 1, val: 'old' });
+      rowId = rm.prepareInsert("t1", { id: 1, val: "old" });
       ps.commit();
     });
 
-    it('replaces row data', () => {
-      rm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
-      const rows = collectScan('t1');
+    it("replaces row data", () => {
+      rm.prepareUpdate("t1", rowId, { id: 1, val: "new" });
+      const rows = collectScan("t1");
       expect(rows).toHaveLength(1);
-      expect(rows[0].row).toEqual({ id: 1, val: 'new' });
+      expect(rows[0].row).toEqual({ id: 1, val: "new" });
     });
 
-    it('returns same rowId (in-place update)', () => {
-      const newRowId = rm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
+    it("returns same rowId (in-place update)", () => {
+      const newRowId = rm.prepareUpdate("t1", rowId, { id: 1, val: "new" });
       expect(newRowId).toBe(rowId);
     });
 
-    it('old rowId still reads updated data', () => {
-      rm.prepareUpdate('t1', rowId, { id: 1, val: 'new' });
-      expect(rm.readRow('t1', rowId)).toEqual({ id: 1, val: 'new' });
+    it("old rowId still reads updated data", () => {
+      rm.prepareUpdate("t1", rowId, { id: 1, val: "new" });
+      expect(rm.readRow("t1", rowId)).toEqual({ id: 1, val: "new" });
     });
   });
 
-  describe('prepareDelete', () => {
+  describe("prepareDelete", () => {
     let rowId: number;
 
     beforeEach(() => {
-      rowId = rm.prepareInsert('t1', { id: 1 });
+      rowId = rm.prepareInsert("t1", { id: 1 });
       ps.commit();
     });
 
-    it('removes row from scan', () => {
-      rm.prepareDelete('t1', rowId);
-      expect(collectScan('t1')).toHaveLength(0);
+    it("removes row from scan", () => {
+      rm.prepareDelete("t1", rowId);
+      expect(collectScan("t1")).toHaveLength(0);
     });
   });
 
-  describe('scanTable', () => {
-    it('empty table yields nothing', () => {
-      expect(collectScan('t1')).toHaveLength(0);
+  describe("scanTable", () => {
+    it("empty table yields nothing", () => {
+      expect(collectScan("t1")).toHaveLength(0);
     });
 
-    it('yields inserted rows in rowId order', () => {
-      rm.prepareInsert('t1', { id: 1 });
-      rm.prepareInsert('t1', { id: 2 });
-      const rows = collectScan('t1');
+    it("yields inserted rows in rowId order", () => {
+      rm.prepareInsert("t1", { id: 1 });
+      rm.prepareInsert("t1", { id: 2 });
+      const rows = collectScan("t1");
       expect(rows).toHaveLength(2);
       expect(rows[0].row).toEqual({ id: 1, val: null });
       expect(rows[1].row).toEqual({ id: 2, val: null });
     });
 
-    it('skips deleted rows', () => {
-      const r1 = rm.prepareInsert('t1', { id: 1 });
-      rm.prepareInsert('t1', { id: 2 });
-      rm.prepareDelete('t1', r1);
-      const rows = collectScan('t1');
+    it("skips deleted rows", () => {
+      const r1 = rm.prepareInsert("t1", { id: 1 });
+      rm.prepareInsert("t1", { id: 2 });
+      rm.prepareDelete("t1", r1);
+      const rows = collectScan("t1");
       expect(rows).toHaveLength(1);
       expect(rows[0].row).toEqual({ id: 2, val: null });
     });
   });
 
-  describe('readRow', () => {
-    it('reads inserted row by rowId', () => {
-      const rowId = rm.prepareInsert('t1', { id: 1, val: 'hello' });
-      expect(rm.readRow('t1', rowId)).toEqual({ id: 1, val: 'hello' });
+  describe("readRow", () => {
+    it("reads inserted row by rowId", () => {
+      const rowId = rm.prepareInsert("t1", { id: 1, val: "hello" });
+      expect(rm.readRow("t1", rowId)).toEqual({ id: 1, val: "hello" });
     });
 
-    it('returns null for deleted row', () => {
-      const rowId = rm.prepareInsert('t1', { id: 1 });
-      rm.prepareDelete('t1', rowId);
-      expect(rm.readRow('t1', rowId)).toBeNull();
+    it("returns null for deleted row", () => {
+      const rowId = rm.prepareInsert("t1", { id: 1 });
+      rm.prepareDelete("t1", rowId);
+      expect(rm.readRow("t1", rowId)).toBeNull();
     });
 
-    it('returns null for non-existent row', () => {
-      expect(rm.readRow('t1', 99)).toBeNull();
+    it("returns null for non-existent row", () => {
+      expect(rm.readRow("t1", 99)).toBeNull();
     });
   });
 
-  describe('batch DML via WAL', () => {
-    it('multiple deletes all persist after commit', () => {
-      for (let i = 0; i < 3; i++) rm.prepareInsert('t1', { id: i });
+  describe("batch DML via WAL", () => {
+    it("multiple deletes all persist after commit", () => {
+      for (let i = 0; i < 3; i++) rm.prepareInsert("t1", { id: i });
       ps.commit();
 
-      for (const { rowId } of collectScan('t1')) rm.prepareDelete('t1', rowId);
+      for (const { rowId } of collectScan("t1")) rm.prepareDelete("t1", rowId);
       ps.commit();
 
-      expect(collectScan('t1')).toHaveLength(0);
+      expect(collectScan("t1")).toHaveLength(0);
     });
 
-    it('multiple updates all persist after commit', () => {
-      for (let i = 0; i < 3; i++) rm.prepareInsert('t1', { id: i, val: 'old' });
+    it("multiple updates all persist after commit", () => {
+      for (let i = 0; i < 3; i++) rm.prepareInsert("t1", { id: i, val: "old" });
       ps.commit();
 
-      for (const { rowId } of collectScan('t1')) rm.prepareUpdate('t1', rowId, { id: rowId, val: 'new' });
+      for (const { rowId } of collectScan("t1"))
+        rm.prepareUpdate("t1", rowId, { id: rowId, val: "new" });
       ps.commit();
 
-      const updated = collectScan('t1');
+      const updated = collectScan("t1");
       expect(updated).toHaveLength(3);
-      expect(updated.every((r) => r.row.val === 'new')).toBe(true);
+      expect(updated.every((r) => r.row.val === "new")).toBe(true);
     });
   });
 
-  describe('persistence', () => {
-    it('data survives commit and is readable', () => {
-      const rowId = rm.prepareInsert('t1', { id: 1, val: 'persisted' });
+  describe("persistence", () => {
+    it("data survives commit and is readable", () => {
+      const rowId = rm.prepareInsert("t1", { id: 1, val: "persisted" });
       ps.commit();
 
       // Create a fresh manager pointing to same backend
       const ss2 = storage.createSession();
       const rm2 = new SyncTableManager(ss2, () => catalog);
-      expect(rm2.readRow('t1', rowId)).toEqual({ id: 1, val: 'persisted' });
+      expect(rm2.readRow("t1", rowId)).toEqual({ id: 1, val: "persisted" });
     });
 
-    it('rollback discards uncommitted data', () => {
-      rm.prepareInsert('t1', { id: 1 });
+    it("rollback discards uncommitted data", () => {
+      rm.prepareInsert("t1", { id: 1 });
       ps.commit();
 
-      rm.prepareInsert('t1', { id: 2 });
+      rm.prepareInsert("t1", { id: 2 });
       ps.rollback();
 
-      const rows = collectScan('t1');
+      const rows = collectScan("t1");
       expect(rows).toHaveLength(1);
       expect(rows[0].row).toEqual({ id: 1, val: null });
     });
   });
 
-  describe('deleteTableData', () => {
-    it('removes all table data', () => {
-      rm.prepareInsert('t1', { id: 1 });
-      rm.prepareInsert('t1', { id: 2 });
+  describe("deleteTableData", () => {
+    it("removes all table data", () => {
+      rm.prepareInsert("t1", { id: 1 });
+      rm.prepareInsert("t1", { id: 2 });
       ps.commit();
 
-      rm.deleteTableData('t1');
+      rm.deleteTableData("t1");
       ps.commit();
     });
   });

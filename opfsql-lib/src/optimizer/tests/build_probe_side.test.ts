@@ -5,7 +5,12 @@ import type {
 } from "../../binder/types.js";
 import { LogicalOperatorType } from "../../binder/types.js";
 import { optimizeBuildProbeSide } from "../index.js";
-import { createTestContext, findNode, getAllGets, getGet } from "./test_helpers.js";
+import {
+  createTestContext,
+  findNode,
+  getAllGets,
+  getGet,
+} from "./test_helpers.js";
 
 let bind: (sql: string) => LogicalOperator;
 

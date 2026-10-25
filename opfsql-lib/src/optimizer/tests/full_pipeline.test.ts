@@ -139,9 +139,7 @@ describe("optimize (full pipeline)", () => {
   });
 
   it("optimizes ORDER BY with LIMIT (topN annotation)", () => {
-    const plan = bind(
-      "SELECT name FROM users ORDER BY age DESC LIMIT 3",
-    );
+    const plan = bind("SELECT name FROM users ORDER BY age DESC LIMIT 3");
     const optimized = optimize(plan);
     const orderBy = findNode(
       optimized,
@@ -154,10 +152,7 @@ describe("optimize (full pipeline)", () => {
   it("optimizes DISTINCT query", () => {
     const plan = bind("SELECT DISTINCT name FROM users");
     const optimized = optimize(plan);
-    const distinct = findNode(
-      optimized,
-      LogicalOperatorType.LOGICAL_DISTINCT,
-    );
+    const distinct = findNode(optimized, LogicalOperatorType.LOGICAL_DISTINCT);
     expect(distinct).not.toBeNull();
   });
 

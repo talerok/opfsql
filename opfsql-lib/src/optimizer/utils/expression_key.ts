@@ -10,8 +10,8 @@ import type {
   BoundJsonAccessExpression,
   BoundOperatorExpression,
   BoundParameterExpression,
-} from '../../binder/types.js';
-import { BoundExpressionClass } from '../../binder/types.js';
+} from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
 
 /**
  * Structural serialization of a BoundExpression for use as a Map key.
@@ -30,7 +30,7 @@ export function expressionKey(expr: BoundExpression): string {
     }
     case BoundExpressionClass.BOUND_FUNCTION: {
       const fn = expr as BoundFunctionExpression;
-      return `F:${fn.functionName}(${fn.children.map(expressionKey).join(',')})`;
+      return `F:${fn.functionName}(${fn.children.map(expressionKey).join(",")})`;
     }
     case BoundExpressionClass.BOUND_CAST: {
       const cast = expr as BoundCastExpression;
@@ -38,7 +38,7 @@ export function expressionKey(expr: BoundExpression): string {
     }
     case BoundExpressionClass.BOUND_OPERATOR: {
       const op = expr as BoundOperatorExpression;
-      return `O:${op.operatorType}(${op.children.map(expressionKey).join(',')})`;
+      return `O:${op.operatorType}(${op.children.map(expressionKey).join(",")})`;
     }
     case BoundExpressionClass.BOUND_BETWEEN: {
       const b = expr as BoundBetweenExpression;
@@ -46,14 +46,14 @@ export function expressionKey(expr: BoundExpression): string {
     }
     case BoundExpressionClass.BOUND_CONJUNCTION: {
       const c = expr as BoundConjunctionExpression;
-      return `A:${c.conjunctionType}(${c.children.map(expressionKey).join(',')})`;
+      return `A:${c.conjunctionType}(${c.children.map(expressionKey).join(",")})`;
     }
     case BoundExpressionClass.BOUND_CASE: {
       const cs = expr as BoundCaseExpression;
-      const checks = cs.caseChecks.map(
-        (ch) => `${expressionKey(ch.when)}:${expressionKey(ch.then)}`,
-      ).join(',');
-      const el = cs.elseExpr ? expressionKey(cs.elseExpr) : '_';
+      const checks = cs.caseChecks
+        .map((ch) => `${expressionKey(ch.when)}:${expressionKey(ch.then)}`)
+        .join(",");
+      const el = cs.elseExpr ? expressionKey(cs.elseExpr) : "_";
       return `K:(${checks}|${el})`;
     }
     case BoundExpressionClass.BOUND_CONSTANT: {

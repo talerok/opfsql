@@ -1,8 +1,12 @@
-import type { BoundExpression, BoundColumnRefExpression, ColumnBinding } from '../../binder/types.js';
-import { BoundExpressionClass } from '../../binder/types.js';
-import type { LogicalType } from '../../store/types.js';
-import type { SyncEvalContext } from '../evaluate/context.js';
-import type { SyncPhysicalOperator, Tuple } from '../types.js';
+import type {
+  BoundExpression,
+  BoundColumnRefExpression,
+  ColumnBinding,
+} from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
+import type { LogicalType } from "../../store/types.js";
+import type { SyncEvalContext } from "../evaluate/context.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Mock physical operator — returns predefined batches (sync)
@@ -38,7 +42,7 @@ export function colRef(
   tableIndex: number,
   columnIndex: number,
   columnName = `col${columnIndex}`,
-  returnType: LogicalType = 'INTEGER',
+  returnType: LogicalType = "INTEGER",
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
@@ -55,13 +59,13 @@ export function constant(
 ): BoundExpression {
   const rt: LogicalType =
     returnType ??
-    (typeof value === 'string'
-      ? 'TEXT'
-      : typeof value === 'number'
-      ? 'INTEGER'
-      : typeof value === 'boolean'
-      ? 'BOOLEAN'
-      : 'NULL');
+    (typeof value === "string"
+      ? "TEXT"
+      : typeof value === "number"
+        ? "INTEGER"
+        : typeof value === "boolean"
+          ? "BOOLEAN"
+          : "NULL");
   return {
     expressionClass: BoundExpressionClass.BOUND_CONSTANT,
     value,
@@ -73,38 +77,38 @@ export function comparison(
   left: BoundExpression,
   right: BoundExpression,
   comparisonType:
-    | 'EQUAL'
-    | 'NOT_EQUAL'
-    | 'LESS'
-    | 'GREATER'
-    | 'LESS_EQUAL'
-    | 'GREATER_EQUAL' = 'EQUAL',
+    | "EQUAL"
+    | "NOT_EQUAL"
+    | "LESS"
+    | "GREATER"
+    | "LESS_EQUAL"
+    | "GREATER_EQUAL" = "EQUAL",
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_COMPARISON,
     comparisonType,
     left,
     right,
-    returnType: 'BOOLEAN',
+    returnType: "BOOLEAN",
   };
 }
 
 export function conjunction(
-  type: 'AND' | 'OR',
+  type: "AND" | "OR",
   ...children: BoundExpression[]
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_CONJUNCTION,
     conjunctionType: type,
     children,
-    returnType: 'BOOLEAN',
+    returnType: "BOOLEAN",
   };
 }
 
 export function operator(
   operatorType: string,
   children: BoundExpression[],
-  returnType: LogicalType = 'INTEGER',
+  returnType: LogicalType = "INTEGER",
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_OPERATOR,
@@ -124,14 +128,14 @@ export function between(
     input,
     lower,
     upper,
-    returnType: 'BOOLEAN',
+    returnType: "BOOLEAN",
   };
 }
 
 export function fnCall(
   functionName: string,
   children: BoundExpression[],
-  returnType: LogicalType = 'TEXT',
+  returnType: LogicalType = "TEXT",
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_FUNCTION,
@@ -156,7 +160,7 @@ export function cast(
 export function caseExpr(
   checks: Array<{ when: BoundExpression; then: BoundExpression }>,
   elseExpr: BoundExpression | null = null,
-  returnType: LogicalType = 'INTEGER',
+  returnType: LogicalType = "INTEGER",
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_CASE,
@@ -168,20 +172,25 @@ export function caseExpr(
 
 export function jsonAccess(
   child: BoundExpression,
-  path: Array<{ type: 'field'; name: string } | { type: 'index'; value: number }>,
+  path: Array<
+    { type: "field"; name: string } | { type: "index"; value: number }
+  >,
 ): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
     child: child as BoundColumnRefExpression,
     path,
-    returnType: 'JSON',
+    returnType: "JSON",
   };
 }
 
 export function layout(
   ...bindings: Array<[tableIndex: number, columnIndex: number]>
 ): ColumnBinding[] {
-  return bindings.map(([tableIndex, columnIndex]) => ({ tableIndex, columnIndex }));
+  return bindings.map(([tableIndex, columnIndex]) => ({
+    tableIndex,
+    columnIndex,
+  }));
 }
 
 // ---------------------------------------------------------------------------

@@ -1,9 +1,4 @@
-import type {
-  CatalogData,
-  ICatalog,
-  IndexDef,
-  TableSchema,
-} from "./types.js";
+import type { CatalogData, ICatalog, IndexDef, TableSchema } from "./types.js";
 
 export class Catalog implements ICatalog {
   private _version = 0;
@@ -100,6 +95,4 @@ export class Catalog implements ICatalog {
     catalog._version = data.version ?? 0;
     return catalog;
   }
-
 }
-

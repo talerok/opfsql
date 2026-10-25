@@ -1,8 +1,11 @@
-import type { BoundExpression, BoundConjunctionExpression } from '../../binder/types.js';
-import type { Value, Tuple } from '../types.js';
-import type { Resolver } from '../resolve.js';
-import type { SyncEvalContext } from './context.js';
-import { evaluateExpression } from './index.js';
+import type {
+  BoundExpression,
+  BoundConjunctionExpression,
+} from "../../binder/types.js";
+import type { Value, Tuple } from "../types.js";
+import type { Resolver } from "../resolve.js";
+import type { SyncEvalContext } from "./context.js";
+import { evaluateExpression } from "./index.js";
 
 export function evalConjunction(
   expr: BoundExpression,
@@ -12,7 +15,7 @@ export function evalConjunction(
 ): Value {
   const conj = expr as BoundConjunctionExpression;
 
-  if (conj.conjunctionType === 'AND') {
+  if (conj.conjunctionType === "AND") {
     let hasNull = false;
     for (const child of conj.children) {
       const val = evaluateExpression(child, tuple, resolver, ctx);

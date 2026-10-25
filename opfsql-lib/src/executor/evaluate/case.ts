@@ -1,8 +1,11 @@
-import type { BoundExpression, BoundCaseExpression } from '../../binder/types.js';
-import type { Value, Tuple } from '../types.js';
-import type { Resolver } from '../resolve.js';
-import type { SyncEvalContext } from './context.js';
-import { evaluateExpression } from './index.js';
+import type {
+  BoundExpression,
+  BoundCaseExpression,
+} from "../../binder/types.js";
+import type { Value, Tuple } from "../types.js";
+import type { Resolver } from "../resolve.js";
+import type { SyncEvalContext } from "./context.js";
+import { evaluateExpression } from "./index.js";
 
 export function evalCase(
   expr: BoundExpression,

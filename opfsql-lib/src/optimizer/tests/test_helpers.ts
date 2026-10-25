@@ -232,7 +232,7 @@ export function getAllGets(plan: LogicalOperator): LogicalGet[] {
 
 export function getScanHint(get: LogicalGet): IndexScanHint {
   expect(get.indexHint).toBeDefined();
-  expect(get.indexHint!.kind).toBe('scan');
+  expect(get.indexHint!.kind).toBe("scan");
   return get.indexHint! as IndexScanHint;
 }
 

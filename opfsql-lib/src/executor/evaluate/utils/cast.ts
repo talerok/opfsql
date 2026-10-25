@@ -25,7 +25,8 @@ export function castValue(v: Value, targetType: string): Value {
 
 function castNumber(v: Value, targetType: string) {
   if (typeof v === "boolean") return v ? 1 : 0;
-  if (v instanceof Uint8Array) throw new ExecutorError(`Cannot cast BLOB to ${targetType}`);
+  if (v instanceof Uint8Array)
+    throw new ExecutorError(`Cannot cast BLOB to ${targetType}`);
   const n = typeof v === "number" ? Math.trunc(v) : parseInt(String(v), 10);
   if (Number.isNaN(n)) {
     throw new ExecutorError(`Cannot cast '${v}' to ${targetType}`);
@@ -34,7 +35,8 @@ function castNumber(v: Value, targetType: string) {
 }
 
 function castReal(v: Value) {
-  if (v instanceof Uint8Array) throw new ExecutorError(`Cannot cast BLOB to REAL`);
+  if (v instanceof Uint8Array)
+    throw new ExecutorError(`Cannot cast BLOB to REAL`);
   const n = typeof v === "number" ? v : parseFloat(String(v));
   if (Number.isNaN(n)) {
     throw new ExecutorError(`Cannot cast '${v}' to REAL`);
@@ -50,11 +52,15 @@ export function castText(v: Value): string {
 }
 
 export function castJson(v: Value) {
-  if (v instanceof Uint8Array) throw new ExecutorError(`Cannot cast BLOB to JSON`);
+  if (v instanceof Uint8Array)
+    throw new ExecutorError(`Cannot cast BLOB to JSON`);
   if (typeof v === "object" && v !== null) return v;
   if (typeof v === "string") {
-    try { return JSON.parse(v); }
-    catch { throw new ExecutorError(`Cannot cast '${v}' to JSON: invalid JSON`); }
+    try {
+      return JSON.parse(v);
+    } catch {
+      throw new ExecutorError(`Cannot cast '${v}' to JSON: invalid JSON`);
+    }
   }
   // Numbers and booleans are valid JSON scalars
   if (typeof v === "number" || typeof v === "boolean") return v;
@@ -62,7 +68,8 @@ export function castJson(v: Value) {
 }
 
 function castBoolean(v: Value) {
-  if (v instanceof Uint8Array) throw new ExecutorError(`Cannot cast BLOB to BOOLEAN`);
+  if (v instanceof Uint8Array)
+    throw new ExecutorError(`Cannot cast BLOB to BOOLEAN`);
   if (typeof v === "boolean") return v;
   const s = String(v).toLowerCase();
   if (s === "true" || s === "1") return true;
@@ -77,15 +84,15 @@ function castBlob(v: Value): Uint8Array {
 }
 
 export function blobToHex(buf: Uint8Array): string {
-  let hex = '';
+  let hex = "";
   for (let i = 0; i < buf.length; i++) {
-    hex += buf[i].toString(16).padStart(2, '0').toUpperCase();
+    hex += buf[i].toString(16).padStart(2, "0").toUpperCase();
   }
   return hex;
 }
 
 export function hexToBlob(hex: string): Uint8Array {
-  const clean = hex.replace(/\s/g, '');
+  const clean = hex.replace(/\s/g, "");
   if (clean.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(clean)) {
     throw new ExecutorError(`Cannot cast '${hex}' to BLOB: invalid hex string`);
   }

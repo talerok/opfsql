@@ -763,9 +763,10 @@ describe("parameterized queries", () => {
     await session.execute("INSERT INTO t VALUES (1, 'alice')");
     await session.execute("INSERT INTO t VALUES (2, 'bob')");
 
-    const [result] = await session.execute("SELECT * FROM t WHERE id = $1", [
-      1,
-    ]);
+    const [result] = await session.execute(
+      "SELECT * FROM t WHERE id = $1",
+      [1],
+    );
     expect(result.rows).toHaveLength(1);
     expect(result.rows![0]).toEqual({ id: 1, name: "alice" });
   });

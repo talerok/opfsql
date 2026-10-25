@@ -66,7 +66,9 @@ export class PhysicalIndexScan implements SyncPhysicalOperator {
         if (row === null) continue;
 
         const tuple = rowToTuple(row, this.op.columnIds, this.op.schema);
-        if (passesCompiledFilters(tuple, this.compiledResiduals, this.ctx.params)) {
+        if (
+          passesCompiledFilters(tuple, this.compiledResiduals, this.ctx.params)
+        ) {
           batch.push(tuple);
         }
       }

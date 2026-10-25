@@ -144,15 +144,15 @@ export interface Token {
 // ============================================================================
 
 export enum LogicalTypeId {
-  INTEGER = 'INTEGER',
-  BIGINT = 'BIGINT',
-  SMALLINT = 'SMALLINT',
-  FLOAT = 'FLOAT',
-  DOUBLE = 'DOUBLE',
-  VARCHAR = 'VARCHAR',
-  BLOB = 'BLOB',
-  BOOLEAN = 'BOOLEAN',
-  JSON = 'JSON',
+  INTEGER = "INTEGER",
+  BIGINT = "BIGINT",
+  SMALLINT = "SMALLINT",
+  FLOAT = "FLOAT",
+  DOUBLE = "DOUBLE",
+  VARCHAR = "VARCHAR",
+  BLOB = "BLOB",
+  BOOLEAN = "BOOLEAN",
+  JSON = "JSON",
 }
 
 export interface LogicalType {
@@ -166,10 +166,17 @@ export interface LogicalType {
 export interface Value {
   type: LogicalType;
   is_null: boolean;
-  value: string | number | boolean | Uint8Array | Record<string, unknown> | unknown[] | null;
+  value:
+    | string
+    | number
+    | boolean
+    | Uint8Array
+    | Record<string, unknown>
+    | unknown[]
+    | null;
 }
 
-import type { JsonPathSegment } from '../types.js';
+import type { JsonPathSegment } from "../types.js";
 export type { JsonPathSegment };
 
 // ============================================================================
@@ -177,54 +184,54 @@ export type { JsonPathSegment };
 // ============================================================================
 
 export enum ExpressionClass {
-  COLUMN_REF = 'COLUMN_REF',
-  CONSTANT = 'CONSTANT',
-  PARAMETER = 'PARAMETER',
-  COMPARISON = 'COMPARISON',
-  CONJUNCTION = 'CONJUNCTION',
-  OPERATOR = 'OPERATOR',
-  BETWEEN = 'BETWEEN',
-  FUNCTION = 'FUNCTION',
-  SUBQUERY = 'SUBQUERY',
-  CASE = 'CASE',
-  CAST = 'CAST',
-  STAR = 'STAR',
+  COLUMN_REF = "COLUMN_REF",
+  CONSTANT = "CONSTANT",
+  PARAMETER = "PARAMETER",
+  COMPARISON = "COMPARISON",
+  CONJUNCTION = "CONJUNCTION",
+  OPERATOR = "OPERATOR",
+  BETWEEN = "BETWEEN",
+  FUNCTION = "FUNCTION",
+  SUBQUERY = "SUBQUERY",
+  CASE = "CASE",
+  CAST = "CAST",
+  STAR = "STAR",
 }
 
 export enum ExpressionType {
   // Comparison
-  COMPARE_EQUAL = 'COMPARE_EQUAL',
-  COMPARE_NOTEQUAL = 'COMPARE_NOTEQUAL',
-  COMPARE_LESSTHAN = 'COMPARE_LESSTHAN',
-  COMPARE_LESSTHANOREQUALTO = 'COMPARE_LESSTHANOREQUALTO',
-  COMPARE_GREATERTHAN = 'COMPARE_GREATERTHAN',
-  COMPARE_GREATERTHANOREQUALTO = 'COMPARE_GREATERTHANOREQUALTO',
+  COMPARE_EQUAL = "COMPARE_EQUAL",
+  COMPARE_NOTEQUAL = "COMPARE_NOTEQUAL",
+  COMPARE_LESSTHAN = "COMPARE_LESSTHAN",
+  COMPARE_LESSTHANOREQUALTO = "COMPARE_LESSTHANOREQUALTO",
+  COMPARE_GREATERTHAN = "COMPARE_GREATERTHAN",
+  COMPARE_GREATERTHANOREQUALTO = "COMPARE_GREATERTHANOREQUALTO",
 
   // Conjunction
-  CONJUNCTION_AND = 'CONJUNCTION_AND',
-  CONJUNCTION_OR = 'CONJUNCTION_OR',
+  CONJUNCTION_AND = "CONJUNCTION_AND",
+  CONJUNCTION_OR = "CONJUNCTION_OR",
 
   // Operators
-  OPERATOR_NOT = 'OPERATOR_NOT',
-  OPERATOR_IS_NULL = 'OPERATOR_IS_NULL',
-  OPERATOR_IS_NOT_NULL = 'OPERATOR_IS_NOT_NULL',
-  OPERATOR_IN = 'OPERATOR_IN',
-  OPERATOR_NOT_IN = 'OPERATOR_NOT_IN',
+  OPERATOR_NOT = "OPERATOR_NOT",
+  OPERATOR_IS_NULL = "OPERATOR_IS_NULL",
+  OPERATOR_IS_NOT_NULL = "OPERATOR_IS_NOT_NULL",
+  OPERATOR_IN = "OPERATOR_IN",
+  OPERATOR_NOT_IN = "OPERATOR_NOT_IN",
 
   // Like
-  COMPARE_LIKE = 'COMPARE_LIKE',
-  COMPARE_NOT_LIKE = 'COMPARE_NOT_LIKE',
+  COMPARE_LIKE = "COMPARE_LIKE",
+  COMPARE_NOT_LIKE = "COMPARE_NOT_LIKE",
 
   // Arithmetic
-  OPERATOR_ADD = 'OPERATOR_ADD',
-  OPERATOR_SUBTRACT = 'OPERATOR_SUBTRACT',
-  OPERATOR_MULTIPLY = 'OPERATOR_MULTIPLY',
-  OPERATOR_DIVIDE = 'OPERATOR_DIVIDE',
-  OPERATOR_MOD = 'OPERATOR_MOD',
-  OPERATOR_NEGATE = 'OPERATOR_NEGATE',
+  OPERATOR_ADD = "OPERATOR_ADD",
+  OPERATOR_SUBTRACT = "OPERATOR_SUBTRACT",
+  OPERATOR_MULTIPLY = "OPERATOR_MULTIPLY",
+  OPERATOR_DIVIDE = "OPERATOR_DIVIDE",
+  OPERATOR_MOD = "OPERATOR_MOD",
+  OPERATOR_NEGATE = "OPERATOR_NEGATE",
 
   // String
-  OPERATOR_CONCAT = 'OPERATOR_CONCAT',
+  OPERATOR_CONCAT = "OPERATOR_CONCAT",
 }
 
 // ============================================================================
@@ -293,7 +300,7 @@ export interface FunctionExpression {
 export interface SubqueryExpression {
   expression_class: ExpressionClass.SUBQUERY;
   alias: string | null;
-  subquery_type: 'SCALAR' | 'EXISTS' | 'NOT_EXISTS' | 'ANY' | 'ALL';
+  subquery_type: "SCALAR" | "EXISTS" | "NOT_EXISTS" | "ANY" | "ALL";
   subquery: SelectStatement;
   child: ParsedExpression | null;
   comparison_type?: ExpressionType;
@@ -302,7 +309,10 @@ export interface SubqueryExpression {
 export interface CaseExpression {
   expression_class: ExpressionClass.CASE;
   alias: string | null;
-  case_checks: Array<{ when_expr: ParsedExpression; then_expr: ParsedExpression }>;
+  case_checks: Array<{
+    when_expr: ParsedExpression;
+    then_expr: ParsedExpression;
+  }>;
   else_expr: ParsedExpression | null;
 }
 
@@ -338,16 +348,16 @@ export type ParsedExpression =
 // ============================================================================
 
 export enum TableRefType {
-  BASE_TABLE = 'BASE_TABLE',
-  JOIN = 'JOIN',
-  SUBQUERY = 'SUBQUERY',
+  BASE_TABLE = "BASE_TABLE",
+  JOIN = "JOIN",
+  SUBQUERY = "SUBQUERY",
 }
 
 export enum JoinType {
-  INNER = 'INNER',
-  LEFT = 'LEFT',
-  RIGHT = 'RIGHT',
-  CROSS = 'CROSS',
+  INNER = "INNER",
+  LEFT = "LEFT",
+  RIGHT = "RIGHT",
+  CROSS = "CROSS",
 }
 
 export interface BaseTableRef {
@@ -380,19 +390,19 @@ export type TableRef = BaseTableRef | JoinRef | SubqueryRef;
 // ============================================================================
 
 export enum ResultModifierType {
-  ORDER_MODIFIER = 'ORDER_MODIFIER',
-  LIMIT_MODIFIER = 'LIMIT_MODIFIER',
-  DISTINCT_MODIFIER = 'DISTINCT_MODIFIER',
+  ORDER_MODIFIER = "ORDER_MODIFIER",
+  LIMIT_MODIFIER = "LIMIT_MODIFIER",
+  DISTINCT_MODIFIER = "DISTINCT_MODIFIER",
 }
 
 export enum OrderType {
-  ASCENDING = 'ASCENDING',
-  DESCENDING = 'DESCENDING',
+  ASCENDING = "ASCENDING",
+  DESCENDING = "DESCENDING",
 }
 
 export enum OrderByNullType {
-  NULLS_FIRST = 'NULLS_FIRST',
-  NULLS_LAST = 'NULLS_LAST',
+  NULLS_FIRST = "NULLS_FIRST",
+  NULLS_LAST = "NULLS_LAST",
 }
 
 export interface OrderByNode {
@@ -438,7 +448,7 @@ export interface CTEMap {
 }
 
 export interface SelectNode {
-  type: 'SELECT_NODE';
+  type: "SELECT_NODE";
   select_list: ParsedExpression[];
   from_table: TableRef | null;
   where_clause: ParsedExpression | null;
@@ -453,16 +463,16 @@ export interface SelectNode {
 // ============================================================================
 
 export enum StatementType {
-  SELECT_STATEMENT = 'SELECT_STATEMENT',
-  INSERT_STATEMENT = 'INSERT_STATEMENT',
-  UPDATE_STATEMENT = 'UPDATE_STATEMENT',
-  DELETE_STATEMENT = 'DELETE_STATEMENT',
-  CREATE_TABLE_STATEMENT = 'CREATE_TABLE_STATEMENT',
-  CREATE_INDEX_STATEMENT = 'CREATE_INDEX_STATEMENT',
-  ALTER_TABLE_STATEMENT = 'ALTER_TABLE_STATEMENT',
-  DROP_STATEMENT = 'DROP_STATEMENT',
-  TRANSACTION_STATEMENT = 'TRANSACTION_STATEMENT',
-  EXPLAIN_STATEMENT = 'EXPLAIN_STATEMENT',
+  SELECT_STATEMENT = "SELECT_STATEMENT",
+  INSERT_STATEMENT = "INSERT_STATEMENT",
+  UPDATE_STATEMENT = "UPDATE_STATEMENT",
+  DELETE_STATEMENT = "DELETE_STATEMENT",
+  CREATE_TABLE_STATEMENT = "CREATE_TABLE_STATEMENT",
+  CREATE_INDEX_STATEMENT = "CREATE_INDEX_STATEMENT",
+  ALTER_TABLE_STATEMENT = "ALTER_TABLE_STATEMENT",
+  DROP_STATEMENT = "DROP_STATEMENT",
+  TRANSACTION_STATEMENT = "TRANSACTION_STATEMENT",
+  EXPLAIN_STATEMENT = "EXPLAIN_STATEMENT",
 }
 
 export interface SelectStatement {
@@ -472,12 +482,12 @@ export interface SelectStatement {
 
 // SetOperation for UNION
 export enum SetOperationType {
-  UNION = 'UNION',
-  UNION_ALL = 'UNION_ALL',
+  UNION = "UNION",
+  UNION_ALL = "UNION_ALL",
 }
 
 export interface SetOperationNode {
-  type: 'SET_OPERATION_NODE';
+  type: "SET_OPERATION_NODE";
   set_op_type: SetOperationType;
   left: SelectNode | SetOperationNode;
   right: SelectNode;
@@ -508,14 +518,14 @@ export interface ForeignKeyConstraint {
 }
 
 export interface OnConflictUpdate {
-  type: 'UPDATE';
+  type: "UPDATE";
   setClauses: UpdateSetClause[];
   whereClause: ParsedExpression | null;
 }
 
 export interface OnConflictClause {
   conflictTarget: string[] | null;
-  action: 'NOTHING' | OnConflictUpdate;
+  action: "NOTHING" | OnConflictUpdate;
 }
 
 export interface InsertStatement {
@@ -564,8 +574,8 @@ export interface CreateIndexStatement {
 }
 
 export enum AlterType {
-  ADD_COLUMN = 'ADD_COLUMN',
-  DROP_COLUMN = 'DROP_COLUMN',
+  ADD_COLUMN = "ADD_COLUMN",
+  DROP_COLUMN = "DROP_COLUMN",
 }
 
 export interface AlterTableStatement {
@@ -577,8 +587,8 @@ export interface AlterTableStatement {
 }
 
 export enum DropType {
-  TABLE = 'TABLE',
-  INDEX = 'INDEX',
+  TABLE = "TABLE",
+  INDEX = "INDEX",
 }
 
 export interface DropStatement {
@@ -589,9 +599,9 @@ export interface DropStatement {
 }
 
 export enum TransactionType {
-  BEGIN = 'BEGIN',
-  COMMIT = 'COMMIT',
-  ROLLBACK = 'ROLLBACK',
+  BEGIN = "BEGIN",
+  COMMIT = "COMMIT",
+  ROLLBACK = "ROLLBACK",
 }
 
 export interface TransactionStatement {
@@ -626,9 +636,9 @@ export class ParseError extends Error {
     message: string,
     public line: number,
     public column: number,
-    public token: Token
+    public token: Token,
   ) {
     super(`Parse error at line ${line}, column ${column}: ${message}`);
-    this.name = 'ParseError';
+    this.name = "ParseError";
   }
 }

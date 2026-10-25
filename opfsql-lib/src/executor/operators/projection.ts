@@ -1,8 +1,8 @@
-import type { LogicalProjection, ColumnBinding } from '../../binder/types.js';
-import type { SyncPhysicalOperator, Tuple } from '../types.js';
-import type { SyncEvalContext } from '../evaluate/context.js';
-import { buildResolver } from '../resolve.js';
-import { evaluateExpression } from '../evaluate/index.js';
+import type { LogicalProjection, ColumnBinding } from "../../binder/types.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
+import type { SyncEvalContext } from "../evaluate/context.js";
+import { buildResolver } from "../resolve.js";
+import { evaluateExpression } from "../evaluate/index.js";
 
 export class PhysicalProjection implements SyncPhysicalOperator {
   private readonly resolver;
@@ -29,7 +29,9 @@ export class PhysicalProjection implements SyncPhysicalOperator {
     for (const tuple of batch) {
       const projected: Tuple = [];
       for (const expr of this.op.expressions) {
-        projected.push(evaluateExpression(expr, tuple, this.resolver, this.ctx));
+        projected.push(
+          evaluateExpression(expr, tuple, this.resolver, this.ctx),
+        );
       }
       result.push(projected);
     }

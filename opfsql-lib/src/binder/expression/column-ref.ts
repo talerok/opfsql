@@ -1,10 +1,17 @@
-import type { ColumnRefExpression, JsonPathSegment } from '../../parser/types.js';
-import type { BoundColumnRefExpression, BoundExpression, BoundJsonAccessExpression } from '../types.js';
-import { BoundExpressionClass } from '../types.js';
-import type { AggregateContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { BindError } from '../core/errors.js';
-import { sameExpression } from './same-expression.js';
+import type {
+  ColumnRefExpression,
+  JsonPathSegment,
+} from "../../parser/types.js";
+import type {
+  BoundColumnRefExpression,
+  BoundExpression,
+  BoundJsonAccessExpression,
+} from "../types.js";
+import { BoundExpressionClass } from "../types.js";
+import type { AggregateContext } from "../core/context.js";
+import type { BindScope } from "../core/scope.js";
+import { BindError } from "../core/errors.js";
+import { sameExpression } from "./same-expression.js";
 
 export function bindColumnRef(
   expr: ColumnRefExpression,
@@ -37,7 +44,7 @@ export function bindColumnRef(
   // Build JSON path from remaining column_names + parsed path segments
   const jsonPath: JsonPathSegment[] = [];
   for (let i = extraNameStart; i < names.length; i++) {
-    jsonPath.push({ type: 'field', name: names[i] });
+    jsonPath.push({ type: "field", name: names[i] });
   }
   if (expr.path) {
     jsonPath.push(...expr.path);
@@ -45,7 +52,9 @@ export function bindColumnRef(
 
   // Handle aggregate context for the base column ref
   if (aggCtx && (aggCtx.groups.length > 0 || aggCtx.aggregates.length > 0)) {
-    const groupIdx = aggCtx.groups.findIndex((g) => sameExpression(g, resolved));
+    const groupIdx = aggCtx.groups.findIndex((g) =>
+      sameExpression(g, resolved),
+    );
     if (groupIdx === -1) {
       throw new BindError(
         `Column "${resolved.columnName}" must appear in the GROUP BY clause or be used in an aggregate function`,
@@ -59,7 +68,7 @@ export function bindColumnRef(
 
   // If there's a JSON path, wrap in BoundJsonAccessExpression
   if (jsonPath.length > 0) {
-    if (resolved.returnType !== 'JSON') {
+    if (resolved.returnType !== "JSON") {
       throw new BindError(
         `Cannot access field on non-JSON column "${resolved.columnName}" (type: ${resolved.returnType})`,
       );
@@ -68,7 +77,7 @@ export function bindColumnRef(
       expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
       child: resolved,
       path: jsonPath,
-      returnType: 'JSON',
+      returnType: "JSON",
     } satisfies BoundJsonAccessExpression;
   }
 

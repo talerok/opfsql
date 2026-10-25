@@ -43,10 +43,7 @@ export async function closeDb(page: Page): Promise<void> {
   });
 }
 
-export async function cleanOpfs(
-  page: Page,
-  dbName = DB_NAME,
-): Promise<void> {
+export async function cleanOpfs(page: Page, dbName = DB_NAME): Promise<void> {
   await page.evaluate(async (name) => {
     await (window as any).__opfsql.cleanOpfs(name);
   }, dbName);

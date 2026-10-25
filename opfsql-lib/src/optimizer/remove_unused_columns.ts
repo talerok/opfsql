@@ -211,7 +211,10 @@ function pruneAggregate(
   // Rebuild bindings: groups (unchanged) + kept aggregates (re-indexed)
   op.columnBindings = [
     ...op.groups.map((_, i) => ({ tableIndex: op.groupIndex, columnIndex: i })),
-    ...keptAggs.map((_, i) => ({ tableIndex: op.aggregateIndex, columnIndex: i })),
+    ...keptAggs.map((_, i) => ({
+      tableIndex: op.aggregateIndex,
+      columnIndex: i,
+    })),
   ];
 
   return op;

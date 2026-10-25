@@ -1,13 +1,7 @@
 import type { Value } from "../../../src/index.js";
-import {
-  WorkerEngine,
-  type Connection,
-} from "../../../src/worker/client.js";
+import { WorkerEngine, type Connection } from "../../../src/worker/client.js";
 
-const WORKER_URL = new URL(
-  "../../../src/worker/worker.ts",
-  import.meta.url,
-);
+const WORKER_URL = new URL("../../../src/worker/worker.ts", import.meta.url);
 
 let engine: WorkerEngine | null = null;
 let conn: Connection | null = null;

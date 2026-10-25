@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type {
-  LogicalOperator,
-  LogicalProjection,
-} from "../../binder/types.js";
+import type { LogicalOperator, LogicalProjection } from "../../binder/types.js";
 import { LogicalOperatorType } from "../../binder/types.js";
 import { pushdownFilters, removeUnusedColumns } from "../index.js";
-import { createTestContext, findNode, getAllGets, getGet } from "./test_helpers.js";
+import {
+  createTestContext,
+  findNode,
+  getAllGets,
+  getGet,
+} from "./test_helpers.js";
 
 let bind: (sql: string) => LogicalOperator;
 

@@ -1,15 +1,22 @@
-import { BaseParser } from './base.js';
+import { BaseParser } from "./base.js";
 import {
-  TokenType, LogicalTypeId,
-  ExpressionClass, ExpressionType, ParsedExpression,
-  ConjunctionExpression, OperatorExpression, BetweenExpression,
-  FunctionExpression, SubqueryExpression, CaseExpression,
+  TokenType,
+  LogicalTypeId,
+  ExpressionClass,
+  ExpressionType,
+  ParsedExpression,
+  ConjunctionExpression,
+  OperatorExpression,
+  BetweenExpression,
+  FunctionExpression,
+  SubqueryExpression,
+  CaseExpression,
   CastExpression,
   SelectStatement,
   ParseError,
   type JsonPathSegment,
-} from '../types.js';
-import { parseTypeToken } from './type-parser.js';
+} from "../types.js";
+import { parseTypeToken } from "./type-parser.js";
 
 const COMPARISON_OPS: Record<number, ExpressionType> = {
   [TokenType.EQUALS]: ExpressionType.COMPARE_EQUAL,
@@ -83,7 +90,10 @@ function parseNot(p: BaseParser): ParsedExpression {
   return parseComparison(p);
 }
 
-function parseExistsExpression(p: BaseParser, negated: boolean): SubqueryExpression {
+function parseExistsExpression(
+  p: BaseParser,
+  negated: boolean,
+): SubqueryExpression {
   p.expect(TokenType.EXISTS);
   p.expect(TokenType.LEFT_PAREN, `Expected '(' after EXISTS`);
   const subquery = p.parseSelectStatement() as SelectStatement;
@@ -91,7 +101,7 @@ function parseExistsExpression(p: BaseParser, negated: boolean): SubqueryExpress
   return {
     expression_class: ExpressionClass.SUBQUERY,
     alias: null,
-    subquery_type: negated ? 'NOT_EXISTS' : 'EXISTS',
+    subquery_type: negated ? "NOT_EXISTS" : "EXISTS",
     subquery,
     child: null,
   };
@@ -213,7 +223,11 @@ function parseComparison(p: BaseParser): ParsedExpression {
   return left;
 }
 
-function parseInExpression(p: BaseParser, left: ParsedExpression, negated: boolean): ParsedExpression {
+function parseInExpression(
+  p: BaseParser,
+  left: ParsedExpression,
+  negated: boolean,
+): ParsedExpression {
   p.expect(TokenType.LEFT_PAREN, `Expected '(' after IN`);
 
   // IN (SELECT ...)
@@ -223,7 +237,7 @@ function parseInExpression(p: BaseParser, left: ParsedExpression, negated: boole
     const anyExpr: SubqueryExpression = {
       expression_class: ExpressionClass.SUBQUERY,
       alias: null,
-      subquery_type: 'ANY',
+      subquery_type: "ANY",
       subquery,
       child: left,
       comparison_type: ExpressionType.COMPARE_EQUAL,
@@ -277,9 +291,10 @@ function parseAddSub(p: BaseParser): ParsedExpression {
   while (p.check(TokenType.PLUS) || p.check(TokenType.MINUS)) {
     const op = p.advance();
     const right = parseMulDiv(p);
-    const opType = op.type === TokenType.PLUS
-      ? ExpressionType.OPERATOR_ADD
-      : ExpressionType.OPERATOR_SUBTRACT;
+    const opType =
+      op.type === TokenType.PLUS
+        ? ExpressionType.OPERATOR_ADD
+        : ExpressionType.OPERATOR_SUBTRACT;
     left = {
       expression_class: ExpressionClass.OPERATOR,
       alias: null,
@@ -294,12 +309,17 @@ function parseAddSub(p: BaseParser): ParsedExpression {
 function parseMulDiv(p: BaseParser): ParsedExpression {
   let left = parseUnary(p);
 
-  while (p.check(TokenType.STAR) || p.check(TokenType.SLASH) || p.check(TokenType.PERCENT)) {
+  while (
+    p.check(TokenType.STAR) ||
+    p.check(TokenType.SLASH) ||
+    p.check(TokenType.PERCENT)
+  ) {
     const op = p.advance();
     const right = parseUnary(p);
     let opType: ExpressionType;
     if (op.type === TokenType.STAR) opType = ExpressionType.OPERATOR_MULTIPLY;
-    else if (op.type === TokenType.SLASH) opType = ExpressionType.OPERATOR_DIVIDE;
+    else if (op.type === TokenType.SLASH)
+      opType = ExpressionType.OPERATOR_DIVIDE;
     else opType = ExpressionType.OPERATOR_MOD;
     left = {
       expression_class: ExpressionClass.OPERATOR,
@@ -393,7 +413,11 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
     return {
       expression_class: ExpressionClass.CONSTANT,
       alias: null,
-      value: { type: { id: LogicalTypeId.BOOLEAN }, is_null: false, value: true },
+      value: {
+        type: { id: LogicalTypeId.BOOLEAN },
+        is_null: false,
+        value: true,
+      },
     };
   }
 
@@ -402,7 +426,11 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
     return {
       expression_class: ExpressionClass.CONSTANT,
       alias: null,
-      value: { type: { id: LogicalTypeId.BOOLEAN }, is_null: false, value: false },
+      value: {
+        type: { id: LogicalTypeId.BOOLEAN },
+        is_null: false,
+        value: false,
+      },
     };
   }
 
@@ -411,7 +439,11 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
     return {
       expression_class: ExpressionClass.CONSTANT,
       alias: null,
-      value: { type: { id: LogicalTypeId.INTEGER }, is_null: true, value: null },
+      value: {
+        type: { id: LogicalTypeId.INTEGER },
+        is_null: true,
+        value: null,
+      },
     };
   }
 
@@ -419,7 +451,12 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
     p.advance();
     const index = parseInt(token.value, 10) - 1; // $1 → index 0
     if (index < 0) {
-      throw new ParseError(`Parameter index must be >= 1`, token.line, token.column, token);
+      throw new ParseError(
+        `Parameter index must be >= 1`,
+        token.line,
+        token.column,
+        token,
+      );
     }
     return {
       expression_class: ExpressionClass.PARAMETER,
@@ -454,7 +491,7 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
       return {
         expression_class: ExpressionClass.SUBQUERY,
         alias: null,
-        subquery_type: 'SCALAR',
+        subquery_type: "SCALAR",
         subquery,
         child: null,
       };
@@ -472,7 +509,7 @@ export function parsePrimary(p: BaseParser): ParsedExpression {
     return parseColumnOrFunction(p);
   }
 
-  p.error(`Expected expression, got '${token.value || 'EOF'}'`);
+  p.error(`Expected expression, got '${token.value || "EOF"}'`);
 }
 
 function parseColumnOrFunction(p: BaseParser): ParsedExpression {
@@ -539,13 +576,16 @@ function parseBracketPath(p: BaseParser): JsonPathSegment[] {
   const segments: JsonPathSegment[] = [];
   while (p.check(TokenType.LEFT_BRACKET) || p.check(TokenType.DOT)) {
     if (p.match(TokenType.LEFT_BRACKET)) {
-      const idx = p.expect(TokenType.INTEGER_LITERAL, `Expected integer index in bracket access`);
+      const idx = p.expect(
+        TokenType.INTEGER_LITERAL,
+        `Expected integer index in bracket access`,
+      );
       p.expect(TokenType.RIGHT_BRACKET, `Expected ']' after bracket index`);
-      segments.push({ type: 'index', value: parseInt(idx.value, 10) });
+      segments.push({ type: "index", value: parseInt(idx.value, 10) });
     } else {
       p.advance(); // consume DOT
       const field = p.expectIdentifier(`Expected field name after '.'`);
-      segments.push({ type: 'field', name: field.value });
+      segments.push({ type: "field", name: field.value });
     }
   }
   return segments;
@@ -555,7 +595,7 @@ function parseFunctionCall(p: BaseParser, name: string): FunctionExpression {
   p.expect(TokenType.LEFT_PAREN);
   const funcName = name.toLowerCase();
 
-  if (p.check(TokenType.STAR) && funcName === 'count') {
+  if (p.check(TokenType.STAR) && funcName === "count") {
     p.advance();
     p.expect(TokenType.RIGHT_PAREN, `Expected ')' after COUNT(*)`);
     return {
@@ -607,7 +647,10 @@ function parseCaseExpression(p: BaseParser): CaseExpression {
     operand = parseExpression(p);
   }
 
-  const case_checks: Array<{ when_expr: ParsedExpression; then_expr: ParsedExpression }> = [];
+  const case_checks: Array<{
+    when_expr: ParsedExpression;
+    then_expr: ParsedExpression;
+  }> = [];
 
   while (p.match(TokenType.WHEN)) {
     let when_expr = parseExpression(p);

@@ -60,7 +60,10 @@ export class PhysicalIndexUnionScan implements SyncPhysicalOperator {
 
         // Apply the original OR expression as residual filter
         const val = evaluateExpression(
-          this.residualExpr, tuple, this.resolver, this.ctx,
+          this.residualExpr,
+          tuple,
+          this.resolver,
+          this.ctx,
         );
         if (isTruthy(val)) {
           batch.push(tuple);

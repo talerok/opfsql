@@ -231,9 +231,6 @@
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
-    "unicorn/consistent-boolean-name": {
-      "count": 2
-    },
     "unicorn/name-replacements": {
       "count": 16
     },
@@ -378,17 +375,11 @@
     "@typescript-eslint/switch-exhaustiveness-check": {
       "count": 1
     },
-    "curly": {
-      "count": 2
-    },
     "max-lines-per-function": {
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
-    },
-    "unicorn/consistent-boolean-name": {
-      "count": 3
     },
     "unicorn/name-replacements": {
       "count": 4
@@ -536,9 +527,6 @@
     "sonarjs/prefer-single-boolean-return": {
       "count": 1
     },
-    "unicorn/consistent-boolean-name": {
-      "count": 2
-    },
     "unicorn/name-replacements": {
       "count": 10
     },
@@ -581,14 +569,11 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 5
     },
-    "curly": {
-      "count": 1
-    },
     "sonarjs/no-alphabetical-sort": {
       "count": 2
     },
     "unicorn/consistent-boolean-name": {
-      "count": 2
+      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 22
@@ -1148,9 +1133,6 @@
     "unicorn/no-array-sort": {
       "count": 5
     },
-    "unicorn/number-literal-case": {
-      "count": 10
-    },
     "unicorn/require-array-sort-compare": {
       "count": 4
     }
@@ -1170,9 +1152,6 @@
     },
     "unicorn/name-replacements": {
       "count": 12
-    },
-    "unicorn/no-nested-ternary": {
-      "count": 1
     }
   },
   "src/engine/tests/explain.test.ts": {
@@ -1305,9 +1284,6 @@
     }
   },
   "src/engine/tests/random.ts": {
-    "unicorn/number-literal-case": {
-      "count": 1
-    },
     "unicorn/numeric-separators-style": {
       "count": 2
     }
@@ -1413,9 +1389,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 9
     },
-    "curly": {
-      "count": 1
-    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -1435,7 +1408,7 @@
       "count": 2
     },
     "unicorn/consistent-boolean-name": {
-      "count": 4
+      "count": 2
     },
     "unicorn/name-replacements": {
       "count": 23
@@ -1515,9 +1488,6 @@
       "count": 2
     },
     "sonarjs/different-types-comparison": {
-      "count": 1
-    },
-    "unicorn/consistent-boolean-name": {
       "count": 1
     },
     "unicorn/name-replacements": {
@@ -1611,9 +1581,6 @@
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
-    "sonarjs/function-return-type": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 4
     }
@@ -1675,9 +1642,6 @@
     "unicorn/name-replacements": {
       "count": 3
     },
-    "unicorn/number-literal-case": {
-      "count": 65
-    },
     "unicorn/numeric-separators-style": {
       "count": 69
     },
@@ -1686,9 +1650,6 @@
     }
   },
   "src/executor/evaluate/functions/normalize-json.ts": {
-    "sonarjs/function-return-type": {
-      "count": 1
-    },
     "sonarjs/no-alphabetical-sort": {
       "count": 1
     },
@@ -1708,9 +1669,6 @@
     },
     "import-x/no-cycle": {
       "count": 8
-    },
-    "sonarjs/function-return-type": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 3
@@ -1742,9 +1700,6 @@
     },
     "max-params": {
       "count": 2
-    },
-    "sonarjs/function-return-type": {
-      "count": 3
     },
     "unicorn/consistent-boolean-name": {
       "count": 1
@@ -1783,9 +1738,6 @@
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
-    "sonarjs/function-return-type": {
-      "count": 2
-    },
     "unicorn/name-replacements": {
       "count": 3
     },
@@ -1808,9 +1760,6 @@
     },
     "@typescript-eslint/restrict-template-expressions": {
       "count": 3
-    },
-    "sonarjs/function-return-type": {
-      "count": 1
     },
     "unicorn/name-replacements": {
       "count": 3
@@ -1841,9 +1790,6 @@
     }
   },
   "src/executor/evaluate/utils/compare.ts": {
-    "curly": {
-      "count": 1
-    },
     "no-nested-ternary": {
       "count": 2
     },
@@ -1855,12 +1801,6 @@
     },
     "unicorn/name-replacements": {
       "count": 2
-    },
-    "unicorn/no-nested-ternary": {
-      "count": 2
-    },
-    "unicorn/prefer-iterator-zip": {
-      "count": 1
     },
     "unicorn/switch-case-braces": {
       "count": 6
@@ -1927,9 +1867,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 3
     },
-    "curly": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 5
     },
@@ -1970,14 +1907,8 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 3
     },
-    "curly": {
-      "count": 2
-    },
     "no-param-reassign": {
       "count": 6
-    },
-    "sonarjs/function-return-type": {
-      "count": 1
     },
     "unicorn/consistent-class-member-order": {
       "count": 1
@@ -2090,9 +2021,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 10
     },
-    "curly": {
-      "count": 1
-    },
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
@@ -2137,9 +2065,6 @@
     },
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 3
-    },
-    "no-unexpected-multiline": {
-      "count": 1
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
@@ -2228,12 +2153,6 @@
     "sonarjs/different-types-comparison": {
       "count": 1
     },
-    "sonarjs/function-return-type": {
-      "count": 1
-    },
-    "unicorn/consistent-boolean-name": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 5
     },
@@ -2268,9 +2187,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 2
     },
-    "curly": {
-      "count": 1
-    },
     "unicorn/prefer-ternary": {
       "count": 1
     }
@@ -2297,9 +2213,6 @@
     },
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 2
-    },
-    "curly": {
-      "count": 3
     },
     "unicorn/prefer-ternary": {
       "count": 1
@@ -2503,9 +2416,6 @@
     "unicorn/name-replacements": {
       "count": 6
     },
-    "unicorn/no-nested-ternary": {
-      "count": 1
-    },
     "unicorn/prefer-ternary": {
       "count": 1
     }
@@ -2665,9 +2575,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 4
     },
-    "curly": {
-      "count": 1
-    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -2678,7 +2585,7 @@
       "count": 2
     },
     "unicorn/consistent-boolean-name": {
-      "count": 5
+      "count": 4
     },
     "unicorn/filename-case": {
       "count": 1
@@ -2780,9 +2687,6 @@
     "sonarjs/cognitive-complexity": {
       "count": 2
     },
-    "unicorn/consistent-boolean-name": {
-      "count": 1
-    },
     "unicorn/consistent-class-member-order": {
       "count": 1
     },
@@ -2863,7 +2767,7 @@
       "count": 3
     },
     "unicorn/consistent-boolean-name": {
-      "count": 9
+      "count": 8
     },
     "unicorn/consistent-class-member-order": {
       "count": 1
@@ -2922,9 +2826,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 13
     },
-    "curly": {
-      "count": 5
-    },
     "no-param-reassign": {
       "count": 1
     },
@@ -2932,9 +2833,6 @@
       "count": 1
     },
     "sonarjs/no-invariant-returns": {
-      "count": 1
-    },
-    "unicorn/consistent-boolean-name": {
       "count": 1
     },
     "unicorn/explicit-length-check": {
@@ -2982,7 +2880,7 @@
       "count": 2
     },
     "unicorn/consistent-boolean-name": {
-      "count": 8
+      "count": 7
     },
     "unicorn/filename-case": {
       "count": 1
@@ -3006,9 +2904,6 @@
   "src/optimizer/limit_pushdown.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
-    },
-    "curly": {
-      "count": 1
     },
     "no-param-reassign": {
       "count": 1
@@ -3161,9 +3056,6 @@
       "count": 1
     },
     "@typescript-eslint/require-array-sort-compare": {
-      "count": 1
-    },
-    "curly": {
       "count": 1
     },
     "sonarjs/no-alphabetical-sort": {
@@ -3399,9 +3291,6 @@
     "@typescript-eslint/strict-boolean-expressions": {
       "count": 1
     },
-    "unicorn/consistent-boolean-name": {
-      "count": 1
-    },
     "unicorn/filename-case": {
       "count": 1
     },
@@ -3476,9 +3365,6 @@
     }
   },
   "src/optimizer/utils/expression_references_table.ts": {
-    "unicorn/consistent-boolean-name": {
-      "count": 1
-    },
     "unicorn/filename-case": {
       "count": 1
     },
@@ -3705,7 +3591,7 @@
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 1
+      "count": 2
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
@@ -4067,7 +3953,7 @@
       "count": 1
     },
     "unicorn/consistent-boolean-name": {
-      "count": 4
+      "count": 3
     },
     "unicorn/consistent-class-member-order": {
       "count": 1
@@ -4079,9 +3965,6 @@
       "count": 5
     },
     "unicorn/no-for-each": {
-      "count": 1
-    },
-    "unicorn/number-literal-case": {
       "count": 1
     },
     "unicorn/numeric-separators-style": {
@@ -4151,27 +4034,15 @@
     "sonarjs/no-nested-conditional": {
       "count": 1
     },
-    "unicorn/consistent-boolean-name": {
-      "count": 1
-    },
     "unicorn/name-replacements": {
       "count": 2
     },
-    "unicorn/no-nested-ternary": {
-      "count": 1
-    },
     "unicorn/prefer-includes": {
-      "count": 1
-    },
-    "unicorn/prefer-iterator-zip": {
       "count": 1
     }
   },
   "src/store/index-btree/index-btree.ts": {
     "@typescript-eslint/array-type": {
-      "count": 2
-    },
-    "curly": {
       "count": 2
     },
     "unicorn/name-replacements": {
@@ -4420,9 +4291,6 @@
     "@typescript-eslint/restrict-template-expressions": {
       "count": 3
     },
-    "curly": {
-      "count": 3
-    },
     "max-depth": {
       "count": 1
     },
@@ -4455,9 +4323,6 @@
     },
     "unicorn/no-unreadable-for-of-expression": {
       "count": 3
-    },
-    "unicorn/number-literal-case": {
-      "count": 1
     },
     "unicorn/prefer-array-from-range": {
       "count": 1
@@ -4688,9 +4553,6 @@
     "unicorn/no-return-array-push": {
       "count": 1
     },
-    "unicorn/number-literal-case": {
-      "count": 1
-    },
     "unicorn/numeric-separators-style": {
       "count": 2
     },
@@ -4727,9 +4589,6 @@
     },
     "unicorn/no-for-loop": {
       "count": 1
-    },
-    "unicorn/number-literal-case": {
-      "count": 4
     },
     "unicorn/numeric-separators-style": {
       "count": 3
@@ -4807,9 +4666,6 @@
       "count": 10
     },
     "unicorn/no-declarations-before-early-exit": {
-      "count": 1
-    },
-    "unicorn/number-literal-case": {
       "count": 1
     },
     "unicorn/numeric-separators-style": {
@@ -5143,9 +4999,6 @@
       "count": 1
     },
     "unicorn/catch-error-name": {
-      "count": 1
-    },
-    "unicorn/consistent-boolean-name": {
       "count": 1
     },
     "unicorn/explicit-length-check": {

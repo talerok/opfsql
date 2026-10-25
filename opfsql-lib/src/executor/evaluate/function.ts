@@ -78,12 +78,18 @@ export function evalFunction(
 // ---------------------------------------------------------------------------
 
 function requireText(v: Value, fnName: string): string {
-  if (v instanceof Uint8Array) throw new ExecutorError(`Cannot apply ${fnName} to BLOB value`);
-  if (typeof v === "object" && v !== null) throw new ExecutorError(`Cannot apply ${fnName} to JSON value`);
+  if (v instanceof Uint8Array)
+    throw new ExecutorError(`Cannot apply ${fnName} to BLOB value`);
+  if (typeof v === "object" && v !== null)
+    throw new ExecutorError(`Cannot apply ${fnName} to JSON value`);
   return String(v);
 }
 
-function evalTextFn(args: Value[], name: string, fn: (s: string) => string): Value {
+function evalTextFn(
+  args: Value[],
+  name: string,
+  fn: (s: string) => string,
+): Value {
   return args[0] === null ? null : fn(requireText(args[0], name));
 }
 
@@ -101,7 +107,8 @@ function evalSubstr(args: Value[]): Value {
   if (args[0] === null || args[1] === null) return null;
   const str = requireText(args[0], "SUBSTR");
   let pos = args[1] as number;
-  const len = args.length >= 3 && args[2] !== null ? (args[2] as number) : undefined;
+  const len =
+    args.length >= 3 && args[2] !== null ? (args[2] as number) : undefined;
 
   if (pos > 0) {
     pos -= 1; // SQL 1-based → JS 0-based
@@ -117,16 +124,22 @@ function evalSubstr(args: Value[]): Value {
 
 function evalReplace(args: Value[]): Value {
   if (args[0] === null || args[1] === null || args[2] === null) return null;
-  return requireText(args[0], "REPLACE").replaceAll(String(args[1]), String(args[2]));
+  return requireText(args[0], "REPLACE").replaceAll(
+    String(args[1]),
+    String(args[2]),
+  );
 }
 
 function evalConcat(args: Value[]): Value {
-  return args.some((a) => a === null) ? null : args.map((a) => castText(a!)).join("");
+  return args.some((a) => a === null)
+    ? null
+    : args.map((a) => castText(a!)).join("");
 }
 
 function evalRound(args: Value[]): Value {
   if (args[0] === null) return null;
-  const precision = args.length >= 2 && args[1] !== null ? (args[1] as number) : 0;
+  const precision =
+    args.length >= 2 && args[1] !== null ? (args[1] as number) : 0;
   const factor = Math.pow(10, precision);
   return Math.round((args[0] as number) * factor) / factor;
 }

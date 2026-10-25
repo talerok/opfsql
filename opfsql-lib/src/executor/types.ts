@@ -1,5 +1,10 @@
 import type { ColumnBinding } from "../binder/types.js";
-import type { IndexDef, Row, TableSchema, Value as BaseValue } from "../types.js";
+import type {
+  IndexDef,
+  Row,
+  TableSchema,
+  Value as BaseValue,
+} from "../types.js";
 
 export type Value = BaseValue;
 export type Tuple = Value[];

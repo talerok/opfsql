@@ -8,8 +8,8 @@ import type {
   BoundFunctionExpression,
   BoundCastExpression,
   BoundColumnRefExpression,
-} from '../binder/types.js';
-import { LogicalOperatorType, BoundExpressionClass } from '../binder/types.js';
+} from "../binder/types.js";
+import { LogicalOperatorType, BoundExpressionClass } from "../binder/types.js";
 
 // ============================================================================
 // Reorder Filter — sorts filter conditions by estimated evaluation cost
@@ -71,27 +71,27 @@ export function estimateCost(expr: BoundExpression): number {
       const op = expr as BoundOperatorExpression;
       let baseCost: number;
       switch (op.operatorType) {
-        case 'ADD':
-        case 'SUBTRACT':
+        case "ADD":
+        case "SUBTRACT":
           baseCost = 5;
           break;
-        case 'MULTIPLY':
+        case "MULTIPLY":
           baseCost = 10;
           break;
-        case 'DIVIDE':
-        case 'MOD':
+        case "DIVIDE":
+        case "MOD":
           baseCost = 15;
           break;
-        case 'NOT':
-        case 'IS_NULL':
-        case 'IS_NOT_NULL':
+        case "NOT":
+        case "IS_NULL":
+        case "IS_NOT_NULL":
           baseCost = 3;
           break;
-        case 'IN':
-        case 'NOT_IN':
+        case "IN":
+        case "NOT_IN":
           baseCost = (op.children.length - 1) * 100;
           break;
-        case 'NEGATE':
+        case "NEGATE":
           baseCost = 3;
           break;
         default:
@@ -114,7 +114,8 @@ export function estimateCost(expr: BoundExpression): number {
 
     case BoundExpressionClass.BOUND_CAST: {
       const cast = expr as BoundCastExpression;
-      const castCost = cast.castType === 'TEXT' || cast.castType === 'BLOB' ? 200 : 5;
+      const castCost =
+        cast.castType === "TEXT" || cast.castType === "BLOB" ? 200 : 5;
       return castCost + estimateCost(cast.child);
     }
 
@@ -137,10 +138,10 @@ export function estimateCost(expr: BoundExpression): number {
 
 function typeMultiplier(type: string): number {
   switch (type) {
-    case 'TEXT':
-    case 'BLOB':
+    case "TEXT":
+    case "BLOB":
       return 5;
-    case 'REAL':
+    case "REAL":
       return 2;
     default:
       return 1;
@@ -155,7 +156,8 @@ export function canThrow(expr: BoundExpression): boolean {
   switch (expr.expressionClass) {
     case BoundExpressionClass.BOUND_OPERATOR: {
       const op = expr as BoundOperatorExpression;
-      if (op.operatorType === 'DIVIDE' || op.operatorType === 'MOD') return true;
+      if (op.operatorType === "DIVIDE" || op.operatorType === "MOD")
+        return true;
       return op.children.some(canThrow);
     }
     case BoundExpressionClass.BOUND_COMPARISON: {
@@ -176,30 +178,30 @@ export function canThrow(expr: BoundExpression): boolean {
 function functionCost(name: string): number {
   const upper = name.toUpperCase();
   switch (upper) {
-    case 'ABS':
-    case 'SIGN':
+    case "ABS":
+    case "SIGN":
       return 5;
-    case 'UPPER':
-    case 'LOWER':
-    case 'TRIM':
-    case 'LTRIM':
-    case 'RTRIM':
+    case "UPPER":
+    case "LOWER":
+    case "TRIM":
+    case "LTRIM":
+    case "RTRIM":
       return 200;
-    case 'LENGTH':
-    case 'TYPEOF':
+    case "LENGTH":
+    case "TYPEOF":
       return 10;
-    case 'SUBSTR':
-    case 'SUBSTRING':
-    case 'REPLACE':
-    case 'INSTR':
+    case "SUBSTR":
+    case "SUBSTRING":
+    case "REPLACE":
+    case "INSTR":
       return 200;
-    case 'COALESCE':
-    case 'IFNULL':
-    case 'NULLIF':
+    case "COALESCE":
+    case "IFNULL":
+    case "NULLIF":
       return 5;
-    case 'HEX':
-    case 'UNHEX':
-    case 'QUOTE':
+    case "HEX":
+    case "UNHEX":
+    case "QUOTE":
       return 200;
     default:
       return 100;

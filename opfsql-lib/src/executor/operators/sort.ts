@@ -1,10 +1,10 @@
-import type { LogicalOrderBy, ColumnBinding } from '../../binder/types.js';
-import type { SyncPhysicalOperator, Tuple, Value } from '../types.js';
-import type { SyncEvalContext } from '../evaluate/context.js';
-import { buildResolver } from '../resolve.js';
-import { evaluateExpression } from '../evaluate/index.js';
-import { compareValues } from '../evaluate/utils/compare.js';
-import { drainOperator, SCAN_BATCH } from './utils.js';
+import type { LogicalOrderBy, ColumnBinding } from "../../binder/types.js";
+import type { SyncPhysicalOperator, Tuple, Value } from "../types.js";
+import type { SyncEvalContext } from "../evaluate/context.js";
+import { buildResolver } from "../resolve.js";
+import { evaluateExpression } from "../evaluate/index.js";
+import { compareValues } from "../evaluate/utils/compare.js";
+import { drainOperator, SCAN_BATCH } from "./utils.js";
 
 type KeyedTuple = { tuple: Tuple; keys: Value[] };
 type Comparator = (a: KeyedTuple, b: KeyedTuple) => number;
@@ -60,7 +60,8 @@ export class PhysicalSort implements SyncPhysicalOperator {
 
   next(): Tuple[] | null {
     if (!this.sorted) {
-      this.sorted = this.op.topN !== undefined ? this.topKSort() : this.sortAll();
+      this.sorted =
+        this.op.topN !== undefined ? this.topKSort() : this.sortAll();
     }
 
     if (this.offset >= this.sorted.length) return null;
@@ -82,20 +83,25 @@ export class PhysicalSort implements SyncPhysicalOperator {
       const vb = b.keys[i];
 
       if (va === null && vb === null) continue;
-      if (va === null) return order.nullOrder === 'NULLS_FIRST' ? -1 : 1;
-      if (vb === null) return order.nullOrder === 'NULLS_FIRST' ? 1 : -1;
+      if (va === null) return order.nullOrder === "NULLS_FIRST" ? -1 : 1;
+      if (vb === null) return order.nullOrder === "NULLS_FIRST" ? 1 : -1;
 
       const cmp = compareValues(va, vb);
 
-      if (cmp !== 0) return order.orderType === 'DESCENDING' ? -cmp : cmp;
+      if (cmp !== 0) return order.orderType === "DESCENDING" ? -cmp : cmp;
     }
     return 0;
   }
 
-  private computeKeys(tuple: Tuple, resolver: ReturnType<typeof buildResolver>): KeyedTuple {
+  private computeKeys(
+    tuple: Tuple,
+    resolver: ReturnType<typeof buildResolver>,
+  ): KeyedTuple {
     const keys: Value[] = [];
     for (const order of this.op.orders) {
-      keys.push(evaluateExpression(order.expression, tuple, resolver, this.ctx));
+      keys.push(
+        evaluateExpression(order.expression, tuple, resolver, this.ctx),
+      );
     }
     return { tuple, keys };
   }

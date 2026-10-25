@@ -109,9 +109,7 @@ describe("LimitPushdown", () => {
   });
 
   it("does not push LIMIT below aggregate", () => {
-    const plan = bind(
-      "SELECT age, COUNT(*) FROM users GROUP BY age LIMIT 5",
-    );
+    const plan = bind("SELECT age, COUNT(*) FROM users GROUP BY age LIMIT 5");
     const optimized = pushdownLimit(plan);
 
     const agg = findNode(

@@ -1,7 +1,7 @@
-import type { BoundAggregateExpression } from '../../binder/types.js';
-import type { Resolver } from '../resolve.js';
-import type { Tuple, Value } from '../types.js';
-import { ExecutorError } from '../errors.js';
+import type { BoundAggregateExpression } from "../../binder/types.js";
+import type { Resolver } from "../resolve.js";
+import type { Tuple, Value } from "../types.js";
+import { ExecutorError } from "../errors.js";
 
 export function evalAggregate(
   expr: BoundAggregateExpression,

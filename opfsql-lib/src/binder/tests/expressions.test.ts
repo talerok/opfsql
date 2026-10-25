@@ -284,9 +284,7 @@ describe("Expression edge cases", () => {
   });
 
   it("aggregate with expression argument", () => {
-    const plan = bind(
-      "SELECT SUM(age + 1) FROM users",
-    );
+    const plan = bind("SELECT SUM(age + 1) FROM users");
     expect(plan).toBeDefined();
     // Should not throw — aggregate wrapping an expression
   });
@@ -297,9 +295,9 @@ describe("Expression edge cases", () => {
     expect(proj.expressions[0].expressionClass).toBe(
       BoundExpressionClass.BOUND_FUNCTION,
     );
-    expect(
-      (proj.expressions[0] as BoundFunctionExpression).functionName,
-    ).toBe("CONCAT");
+    expect((proj.expressions[0] as BoundFunctionExpression).functionName).toBe(
+      "CONCAT",
+    );
   });
 });
 
@@ -472,7 +470,10 @@ describe("sameExpression — BOUND_JSON_ACCESS", () => {
         columnName: "data",
         returnType: "JSON",
       },
-      path: [{ type: "field", name: "a" }, { type: "field", name: "b" }],
+      path: [
+        { type: "field", name: "a" },
+        { type: "field", name: "b" },
+      ],
       returnType: "JSON",
     };
     const b: BoundJsonAccessExpression = {
@@ -556,7 +557,10 @@ describe("sameExpression — BOUND_JSON_ACCESS", () => {
         columnName: "data",
         returnType: "JSON",
       },
-      path: [{ type: "field", name: "items" }, { type: "index", value: 2 }],
+      path: [
+        { type: "field", name: "items" },
+        { type: "index", value: 2 },
+      ],
       returnType: "JSON",
     };
     const b: BoundJsonAccessExpression = {
@@ -568,7 +572,10 @@ describe("sameExpression — BOUND_JSON_ACCESS", () => {
         columnName: "data",
         returnType: "JSON",
       },
-      path: [{ type: "field", name: "items" }, { type: "index", value: 2 }],
+      path: [
+        { type: "field", name: "items" },
+        { type: "index", value: 2 },
+      ],
       returnType: "JSON",
     };
     expect(sameExpression(a, b)).toBe(true);
@@ -800,7 +807,10 @@ describe("sameExpression — additional expression types", () => {
     };
     const b: BoundCaseExpression = {
       ...a,
-      caseChecks: [{ when: colA, then: constOne }, { when: colB, then: constOne }],
+      caseChecks: [
+        { when: colA, then: constOne },
+        { when: colB, then: constOne },
+      ],
     };
     expect(sameExpression(a, b)).toBe(false);
   });

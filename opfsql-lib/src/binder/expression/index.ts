@@ -12,23 +12,23 @@ import type {
   CaseExpression,
   CastExpression,
   StarExpression,
-} from '../../parser/types.js';
-import { ExpressionClass } from '../../parser/types.js';
-import type { BoundExpression } from '../types.js';
-import type { BindContext, AggregateContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { BindError } from '../core/errors.js';
-import { bindColumnRef } from './column-ref.js';
-import { bindConstant } from './constant.js';
-import { bindParameter } from './parameter.js';
-import { bindComparison } from './comparison.js';
-import { bindConjunction } from './conjunction.js';
-import { bindOperator } from './operator.js';
-import { bindBetween } from './between.js';
-import { bindFunction } from './function.js';
-import { bindSubquery } from './subquery.js';
-import { bindCase } from './case.js';
-import { bindCast } from './cast.js';
+} from "../../parser/types.js";
+import { ExpressionClass } from "../../parser/types.js";
+import type { BoundExpression } from "../types.js";
+import type { BindContext, AggregateContext } from "../core/context.js";
+import type { BindScope } from "../core/scope.js";
+import { BindError } from "../core/errors.js";
+import { bindColumnRef } from "./column-ref.js";
+import { bindConstant } from "./constant.js";
+import { bindParameter } from "./parameter.js";
+import { bindComparison } from "./comparison.js";
+import { bindConjunction } from "./conjunction.js";
+import { bindOperator } from "./operator.js";
+import { bindBetween } from "./between.js";
+import { bindFunction } from "./function.js";
+import { bindSubquery } from "./subquery.js";
+import { bindCase } from "./case.js";
+import { bindCast } from "./cast.js";
 
 export function bindExpression(
   ctx: BindContext,
@@ -60,8 +60,8 @@ export function bindExpression(
     case ExpressionClass.CAST:
       return bindCast(ctx, expr as CastExpression, scope, aggCtx);
     case ExpressionClass.STAR:
-      throw new BindError('Star expression must be handled in SELECT list');
+      throw new BindError("Star expression must be handled in SELECT list");
     default:
-      throw new BindError('Unknown expression class');
+      throw new BindError("Unknown expression class");
   }
 }

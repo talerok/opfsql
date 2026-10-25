@@ -1,4 +1,4 @@
-import type { JsonValue } from '../../../types.js';
+import type { JsonValue } from "../../../types.js";
 
 /**
  * Recursively normalize a JSON value for canonical serialization:
@@ -7,7 +7,7 @@ import type { JsonValue } from '../../../types.js';
  * - Primitives pass through unchanged
  */
 export function normalizeJson(value: JsonValue): JsonValue {
-  if (value === null || typeof value !== 'object') return value;
+  if (value === null || typeof value !== "object") return value;
 
   if (Array.isArray(value)) {
     return value.map(normalizeJson);

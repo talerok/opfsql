@@ -1,4 +1,4 @@
-import type { ColumnBinding } from '../binder/types.js';
+import type { ColumnBinding } from "../binder/types.js";
 
 export type Resolver = (binding: ColumnBinding) => number | undefined;
 

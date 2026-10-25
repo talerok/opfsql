@@ -3,7 +3,10 @@ import type { LogicalType } from "../../store/types.js";
 import type { AggregateContext, BindContext } from "../core/context.js";
 import { BindError } from "../core/errors.js";
 import type { BindScope } from "../core/scope.js";
-import { checkTypeCompatibility, resolveArithmeticType } from "../core/type-check.js";
+import {
+  checkTypeCompatibility,
+  resolveArithmeticType,
+} from "../core/type-check.js";
 import { mapOperatorType } from "../core/type-map.js";
 import type { BoundOperatorExpression } from "../types.js";
 import { BoundExpressionClass } from "../types.js";

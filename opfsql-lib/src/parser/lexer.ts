@@ -1,4 +1,4 @@
-import { Token, TokenType, ParseError } from './types.js';
+import { Token, TokenType, ParseError } from "./types.js";
 
 const KEYWORDS: Record<string, TokenType> = {
   select: TokenType.SELECT,
@@ -94,9 +94,17 @@ const KEYWORDS: Record<string, TokenType> = {
 
 // Unsupported keywords that produce clear errors
 const UNSUPPORTED_KEYWORDS = new Set([
-  'window', 'over', 'partition',
-  'full', 'truncate', 'grant', 'revoke',
-  'procedure', 'trigger', 'pivot', 'unpivot',
+  "window",
+  "over",
+  "partition",
+  "full",
+  "truncate",
+  "grant",
+  "revoke",
+  "procedure",
+  "trigger",
+  "pivot",
+  "unpivot",
 ]);
 
 export class Lexer {
@@ -123,13 +131,13 @@ export class Lexer {
       const ch = this.source[this.pos];
 
       // Single-line comment
-      if (ch === '-' && this.peek(1) === '-') {
+      if (ch === "-" && this.peek(1) === "-") {
         this.skipLineComment();
         continue;
       }
 
       // Block comment
-      if (ch === '/' && this.peek(1) === '*') {
+      if (ch === "/" && this.peek(1) === "*") {
         this.skipBlockComment();
         continue;
       }
@@ -153,7 +161,7 @@ export class Lexer {
       }
 
       // Identifier or keyword
-      if (this.isAlpha(ch) || ch === '_') {
+      if (this.isAlpha(ch) || ch === "_") {
         this.readIdentifierOrKeyword();
         continue;
       }
@@ -163,106 +171,121 @@ export class Lexer {
       const startCol = this.column;
 
       switch (ch) {
-        case '(':
-          this.addToken(TokenType.LEFT_PAREN, '(', startLine, startCol);
+        case "(":
+          this.addToken(TokenType.LEFT_PAREN, "(", startLine, startCol);
           this.advance();
           break;
-        case ')':
-          this.addToken(TokenType.RIGHT_PAREN, ')', startLine, startCol);
+        case ")":
+          this.addToken(TokenType.RIGHT_PAREN, ")", startLine, startCol);
           this.advance();
           break;
-        case ',':
-          this.addToken(TokenType.COMMA, ',', startLine, startCol);
+        case ",":
+          this.addToken(TokenType.COMMA, ",", startLine, startCol);
           this.advance();
           break;
-        case ';':
-          this.addToken(TokenType.SEMICOLON, ';', startLine, startCol);
+        case ";":
+          this.addToken(TokenType.SEMICOLON, ";", startLine, startCol);
           this.advance();
           break;
-        case '.':
-          this.addToken(TokenType.DOT, '.', startLine, startCol);
+        case ".":
+          this.addToken(TokenType.DOT, ".", startLine, startCol);
           this.advance();
           break;
-        case '[':
-          this.addToken(TokenType.LEFT_BRACKET, '[', startLine, startCol);
+        case "[":
+          this.addToken(TokenType.LEFT_BRACKET, "[", startLine, startCol);
           this.advance();
           break;
-        case ']':
-          this.addToken(TokenType.RIGHT_BRACKET, ']', startLine, startCol);
+        case "]":
+          this.addToken(TokenType.RIGHT_BRACKET, "]", startLine, startCol);
           this.advance();
           break;
-        case '+':
-          this.addToken(TokenType.PLUS, '+', startLine, startCol);
+        case "+":
+          this.addToken(TokenType.PLUS, "+", startLine, startCol);
           this.advance();
           break;
-        case '-':
-          this.addToken(TokenType.MINUS, '-', startLine, startCol);
+        case "-":
+          this.addToken(TokenType.MINUS, "-", startLine, startCol);
           this.advance();
           break;
-        case '*':
-          this.addToken(TokenType.STAR, '*', startLine, startCol);
+        case "*":
+          this.addToken(TokenType.STAR, "*", startLine, startCol);
           this.advance();
           break;
-        case '/':
-          this.addToken(TokenType.SLASH, '/', startLine, startCol);
+        case "/":
+          this.addToken(TokenType.SLASH, "/", startLine, startCol);
           this.advance();
           break;
-        case '%':
-          this.addToken(TokenType.PERCENT, '%', startLine, startCol);
+        case "%":
+          this.addToken(TokenType.PERCENT, "%", startLine, startCol);
           this.advance();
           break;
-        case '=':
-          this.addToken(TokenType.EQUALS, '=', startLine, startCol);
+        case "=":
+          this.addToken(TokenType.EQUALS, "=", startLine, startCol);
           this.advance();
           break;
-        case '<':
+        case "<":
           this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === '=') {
-            this.addToken(TokenType.LESS_THAN_EQUAL, '<=', startLine, startCol);
+          if (this.pos < this.source.length && this.source[this.pos] === "=") {
+            this.addToken(TokenType.LESS_THAN_EQUAL, "<=", startLine, startCol);
             this.advance();
-          } else if (this.pos < this.source.length && this.source[this.pos] === '>') {
-            this.addToken(TokenType.NOT_EQUALS, '<>', startLine, startCol);
-            this.advance();
-          } else {
-            this.addToken(TokenType.LESS_THAN, '<', startLine, startCol);
-          }
-          break;
-        case '>':
-          this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === '=') {
-            this.addToken(TokenType.GREATER_THAN_EQUAL, '>=', startLine, startCol);
+          } else if (
+            this.pos < this.source.length &&
+            this.source[this.pos] === ">"
+          ) {
+            this.addToken(TokenType.NOT_EQUALS, "<>", startLine, startCol);
             this.advance();
           } else {
-            this.addToken(TokenType.GREATER_THAN, '>', startLine, startCol);
+            this.addToken(TokenType.LESS_THAN, "<", startLine, startCol);
           }
           break;
-        case '|':
+        case ">":
           this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === '|') {
-            this.addToken(TokenType.PIPE_PIPE, '||', startLine, startCol);
+          if (this.pos < this.source.length && this.source[this.pos] === "=") {
+            this.addToken(
+              TokenType.GREATER_THAN_EQUAL,
+              ">=",
+              startLine,
+              startCol,
+            );
+            this.advance();
+          } else {
+            this.addToken(TokenType.GREATER_THAN, ">", startLine, startCol);
+          }
+          break;
+        case "|":
+          this.advance();
+          if (this.pos < this.source.length && this.source[this.pos] === "|") {
+            this.addToken(TokenType.PIPE_PIPE, "||", startLine, startCol);
             this.advance();
           } else {
             this.error(`Unexpected character '|'`, startLine, startCol);
           }
           break;
-        case '!':
+        case "!":
           this.advance();
-          if (this.pos < this.source.length && this.source[this.pos] === '=') {
-            this.addToken(TokenType.NOT_EQUALS, '!=', startLine, startCol);
+          if (this.pos < this.source.length && this.source[this.pos] === "=") {
+            this.addToken(TokenType.NOT_EQUALS, "!=", startLine, startCol);
             this.advance();
           } else {
             this.error(`Unexpected character '!'`, startLine, startCol);
           }
           break;
-        case '$': {
+        case "$": {
           this.advance();
-          let digits = '';
-          while (this.pos < this.source.length && this.isDigit(this.source[this.pos])) {
+          let digits = "";
+          while (
+            this.pos < this.source.length &&
+            this.isDigit(this.source[this.pos])
+          ) {
             digits += this.source[this.pos];
             this.advance();
           }
           if (digits.length === 0) {
-            this.error("Expected parameter index after '$'", startLine, startCol);
+            this.error(
+              "Expected parameter index after '$'",
+              startLine,
+              startCol,
+            );
           }
           this.addToken(TokenType.PARAMETER, digits, startLine, startCol);
           break;
@@ -272,12 +295,12 @@ export class Lexer {
       }
     }
 
-    this.addToken(TokenType.EOF, '', this.line, this.column);
+    this.addToken(TokenType.EOF, "", this.line, this.column);
     return this.tokens;
   }
 
   private advance(): void {
-    if (this.source[this.pos] === '\n') {
+    if (this.source[this.pos] === "\n") {
       this.line++;
       this.column = 1;
     } else {
@@ -293,7 +316,7 @@ export class Lexer {
   private skipWhitespace(): void {
     while (this.pos < this.source.length) {
       const ch = this.source[this.pos];
-      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+      if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
         this.advance();
       } else {
         break;
@@ -305,7 +328,7 @@ export class Lexer {
     // Skip --
     this.advance();
     this.advance();
-    while (this.pos < this.source.length && this.source[this.pos] !== '\n') {
+    while (this.pos < this.source.length && this.source[this.pos] !== "\n") {
       this.advance();
     }
   }
@@ -317,21 +340,21 @@ export class Lexer {
     this.advance();
     this.advance();
     while (this.pos < this.source.length) {
-      if (this.source[this.pos] === '*' && this.peek(1) === '/') {
+      if (this.source[this.pos] === "*" && this.peek(1) === "/") {
         this.advance();
         this.advance();
         return;
       }
       this.advance();
     }
-    this.error('Unterminated block comment', startLine, startCol);
+    this.error("Unterminated block comment", startLine, startCol);
   }
 
   private readString(): void {
     const startLine = this.line;
     const startCol = this.column;
     this.advance(); // skip opening '
-    let value = '';
+    let value = "";
 
     while (this.pos < this.source.length) {
       const ch = this.source[this.pos];
@@ -352,14 +375,14 @@ export class Lexer {
       }
     }
 
-    this.error('Unterminated string literal', startLine, startCol);
+    this.error("Unterminated string literal", startLine, startCol);
   }
 
   private readQuotedIdentifier(): void {
     const startLine = this.line;
     const startCol = this.column;
     this.advance(); // skip opening "
-    let value = '';
+    let value = "";
 
     while (this.pos < this.source.length) {
       const ch = this.source[this.pos];
@@ -372,39 +395,58 @@ export class Lexer {
       this.advance();
     }
 
-    this.error('Unterminated quoted identifier', startLine, startCol);
+    this.error("Unterminated quoted identifier", startLine, startCol);
   }
 
   private readNumber(): void {
     const startLine = this.line;
     const startCol = this.column;
-    let value = '';
+    let value = "";
     let isFloat = false;
 
-    while (this.pos < this.source.length && this.isDigit(this.source[this.pos])) {
+    while (
+      this.pos < this.source.length &&
+      this.isDigit(this.source[this.pos])
+    ) {
       value += this.source[this.pos];
       this.advance();
     }
 
-    if (this.pos < this.source.length && this.source[this.pos] === '.' && this.peek(1) !== undefined && this.isDigit(this.peek(1)!)) {
+    if (
+      this.pos < this.source.length &&
+      this.source[this.pos] === "." &&
+      this.peek(1) !== undefined &&
+      this.isDigit(this.peek(1)!)
+    ) {
       isFloat = true;
-      value += '.';
+      value += ".";
       this.advance();
-      while (this.pos < this.source.length && this.isDigit(this.source[this.pos])) {
+      while (
+        this.pos < this.source.length &&
+        this.isDigit(this.source[this.pos])
+      ) {
         value += this.source[this.pos];
         this.advance();
       }
     }
 
-    this.addToken(isFloat ? TokenType.FLOAT_LITERAL : TokenType.INTEGER_LITERAL, value, startLine, startCol);
+    this.addToken(
+      isFloat ? TokenType.FLOAT_LITERAL : TokenType.INTEGER_LITERAL,
+      value,
+      startLine,
+      startCol,
+    );
   }
 
   private readIdentifierOrKeyword(): void {
     const startLine = this.line;
     const startCol = this.column;
-    let value = '';
+    let value = "";
 
-    while (this.pos < this.source.length && this.isAlphaNumeric(this.source[this.pos])) {
+    while (
+      this.pos < this.source.length &&
+      this.isAlphaNumeric(this.source[this.pos])
+    ) {
       value += this.source[this.pos];
       this.advance();
     }
@@ -412,19 +454,27 @@ export class Lexer {
     const lower = value.toLowerCase();
 
     // Blob literal: x'DEADBEEF' or X'DEADBEEF'
-    if (lower === 'x' && this.pos < this.source.length && this.source[this.pos] === "'") {
+    if (
+      lower === "x" &&
+      this.pos < this.source.length &&
+      this.source[this.pos] === "'"
+    ) {
       this.advance(); // skip opening '
-      let hex = '';
+      let hex = "";
       while (this.pos < this.source.length && this.source[this.pos] !== "'") {
         hex += this.source[this.pos];
         this.advance();
       }
       if (this.pos >= this.source.length) {
-        this.error('Unterminated blob literal', startLine, startCol);
+        this.error("Unterminated blob literal", startLine, startCol);
       }
       this.advance(); // skip closing '
       if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(hex)) {
-        this.error('Invalid blob literal: hex string must have even length and contain only hex digits', startLine, startCol);
+        this.error(
+          "Invalid blob literal: hex string must have even length and contain only hex digits",
+          startLine,
+          startCol,
+        );
       }
       this.addToken(TokenType.BLOB_LITERAL, hex, startLine, startCol);
       return;
@@ -435,7 +485,7 @@ export class Lexer {
       this.error(
         `Keyword '${value.toUpperCase()}' is not supported`,
         startLine,
-        startCol
+        startCol,
       );
     }
 
@@ -448,23 +498,28 @@ export class Lexer {
   }
 
   private isDigit(ch: string): boolean {
-    return ch >= '0' && ch <= '9';
+    return ch >= "0" && ch <= "9";
   }
 
   private isAlpha(ch: string): boolean {
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_';
+    return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
   }
 
   private isAlphaNumeric(ch: string): boolean {
     return this.isAlpha(ch) || this.isDigit(ch);
   }
 
-  private addToken(type: TokenType, value: string, line: number, column: number): void {
+  private addToken(
+    type: TokenType,
+    value: string,
+    line: number,
+    column: number,
+  ): void {
     this.tokens.push({ type, value, line, column });
   }
 
   private error(message: string, line: number, column: number): never {
-    const token: Token = { type: TokenType.EOF, value: '', line, column };
+    const token: Token = { type: TokenType.EOF, value: "", line, column };
     throw new ParseError(message, line, column, token);
   }
 }

@@ -39,8 +39,7 @@ function pump(state: LockState): void {
 function request(
   name: string,
   ...args:
-    | [LockGrantedCallback<unknown>]
-    | [LockOptions, LockGrantedCallback<unknown>]
+    [LockGrantedCallback<unknown>] | [LockOptions, LockGrantedCallback<unknown>]
 ): Promise<unknown> {
   const [options, callback] = args.length === 1 ? [{}, args[0]] : args;
   const mode: Mode = options.mode ?? "exclusive";

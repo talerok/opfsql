@@ -1,7 +1,10 @@
 import type { TableSchema } from "../../../store/types.js";
 import { BindError } from "../errors.js";
 
-export function findColumnIndex(schema: TableSchema, columnName: string): number {
+export function findColumnIndex(
+  schema: TableSchema,
+  columnName: string,
+): number {
   const lower = columnName.toLowerCase();
   return schema.columns.findIndex((c) => c.name.toLowerCase() === lower);
 }
@@ -12,7 +15,9 @@ export function findColumnIndexOrThrow(
 ): number {
   const idx = findColumnIndex(schema, columnName);
   if (idx === -1) {
-    throw new BindError(`Column "${columnName}" not found in table "${schema.name}"`);
+    throw new BindError(
+      `Column "${columnName}" not found in table "${schema.name}"`,
+    );
   }
   return idx;
 }

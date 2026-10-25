@@ -1,12 +1,17 @@
-import type { TableRef, BaseTableRef, JoinRef, SubqueryRef } from '../../parser/types.js';
-import { TableRefType } from '../../parser/types.js';
-import type { LogicalOperator } from '../types.js';
-import type { BindContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { BindError } from '../core/errors.js';
-import { bindBaseTableRef } from './base-table.js';
-import { bindJoinRef } from './join.js';
-import { bindSubqueryRef } from './subquery.js';
+import type {
+  TableRef,
+  BaseTableRef,
+  JoinRef,
+  SubqueryRef,
+} from "../../parser/types.js";
+import { TableRefType } from "../../parser/types.js";
+import type { LogicalOperator } from "../types.js";
+import type { BindContext } from "../core/context.js";
+import type { BindScope } from "../core/scope.js";
+import { BindError } from "../core/errors.js";
+import { bindBaseTableRef } from "./base-table.js";
+import { bindJoinRef } from "./join.js";
+import { bindSubqueryRef } from "./subquery.js";
 
 export function bindTableRef(
   ctx: BindContext,
@@ -21,6 +26,6 @@ export function bindTableRef(
     case TableRefType.SUBQUERY:
       return bindSubqueryRef(ctx, ref as SubqueryRef, scope);
     default:
-      throw new BindError('Unknown table reference type');
+      throw new BindError("Unknown table reference type");
   }
 }

@@ -5,7 +5,11 @@ import { ExecutorError } from "../errors.js";
 import type { SyncEvalContext } from "../evaluate/context.js";
 import type { CTECacheEntry, SyncPhysicalOperator } from "../types.js";
 import { planAggregate } from "./plan-aggregate.js";
-import { planCTERef, planMaterializedCTE, planRecursiveCTE } from "./plan-cte.js";
+import {
+  planCTERef,
+  planMaterializedCTE,
+  planRecursiveCTE,
+} from "./plan-cte.js";
 import { planFilter } from "./plan-filter.js";
 import { planGet } from "./plan-get.js";
 import { planComparisonJoin, planCrossProduct } from "./plan-join.js";
@@ -43,7 +47,8 @@ export function createPhysicalPlan(
     cteCache,
     ctx,
     indexManager,
-    plan: (child) => createPhysicalPlan(child, rowManager, cteCache, ctx, indexManager),
+    plan: (child) =>
+      createPhysicalPlan(child, rowManager, cteCache, ctx, indexManager),
   };
 
   const handler = handlers.get(node.type);

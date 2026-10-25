@@ -1,5 +1,6 @@
 // @ts-check
 import js from "@eslint/js";
+import prettier from "eslint-config-prettier/flat";
 import { createTypeScriptImportResolver } from "eslint-import-resolver-typescript";
 import { importX } from "eslint-plugin-import-x";
 import { configs as sonarjs } from "eslint-plugin-sonarjs";
@@ -10,6 +11,7 @@ import { config, configs as tseslint } from "typescript-eslint";
 // As strict as the plugins go. Violations in code written before this config
 // are recorded in eslint-suppressions.json: new code must be clean, and the
 // file only shrinks (`npm run lint:prune` drops what has been fixed).
+// Formatting is Prettier's: the rules it decides are turned off here.
 // ---------------------------------------------------------------------------
 
 export default config(
@@ -132,6 +134,16 @@ export default config(
       "unicorn/filename-case": ["error", { case: "kebabCase" }],
       // There is no DOM here: plan nodes have `children` too.
       "unicorn/better-dom-traversing": "off",
+      // Iterator.zip is not in the browsers opfsql supports yet.
+      "unicorn/prefer-iterator-zip": "off",
+      // A function named as a predicate must return a boolean, but a function
+      // that returns one need not be a predicate (a conversion, say).
+      "unicorn/consistent-boolean-name": [
+        "error",
+        { checkFunctions: "prohibit", checkMethods: "prohibit" },
+      ],
+      // SQL values are a union, and so is what most of the engine returns.
+      "sonarjs/function-return-type": "off",
       // One-line /** */ and " * "-prefixed lines are the TSDoc conventions
       // that editors and type tooling read.
       "unicorn/single-line-block-comment-style": "off",
@@ -153,6 +165,7 @@ export default config(
       "@typescript-eslint/explicit-function-return-type": "off",
     },
   },
+  prettier,
   {
     files: ["eslint.config.js"],
     extends: [tseslint.disableTypeChecked],

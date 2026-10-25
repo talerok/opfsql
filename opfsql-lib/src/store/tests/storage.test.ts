@@ -1,19 +1,21 @@
-import { resetMockOPFS } from 'opfs-mock';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { Storage } from '../storage.js';
-import type { SessionStore } from '../session-store.js';
-import { OPFSSyncStorage } from '../backend/opfs-storage.js';
-import { commitBatch } from './helpers.js';
+import { resetMockOPFS } from "opfs-mock";
+import { describe, it, expect, beforeEach } from "vitest";
+import { Storage } from "../storage.js";
+import type { SessionStore } from "../session-store.js";
+import { OPFSSyncStorage } from "../backend/opfs-storage.js";
+import { commitBatch } from "./helpers.js";
 
 let seq = 0;
 
-async function createStoreAndSession(backend: OPFSSyncStorage): Promise<{ storage: Storage; ss: SessionStore }> {
+async function createStoreAndSession(
+  backend: OPFSSyncStorage,
+): Promise<{ storage: Storage; ss: SessionStore }> {
   const storage = new Storage(backend);
   await storage.open();
   return { storage, ss: storage.createSession() };
 }
 
-describe('Storage + SessionStore', () => {
+describe("Storage + SessionStore", () => {
   let backend: OPFSSyncStorage;
   let store: Storage;
   let ss: SessionStore;
@@ -24,25 +26,25 @@ describe('Storage + SessionStore', () => {
     ({ storage: store, ss } = await createStoreAndSession(backend));
   });
 
-  describe('readPage / writePage', () => {
-    it('writePage → readPage returns value from buffer', () => {
+  describe("readPage / writePage", () => {
+    it("writePage → readPage returns value from buffer", () => {
       ss.writePage(10, { data: 42 });
       expect(ss.readPage<{ data: number }>(10)).toEqual({ data: 42 });
     });
 
-    it('readPage returns null for missing page', () => {
+    it("readPage returns null for missing page", () => {
       expect(ss.readPage(99)).toBeNull();
     });
 
-    it('writePage → commit persists to backend', () => {
+    it("writePage → commit persists to backend", () => {
       ss.writePage(10, { data: 42 });
       ss.commit();
       expect(backend.readPage<{ data: number }>(10)).toEqual({ data: 42 });
     });
   });
 
-  describe('allocPage', () => {
-    it('allocates sequential page numbers starting from 3', () => {
+  describe("allocPage", () => {
+    it("allocates sequential page numbers starting from 3", () => {
       const p1 = ss.allocPage();
       const p2 = ss.allocPage();
       const p3 = ss.allocPage();
@@ -51,7 +53,7 @@ describe('Storage + SessionStore', () => {
       expect(p3).toBe(5);
     });
 
-    it('reuses freed pages', () => {
+    it("reuses freed pages", () => {
       const p1 = ss.allocPage();
       ss.freePage(p1);
       const p2 = ss.allocPage();
@@ -59,8 +61,8 @@ describe('Storage + SessionStore', () => {
     });
   });
 
-  describe('commit', () => {
-    it('flushes to backend', () => {
+  describe("commit", () => {
+    it("flushes to backend", () => {
       ss.writePage(10, 1);
       ss.writePage(11, 2);
       ss.commit();
@@ -68,11 +70,11 @@ describe('Storage + SessionStore', () => {
       expect(backend.readPage(11)).toBe(2);
     });
 
-    it('noop when buffer is empty', () => {
+    it("noop when buffer is empty", () => {
       ss.commit(); // should not throw
     });
 
-    it('persists nextPageId across reload', async () => {
+    it("persists nextPageId across reload", async () => {
       ss.allocPage(); // 3
       ss.allocPage(); // 4
       ss.commit();
@@ -82,7 +84,7 @@ describe('Storage + SessionStore', () => {
       expect(p).toBe(5);
     });
 
-    it('persists freelist across reload', async () => {
+    it("persists freelist across reload", async () => {
       const p1 = ss.allocPage();
       const p2 = ss.allocPage();
       ss.freePage(p1);
@@ -94,24 +96,24 @@ describe('Storage + SessionStore', () => {
     });
   });
 
-  describe('rollback', () => {
-    it('discards uncommitted writes', () => {
-      ss.writePage(10, 'val');
+  describe("rollback", () => {
+    it("discards uncommitted writes", () => {
+      ss.writePage(10, "val");
       ss.rollback();
       expect(ss.readPage(10)).toBeNull();
     });
 
-    it('does not affect committed data', () => {
-      ss.writePage(10, 'committed');
+    it("does not affect committed data", () => {
+      ss.writePage(10, "committed");
       ss.commit();
 
-      ss.writePage(10, 'uncommitted');
+      ss.writePage(10, "uncommitted");
       ss.rollback();
 
-      expect(ss.readPage<string>(10)).toBe('committed');
+      expect(ss.readPage<string>(10)).toBe("committed");
     });
 
-    it('restores nextPageId', () => {
+    it("restores nextPageId", () => {
       ss.allocPage(); // 3
       ss.commit();
 
@@ -123,7 +125,7 @@ describe('Storage + SessionStore', () => {
       expect(p).toBe(4);
     });
 
-    it('restores freeList', () => {
+    it("restores freeList", () => {
       const p = ss.allocPage(); // 3
       ss.commit();
 
@@ -136,50 +138,50 @@ describe('Storage + SessionStore', () => {
     });
   });
 
-  describe('allocPage — freelist reuse', () => {
-    it('allocPage from freelist allows overwriting page', () => {
-      ss.writePage(10, { old: 'data' });
+  describe("allocPage — freelist reuse", () => {
+    it("allocPage from freelist allows overwriting page", () => {
+      ss.writePage(10, { old: "data" });
       ss.commit();
-      expect(ss.readPage(10)).toEqual({ old: 'data' });
+      expect(ss.readPage(10)).toEqual({ old: "data" });
 
       ss.freePage(10);
       const reused = ss.allocPage();
       expect(reused).toBe(10);
 
-      ss.writePage(10, { new: 'data' });
+      ss.writePage(10, { new: "data" });
       ss.commit();
-      expect(ss.readPage(10)).toEqual({ new: 'data' });
+      expect(ss.readPage(10)).toEqual({ new: "data" });
     });
 
-    it('allocPage from freelist reads fresh data from backend', () => {
-      commitBatch(backend, { 10: 'stale' });
-      expect(ss.readPage(10)).toBe('stale');
+    it("allocPage from freelist reads fresh data from backend", () => {
+      commitBatch(backend, { 10: "stale" });
+      expect(ss.readPage(10)).toBe("stale");
 
       ss.freePage(10);
       const reused = ss.allocPage();
       expect(reused).toBe(10);
 
-      commitBatch(backend, { 10: 'fresh' });
-      expect(ss.readPage(10)).toBe('fresh');
+      commitBatch(backend, { 10: "fresh" });
+      expect(ss.readPage(10)).toBe("fresh");
     });
   });
 
-  describe('allocatorDirty — commit optimization', () => {
-    it('commit skips header write when only pages written', () => {
+  describe("allocatorDirty — commit optimization", () => {
+    it("commit skips header write when only pages written", () => {
       const headerBefore = backend.getNextPageId();
-      ss.writePage(100, 'data');
+      ss.writePage(100, "data");
       ss.commit();
       expect(backend.getNextPageId()).toBe(headerBefore);
     });
 
-    it('commit writes header when allocPage was called', () => {
+    it("commit writes header when allocPage was called", () => {
       const headerBefore = backend.getNextPageId();
       ss.allocPage();
       ss.commit();
       expect(backend.getNextPageId()).toBe(headerBefore + 1);
     });
 
-    it('commit writes freelist when freePage was called', async () => {
+    it("commit writes freelist when freePage was called", async () => {
       const p = ss.allocPage();
       ss.commit();
 
@@ -191,5 +193,4 @@ describe('Storage + SessionStore', () => {
       expect(reused).toBe(p);
     });
   });
-
 });

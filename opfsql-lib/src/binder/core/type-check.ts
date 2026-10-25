@@ -104,20 +104,25 @@ export function resolveScalarFunctionReturnType(
 
 function requireTextArg(name: string, children: BoundExpression[]): "TEXT" {
   if (children.length > 0 && NON_SCALAR_TYPES.has(children[0].returnType)) {
-    throw new BindError(`Cannot apply ${name} to ${children[0].returnType} type`);
+    throw new BindError(
+      `Cannot apply ${name} to ${children[0].returnType} type`,
+    );
   }
   return "TEXT";
 }
 
 function requireTextArgs(name: string, children: BoundExpression[]): "TEXT" {
   const bad = children.find((c) => NON_SCALAR_TYPES.has(c.returnType));
-  if (bad) throw new BindError(`Cannot apply ${name} to ${bad.returnType} type`);
+  if (bad)
+    throw new BindError(`Cannot apply ${name} to ${bad.returnType} type`);
   return "TEXT";
 }
 
 function requireNumericArg(name: string, children: BoundExpression[]): "REAL" {
   if (children.length > 0 && NON_SCALAR_TYPES.has(children[0].returnType)) {
-    throw new BindError(`Cannot apply ${name} to ${children[0].returnType} type`);
+    throw new BindError(
+      `Cannot apply ${name} to ${children[0].returnType} type`,
+    );
   }
   return "REAL";
 }

@@ -5,8 +5,8 @@ import type {
   BoundOperatorExpression,
   BoundConstantExpression,
   LogicalOperator,
-} from '../binder/types.js';
-import { BoundExpressionClass } from '../binder/types.js';
+} from "../binder/types.js";
+import { BoundExpressionClass } from "../binder/types.js";
 import {
   mapExpression,
   mapOperatorExpressions,
@@ -22,7 +22,7 @@ import {
   makeNullConstant,
   makeConstant,
   sameExpression,
-} from './utils/index.js';
+} from "./utils/index.js";
 
 // ============================================================================
 // Expression Rewriter — applies simplification rules bottom-up
@@ -67,55 +67,55 @@ function tryEvaluate(expr: BoundExpression): BoundConstantExpression | null {
       if (vals.some((v) => v === undefined)) return null;
 
       switch (op.operatorType) {
-        case 'ADD': {
+        case "ADD": {
           const [a, b] = vals as [number, number];
           if (a === null || b === null) return makeNullConstant(op.returnType);
           return makeConstant(a + b, op.returnType);
         }
-        case 'SUBTRACT': {
+        case "SUBTRACT": {
           const [a, b] = vals as [number, number];
           if (a === null || b === null) return makeNullConstant(op.returnType);
           return makeConstant(a - b, op.returnType);
         }
-        case 'MULTIPLY': {
+        case "MULTIPLY": {
           const [a, b] = vals as [number, number];
           if (a === null || b === null) return makeNullConstant(op.returnType);
           return makeConstant(a * b, op.returnType);
         }
-        case 'DIVIDE': {
+        case "DIVIDE": {
           const [a, b] = vals as [number, number];
           if (a === null || b === null) return makeNullConstant(op.returnType);
           if (b === 0) return makeNullConstant(op.returnType);
           return makeConstant(a / b, op.returnType);
         }
-        case 'MOD': {
+        case "MOD": {
           const [a, b] = vals as [number, number];
           if (a === null || b === null) return makeNullConstant(op.returnType);
           if (b === 0) return makeNullConstant(op.returnType);
           return makeConstant(a % b, op.returnType);
         }
-        case 'NEGATE': {
+        case "NEGATE": {
           const [a] = vals as [number];
           if (a === null) return makeNullConstant(op.returnType);
           return makeConstant(-a, op.returnType);
         }
-        case 'NOT': {
+        case "NOT": {
           const [a] = vals as [boolean];
-          if (a === null) return makeNullConstant('BOOLEAN');
+          if (a === null) return makeNullConstant("BOOLEAN");
           return makeBoolConstant(!a);
         }
-        case 'IS_NULL': {
+        case "IS_NULL": {
           const [a] = vals;
           return makeBoolConstant(a === null);
         }
-        case 'IS_NOT_NULL': {
+        case "IS_NOT_NULL": {
           const [a] = vals;
           return makeBoolConstant(a !== null);
         }
-        case 'CONCAT': {
+        case "CONCAT": {
           const [a, b] = vals;
-          if (a === null || b === null) return makeNullConstant('TEXT');
-          return makeConstant(String(a) + String(b), 'TEXT');
+          if (a === null || b === null) return makeNullConstant("TEXT");
+          return makeConstant(String(a) + String(b), "TEXT");
         }
         default:
           return null;
@@ -127,20 +127,20 @@ function tryEvaluate(expr: BoundExpression): BoundConstantExpression | null {
       if (!isConstant(cmp.left) || !isConstant(cmp.right)) return null;
       const left = (cmp.left as BoundConstantExpression).value;
       const right = (cmp.right as BoundConstantExpression).value;
-      if (left === null || right === null) return makeNullConstant('BOOLEAN');
+      if (left === null || right === null) return makeNullConstant("BOOLEAN");
 
       switch (cmp.comparisonType) {
-        case 'EQUAL':
+        case "EQUAL":
           return makeBoolConstant(left === right);
-        case 'NOT_EQUAL':
+        case "NOT_EQUAL":
           return makeBoolConstant(left !== right);
-        case 'LESS':
+        case "LESS":
           return makeBoolConstant(left < right);
-        case 'GREATER':
+        case "GREATER":
           return makeBoolConstant(left > right);
-        case 'LESS_EQUAL':
+        case "LESS_EQUAL":
           return makeBoolConstant(left <= right);
-        case 'GREATER_EQUAL':
+        case "GREATER_EQUAL":
           return makeBoolConstant(left >= right);
         default:
           return null;
@@ -155,7 +155,7 @@ function tryEvaluate(expr: BoundExpression): BoundConstantExpression | null {
       });
       if (vals.some((v) => v === undefined)) return null;
 
-      if (conj.conjunctionType === 'AND') {
+      if (conj.conjunctionType === "AND") {
         return makeBoolConstant(vals.every((v) => v === true));
       }
       return makeBoolConstant(vals.some((v) => v === true));
@@ -175,23 +175,29 @@ function comparisonSimplification(expr: BoundExpression): BoundExpression {
   const cmp = expr as BoundComparisonExpression;
 
   // NULL comparison: anything compared to NULL → NULL (except IS NULL/IS NOT NULL)
-  if (isConstant(cmp.left) && (cmp.left as BoundConstantExpression).value === null) {
-    return makeNullConstant('BOOLEAN');
+  if (
+    isConstant(cmp.left) &&
+    (cmp.left as BoundConstantExpression).value === null
+  ) {
+    return makeNullConstant("BOOLEAN");
   }
-  if (isConstant(cmp.right) && (cmp.right as BoundConstantExpression).value === null) {
-    return makeNullConstant('BOOLEAN');
+  if (
+    isConstant(cmp.right) &&
+    (cmp.right as BoundConstantExpression).value === null
+  ) {
+    return makeNullConstant("BOOLEAN");
   }
 
   // x = x → true, x <> x → false (only for column refs, which are deterministic)
   if (sameExpression(cmp.left, cmp.right) && isColumnRef(cmp.left)) {
     switch (cmp.comparisonType) {
-      case 'EQUAL':
-      case 'LESS_EQUAL':
-      case 'GREATER_EQUAL':
+      case "EQUAL":
+      case "LESS_EQUAL":
+      case "GREATER_EQUAL":
         return makeBoolConstant(true);
-      case 'NOT_EQUAL':
-      case 'LESS':
-      case 'GREATER':
+      case "NOT_EQUAL":
+      case "LESS":
+      case "GREATER":
         return makeBoolConstant(false);
     }
   }
@@ -212,7 +218,7 @@ function conjunctionSimplification(expr: BoundExpression): BoundExpression {
   for (const child of conj.children) {
     if (isConstant(child)) {
       const val = (child as BoundConstantExpression).value;
-      if (conj.conjunctionType === 'AND') {
+      if (conj.conjunctionType === "AND") {
         if (val === false || val === null) return makeBoolConstant(false);
         // AND with TRUE — skip (identity element)
         continue;
@@ -227,7 +233,7 @@ function conjunctionSimplification(expr: BoundExpression): BoundExpression {
   }
 
   if (remaining.length === 0) {
-    return makeBoolConstant(conj.conjunctionType === 'AND');
+    return makeBoolConstant(conj.conjunctionType === "AND");
   }
   if (remaining.length === 1) {
     return remaining[0];
@@ -247,26 +253,31 @@ function arithmeticSimplification(expr: BoundExpression): BoundExpression {
   const op = expr as BoundOperatorExpression;
 
   switch (op.operatorType) {
-    case 'ADD': {
+    case "ADD": {
       const [left, right] = op.children;
       // x + 0 → x
-      if (isConstant(right) && (right as BoundConstantExpression).value === 0) return left;
+      if (isConstant(right) && (right as BoundConstantExpression).value === 0)
+        return left;
       // 0 + x → x
-      if (isConstant(left) && (left as BoundConstantExpression).value === 0) return right;
+      if (isConstant(left) && (left as BoundConstantExpression).value === 0)
+        return right;
       return expr;
     }
-    case 'SUBTRACT': {
+    case "SUBTRACT": {
       const [left, right] = op.children;
       // x - 0 → x
-      if (isConstant(right) && (right as BoundConstantExpression).value === 0) return left;
+      if (isConstant(right) && (right as BoundConstantExpression).value === 0)
+        return left;
       return expr;
     }
-    case 'MULTIPLY': {
+    case "MULTIPLY": {
       const [left, right] = op.children;
       // x * 1 → x
-      if (isConstant(right) && (right as BoundConstantExpression).value === 1) return left;
+      if (isConstant(right) && (right as BoundConstantExpression).value === 1)
+        return left;
       // 1 * x → x
-      if (isConstant(left) && (left as BoundConstantExpression).value === 1) return right;
+      if (isConstant(left) && (left as BoundConstantExpression).value === 1)
+        return right;
       // x * 0 → CASE WHEN x IS NOT NULL THEN 0 ELSE NULL END
       if (isConstant(right) && (right as BoundConstantExpression).value === 0) {
         return constantOrNull(makeConstant(0, op.returnType), left);
@@ -277,10 +288,11 @@ function arithmeticSimplification(expr: BoundExpression): BoundExpression {
       }
       return expr;
     }
-    case 'DIVIDE': {
+    case "DIVIDE": {
       const [_left, right] = op.children;
       // x / 1 → x
-      if (isConstant(right) && (right as BoundConstantExpression).value === 1) return op.children[0];
+      if (isConstant(right) && (right as BoundConstantExpression).value === 1)
+        return op.children[0];
       // x / 0 → NULL
       if (isConstant(right) && (right as BoundConstantExpression).value === 0) {
         return makeNullConstant(op.returnType);
@@ -314,9 +326,9 @@ function constantOrNull(
       {
         when: {
           expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-          operatorType: 'IS_NOT_NULL',
+          operatorType: "IS_NOT_NULL",
           children: [expr],
-          returnType: 'BOOLEAN',
+          returnType: "BOOLEAN",
         } as BoundOperatorExpression,
         then: value,
       },
@@ -350,17 +362,17 @@ function moveConstants(expr: BoundExpression): BoundExpression {
     const rightConst = cmp.right as BoundConstantExpression;
 
     if (
-      (leftOp.operatorType === 'ADD' || leftOp.operatorType === 'SUBTRACT') &&
+      (leftOp.operatorType === "ADD" || leftOp.operatorType === "SUBTRACT") &&
       leftOp.children.length === 2 &&
       isConstant(leftOp.children[1]) &&
       isNumericType(rightConst.returnType)
     ) {
-      const c1 = (leftOp.children[1] as BoundConstantExpression).value as number;
+      const c1 = (leftOp.children[1] as BoundConstantExpression)
+        .value as number;
       const c2 = rightConst.value as number;
 
-      if (typeof c1 === 'number' && typeof c2 === 'number') {
-        const newRHS =
-          leftOp.operatorType === 'ADD' ? c2 - c1 : c2 + c1;
+      if (typeof c1 === "number" && typeof c2 === "number") {
+        const newRHS = leftOp.operatorType === "ADD" ? c2 - c1 : c2 + c1;
 
         return {
           ...cmp,

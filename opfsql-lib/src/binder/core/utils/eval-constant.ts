@@ -19,9 +19,7 @@ export function evalConstantInt(expr: ParsedExpression): number {
   throw new BindError("Expected integer constant");
 }
 
-export function evalConstantValue(
-  expr: ParsedExpression,
-): Value {
+export function evalConstantValue(expr: ParsedExpression): Value {
   if (expr.expression_class === ExpressionClass.CONSTANT) {
     const c = expr as ConstantExpression;
     return c.value.value as Value;

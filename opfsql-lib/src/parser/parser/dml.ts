@@ -1,21 +1,31 @@
-import { BaseParser } from './base.js';
-import { parseExpression } from './expressions.js';
+import { BaseParser } from "./base.js";
+import { parseExpression } from "./expressions.js";
 import {
-  TokenType, ParsedExpression,
-  StatementType, SelectStatement,
-  InsertStatement, UpdateStatement, DeleteStatement,
-  UpdateSetClause, OnConflictClause,
-} from '../types.js';
+  TokenType,
+  ParsedExpression,
+  StatementType,
+  SelectStatement,
+  InsertStatement,
+  UpdateStatement,
+  DeleteStatement,
+  UpdateSetClause,
+  OnConflictClause,
+} from "../types.js";
 
 export function parseInsert(p: BaseParser): InsertStatement {
   p.expect(TokenType.INSERT);
   p.expect(TokenType.INTO, `Expected INTO after INSERT`);
-  const table = p.expect(TokenType.IDENTIFIER, `Expected table name after INSERT INTO`).value;
+  const table = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected table name after INSERT INTO`,
+  ).value;
 
   const columns: string[] = [];
   if (p.match(TokenType.LEFT_PAREN)) {
     do {
-      columns.push(p.expect(TokenType.IDENTIFIER, `Expected column name`).value);
+      columns.push(
+        p.expect(TokenType.IDENTIFIER, `Expected column name`).value,
+      );
     } while (p.match(TokenType.COMMA));
     p.expect(TokenType.RIGHT_PAREN);
   }
@@ -28,7 +38,10 @@ export function parseInsert(p: BaseParser): InsertStatement {
     select_statement = p.parseSelectStatement() as SelectStatement;
   } else {
     // INSERT INTO ... VALUES (...)
-    p.expect(TokenType.VALUES, `Expected VALUES or SELECT after INSERT INTO ${table}`);
+    p.expect(
+      TokenType.VALUES,
+      `Expected VALUES or SELECT after INSERT INTO ${table}`,
+    );
     do {
       p.expect(TokenType.LEFT_PAREN, `Expected '(' before values`);
       const row: ParsedExpression[] = [];
@@ -61,7 +74,12 @@ function parseOnConflict(p: BaseParser): OnConflictClause | null {
   if (p.match(TokenType.LEFT_PAREN)) {
     conflictTarget = [];
     do {
-      conflictTarget.push(p.expect(TokenType.IDENTIFIER, `Expected column name in conflict target`).value);
+      conflictTarget.push(
+        p.expect(
+          TokenType.IDENTIFIER,
+          `Expected column name in conflict target`,
+        ).value,
+      );
     } while (p.match(TokenType.COMMA));
     p.expect(TokenType.RIGHT_PAREN);
   }
@@ -70,7 +88,7 @@ function parseOnConflict(p: BaseParser): OnConflictClause | null {
 
   // DO NOTHING
   if (p.match(TokenType.NOTHING)) {
-    return { conflictTarget, action: 'NOTHING' };
+    return { conflictTarget, action: "NOTHING" };
   }
 
   // DO UPDATE SET ...
@@ -79,7 +97,10 @@ function parseOnConflict(p: BaseParser): OnConflictClause | null {
 
   const setClauses: UpdateSetClause[] = [];
   do {
-    const column = p.expect(TokenType.IDENTIFIER, `Expected column name in SET clause`).value;
+    const column = p.expect(
+      TokenType.IDENTIFIER,
+      `Expected column name in SET clause`,
+    ).value;
     p.expect(TokenType.EQUALS, `Expected '=' after column name in SET clause`);
     const value = parseExpression(p);
     setClauses.push({ column, value });
@@ -92,18 +113,24 @@ function parseOnConflict(p: BaseParser): OnConflictClause | null {
 
   return {
     conflictTarget,
-    action: { type: 'UPDATE', setClauses, whereClause },
+    action: { type: "UPDATE", setClauses, whereClause },
   };
 }
 
 export function parseUpdate(p: BaseParser): UpdateStatement {
   p.expect(TokenType.UPDATE);
-  const table = p.expect(TokenType.IDENTIFIER, `Expected table name after UPDATE`).value;
+  const table = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected table name after UPDATE`,
+  ).value;
   p.expect(TokenType.SET, `Expected SET after UPDATE ${table}`);
 
   const set_clauses: UpdateSetClause[] = [];
   do {
-    const column = p.expect(TokenType.IDENTIFIER, `Expected column name in SET clause`).value;
+    const column = p.expect(
+      TokenType.IDENTIFIER,
+      `Expected column name in SET clause`,
+    ).value;
     p.expect(TokenType.EQUALS, `Expected '=' after column name in SET clause`);
     const value = parseExpression(p);
     set_clauses.push({ column, value });
@@ -125,7 +152,10 @@ export function parseUpdate(p: BaseParser): UpdateStatement {
 export function parseDelete(p: BaseParser): DeleteStatement {
   p.expect(TokenType.DELETE);
   p.expect(TokenType.FROM, `Expected FROM after DELETE`);
-  const table = p.expect(TokenType.IDENTIFIER, `Expected table name after DELETE FROM`).value;
+  const table = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected table name after DELETE FROM`,
+  ).value;
 
   let where_clause: ParsedExpression | null = null;
   if (p.match(TokenType.WHERE)) {

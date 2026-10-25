@@ -6,11 +6,7 @@ import type {
 import { LogicalOperatorType } from "../../binder/types.js";
 import { Binder } from "../../binder/index.js";
 import { Catalog } from "../../store/catalog.js";
-import {
-  optimizeJoinOrder,
-  pullupFilters,
-  pushdownFilters,
-} from "../index.js";
+import { optimizeJoinOrder, pullupFilters, pushdownFilters } from "../index.js";
 import {
   createTestContext,
   findNode,
@@ -141,8 +137,24 @@ describe("JoinOrderOptimizer — edge cases", () => {
       catalog.addTable({
         name: `t${i}`,
         columns: [
-          { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
-          { name: "val", type: "INTEGER", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+          {
+            name: "id",
+            type: "INTEGER",
+            nullable: false,
+            primaryKey: true,
+            unique: true,
+            autoIncrement: false,
+            defaultValue: null,
+          },
+          {
+            name: "val",
+            type: "INTEGER",
+            nullable: true,
+            primaryKey: false,
+            unique: false,
+            autoIncrement: false,
+            defaultValue: null,
+          },
         ],
       });
     }

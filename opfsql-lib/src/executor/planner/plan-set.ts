@@ -9,6 +9,8 @@ export function planDistinct(node: LogicalOperator, pc: PlannerContext) {
 export function planUnion(node: LogicalOperator, pc: PlannerContext) {
   const union = node as LogicalUnion;
   return new PhysicalUnion(
-    pc.plan(union.children[0]), pc.plan(union.children[1]), union.all,
+    pc.plan(union.children[0]),
+    pc.plan(union.children[1]),
+    union.all,
   );
 }

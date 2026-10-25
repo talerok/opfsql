@@ -1,5 +1,5 @@
-import { BaseParser } from './base.js';
-import { TokenType, LogicalType, LogicalTypeId } from '../types.js';
+import { BaseParser } from "./base.js";
+import { TokenType, LogicalType, LogicalTypeId } from "../types.js";
 
 const TYPE_MAP: Record<number, LogicalTypeId> = {
   [TokenType.INTEGER_KW]: LogicalTypeId.INTEGER,
@@ -30,5 +30,5 @@ export function parseTypeToken(p: BaseParser): LogicalType {
     return { id };
   }
 
-  p.error(`Expected type name, got '${token.value || 'EOF'}'`);
+  p.error(`Expected type name, got '${token.value || "EOF"}'`);
 }

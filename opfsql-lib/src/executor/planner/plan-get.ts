@@ -10,14 +10,22 @@ export function planGet(node: LogicalOperator, pc: PlannerContext) {
   if (get.indexHint && pc.indexManager) {
     if (get.indexHint.kind === "union")
       return new PhysicalIndexUnionScan(
-        get, pc.rowManager, pc.indexManager, get.indexHint, pc.ctx,
+        get,
+        pc.rowManager,
+        pc.indexManager,
+        get.indexHint,
+        pc.ctx,
       );
 
     if (get.indexHint.kind === "scan")
       return new PhysicalIndexScan(
-        get, pc.rowManager, pc.indexManager,
-        get.indexHint.indexDef, get.indexHint.predicates,
-        get.indexHint.residualFilters, pc.ctx,
+        get,
+        pc.rowManager,
+        pc.indexManager,
+        get.indexHint.indexDef,
+        get.indexHint.predicates,
+        get.indexHint.residualFilters,
+        pc.ctx,
       );
   }
 

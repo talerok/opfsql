@@ -263,9 +263,7 @@ describe("JOIN — USING with non-existent column", () => {
 
 describe("JOIN — extractJoinConditions non-comparison path", () => {
   it("ON with boolean column produces condition = TRUE", () => {
-    const plan = bind(
-      "SELECT * FROM users u JOIN orders o ON u.active",
-    );
+    const plan = bind("SELECT * FROM users u JOIN orders o ON u.active");
     const proj = plan as LogicalProjection;
     const join = proj.children[0] as LogicalComparisonJoin;
     expect(join.conditions).toHaveLength(1);

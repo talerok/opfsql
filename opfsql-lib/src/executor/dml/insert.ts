@@ -213,12 +213,14 @@ function findConflictViaIndex(
 
     // Extract column names from index expressions — only simple column
     // expressions can match ON CONFLICT column lists
-    const allSimpleColumns = idx.expressions.every((e) => e.type === 'column');
+    const allSimpleColumns = idx.expressions.every((e) => e.type === "column");
     if (!allSimpleColumns) continue;
 
     const idxColNames = idx.expressions.flatMap(getIndexColumns);
     const idxColsSorted = [...idxColNames].map((c) => c.toLowerCase()).sort();
-    const targetSorted = [...conflictColNames].map((c) => c.toLowerCase()).sort();
+    const targetSorted = [...conflictColNames]
+      .map((c) => c.toLowerCase())
+      .sort();
     if (
       idxColsSorted.length !== targetSorted.length ||
       !idxColsSorted.every((c, i) => c === targetSorted[i])

@@ -1,7 +1,7 @@
-import type { LogicalCTERef, ColumnBinding } from '../../binder/types.js';
-import type { SyncPhysicalOperator, Tuple, CTECacheEntry } from '../types.js';
-import { ExecutorError } from '../errors.js';
-import { drainOperator, serializeKey, SCAN_BATCH } from './utils.js';
+import type { LogicalCTERef, ColumnBinding } from "../../binder/types.js";
+import type { SyncPhysicalOperator, Tuple, CTECacheEntry } from "../types.js";
+import { ExecutorError } from "../errors.js";
+import { drainOperator, serializeKey, SCAN_BATCH } from "./utils.js";
 
 // ---------------------------------------------------------------------------
 // Materialize
@@ -24,7 +24,10 @@ export class PhysicalMaterialize implements SyncPhysicalOperator {
   next(): Tuple[] | null {
     if (!this.materialized) {
       const tuples = drainOperator(this.cteDefinition);
-      this.cteCache.set(this.cteIndex, { tuples, layout: this.cteDefinition.getLayout() });
+      this.cteCache.set(this.cteIndex, {
+        tuples,
+        layout: this.cteDefinition.getLayout(),
+      });
       this.materialized = true;
     }
     return this.mainPlan.next();
@@ -59,7 +62,8 @@ export class PhysicalCTEScan implements SyncPhysicalOperator {
 
   next(): Tuple[] | null {
     const entry = this.cteCache.get(this.op.cteIndex);
-    if (!entry) throw new ExecutorError(`CTE '${this.op.cteName}' not materialized yet`);
+    if (!entry)
+      throw new ExecutorError(`CTE '${this.op.cteName}' not materialized yet`);
 
     if (this.offset >= entry.tuples.length) return null;
     const batch = entry.tuples.slice(this.offset, this.offset + SCAN_BATCH);
@@ -135,7 +139,10 @@ export class PhysicalRecursiveCTE implements SyncPhysicalOperator {
       this.recursive.reset();
       const newRows = drainOperator(this.recursive);
 
-      if (newRows.length === 0) { workingTable = []; break; }
+      if (newRows.length === 0) {
+        workingTable = [];
+        break;
+      }
 
       workingTable = [];
       for (const row of newRows) {

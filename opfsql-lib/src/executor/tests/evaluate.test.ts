@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { evaluateExpression } from '../evaluate/index.js';
-import { buildResolver } from '../resolve.js';
+import { describe, it, expect } from "vitest";
+import { evaluateExpression } from "../evaluate/index.js";
+import { buildResolver } from "../resolve.js";
 import {
   colRef,
   constant,
@@ -14,15 +14,19 @@ import {
   jsonAccess,
   layout,
   noopCtx,
-} from './helpers.js';
-import type { Tuple } from '../types.js';
+} from "./helpers.js";
+import type { Tuple } from "../types.js";
 
 // Common setup: tuple [10, 'hello', null, true] with layout t0.c0..c3
 const testLayout = layout([0, 0], [0, 1], [0, 2], [0, 3]);
 const resolver = buildResolver(testLayout);
-const tuple: Tuple = [10, 'hello', null, true];
+const tuple: Tuple = [10, "hello", null, true];
 
-function eval_(expr: Parameters<typeof evaluateExpression>[0], t = tuple, r = resolver) {
+function eval_(
+  expr: Parameters<typeof evaluateExpression>[0],
+  t = tuple,
+  r = resolver,
+) {
   return evaluateExpression(expr, t, r, noopCtx);
 }
 
@@ -30,32 +34,32 @@ function eval_(expr: Parameters<typeof evaluateExpression>[0], t = tuple, r = re
 // Constants and column refs
 // ---------------------------------------------------------------------------
 
-describe('evaluateExpression', () => {
-  describe('constants', () => {
-    it('returns integer', () => {
+describe("evaluateExpression", () => {
+  describe("constants", () => {
+    it("returns integer", () => {
       expect(eval_(constant(42))).toBe(42);
     });
 
-    it('returns string', () => {
-      expect(eval_(constant('abc'))).toBe('abc');
+    it("returns string", () => {
+      expect(eval_(constant("abc"))).toBe("abc");
     });
 
-    it('returns null', () => {
+    it("returns null", () => {
       expect(eval_(constant(null))).toBeNull();
     });
 
-    it('returns boolean', () => {
+    it("returns boolean", () => {
       expect(eval_(constant(true))).toBe(true);
     });
   });
 
-  describe('column refs', () => {
-    it('resolves by binding', () => {
+  describe("column refs", () => {
+    it("resolves by binding", () => {
       expect(eval_(colRef(0, 0))).toBe(10);
-      expect(eval_(colRef(0, 1))).toBe('hello');
+      expect(eval_(colRef(0, 1))).toBe("hello");
     });
 
-    it('resolves null column', () => {
+    it("resolves null column", () => {
       expect(eval_(colRef(0, 2))).toBeNull();
     });
   });
@@ -64,40 +68,50 @@ describe('evaluateExpression', () => {
   // Comparisons
   // ---------------------------------------------------------------------------
 
-  describe('comparisons', () => {
-    it('EQUAL — true', () => {
+  describe("comparisons", () => {
+    it("EQUAL — true", () => {
       expect(eval_(comparison(constant(5), constant(5)))).toBe(true);
     });
 
-    it('EQUAL — false', () => {
+    it("EQUAL — false", () => {
       expect(eval_(comparison(constant(5), constant(6)))).toBe(false);
     });
 
-    it('EQUAL — null propagation', () => {
+    it("EQUAL — null propagation", () => {
       expect(eval_(comparison(constant(null), constant(5)))).toBeNull();
     });
 
-    it('LESS', () => {
-      expect(eval_(comparison(constant(3), constant(5), 'LESS'))).toBe(true);
-      expect(eval_(comparison(constant(5), constant(3), 'LESS'))).toBe(false);
+    it("LESS", () => {
+      expect(eval_(comparison(constant(3), constant(5), "LESS"))).toBe(true);
+      expect(eval_(comparison(constant(5), constant(3), "LESS"))).toBe(false);
     });
 
-    it('GREATER', () => {
-      expect(eval_(comparison(constant(5), constant(3), 'GREATER'))).toBe(true);
+    it("GREATER", () => {
+      expect(eval_(comparison(constant(5), constant(3), "GREATER"))).toBe(true);
     });
 
-    it('LESS_EQUAL', () => {
-      expect(eval_(comparison(constant(5), constant(5), 'LESS_EQUAL'))).toBe(true);
+    it("LESS_EQUAL", () => {
+      expect(eval_(comparison(constant(5), constant(5), "LESS_EQUAL"))).toBe(
+        true,
+      );
     });
 
-    it('NOT_EQUAL', () => {
-      expect(eval_(comparison(constant(1), constant(2), 'NOT_EQUAL'))).toBe(true);
-      expect(eval_(comparison(constant(1), constant(1), 'NOT_EQUAL'))).toBe(false);
+    it("NOT_EQUAL", () => {
+      expect(eval_(comparison(constant(1), constant(2), "NOT_EQUAL"))).toBe(
+        true,
+      );
+      expect(eval_(comparison(constant(1), constant(1), "NOT_EQUAL"))).toBe(
+        false,
+      );
     });
 
-    it('compares strings', () => {
-      expect(eval_(comparison(constant('a'), constant('b'), 'LESS'))).toBe(true);
-      expect(eval_(comparison(constant('b'), constant('a'), 'LESS'))).toBe(false);
+    it("compares strings", () => {
+      expect(eval_(comparison(constant("a"), constant("b"), "LESS"))).toBe(
+        true,
+      );
+      expect(eval_(comparison(constant("b"), constant("a"), "LESS"))).toBe(
+        false,
+      );
     });
   });
 
@@ -105,33 +119,47 @@ describe('evaluateExpression', () => {
   // Conjunctions
   // ---------------------------------------------------------------------------
 
-  describe('conjunctions', () => {
-    it('AND — both true', () => {
-      expect(eval_(conjunction('AND', constant(true), constant(true)))).toBe(true);
+  describe("conjunctions", () => {
+    it("AND — both true", () => {
+      expect(eval_(conjunction("AND", constant(true), constant(true)))).toBe(
+        true,
+      );
     });
 
-    it('AND — one false', () => {
-      expect(eval_(conjunction('AND', constant(true), constant(false)))).toBe(false);
+    it("AND — one false", () => {
+      expect(eval_(conjunction("AND", constant(true), constant(false)))).toBe(
+        false,
+      );
     });
 
-    it('AND — false and null → false', () => {
-      expect(eval_(conjunction('AND', constant(false), constant(null, 'BOOLEAN')))).toBe(false);
+    it("AND — false and null → false", () => {
+      expect(
+        eval_(conjunction("AND", constant(false), constant(null, "BOOLEAN"))),
+      ).toBe(false);
     });
 
-    it('AND — true and null → null', () => {
-      expect(eval_(conjunction('AND', constant(true), constant(null, 'BOOLEAN')))).toBeNull();
+    it("AND — true and null → null", () => {
+      expect(
+        eval_(conjunction("AND", constant(true), constant(null, "BOOLEAN"))),
+      ).toBeNull();
     });
 
-    it('OR — one true', () => {
-      expect(eval_(conjunction('OR', constant(false), constant(true)))).toBe(true);
+    it("OR — one true", () => {
+      expect(eval_(conjunction("OR", constant(false), constant(true)))).toBe(
+        true,
+      );
     });
 
-    it('OR — true and null → true', () => {
-      expect(eval_(conjunction('OR', constant(true), constant(null, 'BOOLEAN')))).toBe(true);
+    it("OR — true and null → true", () => {
+      expect(
+        eval_(conjunction("OR", constant(true), constant(null, "BOOLEAN"))),
+      ).toBe(true);
     });
 
-    it('OR — false and null → null', () => {
-      expect(eval_(conjunction('OR', constant(false), constant(null, 'BOOLEAN')))).toBeNull();
+    it("OR — false and null → null", () => {
+      expect(
+        eval_(conjunction("OR", constant(false), constant(null, "BOOLEAN"))),
+      ).toBeNull();
     });
   });
 
@@ -139,91 +167,141 @@ describe('evaluateExpression', () => {
   // Operators
   // ---------------------------------------------------------------------------
 
-  describe('operators', () => {
-    it('ADD', () => {
-      expect(eval_(operator('ADD', [constant(3), constant(4)]))).toBe(7);
+  describe("operators", () => {
+    it("ADD", () => {
+      expect(eval_(operator("ADD", [constant(3), constant(4)]))).toBe(7);
     });
 
-    it('SUBTRACT', () => {
-      expect(eval_(operator('SUBTRACT', [constant(10), constant(3)]))).toBe(7);
+    it("SUBTRACT", () => {
+      expect(eval_(operator("SUBTRACT", [constant(10), constant(3)]))).toBe(7);
     });
 
-    it('MULTIPLY', () => {
-      expect(eval_(operator('MULTIPLY', [constant(3), constant(4)]))).toBe(12);
+    it("MULTIPLY", () => {
+      expect(eval_(operator("MULTIPLY", [constant(3), constant(4)]))).toBe(12);
     });
 
-    it('DIVIDE', () => {
-      expect(eval_(operator('DIVIDE', [constant(10), constant(3)]))).toBeCloseTo(3.333, 2);
+    it("DIVIDE", () => {
+      expect(
+        eval_(operator("DIVIDE", [constant(10), constant(3)])),
+      ).toBeCloseTo(3.333, 2);
     });
 
-    it('DIVIDE by zero → null', () => {
-      expect(eval_(operator('DIVIDE', [constant(10), constant(0)]))).toBeNull();
+    it("DIVIDE by zero → null", () => {
+      expect(eval_(operator("DIVIDE", [constant(10), constant(0)]))).toBeNull();
     });
 
-    it('MOD', () => {
-      expect(eval_(operator('MOD', [constant(10), constant(3)]))).toBe(1);
+    it("MOD", () => {
+      expect(eval_(operator("MOD", [constant(10), constant(3)]))).toBe(1);
     });
 
-    it('MOD by zero → null', () => {
-      expect(eval_(operator('MOD', [constant(10), constant(0)]))).toBeNull();
+    it("MOD by zero → null", () => {
+      expect(eval_(operator("MOD", [constant(10), constant(0)]))).toBeNull();
     });
 
-    it('NEGATE', () => {
-      expect(eval_(operator('NEGATE', [constant(5)]))).toBe(-5);
+    it("NEGATE", () => {
+      expect(eval_(operator("NEGATE", [constant(5)]))).toBe(-5);
     });
 
-    it('NOT', () => {
-      expect(eval_(operator('NOT', [constant(true)], 'BOOLEAN'))).toBe(false);
-      expect(eval_(operator('NOT', [constant(false)], 'BOOLEAN'))).toBe(true);
+    it("NOT", () => {
+      expect(eval_(operator("NOT", [constant(true)], "BOOLEAN"))).toBe(false);
+      expect(eval_(operator("NOT", [constant(false)], "BOOLEAN"))).toBe(true);
     });
 
-    it('NOT null → null', () => {
-      expect(eval_(operator('NOT', [constant(null, 'BOOLEAN')], 'BOOLEAN'))).toBeNull();
+    it("NOT null → null", () => {
+      expect(
+        eval_(operator("NOT", [constant(null, "BOOLEAN")], "BOOLEAN")),
+      ).toBeNull();
     });
 
-    it('IS_NULL', () => {
-      expect(eval_(operator('IS_NULL', [constant(null)], 'BOOLEAN'))).toBe(true);
-      expect(eval_(operator('IS_NULL', [constant(5)], 'BOOLEAN'))).toBe(false);
+    it("IS_NULL", () => {
+      expect(eval_(operator("IS_NULL", [constant(null)], "BOOLEAN"))).toBe(
+        true,
+      );
+      expect(eval_(operator("IS_NULL", [constant(5)], "BOOLEAN"))).toBe(false);
     });
 
-    it('IS_NOT_NULL', () => {
-      expect(eval_(operator('IS_NOT_NULL', [constant(null)], 'BOOLEAN'))).toBe(false);
-      expect(eval_(operator('IS_NOT_NULL', [constant(5)], 'BOOLEAN'))).toBe(true);
+    it("IS_NOT_NULL", () => {
+      expect(eval_(operator("IS_NOT_NULL", [constant(null)], "BOOLEAN"))).toBe(
+        false,
+      );
+      expect(eval_(operator("IS_NOT_NULL", [constant(5)], "BOOLEAN"))).toBe(
+        true,
+      );
     });
 
-    it('IN — found', () => {
-      expect(eval_(operator('IN', [constant(2), constant(1), constant(2), constant(3)], 'BOOLEAN'))).toBe(true);
+    it("IN — found", () => {
+      expect(
+        eval_(
+          operator(
+            "IN",
+            [constant(2), constant(1), constant(2), constant(3)],
+            "BOOLEAN",
+          ),
+        ),
+      ).toBe(true);
     });
 
-    it('IN — not found', () => {
-      expect(eval_(operator('IN', [constant(5), constant(1), constant(2)], 'BOOLEAN'))).toBe(false);
+    it("IN — not found", () => {
+      expect(
+        eval_(
+          operator("IN", [constant(5), constant(1), constant(2)], "BOOLEAN"),
+        ),
+      ).toBe(false);
     });
 
-    it('IN — null input → null', () => {
-      expect(eval_(operator('IN', [constant(null), constant(1)], 'BOOLEAN'))).toBeNull();
+    it("IN — null input → null", () => {
+      expect(
+        eval_(operator("IN", [constant(null), constant(1)], "BOOLEAN")),
+      ).toBeNull();
     });
 
-    it('NOT_IN', () => {
-      expect(eval_(operator('NOT_IN', [constant(5), constant(1), constant(2)], 'BOOLEAN'))).toBe(true);
-      expect(eval_(operator('NOT_IN', [constant(1), constant(1), constant(2)], 'BOOLEAN'))).toBe(false);
+    it("NOT_IN", () => {
+      expect(
+        eval_(
+          operator(
+            "NOT_IN",
+            [constant(5), constant(1), constant(2)],
+            "BOOLEAN",
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        eval_(
+          operator(
+            "NOT_IN",
+            [constant(1), constant(1), constant(2)],
+            "BOOLEAN",
+          ),
+        ),
+      ).toBe(false);
     });
 
-    it('arithmetic with null → null', () => {
-      expect(eval_(operator('ADD', [constant(null), constant(3)]))).toBeNull();
-      expect(eval_(operator('ADD', [constant(3), constant(null)]))).toBeNull();
+    it("arithmetic with null → null", () => {
+      expect(eval_(operator("ADD", [constant(null), constant(3)]))).toBeNull();
+      expect(eval_(operator("ADD", [constant(3), constant(null)]))).toBeNull();
     });
 
-    it('CONCAT strings', () => {
-      expect(eval_(operator('CONCAT', [constant('hello'), constant(' world')], 'TEXT'))).toBe('hello world');
+    it("CONCAT strings", () => {
+      expect(
+        eval_(
+          operator("CONCAT", [constant("hello"), constant(" world")], "TEXT"),
+        ),
+      ).toBe("hello world");
     });
 
-    it('CONCAT coerces numbers to strings', () => {
-      expect(eval_(operator('CONCAT', [constant(123), constant('abc')], 'TEXT'))).toBe('123abc');
+    it("CONCAT coerces numbers to strings", () => {
+      expect(
+        eval_(operator("CONCAT", [constant(123), constant("abc")], "TEXT")),
+      ).toBe("123abc");
     });
 
-    it('CONCAT with null → null', () => {
-      expect(eval_(operator('CONCAT', [constant(null), constant('x')], 'TEXT'))).toBeNull();
-      expect(eval_(operator('CONCAT', [constant('x'), constant(null)], 'TEXT'))).toBeNull();
+    it("CONCAT with null → null", () => {
+      expect(
+        eval_(operator("CONCAT", [constant(null), constant("x")], "TEXT")),
+      ).toBeNull();
+      expect(
+        eval_(operator("CONCAT", [constant("x"), constant(null)], "TEXT")),
+      ).toBeNull();
     });
   });
 
@@ -231,22 +309,28 @@ describe('evaluateExpression', () => {
   // Between
   // ---------------------------------------------------------------------------
 
-  describe('between', () => {
-    it('value in range', () => {
+  describe("between", () => {
+    it("value in range", () => {
       expect(eval_(between(constant(5), constant(1), constant(10)))).toBe(true);
     });
 
-    it('value at boundary', () => {
+    it("value at boundary", () => {
       expect(eval_(between(constant(1), constant(1), constant(10)))).toBe(true);
-      expect(eval_(between(constant(10), constant(1), constant(10)))).toBe(true);
+      expect(eval_(between(constant(10), constant(1), constant(10)))).toBe(
+        true,
+      );
     });
 
-    it('value out of range', () => {
-      expect(eval_(between(constant(0), constant(1), constant(10)))).toBe(false);
+    it("value out of range", () => {
+      expect(eval_(between(constant(0), constant(1), constant(10)))).toBe(
+        false,
+      );
     });
 
-    it('null input → null', () => {
-      expect(eval_(between(constant(null), constant(1), constant(10)))).toBeNull();
+    it("null input → null", () => {
+      expect(
+        eval_(between(constant(null), constant(1), constant(10))),
+      ).toBeNull();
     });
   });
 
@@ -254,142 +338,204 @@ describe('evaluateExpression', () => {
   // Functions
   // ---------------------------------------------------------------------------
 
-  describe('functions', () => {
-    it('UPPER', () => {
-      expect(eval_(fnCall('UPPER', [constant('hello')]))).toBe('HELLO');
+  describe("functions", () => {
+    it("UPPER", () => {
+      expect(eval_(fnCall("UPPER", [constant("hello")]))).toBe("HELLO");
     });
 
-    it('LOWER', () => {
-      expect(eval_(fnCall('LOWER', [constant('HELLO')]))).toBe('hello');
+    it("LOWER", () => {
+      expect(eval_(fnCall("LOWER", [constant("HELLO")]))).toBe("hello");
     });
 
-    it('LENGTH', () => {
-      expect(eval_(fnCall('LENGTH', [constant('abc')], 'INTEGER'))).toBe(3);
+    it("LENGTH", () => {
+      expect(eval_(fnCall("LENGTH", [constant("abc")], "INTEGER"))).toBe(3);
     });
 
-    it('TRIM', () => {
-      expect(eval_(fnCall('TRIM', [constant('  hi  ')]))).toBe('hi');
+    it("TRIM", () => {
+      expect(eval_(fnCall("TRIM", [constant("  hi  ")]))).toBe("hi");
     });
 
-    it('SUBSTR — positive start', () => {
-      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(2), constant(3)]))).toBe('ell');
+    it("SUBSTR — positive start", () => {
+      expect(
+        eval_(fnCall("SUBSTR", [constant("hello"), constant(2), constant(3)])),
+      ).toBe("ell");
     });
 
-    it('SUBSTR — negative start -1 returns last char', () => {
-      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(-1)]))).toBe('o');
+    it("SUBSTR — negative start -1 returns last char", () => {
+      expect(eval_(fnCall("SUBSTR", [constant("hello"), constant(-1)]))).toBe(
+        "o",
+      );
     });
 
-    it('SUBSTR — negative start -2 with length', () => {
-      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(-2), constant(2)]))).toBe('lo');
+    it("SUBSTR — negative start -2 with length", () => {
+      expect(
+        eval_(fnCall("SUBSTR", [constant("hello"), constant(-2), constant(2)])),
+      ).toBe("lo");
     });
 
-    it('SUBSTR — start 0 treated as beginning', () => {
-      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(0), constant(3)]))).toBe('hel');
+    it("SUBSTR — start 0 treated as beginning", () => {
+      expect(
+        eval_(fnCall("SUBSTR", [constant("hello"), constant(0), constant(3)])),
+      ).toBe("hel");
     });
 
-    it('SUBSTR — negative start beyond string length', () => {
-      expect(eval_(fnCall('SUBSTR', [constant('hi'), constant(-10)]))).toBe('hi');
+    it("SUBSTR — negative start beyond string length", () => {
+      expect(eval_(fnCall("SUBSTR", [constant("hi"), constant(-10)]))).toBe(
+        "hi",
+      );
     });
 
-    it('SUBSTR — null propagation', () => {
-      expect(eval_(fnCall('SUBSTR', [constant(null), constant(1)]))).toBeNull();
-      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(null)]))).toBeNull();
+    it("SUBSTR — null propagation", () => {
+      expect(eval_(fnCall("SUBSTR", [constant(null), constant(1)]))).toBeNull();
+      expect(
+        eval_(fnCall("SUBSTR", [constant("hello"), constant(null)])),
+      ).toBeNull();
     });
 
-    it('REPLACE', () => {
-      expect(eval_(fnCall('REPLACE', [constant('hello'), constant('l'), constant('r')]))).toBe('herro');
+    it("REPLACE", () => {
+      expect(
+        eval_(
+          fnCall("REPLACE", [constant("hello"), constant("l"), constant("r")]),
+        ),
+      ).toBe("herro");
     });
 
-    it('CONCAT', () => {
-      expect(eval_(fnCall('CONCAT', [constant('a'), constant('b'), constant('c')]))).toBe('abc');
+    it("CONCAT", () => {
+      expect(
+        eval_(fnCall("CONCAT", [constant("a"), constant("b"), constant("c")])),
+      ).toBe("abc");
     });
 
-    it('ABS', () => {
-      expect(eval_(fnCall('ABS', [constant(-5)], 'INTEGER'))).toBe(5);
+    it("ABS", () => {
+      expect(eval_(fnCall("ABS", [constant(-5)], "INTEGER"))).toBe(5);
     });
 
-    it('ROUND', () => {
-      expect(eval_(fnCall('ROUND', [constant(3.7)], 'INTEGER'))).toBe(4);
+    it("ROUND", () => {
+      expect(eval_(fnCall("ROUND", [constant(3.7)], "INTEGER"))).toBe(4);
     });
 
-    it('FLOOR', () => {
-      expect(eval_(fnCall('FLOOR', [constant(3.7)], 'INTEGER'))).toBe(3);
+    it("FLOOR", () => {
+      expect(eval_(fnCall("FLOOR", [constant(3.7)], "INTEGER"))).toBe(3);
     });
 
-    it('CEIL', () => {
-      expect(eval_(fnCall('CEIL', [constant(3.2)], 'INTEGER'))).toBe(4);
+    it("CEIL", () => {
+      expect(eval_(fnCall("CEIL", [constant(3.2)], "INTEGER"))).toBe(4);
     });
 
-    it('COALESCE — returns first non-null', () => {
-      expect(eval_(fnCall('COALESCE', [constant(null), constant(null), constant(5)], 'INTEGER'))).toBe(5);
+    it("COALESCE — returns first non-null", () => {
+      expect(
+        eval_(
+          fnCall(
+            "COALESCE",
+            [constant(null), constant(null), constant(5)],
+            "INTEGER",
+          ),
+        ),
+      ).toBe(5);
     });
 
-    it('COALESCE — all null', () => {
-      expect(eval_(fnCall('COALESCE', [constant(null), constant(null)], 'INTEGER'))).toBeNull();
+    it("COALESCE — all null", () => {
+      expect(
+        eval_(fnCall("COALESCE", [constant(null), constant(null)], "INTEGER")),
+      ).toBeNull();
     });
 
-    it('NULLIF — equal → null', () => {
-      expect(eval_(fnCall('NULLIF', [constant(5), constant(5)], 'INTEGER'))).toBeNull();
+    it("NULLIF — equal → null", () => {
+      expect(
+        eval_(fnCall("NULLIF", [constant(5), constant(5)], "INTEGER")),
+      ).toBeNull();
     });
 
-    it('NULLIF — not equal → first', () => {
-      expect(eval_(fnCall('NULLIF', [constant(5), constant(3)], 'INTEGER'))).toBe(5);
+    it("NULLIF — not equal → first", () => {
+      expect(
+        eval_(fnCall("NULLIF", [constant(5), constant(3)], "INTEGER")),
+      ).toBe(5);
     });
 
-    it('LIKE — match', () => {
-      expect(eval_(fnCall('LIKE', [constant('hello'), constant('hel%')], 'BOOLEAN'))).toBe(true);
+    it("LIKE — match", () => {
+      expect(
+        eval_(fnCall("LIKE", [constant("hello"), constant("hel%")], "BOOLEAN")),
+      ).toBe(true);
     });
 
-    it('LIKE — no match', () => {
-      expect(eval_(fnCall('LIKE', [constant('hello'), constant('xyz%')], 'BOOLEAN'))).toBe(false);
+    it("LIKE — no match", () => {
+      expect(
+        eval_(fnCall("LIKE", [constant("hello"), constant("xyz%")], "BOOLEAN")),
+      ).toBe(false);
     });
 
-    it('LIKE — underscore wildcard', () => {
-      expect(eval_(fnCall('LIKE', [constant('hello'), constant('h_llo')], 'BOOLEAN'))).toBe(true);
+    it("LIKE — underscore wildcard", () => {
+      expect(
+        eval_(
+          fnCall("LIKE", [constant("hello"), constant("h_llo")], "BOOLEAN"),
+        ),
+      ).toBe(true);
     });
 
-    it('TYPEOF', () => {
-      expect(eval_(fnCall('TYPEOF', [constant(42)]))).toBe('number');
-      expect(eval_(fnCall('TYPEOF', [constant('abc')]))).toBe('string');
-      expect(eval_(fnCall('TYPEOF', [constant(null)]))).toBe('null');
-      expect(eval_(fnCall('TYPEOF', [constant(true)]))).toBe('boolean');
+    it("TYPEOF", () => {
+      expect(eval_(fnCall("TYPEOF", [constant(42)]))).toBe("number");
+      expect(eval_(fnCall("TYPEOF", [constant("abc")]))).toBe("string");
+      expect(eval_(fnCall("TYPEOF", [constant(null)]))).toBe("null");
+      expect(eval_(fnCall("TYPEOF", [constant(true)]))).toBe("boolean");
     });
 
-    it('function with null input → null (except COALESCE/TYPEOF)', () => {
-      expect(eval_(fnCall('UPPER', [constant(null)]))).toBeNull();
-      expect(eval_(fnCall('ABS', [constant(null)], 'INTEGER'))).toBeNull();
+    it("function with null input → null (except COALESCE/TYPEOF)", () => {
+      expect(eval_(fnCall("UPPER", [constant(null)]))).toBeNull();
+      expect(eval_(fnCall("ABS", [constant(null)], "INTEGER"))).toBeNull();
     });
 
-    it('NOT_LIKE — match returns false', () => {
-      expect(eval_(fnCall('NOT_LIKE', [constant('hello'), constant('hel%')], 'BOOLEAN'))).toBe(false);
+    it("NOT_LIKE — match returns false", () => {
+      expect(
+        eval_(
+          fnCall("NOT_LIKE", [constant("hello"), constant("hel%")], "BOOLEAN"),
+        ),
+      ).toBe(false);
     });
 
-    it('NOT_LIKE — no match returns true', () => {
-      expect(eval_(fnCall('NOT_LIKE', [constant('hello'), constant('xyz%')], 'BOOLEAN'))).toBe(true);
+    it("NOT_LIKE — no match returns true", () => {
+      expect(
+        eval_(
+          fnCall("NOT_LIKE", [constant("hello"), constant("xyz%")], "BOOLEAN"),
+        ),
+      ).toBe(true);
     });
 
-    it('NOT_LIKE — null input → null', () => {
-      expect(eval_(fnCall('NOT_LIKE', [constant(null), constant('%')], 'BOOLEAN'))).toBeNull();
+    it("NOT_LIKE — null input → null", () => {
+      expect(
+        eval_(fnCall("NOT_LIKE", [constant(null), constant("%")], "BOOLEAN")),
+      ).toBeNull();
     });
 
-    it('LTRIM', () => {
-      expect(eval_(fnCall('LTRIM', [constant('  hi  ')]))).toBe('hi  ');
+    it("LTRIM", () => {
+      expect(eval_(fnCall("LTRIM", [constant("  hi  ")]))).toBe("hi  ");
     });
 
-    it('RTRIM', () => {
-      expect(eval_(fnCall('RTRIM', [constant('  hi  ')]))).toBe('  hi');
+    it("RTRIM", () => {
+      expect(eval_(fnCall("RTRIM", [constant("  hi  ")]))).toBe("  hi");
     });
 
-    it('SUBSTR without length → to end', () => {
-      expect(eval_(fnCall('SUBSTR', [constant('hello'), constant(3)]))).toBe('llo');
+    it("SUBSTR without length → to end", () => {
+      expect(eval_(fnCall("SUBSTR", [constant("hello"), constant(3)]))).toBe(
+        "llo",
+      );
     });
 
-    it('ROUND with precision', () => {
-      expect(eval_(fnCall('ROUND', [constant(3.14159), constant(2)], 'REAL'))).toBeCloseTo(3.14, 2);
+    it("ROUND with precision", () => {
+      expect(
+        eval_(fnCall("ROUND", [constant(3.14159), constant(2)], "REAL")),
+      ).toBeCloseTo(3.14, 2);
     });
 
-    it('COALESCE — first non-null is returned', () => {
-      expect(eval_(fnCall('COALESCE', [constant(null), constant(10), constant(20)], 'INTEGER'))).toBe(10);
+    it("COALESCE — first non-null is returned", () => {
+      expect(
+        eval_(
+          fnCall(
+            "COALESCE",
+            [constant(null), constant(10), constant(20)],
+            "INTEGER",
+          ),
+        ),
+      ).toBe(10);
     });
   });
 
@@ -397,19 +543,19 @@ describe('evaluateExpression', () => {
   // CASE
   // ---------------------------------------------------------------------------
 
-  describe('case', () => {
-    it('matches first truthy WHEN', () => {
+  describe("case", () => {
+    it("matches first truthy WHEN", () => {
       const expr = caseExpr(
         [
           { when: constant(false), then: constant(1) },
-          { when: constant(true),  then: constant(2) },
+          { when: constant(true), then: constant(2) },
         ],
         constant(99),
       );
       expect(eval_(expr)).toBe(2);
     });
 
-    it('falls through to ELSE', () => {
+    it("falls through to ELSE", () => {
       const expr = caseExpr(
         [{ when: constant(false), then: constant(1) }],
         constant(99),
@@ -417,7 +563,7 @@ describe('evaluateExpression', () => {
       expect(eval_(expr)).toBe(99);
     });
 
-    it('no ELSE → null', () => {
+    it("no ELSE → null", () => {
       const expr = caseExpr([{ when: constant(false), then: constant(1) }]);
       expect(eval_(expr)).toBeNull();
     });
@@ -427,49 +573,49 @@ describe('evaluateExpression', () => {
   // CAST
   // ---------------------------------------------------------------------------
 
-  describe('cast', () => {
-    it('TEXT → INTEGER', () => {
-      expect(eval_(cast(constant('42'), 'INTEGER'))).toBe(42);
+  describe("cast", () => {
+    it("TEXT → INTEGER", () => {
+      expect(eval_(cast(constant("42"), "INTEGER"))).toBe(42);
     });
 
-    it('INTEGER → TEXT', () => {
-      expect(eval_(cast(constant(42), 'TEXT'))).toBe('42');
+    it("INTEGER → TEXT", () => {
+      expect(eval_(cast(constant(42), "TEXT"))).toBe("42");
     });
 
-    it('REAL → INTEGER (truncate)', () => {
-      expect(eval_(cast(constant(3.9), 'INTEGER'))).toBe(3);
+    it("REAL → INTEGER (truncate)", () => {
+      expect(eval_(cast(constant(3.9), "INTEGER"))).toBe(3);
     });
 
-    it('TEXT → BOOLEAN', () => {
-      expect(eval_(cast(constant('true'), 'BOOLEAN'))).toBe(true);
-      expect(eval_(cast(constant('false'), 'BOOLEAN'))).toBe(false);
+    it("TEXT → BOOLEAN", () => {
+      expect(eval_(cast(constant("true"), "BOOLEAN"))).toBe(true);
+      expect(eval_(cast(constant("false"), "BOOLEAN"))).toBe(false);
     });
 
-    it('NULL cast → null', () => {
-      expect(eval_(cast(constant(null), 'INTEGER'))).toBeNull();
+    it("NULL cast → null", () => {
+      expect(eval_(cast(constant(null), "INTEGER"))).toBeNull();
     });
 
-    it('BOOLEAN → INTEGER', () => {
-      expect(eval_(cast(constant(true), 'INTEGER'))).toBe(1);
-      expect(eval_(cast(constant(false), 'INTEGER'))).toBe(0);
+    it("BOOLEAN → INTEGER", () => {
+      expect(eval_(cast(constant(true), "INTEGER"))).toBe(1);
+      expect(eval_(cast(constant(false), "INTEGER"))).toBe(0);
     });
 
-    it('INTEGER → BOOLEAN', () => {
-      expect(eval_(cast(constant(1), 'BOOLEAN'))).toBe(true);
-      expect(eval_(cast(constant(0), 'BOOLEAN'))).toBe(false);
+    it("INTEGER → BOOLEAN", () => {
+      expect(eval_(cast(constant(1), "BOOLEAN"))).toBe(true);
+      expect(eval_(cast(constant(0), "BOOLEAN"))).toBe(false);
     });
 
-    it('BOOLEAN → TEXT', () => {
-      expect(eval_(cast(constant(true), 'TEXT'))).toBe('true');
-      expect(eval_(cast(constant(false), 'TEXT'))).toBe('false');
+    it("BOOLEAN → TEXT", () => {
+      expect(eval_(cast(constant(true), "TEXT"))).toBe("true");
+      expect(eval_(cast(constant(false), "TEXT"))).toBe("false");
     });
 
-    it('INTEGER → REAL preserves value', () => {
-      expect(eval_(cast(constant(42), 'REAL'))).toBe(42);
+    it("INTEGER → REAL preserves value", () => {
+      expect(eval_(cast(constant(42), "REAL"))).toBe(42);
     });
 
-    it('TEXT → REAL', () => {
-      expect(eval_(cast(constant('3.14'), 'REAL'))).toBeCloseTo(3.14, 2);
+    it("TEXT → REAL", () => {
+      expect(eval_(cast(constant("3.14"), "REAL"))).toBeCloseTo(3.14, 2);
     });
   });
 
@@ -477,14 +623,20 @@ describe('evaluateExpression', () => {
   // GREATER_EQUAL comparison
   // ---------------------------------------------------------------------------
 
-  describe('additional comparisons', () => {
-    it('GREATER_EQUAL', () => {
-      expect(eval_(comparison(constant(5), constant(5), 'GREATER_EQUAL'))).toBe(true);
-      expect(eval_(comparison(constant(6), constant(5), 'GREATER_EQUAL'))).toBe(true);
-      expect(eval_(comparison(constant(4), constant(5), 'GREATER_EQUAL'))).toBe(false);
+  describe("additional comparisons", () => {
+    it("GREATER_EQUAL", () => {
+      expect(eval_(comparison(constant(5), constant(5), "GREATER_EQUAL"))).toBe(
+        true,
+      );
+      expect(eval_(comparison(constant(6), constant(5), "GREATER_EQUAL"))).toBe(
+        true,
+      );
+      expect(eval_(comparison(constant(4), constant(5), "GREATER_EQUAL"))).toBe(
+        false,
+      );
     });
 
-    it('comparison with both NULL → null', () => {
+    it("comparison with both NULL → null", () => {
       expect(eval_(comparison(constant(null), constant(null)))).toBeNull();
     });
   });
@@ -494,10 +646,10 @@ describe('evaluateExpression', () => {
 // Subquery — EXISTS early termination
 // ---------------------------------------------------------------------------
 
-import { evalSubquery } from '../evaluate/subquery.js';
-import { BoundExpressionClass } from '../../binder/types.js';
-import type { LogicalOperator } from '../../binder/types.js';
-import type { SyncEvalContext } from '../evaluate/context.js';
+import { evalSubquery } from "../evaluate/subquery.js";
+import { BoundExpressionClass } from "../../binder/types.js";
+import type { LogicalOperator } from "../../binder/types.js";
+import type { SyncEvalContext } from "../evaluate/context.js";
 
 const dummySubplan = {} as LogicalOperator;
 
@@ -512,31 +664,31 @@ function mockCtx(): SyncEvalContext & { calls: Array<{ limit?: number }> } {
   };
 }
 
-function subqueryExpr(type: 'EXISTS' | 'NOT_EXISTS' | 'SCALAR') {
+function subqueryExpr(type: "EXISTS" | "NOT_EXISTS" | "SCALAR") {
   return {
     expressionClass: BoundExpressionClass.BOUND_SUBQUERY as const,
     subqueryType: type,
     subplan: dummySubplan,
-    returnType: 'BOOLEAN' as const,
+    returnType: "BOOLEAN" as const,
   };
 }
 
-describe('evalSubquery — EXISTS early termination', () => {
-  it('EXISTS passes limit=1 to executeSubplan', () => {
+describe("evalSubquery — EXISTS early termination", () => {
+  it("EXISTS passes limit=1 to executeSubplan", () => {
     const ctx = mockCtx();
-    evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    evalSubquery(subqueryExpr("EXISTS"), [], () => -1, ctx);
     expect(ctx.calls).toHaveLength(1);
     expect(ctx.calls[0].limit).toBe(1);
   });
 
-  it('NOT_EXISTS passes limit=1 to executeSubplan', () => {
+  it("NOT_EXISTS passes limit=1 to executeSubplan", () => {
     const ctx = mockCtx();
-    evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    evalSubquery(subqueryExpr("NOT_EXISTS"), [], () => -1, ctx);
     expect(ctx.calls).toHaveLength(1);
     expect(ctx.calls[0].limit).toBe(1);
   });
 
-  it('SCALAR does NOT pass limit', () => {
+  it("SCALAR does NOT pass limit", () => {
     const calls: Array<{ limit?: number }> = [];
     const ctx: SyncEvalContext = {
       executeSubplan: (_plan, _ot, _or, limit) => {
@@ -544,51 +696,51 @@ describe('evalSubquery — EXISTS early termination', () => {
         return [[42]];
       },
     };
-    evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
+    evalSubquery(subqueryExpr("SCALAR"), [], () => -1, ctx);
     expect(calls).toHaveLength(1);
     expect(calls[0].limit).toBeUndefined();
   });
 
-  it('EXISTS returns true when rows exist', () => {
+  it("EXISTS returns true when rows exist", () => {
     const ctx = mockCtx();
-    const result = evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr("EXISTS"), [], () => -1, ctx);
     expect(result).toBe(true);
   });
 
-  it('EXISTS returns false when no rows', () => {
+  it("EXISTS returns false when no rows", () => {
     const ctx: SyncEvalContext = { executeSubplan: () => [] };
-    const result = evalSubquery(subqueryExpr('EXISTS'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr("EXISTS"), [], () => -1, ctx);
     expect(result).toBe(false);
   });
 
-  it('NOT_EXISTS returns false when rows exist', () => {
+  it("NOT_EXISTS returns false when rows exist", () => {
     const ctx = mockCtx();
-    const result = evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr("NOT_EXISTS"), [], () => -1, ctx);
     expect(result).toBe(false);
   });
 
-  it('NOT_EXISTS returns true when no rows', () => {
+  it("NOT_EXISTS returns true when no rows", () => {
     const ctx: SyncEvalContext = { executeSubplan: () => [] };
-    const result = evalSubquery(subqueryExpr('NOT_EXISTS'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr("NOT_EXISTS"), [], () => -1, ctx);
     expect(result).toBe(true);
   });
 
-  it('SCALAR returns null when no rows', () => {
+  it("SCALAR returns null when no rows", () => {
     const ctx: SyncEvalContext = { executeSubplan: () => [] };
-    const result = evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr("SCALAR"), [], () => -1, ctx);
     expect(result).toBeNull();
   });
 
-  it('SCALAR returns single value', () => {
+  it("SCALAR returns single value", () => {
     const ctx: SyncEvalContext = { executeSubplan: () => [[42]] };
-    const result = evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx);
+    const result = evalSubquery(subqueryExpr("SCALAR"), [], () => -1, ctx);
     expect(result).toBe(42);
   });
 
-  it('SCALAR throws on multiple rows', () => {
+  it("SCALAR throws on multiple rows", () => {
     const ctx: SyncEvalContext = { executeSubplan: () => [[1], [2]] };
     expect(() =>
-      evalSubquery(subqueryExpr('SCALAR'), [], () => -1, ctx),
+      evalSubquery(subqueryExpr("SCALAR"), [], () => -1, ctx),
     ).toThrow();
   });
 });
@@ -597,8 +749,13 @@ describe('evalSubquery — EXISTS early termination', () => {
 // JSON access
 // ---------------------------------------------------------------------------
 
-describe('json access', () => {
-  const jsonObj = { name: 'Alice', age: 30, nested: { x: 1 }, items: [10, 20, 30] };
+describe("json access", () => {
+  const jsonObj = {
+    name: "Alice",
+    age: 30,
+    nested: { x: 1 },
+    items: [10, 20, 30],
+  };
   const jsonLayout = layout([0, 0]);
   const jsonResolver = buildResolver(jsonLayout);
   const jsonTuple: Tuple = [jsonObj];
@@ -607,54 +764,71 @@ describe('json access', () => {
     return evaluateExpression(expr, jsonTuple, jsonResolver, noopCtx);
   }
 
-  it('extracts field', () => {
-    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'name' }]);
-    expect(evalJson(expr)).toBe('Alice');
+  it("extracts field", () => {
+    const expr = jsonAccess(colRef(0, 0, "data", "JSON"), [
+      { type: "field", name: "name" },
+    ]);
+    expect(evalJson(expr)).toBe("Alice");
   });
 
-  it('extracts numeric field', () => {
-    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'age' }]);
+  it("extracts numeric field", () => {
+    const expr = jsonAccess(colRef(0, 0, "data", "JSON"), [
+      { type: "field", name: "age" },
+    ]);
     expect(evalJson(expr)).toBe(30);
   });
 
-  it('extracts nested field', () => {
-    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [
-      { type: 'field', name: 'nested' },
-      { type: 'field', name: 'x' },
+  it("extracts nested field", () => {
+    const expr = jsonAccess(colRef(0, 0, "data", "JSON"), [
+      { type: "field", name: "nested" },
+      { type: "field", name: "x" },
     ]);
     expect(evalJson(expr)).toBe(1);
   });
 
-  it('extracts array element', () => {
-    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [
-      { type: 'field', name: 'items' },
-      { type: 'index', value: 1 },
+  it("extracts array element", () => {
+    const expr = jsonAccess(colRef(0, 0, "data", "JSON"), [
+      { type: "field", name: "items" },
+      { type: "index", value: 1 },
     ]);
     expect(evalJson(expr)).toBe(20);
   });
 
-  it('returns null for missing field', () => {
-    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'nope' }]);
+  it("returns null for missing field", () => {
+    const expr = jsonAccess(colRef(0, 0, "data", "JSON"), [
+      { type: "field", name: "nope" },
+    ]);
     expect(evalJson(expr)).toBeNull();
   });
 
-  it('returns null for null column', () => {
+  it("returns null for null column", () => {
     const nullTuple: Tuple = [null];
-    const expr = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'name' }]);
-    expect(evaluateExpression(expr, nullTuple, jsonResolver, noopCtx)).toBeNull();
+    const expr = jsonAccess(colRef(0, 0, "data", "JSON"), [
+      { type: "field", name: "name" },
+    ]);
+    expect(
+      evaluateExpression(expr, nullTuple, jsonResolver, noopCtx),
+    ).toBeNull();
   });
 
-  it('numeric field compared with integer works', () => {
-    const ja = jsonAccess(colRef(0, 0, 'data', 'JSON'), [{ type: 'field', name: 'age' }]);
+  it("numeric field compared with integer works", () => {
+    const ja = jsonAccess(colRef(0, 0, "data", "JSON"), [
+      { type: "field", name: "age" },
+    ]);
     // age is 30, compare 30 > 20
-    expect(evalJson(comparison(ja, constant(20), 'GREATER'))).toBe(true);
+    expect(evalJson(comparison(ja, constant(20), "GREATER"))).toBe(true);
     // age is 30, compare 30 < 30
-    expect(evalJson(comparison(ja, constant(30), 'LESS'))).toBe(false);
+    expect(evalJson(comparison(ja, constant(30), "LESS"))).toBe(false);
     // age is 30, compare 30 > 20 AND 30 < 30
-    expect(evalJson(conjunction('AND',
-      comparison(ja, constant(20), 'GREATER'),
-      comparison(ja, constant(30), 'LESS'),
-    ))).toBe(false);
+    expect(
+      evalJson(
+        conjunction(
+          "AND",
+          comparison(ja, constant(20), "GREATER"),
+          comparison(ja, constant(30), "LESS"),
+        ),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -662,44 +836,54 @@ describe('json access', () => {
 // IN operator with JSON objects
 // ---------------------------------------------------------------------------
 
-describe('IN operator with JSON objects', () => {
+describe("IN operator with JSON objects", () => {
   const obj1 = { a: 1 };
   const jsonLayout = layout([0, 0]);
   const jsonResolver = buildResolver(jsonLayout);
 
-  function evalWithTuple(expr: Parameters<typeof evaluateExpression>[0], t: Tuple) {
+  function evalWithTuple(
+    expr: Parameters<typeof evaluateExpression>[0],
+    t: Tuple,
+  ) {
     return evaluateExpression(expr, t, jsonResolver, noopCtx);
   }
 
-  it('IN finds matching JSON object', () => {
+  it("IN finds matching JSON object", () => {
     // input = {a:1}, list = [{b:2}, {a:1}]
-    const expr = operator('IN', [
-      colRef(0, 0, 'data', 'JSON'),
-      constant({ b: 2 } as any, 'JSON'),
-      constant({ a: 1 } as any, 'JSON'),
-    ], 'BOOLEAN');
+    const expr = operator(
+      "IN",
+      [
+        colRef(0, 0, "data", "JSON"),
+        constant({ b: 2 } as any, "JSON"),
+        constant({ a: 1 } as any, "JSON"),
+      ],
+      "BOOLEAN",
+    );
     expect(evalWithTuple(expr, [obj1])).toBe(true);
   });
 
-  it('IN does not find non-matching JSON object', () => {
-    const expr = operator('IN', [
-      colRef(0, 0, 'data', 'JSON'),
-      constant({ x: 99 } as any, 'JSON'),
-    ], 'BOOLEAN');
+  it("IN does not find non-matching JSON object", () => {
+    const expr = operator(
+      "IN",
+      [colRef(0, 0, "data", "JSON"), constant({ x: 99 } as any, "JSON")],
+      "BOOLEAN",
+    );
     expect(evalWithTuple(expr, [obj1])).toBe(false);
   });
 
-  it('NOT_IN with JSON objects', () => {
-    const expr = operator('NOT_IN', [
-      colRef(0, 0, 'data', 'JSON'),
-      constant({ a: 1 } as any, 'JSON'),
-    ], 'BOOLEAN');
+  it("NOT_IN with JSON objects", () => {
+    const expr = operator(
+      "NOT_IN",
+      [colRef(0, 0, "data", "JSON"), constant({ a: 1 } as any, "JSON")],
+      "BOOLEAN",
+    );
     expect(evalWithTuple(expr, [obj1])).toBe(false);
 
-    const expr2 = operator('NOT_IN', [
-      colRef(0, 0, 'data', 'JSON'),
-      constant({ x: 99 } as any, 'JSON'),
-    ], 'BOOLEAN');
+    const expr2 = operator(
+      "NOT_IN",
+      [colRef(0, 0, "data", "JSON"), constant({ x: 99 } as any, "JSON")],
+      "BOOLEAN",
+    );
     expect(evalWithTuple(expr2, [obj1])).toBe(true);
   });
 });
@@ -708,28 +892,35 @@ describe('IN operator with JSON objects', () => {
 // CONCAT with JSON objects
 // ---------------------------------------------------------------------------
 
-describe('CONCAT with JSON objects', () => {
+describe("CONCAT with JSON objects", () => {
   const jsonLayout = layout([0, 0]);
   const jsonResolver = buildResolver(jsonLayout);
 
-  it('CONCAT with JSON object produces JSON.stringify output', () => {
-    const expr = operator('CONCAT', [
-      colRef(0, 0, 'data', 'JSON'),
-      constant('!'),
-    ], 'TEXT');
+  it("CONCAT with JSON object produces JSON.stringify output", () => {
+    const expr = operator(
+      "CONCAT",
+      [colRef(0, 0, "data", "JSON"), constant("!")],
+      "TEXT",
+    );
     const result = evaluateExpression(expr, [{ a: 1 }], jsonResolver, noopCtx);
     expect(result).toBe('{"a":1}!');
   });
 
-  it('CONCAT with JSON object on right side', () => {
+  it("CONCAT with JSON object on right side", () => {
     const twoColLayout = layout([0, 0], [0, 1]);
     const twoColResolver = buildResolver(twoColLayout);
-    const expr = operator('CONCAT', [
-      colRef(0, 0, 'prefix', 'TEXT'),
-      colRef(0, 1, 'data', 'JSON'),
-    ], 'TEXT');
-    const result = evaluateExpression(expr, ['prefix:', [1, 2]], twoColResolver, noopCtx);
-    expect(result).toBe('prefix:[1,2]');
+    const expr = operator(
+      "CONCAT",
+      [colRef(0, 0, "prefix", "TEXT"), colRef(0, 1, "data", "JSON")],
+      "TEXT",
+    );
+    const result = evaluateExpression(
+      expr,
+      ["prefix:", [1, 2]],
+      twoColResolver,
+      noopCtx,
+    );
+    expect(result).toBe("prefix:[1,2]");
   });
 });
 
@@ -737,29 +928,29 @@ describe('CONCAT with JSON objects', () => {
 // CAST to JSON
 // ---------------------------------------------------------------------------
 
-describe('castJson scalar values', () => {
-  it('CAST integer to JSON preserves value', () => {
-    expect(eval_(cast(constant(42), 'JSON'))).toBe(42);
+describe("castJson scalar values", () => {
+  it("CAST integer to JSON preserves value", () => {
+    expect(eval_(cast(constant(42), "JSON"))).toBe(42);
   });
 
-  it('CAST boolean to JSON preserves value', () => {
-    expect(eval_(cast(constant(true), 'JSON'))).toBe(true);
+  it("CAST boolean to JSON preserves value", () => {
+    expect(eval_(cast(constant(true), "JSON"))).toBe(true);
   });
 
-  it('CAST string to JSON parses', () => {
-    expect(eval_(cast(constant('{"x":1}'), 'JSON'))).toEqual({ x: 1 });
+  it("CAST string to JSON parses", () => {
+    expect(eval_(cast(constant('{"x":1}'), "JSON"))).toEqual({ x: 1 });
   });
 
-  it('CAST object to JSON returns same', () => {
+  it("CAST object to JSON returns same", () => {
     const jsonLayout = layout([0, 0]);
     const jsonResolver = buildResolver(jsonLayout);
-    const expr = cast(colRef(0, 0, 'data', 'JSON'), 'JSON');
-    const obj = { k: 'v' };
+    const expr = cast(colRef(0, 0, "data", "JSON"), "JSON");
+    const obj = { k: "v" };
     expect(evaluateExpression(expr, [obj], jsonResolver, noopCtx)).toBe(obj);
   });
 
-  it('CAST null to JSON returns null', () => {
-    expect(eval_(cast(constant(null), 'JSON'))).toBeNull();
+  it("CAST null to JSON returns null", () => {
+    expect(eval_(cast(constant(null), "JSON"))).toBeNull();
   });
 });
 
@@ -767,31 +958,31 @@ describe('castJson scalar values', () => {
 // compareValues with JSON objects
 // ---------------------------------------------------------------------------
 
-import { compareValues } from '../evaluate/utils/compare.js';
-import { serializeValue } from '../evaluate/utils/serialize.js';
-import { castValue } from '../evaluate/utils/cast.js';
+import { compareValues } from "../evaluate/utils/compare.js";
+import { serializeValue } from "../evaluate/utils/serialize.js";
+import { castValue } from "../evaluate/utils/cast.js";
 
-describe('compareValues with JSON objects', () => {
-  it('equal objects return 0', () => {
+describe("compareValues with JSON objects", () => {
+  it("equal objects return 0", () => {
     expect(compareValues({ a: 1 }, { a: 1 })).toBe(0);
   });
 
-  it('different objects return -1 or 1 (lexicographic)', () => {
+  it("different objects return -1 or 1 (lexicographic)", () => {
     // {"a":1} vs {"b":2} — "a" < "b" in stringify
     const cmp = compareValues({ a: 1 }, { b: 2 });
     expect(cmp).toBe(-1);
     expect(compareValues({ b: 2 }, { a: 1 })).toBe(1);
   });
 
-  it('arrays compare via stringify', () => {
+  it("arrays compare via stringify", () => {
     expect(compareValues([1, 2], [1, 2])).toBe(0);
     expect(compareValues([1], [2])).toBe(-1);
   });
 
-  it('mixed object vs primitive uses JSON.stringify for object side', () => {
+  it("mixed object vs primitive uses JSON.stringify for object side", () => {
     // object on left, string on right — both go through stringify/String fallback
-    const cmp = compareValues({ a: 1 }, 'zzz' as any);
-    expect(typeof cmp).toBe('number');
+    const cmp = compareValues({ a: 1 }, "zzz" as any);
+    expect(typeof cmp).toBe("number");
     // Should not produce "[object Object]"
     expect(cmp).not.toBe(0); // {"a":1} !== "zzz"
   });
@@ -801,30 +992,30 @@ describe('compareValues with JSON objects', () => {
 // castBoolean
 // ---------------------------------------------------------------------------
 
-describe('castBoolean', () => {
+describe("castBoolean", () => {
   it('casts string "true" to true', () => {
-    expect(castValue('true', 'BOOLEAN')).toBe(true);
+    expect(castValue("true", "BOOLEAN")).toBe(true);
   });
 
   it('casts string "false" to false', () => {
-    expect(castValue('false', 'BOOLEAN')).toBe(false);
+    expect(castValue("false", "BOOLEAN")).toBe(false);
   });
 
   it('casts string "1" to true', () => {
-    expect(castValue('1', 'BOOLEAN')).toBe(true);
+    expect(castValue("1", "BOOLEAN")).toBe(true);
   });
 
   it('casts string "0" to false', () => {
-    expect(castValue('0', 'BOOLEAN')).toBe(false);
+    expect(castValue("0", "BOOLEAN")).toBe(false);
   });
 
-  it('boolean passthrough', () => {
-    expect(castValue(true, 'BOOLEAN')).toBe(true);
-    expect(castValue(false, 'BOOLEAN')).toBe(false);
+  it("boolean passthrough", () => {
+    expect(castValue(true, "BOOLEAN")).toBe(true);
+    expect(castValue(false, "BOOLEAN")).toBe(false);
   });
 
-  it('invalid string throws', () => {
-    expect(() => castValue('maybe', 'BOOLEAN')).toThrow('Cannot cast');
+  it("invalid string throws", () => {
+    expect(() => castValue("maybe", "BOOLEAN")).toThrow("Cannot cast");
   });
 });
 
@@ -832,20 +1023,20 @@ describe('castBoolean', () => {
 // serializeValue with JSON objects
 // ---------------------------------------------------------------------------
 
-describe('serializeValue with JSON', () => {
-  it('serializes object with j: prefix', () => {
+describe("serializeValue with JSON", () => {
+  it("serializes object with j: prefix", () => {
     expect(serializeValue({ a: 1 })).toBe('j:{"a":1}');
   });
 
-  it('serializes array with j: prefix', () => {
-    expect(serializeValue([1, 2, 3])).toBe('j:[1,2,3]');
+  it("serializes array with j: prefix", () => {
+    expect(serializeValue([1, 2, 3])).toBe("j:[1,2,3]");
   });
 
-  it('different objects produce different serializations', () => {
+  it("different objects produce different serializations", () => {
     expect(serializeValue({ a: 1 })).not.toBe(serializeValue({ b: 2 }));
   });
 
-  it('equal objects produce same serialization', () => {
+  it("equal objects produce same serialization", () => {
     expect(serializeValue({ a: 1 })).toBe(serializeValue({ a: 1 }));
   });
 });
@@ -854,141 +1045,167 @@ describe('serializeValue with JSON', () => {
 // BLOB (Uint8Array) support
 // ---------------------------------------------------------------------------
 
-describe('BLOB castValue', () => {
-  it('CAST hex string to BLOB', () => {
-    const result = castValue('DEADBEEF', 'BLOB');
+describe("BLOB castValue", () => {
+  it("CAST hex string to BLOB", () => {
+    const result = castValue("DEADBEEF", "BLOB");
     expect(result).toBeInstanceOf(Uint8Array);
-    expect(result).toEqual(new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]));
+    expect(result).toEqual(new Uint8Array([0xde, 0xad, 0xbe, 0xef]));
   });
 
-  it('CAST Uint8Array to BLOB is passthrough', () => {
+  it("CAST Uint8Array to BLOB is passthrough", () => {
     const buf = new Uint8Array([1, 2, 3]);
-    expect(castValue(buf, 'BLOB')).toBe(buf);
+    expect(castValue(buf, "BLOB")).toBe(buf);
   });
 
-  it('CAST Uint8Array to TEXT produces hex', () => {
-    expect(castValue(new Uint8Array([0xCA, 0xFE]), 'TEXT')).toBe('CAFE');
+  it("CAST Uint8Array to TEXT produces hex", () => {
+    expect(castValue(new Uint8Array([0xca, 0xfe]), "TEXT")).toBe("CAFE");
   });
 
-  it('CAST empty Uint8Array to TEXT produces empty string', () => {
-    expect(castValue(new Uint8Array([]), 'TEXT')).toBe('');
+  it("CAST empty Uint8Array to TEXT produces empty string", () => {
+    expect(castValue(new Uint8Array([]), "TEXT")).toBe("");
   });
 
-  it('CAST BLOB to INTEGER throws', () => {
-    expect(() => castValue(new Uint8Array([1]), 'INTEGER')).toThrow('Cannot cast BLOB');
+  it("CAST BLOB to INTEGER throws", () => {
+    expect(() => castValue(new Uint8Array([1]), "INTEGER")).toThrow(
+      "Cannot cast BLOB",
+    );
   });
 
-  it('CAST BLOB to BOOLEAN throws', () => {
-    expect(() => castValue(new Uint8Array([1]), 'BOOLEAN')).toThrow('Cannot cast BLOB');
+  it("CAST BLOB to BOOLEAN throws", () => {
+    expect(() => castValue(new Uint8Array([1]), "BOOLEAN")).toThrow(
+      "Cannot cast BLOB",
+    );
   });
 
-  it('CAST BLOB to JSON throws', () => {
-    expect(() => castValue(new Uint8Array([1]), 'JSON')).toThrow('Cannot cast BLOB');
+  it("CAST BLOB to JSON throws", () => {
+    expect(() => castValue(new Uint8Array([1]), "JSON")).toThrow(
+      "Cannot cast BLOB",
+    );
   });
 
-  it('CAST invalid hex string to BLOB throws', () => {
-    expect(() => castValue('ZZZZ', 'BLOB')).toThrow('invalid hex');
+  it("CAST invalid hex string to BLOB throws", () => {
+    expect(() => castValue("ZZZZ", "BLOB")).toThrow("invalid hex");
   });
 
-  it('CAST null to BLOB returns null', () => {
-    expect(castValue(null, 'BLOB')).toBeNull();
+  it("CAST null to BLOB returns null", () => {
+    expect(castValue(null, "BLOB")).toBeNull();
   });
 });
 
-describe('compareValues with BLOB', () => {
-  it('equal blobs return 0', () => {
-    expect(compareValues(new Uint8Array([1, 2]), new Uint8Array([1, 2]))).toBe(0);
+describe("compareValues with BLOB", () => {
+  it("equal blobs return 0", () => {
+    expect(compareValues(new Uint8Array([1, 2]), new Uint8Array([1, 2]))).toBe(
+      0,
+    );
   });
 
-  it('shorter blob is less', () => {
-    expect(compareValues(new Uint8Array([1]), new Uint8Array([1, 2]))).toBeLessThan(0);
+  it("shorter blob is less", () => {
+    expect(
+      compareValues(new Uint8Array([1]), new Uint8Array([1, 2])),
+    ).toBeLessThan(0);
   });
 
-  it('byte-by-byte comparison', () => {
-    expect(compareValues(new Uint8Array([1, 0]), new Uint8Array([1, 1]))).toBeLessThan(0);
-    expect(compareValues(new Uint8Array([2, 0]), new Uint8Array([1, 0]))).toBeGreaterThan(0);
+  it("byte-by-byte comparison", () => {
+    expect(
+      compareValues(new Uint8Array([1, 0]), new Uint8Array([1, 1])),
+    ).toBeLessThan(0);
+    expect(
+      compareValues(new Uint8Array([2, 0]), new Uint8Array([1, 0])),
+    ).toBeGreaterThan(0);
   });
 
-  it('empty blobs are equal', () => {
+  it("empty blobs are equal", () => {
     expect(compareValues(new Uint8Array([]), new Uint8Array([]))).toBe(0);
   });
 });
 
-describe('serializeValue with BLOB', () => {
-  it('serializes Uint8Array with x: prefix', () => {
-    expect(serializeValue(new Uint8Array([0xDE, 0xAD]))).toBe('x:DEAD');
+describe("serializeValue with BLOB", () => {
+  it("serializes Uint8Array with x: prefix", () => {
+    expect(serializeValue(new Uint8Array([0xde, 0xad]))).toBe("x:DEAD");
   });
 
-  it('equal blobs produce same serialization', () => {
-    expect(serializeValue(new Uint8Array([1, 2]))).toBe(serializeValue(new Uint8Array([1, 2])));
+  it("equal blobs produce same serialization", () => {
+    expect(serializeValue(new Uint8Array([1, 2]))).toBe(
+      serializeValue(new Uint8Array([1, 2])),
+    );
   });
 
-  it('different blobs produce different serializations', () => {
-    expect(serializeValue(new Uint8Array([1]))).not.toBe(serializeValue(new Uint8Array([2])));
-  });
-});
-
-describe('BLOB evaluate via expression', () => {
-  it('CAST string to BLOB and back to TEXT', () => {
-    const expr = cast(cast(constant('AABB'), 'BLOB'), 'TEXT');
-    expect(eval_(expr)).toBe('AABB');
+  it("different blobs produce different serializations", () => {
+    expect(serializeValue(new Uint8Array([1]))).not.toBe(
+      serializeValue(new Uint8Array([2])),
+    );
   });
 });
 
-describe('BLOB function handling', () => {
-  it('LENGTH returns byte count for BLOB', () => {
+describe("BLOB evaluate via expression", () => {
+  it("CAST string to BLOB and back to TEXT", () => {
+    const expr = cast(cast(constant("AABB"), "BLOB"), "TEXT");
+    expect(eval_(expr)).toBe("AABB");
+  });
+});
+
+describe("BLOB function handling", () => {
+  it("LENGTH returns byte count for BLOB", () => {
     const blobLayout = layout([0, 0]);
     const blobResolver = buildResolver(blobLayout);
-    const expr = fnCall('LENGTH', [colRef(0, 0, 'data', 'BLOB')]);
+    const expr = fnCall("LENGTH", [colRef(0, 0, "data", "BLOB")]);
     expect(eval_(expr, [new Uint8Array([1, 2, 3])], blobResolver)).toBe(3);
   });
 
-  it('LENGTH returns 0 for empty BLOB', () => {
+  it("LENGTH returns 0 for empty BLOB", () => {
     const blobLayout = layout([0, 0]);
     const blobResolver = buildResolver(blobLayout);
-    const expr = fnCall('LENGTH', [colRef(0, 0, 'data', 'BLOB')]);
+    const expr = fnCall("LENGTH", [colRef(0, 0, "data", "BLOB")]);
     expect(eval_(expr, [new Uint8Array([])], blobResolver)).toBe(0);
   });
 
   it('TYPEOF returns "blob" for Uint8Array', () => {
     const blobLayout = layout([0, 0]);
     const blobResolver = buildResolver(blobLayout);
-    const expr = fnCall('TYPEOF', [colRef(0, 0, 'data', 'BLOB')]);
-    expect(eval_(expr, [new Uint8Array([1])], blobResolver)).toBe('blob');
+    const expr = fnCall("TYPEOF", [colRef(0, 0, "data", "BLOB")]);
+    expect(eval_(expr, [new Uint8Array([1])], blobResolver)).toBe("blob");
   });
 
   it('TYPEOF returns "json" for JSON object', () => {
     const jsonLayout = layout([0, 0]);
     const jsonResolver = buildResolver(jsonLayout);
-    const expr = fnCall('TYPEOF', [colRef(0, 0, 'data', 'JSON')]);
-    expect(eval_(expr, [{ a: 1 }], jsonResolver)).toBe('json');
+    const expr = fnCall("TYPEOF", [colRef(0, 0, "data", "JSON")]);
+    expect(eval_(expr, [{ a: 1 }], jsonResolver)).toBe("json");
   });
 
-  it('UPPER throws for BLOB', () => {
+  it("UPPER throws for BLOB", () => {
     const blobLayout = layout([0, 0]);
     const blobResolver = buildResolver(blobLayout);
-    const expr = fnCall('UPPER', [colRef(0, 0, 'data', 'BLOB')]);
-    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply UPPER to BLOB');
+    const expr = fnCall("UPPER", [colRef(0, 0, "data", "BLOB")]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow(
+      "Cannot apply UPPER to BLOB",
+    );
   });
 
-  it('LOWER throws for BLOB', () => {
+  it("LOWER throws for BLOB", () => {
     const blobLayout = layout([0, 0]);
     const blobResolver = buildResolver(blobLayout);
-    const expr = fnCall('LOWER', [colRef(0, 0, 'data', 'BLOB')]);
-    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply LOWER to BLOB');
+    const expr = fnCall("LOWER", [colRef(0, 0, "data", "BLOB")]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow(
+      "Cannot apply LOWER to BLOB",
+    );
   });
 
-  it('TRIM throws for BLOB', () => {
+  it("TRIM throws for BLOB", () => {
     const blobLayout = layout([0, 0]);
     const blobResolver = buildResolver(blobLayout);
-    const expr = fnCall('TRIM', [colRef(0, 0, 'data', 'BLOB')]);
-    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply TRIM to BLOB');
+    const expr = fnCall("TRIM", [colRef(0, 0, "data", "BLOB")]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow(
+      "Cannot apply TRIM to BLOB",
+    );
   });
 
-  it('LIKE throws for BLOB', () => {
+  it("LIKE throws for BLOB", () => {
     const blobLayout = layout([0, 0]);
     const blobResolver = buildResolver(blobLayout);
-    const expr = fnCall('LIKE', [colRef(0, 0, 'data', 'BLOB'), constant('%')]);
-    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow('Cannot apply LIKE to BLOB');
+    const expr = fnCall("LIKE", [colRef(0, 0, "data", "BLOB"), constant("%")]);
+    expect(() => eval_(expr, [new Uint8Array([1])], blobResolver)).toThrow(
+      "Cannot apply LIKE to BLOB",
+    );
   });
 });

@@ -1,5 +1,5 @@
-import type { LogicalOperator } from '../../binder/types.js';
-import { LogicalOperatorType } from '../../binder/types.js';
+import type { LogicalOperator } from "../../binder/types.js";
+import { LogicalOperatorType } from "../../binder/types.js";
 
 export function getOperatorTables(op: LogicalOperator): Set<number> {
   const tables = new Set<number>();
@@ -7,11 +7,8 @@ export function getOperatorTables(op: LogicalOperator): Set<number> {
   return tables;
 }
 
-function collectOperatorTables(
-  op: LogicalOperator,
-  tables: Set<number>,
-): void {
-  if ('tableIndex' in op && typeof op.tableIndex === 'number') {
+function collectOperatorTables(op: LogicalOperator, tables: Set<number>): void {
+  if ("tableIndex" in op && typeof op.tableIndex === "number") {
     tables.add(op.tableIndex);
   }
   // CTE_REF has no tableIndex property but its column bindings reference

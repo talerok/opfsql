@@ -30,10 +30,10 @@ function constant(value: string | number | boolean | null): BoundExpression {
     value === null
       ? "NULL"
       : typeof value === "string"
-      ? "TEXT"
-      : typeof value === "boolean"
-      ? "BOOLEAN"
-      : "INTEGER";
+        ? "TEXT"
+        : typeof value === "boolean"
+          ? "BOOLEAN"
+          : "INTEGER";
   return {
     expressionClass: BoundExpressionClass.BOUND_CONSTANT,
     value,

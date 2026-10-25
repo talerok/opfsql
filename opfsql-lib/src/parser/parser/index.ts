@@ -1,14 +1,18 @@
-import { Lexer } from '../lexer.js';
+import { Lexer } from "../lexer.js";
 import {
-  TokenType, Statement, SelectStatement, SetOperationStatement,
-  StatementType, TransactionType,
+  TokenType,
+  Statement,
+  SelectStatement,
+  SetOperationStatement,
+  StatementType,
+  TransactionType,
   type ExplainStatement,
-} from '../types.js';
-import { BaseParser } from './base.js';
-import { parseSelectStatement } from './select.js';
-import { parseInsert, parseUpdate, parseDelete } from './dml.js';
-import { parseCreate, parseAlterTable, parseDrop } from './ddl.js';
-import { parseTransaction } from './tcl.js';
+} from "../types.js";
+import { BaseParser } from "./base.js";
+import { parseSelectStatement } from "./select.js";
+import { parseInsert, parseUpdate, parseDelete } from "./dml.js";
+import { parseCreate, parseAlterTable, parseDrop } from "./ddl.js";
+import { parseTransaction } from "./tcl.js";
 
 export class Parser extends BaseParser {
   parse(sql: string): Statement[] {
@@ -19,7 +23,9 @@ export class Parser extends BaseParser {
     const statements: Statement[] = [];
 
     while (!this.isAtEnd()) {
-      while (this.match(TokenType.SEMICOLON)) { /* skip empty semicolons */ }
+      while (this.match(TokenType.SEMICOLON)) {
+        /* skip empty semicolons */
+      }
       if (this.isAtEnd()) break;
       statements.push(this.parseStatement());
       this.match(TokenType.SEMICOLON);
@@ -60,10 +66,15 @@ export class Parser extends BaseParser {
       case TokenType.EXPLAIN: {
         this.advance(); // consume EXPLAIN
         const inner = this.parseStatement();
-        return { type: StatementType.EXPLAIN_STATEMENT, statement: inner } as ExplainStatement;
+        return {
+          type: StatementType.EXPLAIN_STATEMENT,
+          statement: inner,
+        } as ExplainStatement;
       }
       default:
-        this.error(`Unexpected token '${token.value || 'EOF'}' at start of statement`);
+        this.error(
+          `Unexpected token '${token.value || "EOF"}' at start of statement`,
+        );
     }
   }
 }

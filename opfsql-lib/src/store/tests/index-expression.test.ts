@@ -1,20 +1,52 @@
-import { describe, it, expect } from 'vitest';
-import type { IndexExpression, TableSchema } from '../../types.js';
-import type { BoundExpression } from '../../binder/types.js';
-import { BoundExpressionClass } from '../../binder/types.js';
+import { describe, it, expect } from "vitest";
+import type { IndexExpression, TableSchema } from "../../types.js";
+import type { BoundExpression } from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
 import {
   boundToIndexExpression,
   bindIndexExpression,
   getIndexColumns,
-} from '../index-expression.js';
+} from "../index-expression.js";
 
 const schema: TableSchema = {
-  name: 't',
+  name: "t",
   columns: [
-    { name: 'a', type: 'INTEGER', nullable: false, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
-    { name: 'b', type: 'INTEGER', nullable: false, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
-    { name: 'data', type: 'JSON', nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
-    { name: 'name', type: 'TEXT', nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+    {
+      name: "a",
+      type: "INTEGER",
+      nullable: false,
+      primaryKey: false,
+      unique: false,
+      autoIncrement: false,
+      defaultValue: null,
+    },
+    {
+      name: "b",
+      type: "INTEGER",
+      nullable: false,
+      primaryKey: false,
+      unique: false,
+      autoIncrement: false,
+      defaultValue: null,
+    },
+    {
+      name: "data",
+      type: "JSON",
+      nullable: true,
+      primaryKey: false,
+      unique: false,
+      autoIncrement: false,
+      defaultValue: null,
+    },
+    {
+      name: "name",
+      type: "TEXT",
+      nullable: true,
+      primaryKey: false,
+      unique: false,
+      autoIncrement: false,
+      defaultValue: null,
+    },
   ],
 };
 
@@ -27,7 +59,7 @@ function colRef(colIndex: number): BoundExpression {
   return {
     expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
     binding: { tableIndex: 0, columnIndex: colIndex },
-    tableName: 't',
+    tableName: "t",
     columnName: col.name,
     returnType: col.type,
   };
@@ -37,136 +69,149 @@ function colRef(colIndex: number): BoundExpression {
 // operator
 // ---------------------------------------------------------------------------
 
-describe('IndexExpression — operator', () => {
-  it('round-trips a + b through boundToIndexExpression → bindIndexExpression', () => {
+describe("IndexExpression — operator", () => {
+  it("round-trips a + b through boundToIndexExpression → bindIndexExpression", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'ADD',
+      operatorType: "ADD",
       children: [colRef(0), colRef(1)],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
     expect(idx).toEqual({
-      type: 'operator',
-      operatorType: 'ADD',
+      type: "operator",
+      operatorType: "ADD",
       args: [
-        { type: 'column', name: 'a', returnType: 'INTEGER' },
-        { type: 'column', name: 'b', returnType: 'INTEGER' },
+        { type: "column", name: "a", returnType: "INTEGER" },
+        { type: "column", name: "b", returnType: "INTEGER" },
       ],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     });
 
     const rebound = bindIndexExpression(idx, schema, 0);
     expect(rebound.expressionClass).toBe(BoundExpressionClass.BOUND_OPERATOR);
-    const op = rebound as Extract<BoundExpression, { expressionClass: typeof BoundExpressionClass.BOUND_OPERATOR }>;
-    expect(op.operatorType).toBe('ADD');
+    const op = rebound as Extract<
+      BoundExpression,
+      { expressionClass: typeof BoundExpressionClass.BOUND_OPERATOR }
+    >;
+    expect(op.operatorType).toBe("ADD");
     expect(op.children).toHaveLength(2);
-    expect(op.returnType).toBe('INTEGER');
+    expect(op.returnType).toBe("INTEGER");
   });
 
-  it('handles NEGATE(-a)', () => {
+  it("handles NEGATE(-a)", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'NEGATE',
+      operatorType: "NEGATE",
       children: [colRef(0)],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
     expect(idx).toEqual({
-      type: 'operator',
-      operatorType: 'NEGATE',
-      args: [{ type: 'column', name: 'a', returnType: 'INTEGER' }],
-      returnType: 'INTEGER',
+      type: "operator",
+      operatorType: "NEGATE",
+      args: [{ type: "column", name: "a", returnType: "INTEGER" }],
+      returnType: "INTEGER",
     });
     const rebound = bindIndexExpression(idx, schema, 0);
-    expect(rebound.returnType).toBe('INTEGER');
+    expect(rebound.returnType).toBe("INTEGER");
   });
 
-  it('handles CONCAT(name || name)', () => {
+  it("handles CONCAT(name || name)", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'CONCAT',
+      operatorType: "CONCAT",
       children: [colRef(3), colRef(3)],
-      returnType: 'TEXT',
+      returnType: "TEXT",
     };
     const idx = boundToIndexExpression(bound, schema);
     const rebound = bindIndexExpression(idx, schema, 0);
-    expect(rebound.returnType).toBe('TEXT');
+    expect(rebound.returnType).toBe("TEXT");
   });
 
-  it('nested: (a + b) * a', () => {
+  it("nested: (a + b) * a", () => {
     const add: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'ADD',
+      operatorType: "ADD",
       children: [colRef(0), colRef(1)],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const mul: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'MULTIPLY',
+      operatorType: "MULTIPLY",
       children: [add, colRef(0)],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(mul, schema);
-    expect(idx.type).toBe('operator');
+    expect(idx.type).toBe("operator");
     const rebound = bindIndexExpression(idx, schema, 0);
     expect(rebound.expressionClass).toBe(BoundExpressionClass.BOUND_OPERATOR);
   });
 
-  it('operator with json_access child: data.x + data.y', () => {
+  it("operator with json_access child: data.x + data.y", () => {
     const jx: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
       child: {
         expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
         binding: { tableIndex: 0, columnIndex: 2 },
-        tableName: 't',
-        columnName: 'data',
-        returnType: 'JSON',
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
       },
-      path: [{ type: 'field', name: 'x' }],
-      returnType: 'JSON',
+      path: [{ type: "field", name: "x" }],
+      returnType: "JSON",
     };
     const jy: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_JSON_ACCESS,
       child: {
         expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
         binding: { tableIndex: 0, columnIndex: 2 },
-        tableName: 't',
-        columnName: 'data',
-        returnType: 'JSON',
+        tableName: "t",
+        columnName: "data",
+        returnType: "JSON",
       },
-      path: [{ type: 'field', name: 'y' }],
-      returnType: 'JSON',
+      path: [{ type: "field", name: "y" }],
+      returnType: "JSON",
     };
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'ADD',
+      operatorType: "ADD",
       children: [jx, jy],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
     expect(idx).toEqual({
-      type: 'operator',
-      operatorType: 'ADD',
+      type: "operator",
+      operatorType: "ADD",
       args: [
-        { type: 'json_access', column: 'data', path: [{ type: 'field', name: 'x' }], returnType: 'JSON' },
-        { type: 'json_access', column: 'data', path: [{ type: 'field', name: 'y' }], returnType: 'JSON' },
+        {
+          type: "json_access",
+          column: "data",
+          path: [{ type: "field", name: "x" }],
+          returnType: "JSON",
+        },
+        {
+          type: "json_access",
+          column: "data",
+          path: [{ type: "field", name: "y" }],
+          returnType: "JSON",
+        },
       ],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     });
   });
 
-  it('getIndexColumns for operator', () => {
+  it("getIndexColumns for operator", () => {
     const idx: IndexExpression = {
-      type: 'operator',
-      operatorType: 'ADD',
+      type: "operator",
+      operatorType: "ADD",
       args: [
-        { type: 'column', name: 'a', returnType: 'INTEGER' },
-        { type: 'column', name: 'b', returnType: 'INTEGER' },
+        { type: "column", name: "a", returnType: "INTEGER" },
+        { type: "column", name: "b", returnType: "INTEGER" },
       ],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
-    expect(getIndexColumns(idx).sort()).toEqual(['a', 'b']);
+    expect(getIndexColumns(idx).sort()).toEqual(["a", "b"]);
   });
 });
 
@@ -174,46 +219,49 @@ describe('IndexExpression — operator', () => {
 // case
 // ---------------------------------------------------------------------------
 
-describe('IndexExpression — case', () => {
-  it('round-trips CASE WHEN a > 0 THEN a ELSE b END', () => {
+describe("IndexExpression — case", () => {
+  it("round-trips CASE WHEN a > 0 THEN a ELSE b END", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
       caseChecks: [
         {
           when: {
             expressionClass: BoundExpressionClass.BOUND_COMPARISON,
-            comparisonType: 'GREATER',
+            comparisonType: "GREATER",
             left: colRef(0),
             right: {
               expressionClass: BoundExpressionClass.BOUND_CONSTANT,
               value: 0,
-              returnType: 'INTEGER',
+              returnType: "INTEGER",
             },
-            returnType: 'BOOLEAN',
+            returnType: "BOOLEAN",
           },
           then: colRef(0),
         },
       ],
       elseExpr: colRef(1),
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
-    expect(idx.type).toBe('case');
+    expect(idx.type).toBe("case");
 
     const rebound = bindIndexExpression(idx, schema, 0);
     expect(rebound.expressionClass).toBe(BoundExpressionClass.BOUND_CASE);
-    const cs = rebound as Extract<BoundExpression, { expressionClass: typeof BoundExpressionClass.BOUND_CASE }>;
+    const cs = rebound as Extract<
+      BoundExpression,
+      { expressionClass: typeof BoundExpressionClass.BOUND_CASE }
+    >;
     expect(cs.caseChecks).toHaveLength(1);
     expect(cs.elseExpr).not.toBeNull();
-    expect(cs.returnType).toBe('INTEGER');
+    expect(cs.returnType).toBe("INTEGER");
   });
 
-  it('handles CASE without ELSE', () => {
+  it("handles CASE without ELSE", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
       caseChecks: [{ when: colRef(0), then: colRef(1) }],
       elseExpr: null,
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
     expect((idx as any).elseExpr).toBeNull();
@@ -222,19 +270,19 @@ describe('IndexExpression — case', () => {
     expect((rebound as any).elseExpr).toBeNull();
   });
 
-  it('getIndexColumns for case', () => {
+  it("getIndexColumns for case", () => {
     const idx: IndexExpression = {
-      type: 'case',
+      type: "case",
       checks: [
         {
-          when: { type: 'column', name: 'a', returnType: 'INTEGER' },
-          then: { type: 'column', name: 'b', returnType: 'INTEGER' },
+          when: { type: "column", name: "a", returnType: "INTEGER" },
+          then: { type: "column", name: "b", returnType: "INTEGER" },
         },
       ],
-      elseExpr: { type: 'column', name: 'data', returnType: 'JSON' },
-      returnType: 'INTEGER',
+      elseExpr: { type: "column", name: "data", returnType: "JSON" },
+      returnType: "INTEGER",
     };
-    expect(getIndexColumns(idx).sort()).toEqual(['a', 'b', 'data']);
+    expect(getIndexColumns(idx).sort()).toEqual(["a", "b", "data"]);
   });
 });
 
@@ -242,54 +290,66 @@ describe('IndexExpression — case', () => {
 // constant
 // ---------------------------------------------------------------------------
 
-describe('IndexExpression — constant', () => {
-  it('round-trips integer constant', () => {
+describe("IndexExpression — constant", () => {
+  it("round-trips integer constant", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CONSTANT,
       value: 42,
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
-    expect(idx).toEqual({ type: 'constant', value: 42, returnType: 'INTEGER' });
+    expect(idx).toEqual({ type: "constant", value: 42, returnType: "INTEGER" });
 
     const rebound = bindIndexExpression(idx, schema, 0);
     expect(rebound.expressionClass).toBe(BoundExpressionClass.BOUND_CONSTANT);
     expect((rebound as any).value).toBe(42);
-    expect(rebound.returnType).toBe('INTEGER');
+    expect(rebound.returnType).toBe("INTEGER");
   });
 
-  it('round-trips string constant', () => {
+  it("round-trips string constant", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CONSTANT,
-      value: 'hello',
-      returnType: 'TEXT',
+      value: "hello",
+      returnType: "TEXT",
     };
     const idx = boundToIndexExpression(bound, schema);
-    expect(idx).toEqual({ type: 'constant', value: 'hello', returnType: 'TEXT' });
+    expect(idx).toEqual({
+      type: "constant",
+      value: "hello",
+      returnType: "TEXT",
+    });
   });
 
-  it('round-trips null constant', () => {
+  it("round-trips null constant", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CONSTANT,
       value: null,
-      returnType: 'NULL',
+      returnType: "NULL",
     };
     const idx = boundToIndexExpression(bound, schema);
-    expect(idx).toEqual({ type: 'constant', value: null, returnType: 'NULL' });
+    expect(idx).toEqual({ type: "constant", value: null, returnType: "NULL" });
   });
 
-  it('round-trips boolean constant', () => {
+  it("round-trips boolean constant", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CONSTANT,
       value: true,
-      returnType: 'BOOLEAN',
+      returnType: "BOOLEAN",
     };
     const idx = boundToIndexExpression(bound, schema);
-    expect(idx).toEqual({ type: 'constant', value: true, returnType: 'BOOLEAN' });
+    expect(idx).toEqual({
+      type: "constant",
+      value: true,
+      returnType: "BOOLEAN",
+    });
   });
 
-  it('getIndexColumns for constant is empty', () => {
-    const idx: IndexExpression = { type: 'constant', value: 42, returnType: 'INTEGER' };
+  it("getIndexColumns for constant is empty", () => {
+    const idx: IndexExpression = {
+      type: "constant",
+      value: 42,
+      returnType: "INTEGER",
+    };
     expect(getIndexColumns(idx)).toEqual([]);
   });
 });
@@ -298,67 +358,77 @@ describe('IndexExpression — constant', () => {
 // mixed / nested
 // ---------------------------------------------------------------------------
 
-describe('IndexExpression — nested expressions', () => {
-  it('CASE WHEN a > 0 THEN a + b ELSE -a END', () => {
+describe("IndexExpression — nested expressions", () => {
+  it("CASE WHEN a > 0 THEN a + b ELSE -a END", () => {
     const addExpr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'ADD',
+      operatorType: "ADD",
       children: [colRef(0), colRef(1)],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const negExpr: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'NEGATE',
+      operatorType: "NEGATE",
       children: [colRef(0)],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_CASE,
-      caseChecks: [{
-        when: {
-          expressionClass: BoundExpressionClass.BOUND_COMPARISON,
-          comparisonType: 'GREATER',
-          left: colRef(0),
-          right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 0, returnType: 'INTEGER' },
-          returnType: 'BOOLEAN',
+      caseChecks: [
+        {
+          when: {
+            expressionClass: BoundExpressionClass.BOUND_COMPARISON,
+            comparisonType: "GREATER",
+            left: colRef(0),
+            right: {
+              expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+              value: 0,
+              returnType: "INTEGER",
+            },
+            returnType: "BOOLEAN",
+          },
+          then: addExpr,
         },
-        then: addExpr,
-      }],
+      ],
       elseExpr: negExpr,
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
-    expect(idx.type).toBe('case');
+    expect(idx.type).toBe("case");
 
     // Check nested structure
-    const caseIdx = idx as Extract<IndexExpression, { type: 'case' }>;
-    expect(caseIdx.checks[0].then.type).toBe('operator');
-    expect(caseIdx.elseExpr!.type).toBe('operator');
+    const caseIdx = idx as Extract<IndexExpression, { type: "case" }>;
+    expect(caseIdx.checks[0].then.type).toBe("operator");
+    expect(caseIdx.elseExpr!.type).toBe("operator");
 
     const rebound = bindIndexExpression(idx, schema, 0);
     expect(rebound.expressionClass).toBe(BoundExpressionClass.BOUND_CASE);
   });
 
-  it('operator with constant child: a + 1', () => {
+  it("operator with constant child: a + 1", () => {
     const bound: BoundExpression = {
       expressionClass: BoundExpressionClass.BOUND_OPERATOR,
-      operatorType: 'ADD',
+      operatorType: "ADD",
       children: [
         colRef(0),
-        { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 1, returnType: 'INTEGER' },
+        {
+          expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+          value: 1,
+          returnType: "INTEGER",
+        },
       ],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     };
     const idx = boundToIndexExpression(bound, schema);
     expect(idx).toEqual({
-      type: 'operator',
-      operatorType: 'ADD',
+      type: "operator",
+      operatorType: "ADD",
       args: [
-        { type: 'column', name: 'a', returnType: 'INTEGER' },
-        { type: 'constant', value: 1, returnType: 'INTEGER' },
+        { type: "column", name: "a", returnType: "INTEGER" },
+        { type: "constant", value: 1, returnType: "INTEGER" },
       ],
-      returnType: 'INTEGER',
+      returnType: "INTEGER",
     });
-    expect(getIndexColumns(idx)).toEqual(['a']);
+    expect(getIndexColumns(idx)).toEqual(["a"]);
   });
 });

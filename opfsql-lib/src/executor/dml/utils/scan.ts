@@ -5,7 +5,10 @@ import type {
   LogicalGet,
   LogicalOperator,
 } from "../../../binder/types.js";
-import { BoundExpressionClass, LogicalOperatorType } from "../../../binder/types.js";
+import {
+  BoundExpressionClass,
+  LogicalOperatorType,
+} from "../../../binder/types.js";
 import type { Row } from "../../../store/types.js";
 import type { CompiledFilter } from "../../evaluate/compile.js";
 import { compileFilter } from "../../evaluate/compile.js";

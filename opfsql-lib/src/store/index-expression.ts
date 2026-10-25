@@ -10,10 +10,7 @@ import type {
   BoundOperatorExpression,
 } from "../binder/types.js";
 import { BoundExpressionClass } from "../binder/types.js";
-import type {
-  IndexExpression,
-  TableSchema,
-} from "../types.js";
+import type { IndexExpression, TableSchema } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

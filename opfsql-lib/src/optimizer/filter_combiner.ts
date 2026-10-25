@@ -5,8 +5,8 @@ import type {
   BoundComparisonExpression,
   ComparisonType,
   TableFilter,
-} from '../binder/types.js';
-import { BoundExpressionClass } from '../binder/types.js';
+} from "../binder/types.js";
+import { BoundExpressionClass } from "../binder/types.js";
 import {
   isConstant,
   isColumnRef,
@@ -15,7 +15,7 @@ import {
   makeBoolConstant,
   expressionKey,
   getExpressionTables,
-} from './utils/index.js';
+} from "./utils/index.js";
 
 function isParameter(expr: BoundExpression): expr is BoundParameterExpression {
   return expr.expressionClass === BoundExpressionClass.BOUND_PARAMETER;
@@ -41,7 +41,7 @@ interface ConstantComparison {
   constant: BoundConstantExpression | BoundParameterExpression;
 }
 
-type FilterResult = 'KEEP' | 'PRUNE' | 'UNSATISFIABLE';
+type FilterResult = "KEEP" | "PRUNE" | "UNSATISFIABLE";
 
 export class FilterCombiner {
   // Equivalence classes: expression key → set of equivalent expression keys
@@ -73,7 +73,7 @@ export class FilterCombiner {
 
     // Expression = Expression → equivalence (only for column refs)
     if (
-      cmp.comparisonType === 'EQUAL' &&
+      cmp.comparisonType === "EQUAL" &&
       isColumnRef(cmp.left) &&
       isColumnRef(cmp.right)
     ) {
@@ -87,19 +87,33 @@ export class FilterCombiner {
     }
 
     // Expression COMP Constant/Parameter → constant filter
-    if (isValueExpression(cmp.left) && (isConstant(cmp.right) || isParameter(cmp.right))) {
+    if (
+      isValueExpression(cmp.left) &&
+      (isConstant(cmp.right) || isParameter(cmp.right))
+    ) {
       const key = expressionKey(cmp.left);
       this.keyExpressions.set(key, cmp.left);
-      this.addConstantFilter(key, cmp.comparisonType, cmp.right as BoundConstantExpression | BoundParameterExpression);
+      this.addConstantFilter(
+        key,
+        cmp.comparisonType,
+        cmp.right as BoundConstantExpression | BoundParameterExpression,
+      );
       return;
     }
 
     // Constant/Parameter COMP Expression → flip and add
-    if ((isConstant(cmp.left) || isParameter(cmp.left)) && isValueExpression(cmp.right)) {
+    if (
+      (isConstant(cmp.left) || isParameter(cmp.left)) &&
+      isValueExpression(cmp.right)
+    ) {
       const key = expressionKey(cmp.right);
       this.keyExpressions.set(key, cmp.right);
       const flipped = flipComparisonType(cmp.comparisonType);
-      this.addConstantFilter(key, flipped, cmp.left as BoundConstantExpression | BoundParameterExpression);
+      this.addConstantFilter(
+        key,
+        flipped,
+        cmp.left as BoundConstantExpression | BoundParameterExpression,
+      );
       return;
     }
 
@@ -149,14 +163,15 @@ export class FilterCombiner {
 
     for (let i = existing.length - 1; i >= 0; i--) {
       const result = compareFilters(existing[i], { comparisonType, constant });
-      if (result === 'UNSATISFIABLE') {
+      if (result === "UNSATISFIABLE") {
         existing.length = 0;
-        existing.push(
-          { comparisonType: 'EQUAL', constant: makeBoolConstant(false) as BoundConstantExpression },
-        );
+        existing.push({
+          comparisonType: "EQUAL",
+          constant: makeBoolConstant(false) as BoundConstantExpression,
+        });
         return;
       }
-      if (result === 'PRUNE') {
+      if (result === "PRUNE") {
         existing.splice(i, 1);
       }
     }
@@ -174,10 +189,10 @@ export class FilterCombiner {
     for (const [key, filters] of this.constantFilters) {
       if (
         filters.length === 1 &&
-        filters[0].comparisonType === 'EQUAL' &&
+        filters[0].comparisonType === "EQUAL" &&
         isConstant(filters[0].constant) &&
         (filters[0].constant as BoundConstantExpression).value === false &&
-        filters[0].constant.returnType === 'BOOLEAN'
+        filters[0].constant.returnType === "BOOLEAN"
       ) {
         return [makeBoolConstant(false)];
       }
@@ -191,7 +206,7 @@ export class FilterCombiner {
           comparisonType: filter.comparisonType,
           left: leftExpr,
           right: filter.constant,
-          returnType: 'BOOLEAN',
+          returnType: "BOOLEAN",
         });
       }
     }
@@ -215,7 +230,7 @@ export class FilterCombiner {
             comparisonType: filter.comparisonType,
             left: equivExpr,
             right: filter.constant,
-            returnType: 'BOOLEAN',
+            returnType: "BOOLEAN",
           });
         }
       }
@@ -241,7 +256,11 @@ export class FilterCombiner {
       if (!tables.has(tableIndex)) continue;
 
       for (const filter of filters) {
-        if (isConstant(filter.constant) && filter.constant.returnType === 'BOOLEAN' && (filter.constant as BoundConstantExpression).value === false) {
+        if (
+          isConstant(filter.constant) &&
+          filter.constant.returnType === "BOOLEAN" &&
+          (filter.constant as BoundConstantExpression).value === false
+        ) {
           continue;
         }
         result.push({
@@ -262,18 +281,18 @@ export class FilterCombiner {
 
 function flipComparisonType(type: ComparisonType): ComparisonType {
   switch (type) {
-    case 'LESS':
-      return 'GREATER';
-    case 'GREATER':
-      return 'LESS';
-    case 'LESS_EQUAL':
-      return 'GREATER_EQUAL';
-    case 'GREATER_EQUAL':
-      return 'LESS_EQUAL';
-    case 'EQUAL':
-      return 'EQUAL';
-    case 'NOT_EQUAL':
-      return 'NOT_EQUAL';
+    case "LESS":
+      return "GREATER";
+    case "GREATER":
+      return "LESS";
+    case "LESS_EQUAL":
+      return "GREATER_EQUAL";
+    case "GREATER_EQUAL":
+      return "LESS_EQUAL";
+    case "EQUAL":
+      return "EQUAL";
+    case "NOT_EQUAL":
+      return "NOT_EQUAL";
   }
 }
 
@@ -281,96 +300,130 @@ function compareFilters(
   existing: ConstantComparison,
   incoming: ConstantComparison,
 ): FilterResult {
-  if (!isConstant(existing.constant) || !isConstant(incoming.constant)) return 'KEEP';
+  if (!isConstant(existing.constant) || !isConstant(incoming.constant))
+    return "KEEP";
 
   const eVal = (existing.constant as BoundConstantExpression).value;
   const iVal = (incoming.constant as BoundConstantExpression).value;
 
-  if (typeof eVal !== 'number' || typeof iVal !== 'number') {
-    if (existing.comparisonType === 'EQUAL' && incoming.comparisonType === 'EQUAL') {
-      if (eVal === iVal) return 'PRUNE';
-      return 'UNSATISFIABLE';
+  if (typeof eVal !== "number" || typeof iVal !== "number") {
+    if (
+      existing.comparisonType === "EQUAL" &&
+      incoming.comparisonType === "EQUAL"
+    ) {
+      if (eVal === iVal) return "PRUNE";
+      return "UNSATISFIABLE";
     }
-    return 'KEEP';
+    return "KEEP";
   }
 
-  if (existing.comparisonType === 'EQUAL' && incoming.comparisonType === 'EQUAL') {
-    if (eVal === iVal) return 'PRUNE';
-    return 'UNSATISFIABLE';
+  if (
+    existing.comparisonType === "EQUAL" &&
+    incoming.comparisonType === "EQUAL"
+  ) {
+    if (eVal === iVal) return "PRUNE";
+    return "UNSATISFIABLE";
   }
 
-  if (existing.comparisonType === 'EQUAL') {
+  if (existing.comparisonType === "EQUAL") {
     if (satisfiesComparison(eVal, incoming.comparisonType, iVal)) {
-      return 'KEEP';
+      return "KEEP";
     }
-    return 'UNSATISFIABLE';
+    return "UNSATISFIABLE";
   }
 
-  if (incoming.comparisonType === 'EQUAL') {
+  if (incoming.comparisonType === "EQUAL") {
     if (satisfiesComparison(iVal, existing.comparisonType, eVal)) {
-      return 'PRUNE';
+      return "PRUNE";
     }
-    return 'UNSATISFIABLE';
+    return "UNSATISFIABLE";
   }
 
   if (isSameDirection(existing.comparisonType, incoming.comparisonType)) {
-    if (incoming.comparisonType === 'LESS' || incoming.comparisonType === 'LESS_EQUAL') {
-      if (iVal < eVal || (iVal === eVal && incoming.comparisonType === 'LESS')) {
-        return 'PRUNE';
+    if (
+      incoming.comparisonType === "LESS" ||
+      incoming.comparisonType === "LESS_EQUAL"
+    ) {
+      if (
+        iVal < eVal ||
+        (iVal === eVal && incoming.comparisonType === "LESS")
+      ) {
+        return "PRUNE";
       }
-      return 'KEEP';
+      return "KEEP";
     }
-    if (iVal > eVal || (iVal === eVal && incoming.comparisonType === 'GREATER')) {
-      return 'PRUNE';
+    if (
+      iVal > eVal ||
+      (iVal === eVal && incoming.comparisonType === "GREATER")
+    ) {
+      return "PRUNE";
     }
-    return 'KEEP';
+    return "KEEP";
   }
 
-  if (isLowerBound(existing.comparisonType) && isUpperBound(incoming.comparisonType)) {
-    if (eVal > iVal) return 'UNSATISFIABLE';
+  if (
+    isLowerBound(existing.comparisonType) &&
+    isUpperBound(incoming.comparisonType)
+  ) {
+    if (eVal > iVal) return "UNSATISFIABLE";
     if (eVal === iVal) {
-      if (existing.comparisonType === 'GREATER' || incoming.comparisonType === 'LESS') {
-        return 'UNSATISFIABLE';
+      if (
+        existing.comparisonType === "GREATER" ||
+        incoming.comparisonType === "LESS"
+      ) {
+        return "UNSATISFIABLE";
       }
     }
   }
-  if (isUpperBound(existing.comparisonType) && isLowerBound(incoming.comparisonType)) {
-    if (iVal > eVal) return 'UNSATISFIABLE';
+  if (
+    isUpperBound(existing.comparisonType) &&
+    isLowerBound(incoming.comparisonType)
+  ) {
+    if (iVal > eVal) return "UNSATISFIABLE";
     if (iVal === eVal) {
-      if (incoming.comparisonType === 'GREATER' || existing.comparisonType === 'LESS') {
-        return 'UNSATISFIABLE';
+      if (
+        incoming.comparisonType === "GREATER" ||
+        existing.comparisonType === "LESS"
+      ) {
+        return "UNSATISFIABLE";
       }
     }
   }
 
-  return 'KEEP';
+  return "KEEP";
 }
 
-function satisfiesComparison(value: number, type: ComparisonType, bound: number): boolean {
+function satisfiesComparison(
+  value: number,
+  type: ComparisonType,
+  bound: number,
+): boolean {
   switch (type) {
-    case 'EQUAL':
+    case "EQUAL":
       return value === bound;
-    case 'NOT_EQUAL':
+    case "NOT_EQUAL":
       return value !== bound;
-    case 'LESS':
+    case "LESS":
       return value < bound;
-    case 'GREATER':
+    case "GREATER":
       return value > bound;
-    case 'LESS_EQUAL':
+    case "LESS_EQUAL":
       return value <= bound;
-    case 'GREATER_EQUAL':
+    case "GREATER_EQUAL":
       return value >= bound;
   }
 }
 
 function isLowerBound(type: ComparisonType): boolean {
-  return type === 'GREATER' || type === 'GREATER_EQUAL';
+  return type === "GREATER" || type === "GREATER_EQUAL";
 }
 
 function isUpperBound(type: ComparisonType): boolean {
-  return type === 'LESS' || type === 'LESS_EQUAL';
+  return type === "LESS" || type === "LESS_EQUAL";
 }
 
 function isSameDirection(a: ComparisonType, b: ComparisonType): boolean {
-  return (isLowerBound(a) && isLowerBound(b)) || (isUpperBound(a) && isUpperBound(b));
+  return (
+    (isLowerBound(a) && isLowerBound(b)) || (isUpperBound(a) && isUpperBound(b))
+  );
 }

@@ -1,5 +1,5 @@
-import type { LogicalLimit, ColumnBinding } from '../../binder/types.js';
-import type { SyncPhysicalOperator, Tuple } from '../types.js';
+import type { LogicalLimit, ColumnBinding } from "../../binder/types.js";
+import type { SyncPhysicalOperator, Tuple } from "../types.js";
 
 export class PhysicalLimit implements SyncPhysicalOperator {
   private skipped = 0;

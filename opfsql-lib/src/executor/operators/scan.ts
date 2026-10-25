@@ -56,7 +56,9 @@ export class PhysicalScan implements SyncPhysicalOperator {
         }
 
         const tuple = rowToTuple(value.row, this.op.columnIds, this.op.schema);
-        if (passesCompiledFilters(tuple, this.compiledFilters, this.ctx.params)) {
+        if (
+          passesCompiledFilters(tuple, this.compiledFilters, this.ctx.params)
+        ) {
           batch.push(tuple);
         }
       }
@@ -113,7 +115,9 @@ export class PhysicalChildScan implements SyncPhysicalOperator {
         const tuple: Tuple = this.op.columnIds.map(
           (colId) => childTuple[colId] ?? null,
         );
-        if (passesCompiledFilters(tuple, this.compiledFilters, this.ctx.params)) {
+        if (
+          passesCompiledFilters(tuple, this.compiledFilters, this.ctx.params)
+        ) {
           result.push(tuple);
         }
       }

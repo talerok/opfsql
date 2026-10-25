@@ -1,14 +1,20 @@
-import { BaseParser } from './base.js';
-import { parseExpression, parseUnary } from './expressions.js';
-import { parseTypeToken } from './type-parser.js';
+import { BaseParser } from "./base.js";
+import { parseExpression, parseUnary } from "./expressions.js";
+import { parseTypeToken } from "./type-parser.js";
 import {
-  TokenType, ParsedExpression,
-  StatementType, Statement,
-  CreateTableStatement, CreateIndexStatement,
-  AlterTableStatement, AlterType,
-  DropStatement, DropType,
-  ColumnDefinition, ForeignKeyConstraint,
-} from '../types.js';
+  TokenType,
+  ParsedExpression,
+  StatementType,
+  Statement,
+  CreateTableStatement,
+  CreateIndexStatement,
+  AlterTableStatement,
+  AlterType,
+  DropStatement,
+  DropType,
+  ColumnDefinition,
+  ForeignKeyConstraint,
+} from "../types.js";
 
 export function parseCreate(p: BaseParser): Statement {
   p.expect(TokenType.CREATE);
@@ -26,7 +32,9 @@ export function parseCreate(p: BaseParser): Statement {
     return parseCreateTable(p);
   }
 
-  p.error(`Expected TABLE or INDEX after CREATE, got '${p.peek().value || 'EOF'}'`);
+  p.error(
+    `Expected TABLE or INDEX after CREATE, got '${p.peek().value || "EOF"}'`,
+  );
 }
 
 function parseCreateTable(p: BaseParser): CreateTableStatement {
@@ -53,7 +61,9 @@ function parseCreateTable(p: BaseParser): CreateTableStatement {
       p.expect(TokenType.KEY, `Expected KEY after PRIMARY`);
       p.expect(TokenType.LEFT_PAREN);
       do {
-        primary_key.push(p.expect(TokenType.IDENTIFIER, `Expected column name`).value);
+        primary_key.push(
+          p.expect(TokenType.IDENTIFIER, `Expected column name`).value,
+        );
       } while (p.match(TokenType.COMMA));
       p.expect(TokenType.RIGHT_PAREN);
       continue;
@@ -66,18 +76,32 @@ function parseCreateTable(p: BaseParser): CreateTableStatement {
       p.expect(TokenType.LEFT_PAREN);
       const fkColumns: string[] = [];
       do {
-        fkColumns.push(p.expect(TokenType.IDENTIFIER, `Expected column name`).value);
+        fkColumns.push(
+          p.expect(TokenType.IDENTIFIER, `Expected column name`).value,
+        );
       } while (p.match(TokenType.COMMA));
       p.expect(TokenType.RIGHT_PAREN);
-      p.expect(TokenType.REFERENCES, `Expected REFERENCES after FOREIGN KEY columns`);
-      const refTable = p.expect(TokenType.IDENTIFIER, `Expected referenced table name`).value;
+      p.expect(
+        TokenType.REFERENCES,
+        `Expected REFERENCES after FOREIGN KEY columns`,
+      );
+      const refTable = p.expect(
+        TokenType.IDENTIFIER,
+        `Expected referenced table name`,
+      ).value;
       p.expect(TokenType.LEFT_PAREN);
       const refColumns: string[] = [];
       do {
-        refColumns.push(p.expect(TokenType.IDENTIFIER, `Expected column name`).value);
+        refColumns.push(
+          p.expect(TokenType.IDENTIFIER, `Expected column name`).value,
+        );
       } while (p.match(TokenType.COMMA));
       p.expect(TokenType.RIGHT_PAREN);
-      foreign_keys.push({ columns: fkColumns, ref_table: refTable, ref_columns: refColumns });
+      foreign_keys.push({
+        columns: fkColumns,
+        ref_table: refTable,
+        ref_columns: refColumns,
+      });
       continue;
     }
 
@@ -148,7 +172,10 @@ function parseColumnDefinition(p: BaseParser): ColumnDefinition {
   };
 }
 
-function parseCreateIndex(p: BaseParser, is_unique: boolean): CreateIndexStatement {
+function parseCreateIndex(
+  p: BaseParser,
+  is_unique: boolean,
+): CreateIndexStatement {
   p.expect(TokenType.INDEX);
 
   let if_not_exists = false;
@@ -158,9 +185,15 @@ function parseCreateIndex(p: BaseParser, is_unique: boolean): CreateIndexStateme
     if_not_exists = true;
   }
 
-  const index_name = p.expect(TokenType.IDENTIFIER, `Expected index name`).value;
+  const index_name = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected index name`,
+  ).value;
   p.expect(TokenType.ON, `Expected ON after index name`);
-  const table_name = p.expect(TokenType.IDENTIFIER, `Expected table name after ON`).value;
+  const table_name = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected table name after ON`,
+  ).value;
 
   p.expect(TokenType.LEFT_PAREN);
   const expressions: ParsedExpression[] = [];
@@ -182,7 +215,10 @@ function parseCreateIndex(p: BaseParser, is_unique: boolean): CreateIndexStateme
 export function parseAlterTable(p: BaseParser): AlterTableStatement {
   p.expect(TokenType.ALTER);
   p.expect(TokenType.TABLE, `Expected TABLE after ALTER`);
-  const table = p.expect(TokenType.IDENTIFIER, `Expected table name after ALTER TABLE`).value;
+  const table = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected table name after ALTER TABLE`,
+  ).value;
 
   if (p.match(TokenType.ADD)) {
     p.match(TokenType.COLUMN);
@@ -198,7 +234,10 @@ export function parseAlterTable(p: BaseParser): AlterTableStatement {
 
   if (p.match(TokenType.DROP)) {
     p.match(TokenType.COLUMN);
-    const column_name = p.expect(TokenType.IDENTIFIER, `Expected column name to drop`).value;
+    const column_name = p.expect(
+      TokenType.IDENTIFIER,
+      `Expected column name to drop`,
+    ).value;
     return {
       type: StatementType.ALTER_TABLE_STATEMENT,
       table,
@@ -220,7 +259,9 @@ export function parseDrop(p: BaseParser): DropStatement {
   } else if (p.match(TokenType.INDEX)) {
     drop_type = DropType.INDEX;
   } else {
-    p.error(`Expected TABLE or INDEX after DROP, got '${p.peek().value || 'EOF'}'`);
+    p.error(
+      `Expected TABLE or INDEX after DROP, got '${p.peek().value || "EOF"}'`,
+    );
   }
 
   let if_exists = false;
@@ -229,7 +270,10 @@ export function parseDrop(p: BaseParser): DropStatement {
     if_exists = true;
   }
 
-  const name = p.expect(TokenType.IDENTIFIER, `Expected name after DROP ${DropType[drop_type]}`).value;
+  const name = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected name after DROP ${DropType[drop_type]}`,
+  ).value;
 
   return {
     type: StatementType.DROP_STATEMENT,

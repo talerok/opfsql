@@ -11,8 +11,8 @@ import type {
   BoundCaseExpression,
   BoundCastExpression,
   BoundJsonAccessExpression,
-} from '../../binder/types.js';
-import { BoundExpressionClass } from '../../binder/types.js';
+} from "../../binder/types.js";
+import { BoundExpressionClass } from "../../binder/types.js";
 
 export function mapExpression(
   expr: BoundExpression,
@@ -102,7 +102,11 @@ export function mapExpression(
     case BoundExpressionClass.BOUND_JSON_ACCESS: {
       const ja = expr as BoundJsonAccessExpression;
       const child = mapExpression(ja.child, fn);
-      return fn(child === ja.child ? ja : { ...ja, child: child as BoundColumnRefExpression });
+      return fn(
+        child === ja.child
+          ? ja
+          : { ...ja, child: child as BoundColumnRefExpression },
+      );
     }
 
     default:

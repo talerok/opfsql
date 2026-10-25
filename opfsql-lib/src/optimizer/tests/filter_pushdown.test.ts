@@ -275,15 +275,15 @@ describe("FilterPushdown", () => {
     const usersGet = getAllGets(optimized).find((g) => g.tableName === "users");
     expect(usersGet).toBeDefined();
     expect(usersGet!.tableFilters.length).toBeGreaterThan(0);
-    expect((usersGet!.tableFilters[0].expression as any).binding.columnIndex).toBe(2);
+    expect(
+      (usersGet!.tableFilters[0].expression as any).binding.columnIndex,
+    ).toBe(2);
   });
 });
 
 describe("FilterPushdown — edge cases", () => {
   it("pushes filter through DISTINCT", () => {
-    const plan = bind(
-      "SELECT DISTINCT name, age FROM users WHERE age > 18",
-    );
+    const plan = bind("SELECT DISTINCT name, age FROM users WHERE age > 18");
     const optimized = pushdownFilters(plan);
     const get = getGet(optimized);
     expect(get.tableFilters.length).toBeGreaterThan(0);
@@ -316,24 +316,23 @@ describe("FilterPushdown — edge cases", () => {
     );
     const pulled = pullupFilters(plan);
     const optimized = pushdownFilters(pulled);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY);
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    );
     expect(agg).not.toBeNull();
     expect(optimized).toBeTruthy();
   });
 
   it("handles filter that references no tables (constant filter)", () => {
-    const plan = bind(
-      "SELECT * FROM users CROSS JOIN orders WHERE 1 = 1",
-    );
+    const plan = bind("SELECT * FROM users CROSS JOIN orders WHERE 1 = 1");
     const rewritten = rewriteExpressions(plan);
     const optimized = pushdownFilters(rewritten);
     expect(optimized).toBeTruthy();
   });
 
   it("remaps filter through projection (column index mapping)", () => {
-    const plan = bind(
-      "SELECT name, age FROM users WHERE age > 18",
-    );
+    const plan = bind("SELECT name, age FROM users WHERE age > 18");
     const optimized = pushdownFilters(plan);
     const proj = findNode(optimized, LogicalOperatorType.LOGICAL_PROJECTION);
     expect(proj).not.toBeNull();
@@ -378,8 +377,15 @@ describe("FilterPushdown — edge cases", () => {
     const optimized = pushdownFilters(plan);
     const get = getGet(optimized);
     expect(get.tableFilters.length).toBeGreaterThan(0);
-    expect(get.tableFilters.some((tf) => (tf.expression as any).binding.columnIndex === 1)).toBe(true);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    expect(
+      get.tableFilters.some(
+        (tf) => (tf.expression as any).binding.columnIndex === 1,
+      ),
+    ).toBe(true);
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.havingExpression).toBeNull();
   });
 
@@ -388,7 +394,10 @@ describe("FilterPushdown — edge cases", () => {
       "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id HAVING COUNT(*) > 5",
     );
     const optimized = pushdownFilters(plan);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.havingExpression).not.toBeNull();
   });
 
@@ -397,7 +406,10 @@ describe("FilterPushdown — edge cases", () => {
       "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id HAVING user_id > COUNT(*)",
     );
     const optimized = pushdownFilters(plan);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.havingExpression).not.toBeNull();
   });
 
@@ -408,8 +420,15 @@ describe("FilterPushdown — edge cases", () => {
     const optimized = pushdownFilters(plan);
     const get = getGet(optimized);
     expect(get.tableFilters.length).toBeGreaterThan(0);
-    expect(get.tableFilters.some((tf) => (tf.expression as any).binding.columnIndex === 1)).toBe(true);
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    expect(
+      get.tableFilters.some(
+        (tf) => (tf.expression as any).binding.columnIndex === 1,
+      ),
+    ).toBe(true);
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.havingExpression).not.toBeNull();
   });
 
@@ -419,10 +438,15 @@ describe("FilterPushdown — edge cases", () => {
     );
     const optimized = pushdownFilters(plan);
     // user_id > 5 is pushed below, COUNT(*) > 10 AND SUM(amount) > 100 stay as conjunction
-    const agg = findNode(optimized, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const agg = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(agg.havingExpression).not.toBeNull();
     // The HAVING should be a conjunction of the two remaining aggregate filters
-    expect(agg.havingExpression!.expressionClass).toBe(BoundExpressionClass.BOUND_CONJUNCTION);
+    expect(agg.havingExpression!.expressionClass).toBe(
+      BoundExpressionClass.BOUND_CONJUNCTION,
+    );
     const conj = agg.havingExpression as BoundConjunctionExpression;
     expect(conj.children).toHaveLength(2);
     // The group column filter should be pushed to the scan
@@ -435,7 +459,10 @@ describe("FilterPushdown — edge cases", () => {
       "SELECT * FROM users CROSS JOIN orders WHERE users.age + orders.amount > 100",
     );
     const optimized = pushdownFilters(plan);
-    const join = findNode(optimized, LogicalOperatorType.LOGICAL_COMPARISON_JOIN);
+    const join = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_COMPARISON_JOIN,
+    );
     const filter = findNode(optimized, LogicalOperatorType.LOGICAL_FILTER);
     if (!join) {
       expect(filter).not.toBeNull();
@@ -448,7 +475,9 @@ describe("FilterPushdown — edge cases", () => {
     );
     const optimized = pushdownFilters(plan);
     const usersGet = getAllGets(optimized).find((g) => g.tableName === "users");
-    const ordersGet = getAllGets(optimized).find((g) => g.tableName === "orders");
+    const ordersGet = getAllGets(optimized).find(
+      (g) => g.tableName === "orders",
+    );
     expect(usersGet!.tableFilters.length).toBeGreaterThan(0);
     expect(ordersGet!.tableFilters.length).toBeGreaterThan(0);
   });
@@ -459,7 +488,9 @@ describe("FilterPushdown — edge cases", () => {
     );
     const decorrelated = decorrelateExists(plan);
     const optimized = pushdownFilters(decorrelated);
-    const ordersGet = getAllGets(optimized).find((g) => g.tableName === "orders");
+    const ordersGet = getAllGets(optimized).find(
+      (g) => g.tableName === "orders",
+    );
     expect(ordersGet).toBeDefined();
     expect(ordersGet!.tableFilters.length).toBeGreaterThan(0);
   });
@@ -470,7 +501,9 @@ describe("FilterPushdown — edge cases", () => {
     );
     const decorrelated = decorrelateExists(plan);
     const optimized = pushdownFilters(decorrelated);
-    const ordersGet = getAllGets(optimized).find((g) => g.tableName === "orders");
+    const ordersGet = getAllGets(optimized).find(
+      (g) => g.tableName === "orders",
+    );
     expect(ordersGet).toBeDefined();
     expect(ordersGet!.tableFilters.length).toBeGreaterThan(0);
   });
@@ -509,8 +542,20 @@ describe("FilterPushdown — defensive code paths", () => {
       tableIndex: projTableIndex,
       children: [get],
       expressions: [
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 1 }, tableName: "t", columnName: "b", returnType: "TEXT" } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 0 },
+          tableName: "t",
+          columnName: "a",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 1 },
+          tableName: "t",
+          columnName: "b",
+          returnType: "TEXT",
+        } as BoundColumnRefExpression,
       ],
       aliases: ["a", "b"],
       types: ["INTEGER", "TEXT"],
@@ -524,8 +569,18 @@ describe("FilterPushdown — defensive code paths", () => {
     const outOfBoundsFilter: BoundComparisonExpression = {
       expressionClass: BoundExpressionClass.BOUND_COMPARISON,
       comparisonType: "GREATER",
-      left: { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: projTableIndex, columnIndex: 5 }, tableName: "", columnName: "", returnType: "INTEGER" } as BoundColumnRefExpression,
-      right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 10, returnType: "INTEGER" },
+      left: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: projTableIndex, columnIndex: 5 },
+        tableName: "",
+        columnName: "",
+        returnType: "INTEGER",
+      } as BoundColumnRefExpression,
+      right: {
+        expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+        value: 10,
+        returnType: "INTEGER",
+      },
       returnType: "BOOLEAN",
     };
     const filterNode: LogicalFilter = {
@@ -542,7 +597,9 @@ describe("FilterPushdown — defensive code paths", () => {
     expect(result.type).toBe(LogicalOperatorType.LOGICAL_FILTER);
     const resultFilter = result as LogicalFilter;
     expect(resultFilter.expressions).toHaveLength(1);
-    expect(resultFilter.children[0].type).toBe(LogicalOperatorType.LOGICAL_PROJECTION);
+    expect(resultFilter.children[0].type).toBe(
+      LogicalOperatorType.LOGICAL_PROJECTION,
+    );
   });
 
   it("deduplicates filter with parameter expression against tableFilter", () => {
@@ -557,7 +614,13 @@ describe("FilterPushdown — defensive code paths", () => {
     const paramFilter: BoundComparisonExpression = {
       expressionClass: BoundExpressionClass.BOUND_COMPARISON,
       comparisonType: "EQUAL",
-      left: { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
+      left: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 0 },
+        tableName: "t",
+        columnName: "a",
+        returnType: "INTEGER",
+      } as BoundColumnRefExpression,
       right: paramExpr,
       returnType: "BOOLEAN",
     };
@@ -571,7 +634,10 @@ describe("FilterPushdown — defensive code paths", () => {
     };
 
     const result = pushdownFilters(filterNode);
-    const getNode = findNode(result, LogicalOperatorType.LOGICAL_GET) as LogicalGet;
+    const getNode = findNode(
+      result,
+      LogicalOperatorType.LOGICAL_GET,
+    ) as LogicalGet;
     expect(getNode.tableFilters.length).toBeGreaterThan(0);
     // Filter should be deduplicated (no remaining filter above)
     expect(findNode(result, LogicalOperatorType.LOGICAL_FILTER)).toBeNull();
@@ -590,14 +656,30 @@ describe("FilterPushdown — defensive code paths", () => {
       children: [get],
       expressions: [],
       groups: [
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 0 },
+          tableName: "t",
+          columnName: "a",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
       ],
       // HAVING that references aggregateIndex (e.g., an aggregate output column)
       havingExpression: {
         expressionClass: BoundExpressionClass.BOUND_COMPARISON,
         comparisonType: "GREATER",
-        left: { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: aggregateIndex, columnIndex: 0 }, tableName: "", columnName: "", returnType: "INTEGER" } as BoundColumnRefExpression,
-        right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 5, returnType: "INTEGER" },
+        left: {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: aggregateIndex, columnIndex: 0 },
+          tableName: "",
+          columnName: "",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
+        right: {
+          expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+          value: 5,
+          returnType: "INTEGER",
+        },
         returnType: "BOOLEAN",
       } as BoundComparisonExpression,
       types: ["INTEGER"],
@@ -610,7 +692,10 @@ describe("FilterPushdown — defensive code paths", () => {
 
     const result = pushdownFilters(agg);
     // HAVING should be kept (not pushed down)
-    const aggResult = findNode(result, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const aggResult = findNode(
+      result,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(aggResult.havingExpression).not.toBeNull();
   });
 
@@ -624,8 +709,20 @@ describe("FilterPushdown — defensive code paths", () => {
       tableIndex: projTableIndex,
       children: [get],
       expressions: [
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 1 }, tableName: "t", columnName: "b", returnType: "TEXT" } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 0 },
+          tableName: "t",
+          columnName: "a",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 1 },
+          tableName: "t",
+          columnName: "b",
+          returnType: "TEXT",
+        } as BoundColumnRefExpression,
       ],
       aliases: ["a", "b"],
       types: ["INTEGER", "TEXT"],
@@ -639,8 +736,18 @@ describe("FilterPushdown — defensive code paths", () => {
     const validFilter: BoundComparisonExpression = {
       expressionClass: BoundExpressionClass.BOUND_COMPARISON,
       comparisonType: "GREATER",
-      left: { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: projTableIndex, columnIndex: 0 }, tableName: "", columnName: "", returnType: "INTEGER" } as BoundColumnRefExpression,
-      right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 10, returnType: "INTEGER" },
+      left: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: projTableIndex, columnIndex: 0 },
+        tableName: "",
+        columnName: "",
+        returnType: "INTEGER",
+      } as BoundColumnRefExpression,
+      right: {
+        expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+        value: 10,
+        returnType: "INTEGER",
+      },
       returnType: "BOOLEAN",
     };
     const filterNode: LogicalFilter = {
@@ -655,7 +762,10 @@ describe("FilterPushdown — defensive code paths", () => {
     const result = pushdownFilters(filterNode);
     // Filter should be pushed through the projection (remapped to source columns)
     expect(result.type).toBe(LogicalOperatorType.LOGICAL_PROJECTION);
-    const getNode = findNode(result, LogicalOperatorType.LOGICAL_GET) as LogicalGet;
+    const getNode = findNode(
+      result,
+      LogicalOperatorType.LOGICAL_GET,
+    ) as LogicalGet;
     expect(getNode.tableFilters.length).toBeGreaterThan(0);
   });
 
@@ -675,10 +785,7 @@ describe("FilterPushdown — defensive code paths", () => {
       expressions: [],
       types: ["INTEGER", "TEXT", "INTEGER", "TEXT"],
       estimatedCardinality: 10000,
-      columnBindings: [
-        ...getA.columnBindings,
-        ...getB.columnBindings,
-      ],
+      columnBindings: [...getA.columnBindings, ...getB.columnBindings],
     } as LogicalOperator;
     // Construct (t.col0 + t2.col0) = 100 — left side references both tables
     const mixedEquality: BoundComparisonExpression = {
@@ -688,12 +795,28 @@ describe("FilterPushdown — defensive code paths", () => {
         expressionClass: BoundExpressionClass.BOUND_FUNCTION,
         functionName: "add",
         children: [
-          { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
-          { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 1, columnIndex: 0 }, tableName: "t2", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
+          {
+            expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+            binding: { tableIndex: 0, columnIndex: 0 },
+            tableName: "t",
+            columnName: "a",
+            returnType: "INTEGER",
+          } as BoundColumnRefExpression,
+          {
+            expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+            binding: { tableIndex: 1, columnIndex: 0 },
+            tableName: "t2",
+            columnName: "a",
+            returnType: "INTEGER",
+          } as BoundColumnRefExpression,
         ],
         returnType: "INTEGER",
       },
-      right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 100, returnType: "INTEGER" },
+      right: {
+        expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+        value: 100,
+        returnType: "INTEGER",
+      },
       returnType: "BOOLEAN",
     };
     const filterNode: LogicalFilter = {
@@ -707,9 +830,13 @@ describe("FilterPushdown — defensive code paths", () => {
 
     const result = pushdownFilters(filterNode);
     // Should NOT convert to join (mixed references) — filter stays above cross product
-    expect(findNode(result, LogicalOperatorType.LOGICAL_COMPARISON_JOIN)).toBeNull();
+    expect(
+      findNode(result, LogicalOperatorType.LOGICAL_COMPARISON_JOIN),
+    ).toBeNull();
     expect(result.type).toBe(LogicalOperatorType.LOGICAL_FILTER);
-    expect(findNode(result, LogicalOperatorType.LOGICAL_CROSS_PRODUCT)).not.toBeNull();
+    expect(
+      findNode(result, LogicalOperatorType.LOGICAL_CROSS_PRODUCT),
+    ).not.toBeNull();
   });
 
   it("remapHavingThroughGroups keeps HAVING when groupIndex column exceeds groups count", () => {
@@ -724,26 +851,43 @@ describe("FilterPushdown — defensive code paths", () => {
       children: [get],
       expressions: [],
       groups: [
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 0 },
+          tableName: "t",
+          columnName: "a",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
       ],
       // HAVING references groupIndex column 5 — but only 1 group exists
       havingExpression: {
         expressionClass: BoundExpressionClass.BOUND_COMPARISON,
         comparisonType: "GREATER",
-        left: { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: groupIndex, columnIndex: 5 }, tableName: "", columnName: "", returnType: "INTEGER" } as BoundColumnRefExpression,
-        right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 5, returnType: "INTEGER" },
+        left: {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: groupIndex, columnIndex: 5 },
+          tableName: "",
+          columnName: "",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
+        right: {
+          expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+          value: 5,
+          returnType: "INTEGER",
+        },
         returnType: "BOOLEAN",
       } as BoundComparisonExpression,
       types: ["INTEGER"],
       estimatedCardinality: 100,
-      columnBindings: [
-        { tableIndex: groupIndex, columnIndex: 0 },
-      ],
+      columnBindings: [{ tableIndex: groupIndex, columnIndex: 0 }],
     };
 
     const result = pushdownFilters(agg);
     // HAVING should be kept (groupIndex column out of bounds)
-    const aggResult = findNode(result, LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY) as LogicalAggregate;
+    const aggResult = findNode(
+      result,
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    ) as LogicalAggregate;
     expect(aggResult.havingExpression).not.toBeNull();
   });
 
@@ -761,21 +905,35 @@ describe("FilterPushdown — defensive code paths", () => {
       children: [get],
       expressions: [],
       groups: [
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 0 },
+          tableName: "t",
+          columnName: "a",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
       ],
       havingExpression: null,
       types: ["INTEGER"],
       estimatedCardinality: 100,
-      columnBindings: [
-        { tableIndex: groupIndex, columnIndex: 0 },
-      ],
+      columnBindings: [{ tableIndex: groupIndex, columnIndex: 0 }],
     };
     // Filter referencing the same column as the group expression (tableIndex=0, columnIndex=0)
     const groupMatchingFilter: BoundComparisonExpression = {
       expressionClass: BoundExpressionClass.BOUND_COMPARISON,
       comparisonType: "GREATER",
-      left: { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
-      right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: 18, returnType: "INTEGER" },
+      left: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 0 },
+        tableName: "t",
+        columnName: "a",
+        returnType: "INTEGER",
+      } as BoundColumnRefExpression,
+      right: {
+        expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+        value: 18,
+        returnType: "INTEGER",
+      },
       returnType: "BOOLEAN",
     };
     const filterNode: LogicalFilter = {
@@ -789,9 +947,14 @@ describe("FilterPushdown — defensive code paths", () => {
 
     const result = pushdownFilters(filterNode);
     // The filter should be pushed through the aggregate (no filter above)
-    expect(result.type).toBe(LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY);
+    expect(result.type).toBe(
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    );
     // The pushed filter should appear as a table filter on the get
-    const getNode = findNode(result, LogicalOperatorType.LOGICAL_GET) as LogicalGet;
+    const getNode = findNode(
+      result,
+      LogicalOperatorType.LOGICAL_GET,
+    ) as LogicalGet;
     expect(getNode.tableFilters.length).toBeGreaterThan(0);
   });
 
@@ -807,21 +970,35 @@ describe("FilterPushdown — defensive code paths", () => {
       children: [get],
       expressions: [],
       groups: [
-        { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 0 }, tableName: "t", columnName: "a", returnType: "INTEGER" } as BoundColumnRefExpression,
+        {
+          expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+          binding: { tableIndex: 0, columnIndex: 0 },
+          tableName: "t",
+          columnName: "a",
+          returnType: "INTEGER",
+        } as BoundColumnRefExpression,
       ],
       havingExpression: null,
       types: ["INTEGER"],
       estimatedCardinality: 100,
-      columnBindings: [
-        { tableIndex: groupIndex, columnIndex: 0 },
-      ],
+      columnBindings: [{ tableIndex: groupIndex, columnIndex: 0 }],
     };
     // Filter referencing column 1 (NOT a group column)
     const nonGroupFilter: BoundComparisonExpression = {
       expressionClass: BoundExpressionClass.BOUND_COMPARISON,
       comparisonType: "GREATER",
-      left: { expressionClass: BoundExpressionClass.BOUND_COLUMN_REF, binding: { tableIndex: 0, columnIndex: 1 }, tableName: "t", columnName: "b", returnType: "TEXT" } as BoundColumnRefExpression,
-      right: { expressionClass: BoundExpressionClass.BOUND_CONSTANT, value: "x", returnType: "TEXT" },
+      left: {
+        expressionClass: BoundExpressionClass.BOUND_COLUMN_REF,
+        binding: { tableIndex: 0, columnIndex: 1 },
+        tableName: "t",
+        columnName: "b",
+        returnType: "TEXT",
+      } as BoundColumnRefExpression,
+      right: {
+        expressionClass: BoundExpressionClass.BOUND_CONSTANT,
+        value: "x",
+        returnType: "TEXT",
+      },
       returnType: "BOOLEAN",
     };
     const filterNode: LogicalFilter = {
@@ -837,7 +1014,9 @@ describe("FilterPushdown — defensive code paths", () => {
     // The filter should stay above the aggregate
     expect(result.type).toBe(LogicalOperatorType.LOGICAL_FILTER);
     const resultFilter = result as LogicalFilter;
-    expect(resultFilter.children[0].type).toBe(LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY);
+    expect(resultFilter.children[0].type).toBe(
+      LogicalOperatorType.LOGICAL_AGGREGATE_AND_GROUP_BY,
+    );
   });
 });
 
@@ -845,8 +1024,24 @@ describe("JSON filter pushdown", () => {
   const docsSchema: TableSchema = {
     name: "docs",
     columns: [
-      { name: "id", type: "INTEGER", nullable: false, primaryKey: true, unique: true, autoIncrement: false, defaultValue: null },
-      { name: "data", type: "JSON", nullable: true, primaryKey: false, unique: false, autoIncrement: false, defaultValue: null },
+      {
+        name: "id",
+        type: "INTEGER",
+        nullable: false,
+        primaryKey: true,
+        unique: true,
+        autoIncrement: false,
+        defaultValue: null,
+      },
+      {
+        name: "data",
+        type: "JSON",
+        nullable: true,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: null,
+      },
     ],
   };
 
@@ -855,21 +1050,29 @@ describe("JSON filter pushdown", () => {
   });
 
   it("JSON path AND range filter keeps both conditions after optimize", () => {
-    const plan = bind("SELECT id FROM docs WHERE data.age > 20 AND data.age < 30");
+    const plan = bind(
+      "SELECT id FROM docs WHERE data.age > 20 AND data.age < 30",
+    );
     const optimized = optimize(plan, catalog);
 
     const filter = findNode(optimized, LogicalOperatorType.LOGICAL_FILTER);
     if (filter) {
-      const totalConditions = filter.expressions.reduce((acc: number, e: any) => {
-        if (e.expressionClass === BoundExpressionClass.BOUND_CONJUNCTION) {
-          return acc + (e as BoundConjunctionExpression).children.length;
-        }
-        return acc + 1;
-      }, 0);
+      const totalConditions = filter.expressions.reduce(
+        (acc: number, e: any) => {
+          if (e.expressionClass === BoundExpressionClass.BOUND_CONJUNCTION) {
+            return acc + (e as BoundConjunctionExpression).children.length;
+          }
+          return acc + 1;
+        },
+        0,
+      );
       expect(totalConditions).toBeGreaterThanOrEqual(2);
     }
 
-    const get = findNode(optimized, LogicalOperatorType.LOGICAL_GET) as LogicalGet;
+    const get = findNode(
+      optimized,
+      LogicalOperatorType.LOGICAL_GET,
+    ) as LogicalGet;
     expect(get).toBeTruthy();
     for (const tf of get.tableFilters) {
       expect((tf.expression as any).binding?.columnIndex).not.toBe(1);
@@ -890,7 +1093,10 @@ describe("JSON filter pushdown", () => {
         }, 0);
       }
       // Count conditions pushed down as table filters
-      const get = findNode(p, LogicalOperatorType.LOGICAL_GET) as LogicalGet | null;
+      const get = findNode(
+        p,
+        LogicalOperatorType.LOGICAL_GET,
+      ) as LogicalGet | null;
       if (get) {
         total += get.tableFilters.length;
       }
@@ -907,11 +1113,16 @@ describe("JSON filter pushdown", () => {
     ] as const;
 
     for (const [name, pass] of passes) {
-      const plan = bind("SELECT id FROM docs WHERE data.age > 20 AND data.age < 30");
+      const plan = bind(
+        "SELECT id FROM docs WHERE data.age > 20 AND data.age < 30",
+      );
       const before = countAllConditions(plan);
       const result = pass(plan);
       const after = countAllConditions(result);
-      expect(after, `${name}: filter conditions dropped from ${before} to ${after}`).toBeGreaterThanOrEqual(2);
+      expect(
+        after,
+        `${name}: filter conditions dropped from ${before} to ${after}`,
+      ).toBeGreaterThanOrEqual(2);
     }
   });
 });

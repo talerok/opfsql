@@ -1,12 +1,12 @@
-import type { FunctionExpression } from '../../parser/types.js';
-import type { BoundExpression, BoundFunctionExpression } from '../types.js';
-import { BoundExpressionClass } from '../types.js';
-import type { BindContext, AggregateContext } from '../core/context.js';
-import type { BindScope } from '../core/scope.js';
-import { resolveScalarFunctionReturnType } from '../core/type-check.js';
-import { AGGREGATE_FUNCTIONS, bindAggregate } from './aggregate.js';
-import { sameAggregate } from './same-expression.js';
-import { bindExpression } from './index.js';
+import type { FunctionExpression } from "../../parser/types.js";
+import type { BoundExpression, BoundFunctionExpression } from "../types.js";
+import { BoundExpressionClass } from "../types.js";
+import type { BindContext, AggregateContext } from "../core/context.js";
+import type { BindScope } from "../core/scope.js";
+import { resolveScalarFunctionReturnType } from "../core/type-check.js";
+import { AGGREGATE_FUNCTIONS, bindAggregate } from "./aggregate.js";
+import { sameAggregate } from "./same-expression.js";
+import { bindExpression } from "./index.js";
 
 export function bindFunction(
   ctx: BindContext,
@@ -25,7 +25,9 @@ export function bindFunction(
     return bound;
   }
 
-  const children = expr.children.map((c) => bindExpression(ctx, c, scope, aggCtx));
+  const children = expr.children.map((c) =>
+    bindExpression(ctx, c, scope, aggCtx),
+  );
   const returnType = resolveScalarFunctionReturnType(name, children);
   return {
     expressionClass: BoundExpressionClass.BOUND_FUNCTION,

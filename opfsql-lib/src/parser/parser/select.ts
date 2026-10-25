@@ -1,15 +1,35 @@
-import { BaseParser } from './base.js';
-import { parseExpression } from './expressions.js';
+import { BaseParser } from "./base.js";
+import { parseExpression } from "./expressions.js";
 import {
-  TokenType, ParsedExpression,
-  TableRefType, JoinType, TableRef, BaseTableRef, JoinRef, SubqueryRef,
-  ResultModifierType, OrderType, OrderByNullType,
-  OrderByNode, OrderModifier, LimitModifier, DistinctModifier, ResultModifier,
-  GroupByNode, CTEMap, SelectNode, SetOperationNode, SetOperationType,
-  StatementType, SelectStatement, SetOperationStatement,
-} from '../types.js';
+  TokenType,
+  ParsedExpression,
+  TableRefType,
+  JoinType,
+  TableRef,
+  BaseTableRef,
+  JoinRef,
+  SubqueryRef,
+  ResultModifierType,
+  OrderType,
+  OrderByNullType,
+  OrderByNode,
+  OrderModifier,
+  LimitModifier,
+  DistinctModifier,
+  ResultModifier,
+  GroupByNode,
+  CTEMap,
+  SelectNode,
+  SetOperationNode,
+  SetOperationType,
+  StatementType,
+  SelectStatement,
+  SetOperationStatement,
+} from "../types.js";
 
-export function parseSelectStatement(p: BaseParser): SelectStatement | SetOperationStatement {
+export function parseSelectStatement(
+  p: BaseParser,
+): SelectStatement | SetOperationStatement {
   const cte_map = parseCTE(p);
   const node = parseSelectNode(p, cte_map);
 
@@ -54,7 +74,7 @@ function parseSelectNode(p: BaseParser, cte_map: CTEMap): SelectNode {
   }
 
   return {
-    type: 'SELECT_NODE',
+    type: "SELECT_NODE",
     select_list,
     from_table,
     where_clause,
@@ -79,7 +99,11 @@ function parseTrailingModifiers(p: BaseParser, node: SelectNode): void {
   }
 }
 
-function parseSetOperation(p: BaseParser, left: SelectNode, cte_map: CTEMap): SetOperationStatement {
+function parseSetOperation(
+  p: BaseParser,
+  left: SelectNode,
+  cte_map: CTEMap,
+): SetOperationStatement {
   let currentLeft: SelectNode | SetOperationNode = left;
 
   while (p.check(TokenType.UNION)) {
@@ -88,7 +112,7 @@ function parseSetOperation(p: BaseParser, left: SelectNode, cte_map: CTEMap): Se
     const right = parseSelectNode(p, { map: {}, recursive: false });
 
     currentLeft = {
-      type: 'SET_OPERATION_NODE',
+      type: "SET_OPERATION_NODE",
       set_op_type: isAll ? SetOperationType.UNION_ALL : SetOperationType.UNION,
       left: currentLeft,
       right,
@@ -119,7 +143,9 @@ function parseSelectList(p: BaseParser): ParsedExpression[] {
   const list: ParsedExpression[] = [];
 
   if (p.isClauseKeyword()) {
-    p.error(`Expected expression after SELECT, got '${p.peek().value || 'EOF'}'`);
+    p.error(
+      `Expected expression after SELECT, got '${p.peek().value || "EOF"}'`,
+    );
   }
 
   list.push(parseSelectExpression(p));
@@ -153,17 +179,24 @@ function parseCTE(p: BaseParser): CTEMap {
   const map: Record<string, { query: SelectStatement; aliases: string[] }> = {};
   if (!p.match(TokenType.WITH)) return { map, recursive: false };
 
-  const recursive = p.check(TokenType.IDENTIFIER) && p.peek().value.toLowerCase() === 'recursive';
+  const recursive =
+    p.check(TokenType.IDENTIFIER) &&
+    p.peek().value.toLowerCase() === "recursive";
   if (recursive) p.advance();
 
   do {
-    const nameToken = p.expect(TokenType.IDENTIFIER, `Expected CTE name after WITH`);
+    const nameToken = p.expect(
+      TokenType.IDENTIFIER,
+      `Expected CTE name after WITH`,
+    );
     const name = nameToken.value;
 
     const aliases: string[] = [];
     if (p.match(TokenType.LEFT_PAREN)) {
       do {
-        aliases.push(p.expect(TokenType.IDENTIFIER, `Expected column alias`).value);
+        aliases.push(
+          p.expect(TokenType.IDENTIFIER, `Expected column alias`).value,
+        );
       } while (p.match(TokenType.COMMA));
       p.expect(TokenType.RIGHT_PAREN);
     }
@@ -215,7 +248,10 @@ function parseTableRefPrimary(p: BaseParser): TableRef {
     } satisfies SubqueryRef;
   }
 
-  const nameToken = p.expect(TokenType.IDENTIFIER, `Expected table name after FROM, got '${p.peek().value || 'EOF'}'`);
+  const nameToken = p.expect(
+    TokenType.IDENTIFIER,
+    `Expected table name after FROM, got '${p.peek().value || "EOF"}'`,
+  );
 
   let alias: string | null = null;
   if (p.match(TokenType.AS)) {
@@ -280,7 +316,9 @@ function parseJoin(p: BaseParser, left: TableRef): JoinRef {
   } else if (p.match(TokenType.USING)) {
     p.expect(TokenType.LEFT_PAREN);
     do {
-      using_columns.push(p.expect(TokenType.IDENTIFIER, `Expected column name in USING`).value);
+      using_columns.push(
+        p.expect(TokenType.IDENTIFIER, `Expected column name in USING`).value,
+      );
     } while (p.match(TokenType.COMMA));
     p.expect(TokenType.RIGHT_PAREN);
   }
@@ -326,9 +364,10 @@ function parseOrderBy(p: BaseParser): OrderByNode[] {
       type = OrderType.DESCENDING;
     }
 
-    let null_order = type === OrderType.ASCENDING
-      ? OrderByNullType.NULLS_LAST
-      : OrderByNullType.NULLS_FIRST;
+    let null_order =
+      type === OrderType.ASCENDING
+        ? OrderByNullType.NULLS_LAST
+        : OrderByNullType.NULLS_FIRST;
 
     if (p.match(TokenType.NULLS)) {
       if (p.match(TokenType.FIRST)) {
