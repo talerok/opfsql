@@ -372,9 +372,6 @@
     },
     "unicorn/prefer-direct-iteration": {
       "count": 1
-    },
-    "unicorn/prefer-iterator-to-array": {
-      "count": 2
     }
   },
   "src/engine/tests/integrity.test.ts": {
@@ -438,9 +435,6 @@
     },
     "unicorn/prefer-direct-iteration": {
       "count": 2
-    },
-    "unicorn/prefer-iterator-to-array": {
-      "count": 4
     }
   },
   "src/engine/tests/open.test.ts": {
@@ -477,9 +471,6 @@
     },
     "unicorn/prefer-direct-iteration": {
       "count": 1
-    },
-    "unicorn/prefer-iterator-to-array": {
-      "count": 2
     }
   },
   "src/engine/tests/storage-efficiency.test.ts": {
@@ -1461,9 +1452,6 @@
     },
     "unicorn/no-unnecessary-parameters": {
       "count": 1
-    },
-    "unicorn/prefer-iterator-to-array": {
-      "count": 2
     }
   },
   "src/executor/tests/evaluate.test.ts": {
@@ -1531,9 +1519,6 @@
     },
     "unicorn/no-non-function-verb-prefix": {
       "count": 1
-    },
-    "unicorn/prefer-iterator-to-array": {
-      "count": 3
     }
   },
   "src/executor/tests/helpers.ts": {
@@ -3956,9 +3941,6 @@
     },
     "unicorn/name-replacements": {
       "count": 3
-    },
-    "unicorn/prefer-iterator-to-array": {
-      "count": 4
     }
   },
   "src/store/errors.ts": {
@@ -4276,9 +4258,6 @@
     },
     "unicorn/prefer-continue": {
       "count": 1
-    },
-    "unicorn/prefer-iterator-to-array": {
-      "count": 2
     }
   },
   "src/store/tests/catalog.test.ts": {

@@ -91,6 +91,42 @@ export function indexInteriorCell(child: number, key: Uint8Array): Uint8Array {
   return writer.toBytes();
 }
 
+/** The key of a leaf cell: its rowid in a table, its encoded key in an index. */
+export function leafCellKey(
+  type: BTreePageType,
+  cell: Uint8Array,
+): number | Uint8Array {
+  if (type === "table-leaf") return unzigzag(readVarint(cell, 0));
+  const start = skipVarint(cell, 0);
+  return new Uint8Array(cell.subarray(start, start + readVarint(cell, 0)));
+}
+
+/** The key of an interior cell. */
+export function interiorCellKey(
+  type: BTreePageType,
+  cell: Uint8Array,
+): number | Uint8Array {
+  if (type === "table-interior") return unzigzag(readVarint(cell, CHILD_SIZE));
+  const start = skipVarint(cell, CHILD_SIZE);
+  return new Uint8Array(
+    cell.subarray(start, start + readVarint(cell, CHILD_SIZE)),
+  );
+}
+
+/** The left child of an interior cell. */
+export function interiorCellChild(cell: Uint8Array): number {
+  return new DataView(cell.buffer, cell.byteOffset, cell.byteLength).getUint32(
+    0,
+  );
+}
+
+/** A copy of an interior cell pointing at another left child. */
+export function withInteriorChild(cell: Uint8Array, child: number): Uint8Array {
+  const copy = new Uint8Array(cell);
+  new DataView(copy.buffer).setUint32(0, child);
+  return copy;
+}
+
 // --- Reading -----------------------------------------------------------------
 
 export class BTreePage {
@@ -301,6 +337,18 @@ export class BTreePageEditor extends BTreePage {
     return new BTreePageEditor(bytes);
   }
 
+  /** Makes `bytes` a page of `type` holding `cells` in order. */
+  static build(
+    bytes: Uint8Array,
+    type: BTreePageType,
+    cells: readonly Uint8Array[],
+    rightChild = 0,
+  ): BTreePageEditor {
+    const editor = this.initialize(bytes, type, rightChild);
+    for (const [index, cell] of cells.entries()) editor.insertCell(index, cell);
+    return editor;
+  }
+
   /** Inserts `cell` at `index`; the caller has checked that it fits. */
   insertCell(index: number, cell: Uint8Array): void {
     const required = cell.length + POINTER_SIZE;
@@ -345,8 +393,7 @@ export class BTreePageEditor extends BTreePage {
 
   /** Replaces every cell; an interior page also gets a new rightmost child. */
   rebuild(cells: readonly Uint8Array[], rightChild = 0): void {
-    BTreePageEditor.initialize(this.bytes, this.type, rightChild);
-    for (const [index, cell] of cells.entries()) this.insertCell(index, cell);
+    BTreePageEditor.build(this.bytes, this.type, cells, rightChild);
   }
 
   private shiftPointersBelow(offset: number, size: number): void {

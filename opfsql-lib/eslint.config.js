@@ -161,8 +161,10 @@ export default config(
       "unicorn/filename-case": ["error", { case: "kebabCase" }],
       // There is no DOM here: plan nodes have `children` too.
       "unicorn/better-dom-traversing": "off",
-      // Iterator.zip is not in the browsers opfsql supports yet.
+      // Iterator helpers (zip, toArray) are not in the browsers opfsql
+      // supports yet, nor in its TypeScript library.
       "unicorn/prefer-iterator-zip": "off",
+      "unicorn/prefer-iterator-to-array": "off",
       // A function named as a predicate must return a boolean, but a function
       // that returns one need not be a predicate (a conversion, say).
       "unicorn/consistent-boolean-name": [
