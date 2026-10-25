@@ -48,7 +48,7 @@ export async function openPager(
   options: StorageOptions,
 ): Promise<Pager> {
   try {
-    return await openPagerIn(files, options);
+    return await openPagerUnguarded(files, options);
   } catch (error) {
     closeQuietly(files.marks);
     closeQuietly(files.wal);
@@ -62,7 +62,7 @@ export async function openOpfsFiles(name: string): Promise<StorageFiles> {
   const root = await navigator.storage.getDirectory();
   const opened: SyncFile[] = [];
   const open = async (suffix: string): Promise<SyncFile> => {
-    const file = await openShared(root, `${name}.opfsql${suffix}`);
+    const file = await openShared(root, fileName(name, suffix));
     opened.push(file);
     return file;
   };
@@ -78,7 +78,8 @@ export async function openOpfsFiles(name: string): Promise<StorageFiles> {
   }
 }
 
-async function openPagerIn(
+/** openPager without the cleanup when it fails. */
+async function openPagerUnguarded(
   files: StorageFiles,
   options: StorageOptions,
 ): Promise<Pager> {
@@ -87,7 +88,7 @@ async function openPagerIn(
   const { name, lockName } = options;
   const openLock = lockName === undefined ? null : `${lockName}:open`;
   const { database, wal } = await whileHolding(openLock, () =>
-    openFiles(files, name, pageSize),
+    openDatabaseAndWal(files, name, pageSize),
   );
   const marks = await openMarks(files.marks, lockName);
   const checkpointThreshold =
@@ -122,20 +123,29 @@ function inUse(name: string, cause: unknown): DatabaseInUseError {
   );
 }
 
-function openFiles(
+/** Recovers the WAL, creating the database first if its file is empty. */
+function openDatabaseAndWal(
   files: StorageFiles,
   name: string,
   pageSize: number,
 ): { database: DatabaseFile; wal: Wal } {
-  const fileName = `${name}.opfsql`;
-  const database =
-    files.database.getSize() === 0
-      ? DatabaseFile.create(files.database, fileName, pageSize)
-      : DatabaseFile.open(files.database, fileName);
-  return {
-    database,
-    wal: Wal.open(files.wal, database.pageSize, `${fileName}-wal`),
-  };
+  const database = openOrCreate(files.database, fileName(name), pageSize);
+  const walName = fileName(name, "-wal");
+  return { database, wal: Wal.open(files.wal, database.pageSize, walName) };
+}
+
+function openOrCreate(
+  file: SyncFile,
+  name: string,
+  pageSize: number,
+): DatabaseFile {
+  if (file.getSize() === 0) return DatabaseFile.create(file, name, pageSize);
+  return DatabaseFile.open(file, name);
+}
+
+/** The name of one of database `name`'s files: suffix "", "-wal" or "-shm". */
+function fileName(name: string, suffix = ""): string {
+  return `${name}.opfsql${suffix}`;
 }
 
 /** A file several tabs may hold at once, where the browser allows it. */

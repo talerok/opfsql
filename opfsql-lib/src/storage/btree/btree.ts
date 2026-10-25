@@ -1,5 +1,4 @@
 import { InternalError } from "../../errors.js";
-import type { BTreePageType } from "../format/btree-page.js";
 import {
   BTreePage,
   BTreePageEditor,
@@ -10,31 +9,24 @@ import {
 import type { Descent, Step } from "./cursor.js";
 import { Cursor, descendToKey } from "./cursor.js";
 import type { PageReader, PageWriter } from "./page-store.js";
-import type { NodeContent } from "./split.js";
-import { contentOf, cut, withChild } from "./split.js";
+import type { NodeContent, SplitStyle } from "./split.js";
+import { contentOf, cut, withCell, withChild } from "./split.js";
 import type { Position, TreeKey, TreeKind } from "./types.js";
+import { INTERIOR_TYPE, LEAF_TYPE } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // B+trees over format 5 pages: tables keyed by rowid, indexes by encoded key.
 //
 // A tree is known by its root page, which never moves: when the root splits,
 // its content moves to two new pages and the root becomes their parent.
-// A node that outgrows its page splits where the halves are closest in
-// bytes — except at the right edge of the tree, where it splits off just the
-// new cell and leaves a full page behind, so ascending inserts fill pages.
 // ---------------------------------------------------------------------------
 
-const LEAF_TYPE: Record<TreeKind, BTreePageType> = {
-  table: "table-leaf",
-  index: "index-leaf",
-};
-
-const INTERIOR_TYPE: Record<TreeKind, BTreePageType> = {
-  table: "table-interior",
-  index: "index-interior",
-};
-
-const POINTER_SIZE = 2;
+/** The two pages a node split into, and the key between them. */
+interface Halves {
+  readonly left: number;
+  readonly separator: TreeKey;
+  readonly right: number;
+}
 
 export class BTree {
   protected readonly pageAt = (pageNo: number): BTreePage =>
@@ -48,35 +40,23 @@ export class BTree {
 
   /** The leaf cell with `key`, or null. */
   find(key: TreeKey): Position | null {
-    const { leaf, position } = this.descend(key);
-    return leaf.holds(position, key) ? { page: leaf, index: position } : null;
+    const { leaf, index } = this.descend(key);
+    return leaf.holds(index, key) ? { page: leaf, index } : null;
   }
 
   /** Leaf cells in key order, from the first whose key is at least `from`. */
   *ascending(from?: TreeKey): Generator<Position> {
-    const cursor =
-      from === undefined
-        ? Cursor.atEdge(this.pageAt, this.root, "first")
-        : Cursor.atKey(this.pageAt, this.root, from);
+    const cursor = this.cursorFrom(from);
     do {
-      const { page } = cursor;
-      for (let index = cursor.index; index < page.cellCount; index++) {
-        yield { page, index };
-      }
+      yield* cellsUpFrom(cursor.page, cursor.index);
     } while (cursor.moveToLeaf("next"));
   }
 
   /** Leaf cells in reverse key order, from the last whose key is below `before`. */
   *descending(before?: TreeKey): Generator<Position> {
-    const cursor =
-      before === undefined
-        ? Cursor.atEdge(this.pageAt, this.root, "last")
-        : Cursor.beforeKey(this.pageAt, this.root, before);
+    const cursor = this.cursorBefore(before);
     do {
-      const { page } = cursor;
-      for (let index = cursor.index; index >= 0; index--) {
-        yield { page, index };
-      }
+      yield* cellsDownFrom(cursor.page, cursor.index);
     } while (cursor.moveToLeaf("previous"));
   }
 
@@ -91,13 +71,20 @@ export class BTree {
     return maxCellSize(LEAF_TYPE[this.kind], this.pages.pageSize);
   }
 
-  /** Largest interior cell, which bounds the keys an index accepts. */
-  maxInteriorCellSize(): number {
-    return maxCellSize(INTERIOR_TYPE[this.kind], this.pages.pageSize);
-  }
-
   protected descend(key: TreeKey): Descent {
     return descendToKey(this.pageAt, this.root, key);
+  }
+
+  private cursorFrom(from: TreeKey | undefined): Cursor {
+    if (from === undefined)
+      return Cursor.atEdge(this.pageAt, this.root, "first");
+    return Cursor.atKey(this.pageAt, this.root, from);
+  }
+
+  private cursorBefore(before: TreeKey | undefined): Cursor {
+    if (before === undefined)
+      return Cursor.atEdge(this.pageAt, this.root, "last");
+    return Cursor.beforeKey(this.pageAt, this.root, before);
   }
 }
 
@@ -121,8 +108,8 @@ export class BTreeWriter extends BTree {
   insert(key: TreeKey, cell: Uint8Array): boolean {
     this.checkCellSize(cell);
     const descent = this.descend(key);
-    if (descent.leaf.holds(descent.position, key)) return false;
-    this.insertCell(descent, cell, isPastLastKey(descent));
+    if (descent.leaf.holds(descent.index, key)) return false;
+    this.insertCell(descent, cell);
     return true;
   }
 
@@ -130,17 +117,17 @@ export class BTreeWriter extends BTree {
   replace(key: TreeKey, cell: Uint8Array): boolean {
     this.checkCellSize(cell);
     const descent = this.descend(key);
-    if (!descent.leaf.holds(descent.position, key)) return false;
-    this.edit(descent.leafPageNo).removeCell(descent.position);
-    this.insertCell(descent, cell, false);
+    if (!descent.leaf.holds(descent.index, key)) return false;
+    this.edit(descent.leafPageNo).removeCell(descent.index);
+    this.insertCell(descent, cell);
     return true;
   }
 
   /** Removes the cell under `key`. False if there is none. */
   delete(key: TreeKey): boolean {
-    const { leafPageNo, leaf, position } = this.descend(key);
-    if (!leaf.holds(position, key)) return false;
-    this.edit(leafPageNo).removeCell(position);
+    const { leafPageNo, leaf, index } = this.descend(key);
+    if (!leaf.holds(index, key)) return false;
+    this.edit(leafPageNo).removeCell(index);
     return true;
   }
 
@@ -169,62 +156,61 @@ export class BTreeWriter extends BTree {
 
   // --- Splits ------------------------------------------------------------------
 
-  private insertCell(
-    descent: Descent,
-    cell: Uint8Array,
-    isAtRightEdge: boolean,
-  ): void {
-    const { path, leafPageNo, position } = descent;
+  /** Puts `cell` at the descent's place in its leaf, splitting it if it is full. */
+  private insertCell(descent: Descent, cell: Uint8Array): void {
+    const { path, leafPageNo, index } = descent;
     const leaf = this.edit(leafPageNo);
-    if (fits(cell, leaf)) {
-      leaf.insertCell(position, cell);
+    if (leaf.fits(cell)) {
+      leaf.insertCell(index, cell);
       return;
     }
-    const content = contentOf(leaf);
-    content.cells.splice(position, 0, cell);
-    this.split(path, leafPageNo, content, isAtRightEdge);
+    const content = withCell(contentOf(leaf), index, cell);
+    this.split(path, leafPageNo, content, splitStyleAt(path, leaf, index));
   }
 
-  /** Writes `content`, too big for one page, as two, and carries the split up. */
+  /**
+   * Writes `content`, too big for one page, as two, and adds the key between
+   * them to the parent: the last step of `path`, the way down to `pageNo`.
+   */
   private split(
-    path: Step[],
+    path: readonly Step[],
     pageNo: number,
     content: NodeContent,
-    isAtRightEdge: boolean,
+    style: SplitStyle,
   ): void {
-    const { left, separator, right } = cut(content, isAtRightEdge);
-    const parent = path.pop();
+    const { left, separator, right } = cut(content, style);
+    const parent = path.at(-1);
     if (parent === undefined) {
       this.splitRoot(pageNo, left, separator, right);
       return;
     }
     this.edit(pageNo).rebuild(left.cells, left.rightChild);
     const halves = { left: pageNo, separator, right: this.allocateNode(right) };
-    this.addSeparator(path, parent, halves, isAtRightEdge);
+    this.addSeparator(path.slice(0, -1), parent, halves, style);
   }
 
   /**
-   * Puts `separator` between the split page and its new right half in the
+   * Puts the separator between the split page and its new right half in the
    * parent: a new cell points left, and the reference that pointed at the
    * split page — now just after that cell — points right.
    */
   private addSeparator(
-    path: Step[],
+    path: readonly Step[],
     parent: Step,
-    halves: { left: number; separator: TreeKey; right: number },
-    isAtRightEdge: boolean,
+    halves: Halves,
+    style: SplitStyle,
   ): void {
     const editor = this.edit(parent.pageNo);
     const cell = this.interiorCell(halves.left, halves.separator);
-    if (fits(cell, editor)) {
+    const rightIndex = parent.index + 1;
+    if (editor.fits(cell)) {
       editor.insertCell(parent.index, cell);
-      editor.setChild(parent.index + 1, halves.right);
+      editor.setChild(rightIndex, halves.right);
       return;
     }
-    const content = contentOf(editor);
-    content.cells.splice(parent.index, 0, cell);
-    const updated = withChild(content, parent.index + 1, halves.right);
-    this.split(path, parent.pageNo, updated, isAtRightEdge);
+    const withSeparator = withCell(contentOf(editor), parent.index, cell);
+    const content = withChild(withSeparator, rightIndex, halves.right);
+    this.split(path, parent.pageNo, content, style);
   }
 
   /** The root keeps its page: its halves move to new pages below it. */
@@ -252,20 +238,35 @@ export class BTreeWriter extends BTree {
   }
 
   private interiorCell(child: number, separator: TreeKey): Uint8Array {
-    return typeof separator === "number"
-      ? tableInteriorCell(child, separator)
-      : indexInteriorCell(child, separator);
+    if (typeof separator === "number") {
+      return tableInteriorCell(child, separator);
+    }
+    return indexInteriorCell(child, separator);
   }
 }
 
-/** True when the descent ends past the last key of the tree. */
-function isPastLastKey({ path, leaf, position }: Descent): boolean {
-  const isLastInLeaf = position === leaf.cellCount;
-  return isLastInLeaf && path.every((step) => step.index === step.cellCount);
+function* cellsUpFrom(page: BTreePage, first: number): Generator<Position> {
+  for (let index = first; index < page.cellCount; index++) {
+    yield { page, index };
+  }
 }
 
-function fits(cell: Uint8Array, page: BTreePage): boolean {
-  return cell.length + POINTER_SIZE <= page.freeSpace;
+function* cellsDownFrom(page: BTreePage, first: number): Generator<Position> {
+  for (let index = first; index >= 0; index--) yield { page, index };
+}
+
+/**
+ * A cell going past the last key of the tree splits off alone, so ascending
+ * inserts leave full pages behind; any other splits in the middle.
+ */
+function splitStyleAt(
+  path: readonly Step[],
+  leaf: BTreePage,
+  index: number,
+): SplitStyle {
+  const isLastInLeaf = index === leaf.cellCount;
+  const isRightmostLeaf = path.every((step) => step.index === step.cellCount);
+  return isLastInLeaf && isRightmostLeaf ? "right-edge" : "balanced";
 }
 
 function childrenOf(page: BTreePage): number[] {

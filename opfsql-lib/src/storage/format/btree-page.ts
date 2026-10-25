@@ -6,6 +6,7 @@ import {
   readVarint,
   skipVarint,
   unzigzag,
+  varintSize,
   viewOf,
   writeUint32,
   zigzag,
@@ -60,6 +61,25 @@ export function isInterior(type: BTreePageType): boolean {
  */
 export function maxCellSize(type: BTreePageType, pageSize: number): number {
   return Math.floor((pageSize - headerSize(type)) / 4) - POINTER_SIZE;
+}
+
+/**
+ * Longest index key: one whose interior cell — left child, length, key —
+ * fits. Leaf cells, with a smaller header and no child, fit too.
+ */
+export function maxIndexKeySize(pageSize: number): number {
+  const cell = maxCellSize("index-interior", pageSize);
+  return cell - CHILD_SIZE - varintSize(cell);
+}
+
+/** Bytes a cell takes in a page, its pointer included. */
+export function cellFootprint(cell: Uint8Array): number {
+  return cell.length + POINTER_SIZE;
+}
+
+/** Bytes of a table leaf cell holding `rowid` and a record of `recordLength` bytes. */
+export function tableLeafCellSize(rowid: number, recordLength: number): number {
+  return varintSize(zigzag(rowid)) + varintSize(recordLength) + recordLength;
 }
 
 // --- Cells -------------------------------------------------------------------
@@ -153,7 +173,10 @@ export class BTreePage {
     return this.view.getUint16(CELL_COUNT_OFFSET);
   }
 
-  /** Offset of the first byte of the cell area. */
+  /**
+   * Offset of the first byte of the cell area. It is stored in 16 bits, so
+   * an empty 64 KiB page stores its end, 65536, as 0.
+   */
   get contentStart(): number {
     const start = this.view.getUint16(CONTENT_START_OFFSET);
     return start === 0 ? this.bytes.length : start;
@@ -186,9 +209,8 @@ export class BTreePage {
   /** Child page of an interior page: cell `index`'s left child, or the rightmost. */
   child(index: number): number {
     this.requireInterior();
-    return index === this.cellCount
-      ? this.rightChild
-      : this.view.getUint32(this.cellOffset(index));
+    if (index === this.cellCount) return this.rightChild;
+    return this.view.getUint32(this.cellOffset(index));
   }
 
   rowid(index: number): number {
@@ -206,16 +228,21 @@ export class BTreePage {
   }
 
   /**
-   * Number of cells whose key is below `key` (a rowid in a table page, the
+   * The first cell whose key is at least `key` (a rowid in a table page, an
    * encoded key in an index page): where `key` is, or would go.
    */
-  position(key: number | Uint8Array): number {
+  lowerBound(key: number | Uint8Array): number {
     return this.firstCellWhere((index) => this.compareCell(index, key) >= 0);
   }
 
-  /** The child of an interior page whose keys include `key`. */
-  childFor(key: number | Uint8Array): number {
+  /** Which child of an interior page holds `key`: an index for child(). */
+  childIndexFor(key: number | Uint8Array): number {
     return this.firstCellWhere((index) => this.compareCell(index, key) > 0);
+  }
+
+  /** True if `cell` and its pointer fit in the free space. */
+  fits(cell: Uint8Array): boolean {
+    return cellFootprint(cell) <= this.freeSpace;
   }
 
   /** True if the cell at `index` has exactly `key`. */
@@ -225,9 +252,8 @@ export class BTreePage {
 
   /** Negative, zero or positive as cell `index`'s key is below, at or above `key`. */
   compareCell(index: number, key: number | Uint8Array): number {
-    return typeof key === "number"
-      ? this.rowid(index) - key
-      : compareBytes(this.key(index), key);
+    if (typeof key === "number") return this.rowid(index) - key;
+    return compareBytes(this.key(index), key);
   }
 
   /**
@@ -243,8 +269,9 @@ export class BTreePage {
     }
     const problems = this.packingProblems();
     const free = this.bytes.subarray(this.pointersEnd, start);
-    if (free.some((byte) => byte !== 0))
+    if (free.some((byte) => byte !== 0)) {
       problems.push("free space is not zero");
+    }
     return problems;
   }
 
@@ -337,10 +364,10 @@ export class BTreePageEditor extends BTreePage {
   ): BTreePageEditor {
     bytes.fill(0);
     bytes[0] = TYPE_BYTE[type];
-    const view = viewOf(bytes);
-    view.setUint16(CONTENT_START_OFFSET, bytes.length & 0xff_ff);
-    if (isInterior(type)) view.setUint32(RIGHT_CHILD_OFFSET, rightChild);
-    return new BTreePageEditor(bytes);
+    const editor = new BTreePageEditor(bytes);
+    editor.setContentStart(bytes.length);
+    if (isInterior(type)) editor.setRightChild(rightChild);
+    return editor;
   }
 
   /** Makes `bytes` a page of `type` holding `cells` in order. */
@@ -357,9 +384,7 @@ export class BTreePageEditor extends BTreePage {
 
   /** Inserts `cell` at `index`; the caller has checked that it fits. */
   insertCell(index: number, cell: Uint8Array): void {
-    if (cell.length + POINTER_SIZE > this.freeSpace) {
-      throw new CorruptError("cell does not fit its page");
-    }
+    if (!this.fits(cell)) throw new CorruptError("cell does not fit its page");
     const start = this.contentStart - cell.length;
     this.bytes.set(cell, start);
     this.setContentStart(start);
@@ -413,6 +438,11 @@ export class BTreePageEditor extends BTreePage {
     this.bytes.copyWithin(start + size, start, offset);
     this.bytes.fill(0, start, start + size);
     this.setContentStart(start + size);
+    this.movePointersBefore(offset, size);
+  }
+
+  /** Points the cells stored before `offset` at where they moved: `size` bytes on. */
+  private movePointersBefore(offset: number, size: number): void {
     for (let index = 0; index < this.cellCount; index++) {
       const cellOffset = this.cellOffset(index);
       if (cellOffset < offset) {
@@ -429,6 +459,7 @@ export class BTreePageEditor extends BTreePage {
     this.view.setUint16(CELL_COUNT_OFFSET, count);
   }
 
+  /** See contentStart: 65536 wraps to 0. */
   private setContentStart(start: number): void {
     this.view.setUint16(CONTENT_START_OFFSET, start & 0xff_ff);
   }

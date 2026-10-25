@@ -1,25 +1,20 @@
 import { IndexKeyTooLargeError } from "../../errors.js";
 import { BTree, BTreeWriter } from "../btree/btree.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
-import { indexLeafCell } from "../format/btree-page.js";
-import { varintSize } from "../format/bytes.js";
+import { indexLeafCell, maxIndexKeySize } from "../format/btree-page.js";
 
 // ---------------------------------------------------------------------------
 // The entries of an index: encoded keys (format/key.ts), each ending with the
 // rowid of its row, in byte order.
 // ---------------------------------------------------------------------------
 
-const CHILD_SIZE = 4;
-
 export class IndexReader {
-  protected readonly tree: BTree;
-
+  /** `tree` is for IndexWriter, which reads through the tree it writes. */
   constructor(
     pages: PageReader,
     readonly root: number,
-  ) {
-    this.tree = new BTree(pages, root, "index");
-  }
+    protected readonly tree: BTree = new BTree(pages, root, "index"),
+  ) {}
 
   /** Keys from the first at least `from` (or the first) on, in order. */
   *keysFrom(from?: Uint8Array): Generator<Uint8Array> {
@@ -41,7 +36,10 @@ export class IndexReader {
 }
 
 export class IndexWriter extends IndexReader {
-  private readonly writer: BTreeWriter;
+  /** The longest key the index accepts: about a quarter of a page. */
+  readonly maxKeySize: number;
+  // The reader's tree, typed for writing.
+  declare protected readonly tree: BTreeWriter;
 
   /** `index` names the index in errors. */
   constructor(
@@ -49,8 +47,8 @@ export class IndexWriter extends IndexReader {
     root: number,
     private readonly index: string,
   ) {
-    super(pages, root);
-    this.writer = new BTreeWriter(pages, root, "index");
+    super(pages, root, new BTreeWriter(pages, root, "index"));
+    this.maxKeySize = maxIndexKeySize(pages.pageSize);
   }
 
   /** Allocates the root page of a new, empty index. */
@@ -58,26 +56,20 @@ export class IndexWriter extends IndexReader {
     return BTreeWriter.create(pages, "index");
   }
 
-  /** The longest key the index accepts: one whose interior cell fits a quarter page. */
-  get maxKeySize(): number {
-    const cell = this.writer.maxInteriorCellSize();
-    return cell - CHILD_SIZE - varintSize(cell);
-  }
-
   /** Adds `key`. False, changing nothing, if it is present. */
   insert(key: Uint8Array): boolean {
     if (key.length > this.maxKeySize) {
       throw new IndexKeyTooLargeError(this.index, key.length, this.maxKeySize);
     }
-    return this.writer.insert(key, indexLeafCell(key));
+    return this.tree.insert(key, indexLeafCell(key));
   }
 
   /** Removes `key`. False if it is absent. */
   delete(key: Uint8Array): boolean {
-    return this.writer.delete(key);
+    return this.tree.delete(key);
   }
 
   drop(): void {
-    this.writer.drop();
+    this.tree.drop();
   }
 }

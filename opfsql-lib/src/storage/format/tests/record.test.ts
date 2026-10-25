@@ -42,10 +42,12 @@ describe("records", () => {
   });
 
   it("store integers in the fewest bytes", () => {
+    // A one-field record has two header bytes: its size, then the serial type.
+    const header = 2;
     const sizes = [0, 1, 2, 127, 128, 2 ** 31, 2 ** 47, 2 ** 53 - 1].map(
-      (value) => encode([value]).length,
+      (value) => encode([value]).length - header,
     );
-    expect(sizes).toEqual([2, 2, 3, 3, 4, 8, 10, 10]);
+    expect(sizes).toEqual([0, 0, 1, 1, 2, 6, 8, 8]);
   });
 
   it("decode one field without the others", () => {

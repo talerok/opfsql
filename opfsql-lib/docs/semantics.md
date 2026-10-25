@@ -157,7 +157,9 @@ SQLite.
 - numbers to INTEGER truncate toward zero;
 - BOOLEAN to INTEGER or REAL is 0 / 1; to TEXT is `'true'` / `'false'`;
 - TEXT `'true'` / `'false'` (any case) to BOOLEAN;
-- BLOB to TEXT is lowercase hex; TEXT to BLOB parses hex.
+- BLOB to TEXT is lowercase hex; TEXT to BLOB parses hex;
+- JSON to TEXT is its JSON text with object keys sorted, so equal JSON values
+  cast to equal text.
 
 Anything else fails with `DATATYPE_MISMATCH`. Unlike SQLite, a cast never
 invents a value: `CAST('12abc' AS INTEGER)` is an error, not `12`.

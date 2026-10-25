@@ -1,8 +1,10 @@
 import { InternalError } from "../../errors.js";
 import type { BTreePage, BTreePageType } from "../format/btree-page.js";
 import {
+  cellFootprint,
   interiorCellChild,
   interiorCellKey,
+  isInterior,
   leafCellKey,
   withInteriorChild,
 } from "../format/btree-page.js";
@@ -14,14 +16,15 @@ import type { TreeKey } from "./types.js";
 // only the new cell moves, so ascending inserts leave full pages behind.
 // ---------------------------------------------------------------------------
 
-const POINTER_SIZE = 2;
-
 /** The cells of a node about to be written: too many for one page. */
 export interface NodeContent {
   readonly type: BTreePageType;
-  readonly cells: Uint8Array[];
+  readonly cells: readonly Uint8Array[];
   readonly rightChild: number;
 }
+
+/** Where a node splits: where the halves are closest in bytes, or just before the last cell. */
+export type SplitStyle = "balanced" | "right-edge";
 
 export interface Split {
   readonly left: NodeContent;
@@ -40,6 +43,15 @@ export function contentOf(page: BTreePage): NodeContent {
   };
 }
 
+/** `content` with `cell` inserted at `index`. */
+export function withCell(
+  content: NodeContent,
+  index: number,
+  cell: Uint8Array,
+): NodeContent {
+  return { ...content, cells: content.cells.toSpliced(index, 0, cell) };
+}
+
 /** `content` with child `index` (a cell's left child, or the rightmost) set to `child`. */
 export function withChild(
   content: NodeContent,
@@ -47,23 +59,21 @@ export function withChild(
   child: number,
 ): NodeContent {
   const cell = content.cells[index];
-  if (cell === undefined) return { ...content, rightChild: child };
-  return {
-    ...content,
-    cells: content.cells.with(index, withInteriorChild(cell, child)),
-  };
+  const isRightmost = cell === undefined;
+  if (isRightmost) return { ...content, rightChild: child };
+  const cells = content.cells.with(index, withInteriorChild(cell, child));
+  return { ...content, cells };
 }
 
-export function cut(content: NodeContent, isAtRightEdge: boolean): Split {
-  return content.type.endsWith("leaf")
-    ? cutLeaf(content, isAtRightEdge)
-    : cutInterior(content, isAtRightEdge);
+export function cut(content: NodeContent, style: SplitStyle): Split {
+  if (isInterior(content.type)) return cutInterior(content, style);
+  return cutLeaf(content, style);
 }
 
 /** Leaves split between cells; the right half's first key separates them. */
-function cutLeaf(content: NodeContent, isAtRightEdge: boolean): Split {
+function cutLeaf(content: NodeContent, style: SplitStyle): Split {
   const { type, cells } = content;
-  const at = isAtRightEdge ? cells.length - 1 : balancedCut(cells);
+  const at = style === "right-edge" ? cells.length - 1 : balancedCut(cells);
   const right = cells.slice(at);
   const [firstRight] = right;
   if (firstRight === undefined) {
@@ -80,9 +90,10 @@ function cutLeaf(content: NodeContent, isAtRightEdge: boolean): Split {
  * Interior nodes split around a cell that moves up: its key separates the
  * halves and its left child becomes the left half's rightmost child.
  */
-function cutInterior(content: NodeContent, isAtRightEdge: boolean): Split {
+function cutInterior(content: NodeContent, style: SplitStyle): Split {
   const { type, cells, rightChild } = content;
-  const at = isAtRightEdge ? cells.length - 2 : balancedPromotion(cells);
+  const at =
+    style === "right-edge" ? cells.length - 2 : balancedPromotion(cells);
   const promoted = cells[at];
   if (promoted === undefined) {
     throw new InternalError("an interior node too small to split");
@@ -122,9 +133,8 @@ function balancedPromotion(cells: readonly Uint8Array[]): number {
   );
 }
 
-/** Bytes each cell takes in a page, its pointer included. */
 function footprints(cells: readonly Uint8Array[]): number[] {
-  return cells.map((cell) => cell.length + POINTER_SIZE);
+  return cells.map((cell) => cellFootprint(cell));
 }
 
 /** sum(n): the total of the first `n` sizes. */

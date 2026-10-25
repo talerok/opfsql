@@ -4,18 +4,26 @@ import {
   MisuseError,
   UnsupportedFormatError,
 } from "../../../errors.js";
+import type { SyncFile } from "../../file/sync-file.js";
 import { MemoryFile } from "../../file/sync-file.js";
 import type { StorageFiles } from "../../open.js";
 import { openPager } from "../../open.js";
+import {
+  beginRead,
+  beginWrite,
+  memoryFiles as newFiles,
+  read,
+  write,
+} from "../../tests/pager-support.js";
 import { SCHEMA_ROOT_PAGE } from "../database-file.js";
 import type { Pager } from "../pager.js";
 import type { WriteTransaction } from "../transaction.js";
 
 const PAGE_SIZE = 4096;
-
-function newFiles(): StorageFiles {
-  return { database: new MemoryFile(), wal: new MemoryFile(), marks: null };
-}
+/** docs/file-format.md, WAL file: the header is 20 bytes, the epoch at 12. */
+const WAL_HEADER_SIZE = 20;
+const WAL_EPOCH_OFFSET = 12;
+const TABLE_LEAF_TYPE = 0x02;
 
 /** The same files, as another engine opening them would see them. */
 function reopenFiles(files: StorageFiles): StorageFiles {
@@ -29,16 +37,6 @@ async function open(
   return openPager(files, { name: "test", pageSize: PAGE_SIZE, ...options });
 }
 
-function write(
-  pager: Pager,
-  change: (transaction: WriteTransaction) => void,
-): void {
-  const transaction = pager.beginWrite();
-  if (transaction === null) throw new Error("no snapshot");
-  change(transaction);
-  transaction.commit();
-}
-
 /** Allocates a page and marks its first byte with `value`. */
 function allocateMarked(transaction: WriteTransaction, value: number): number {
   const pageNo = transaction.allocate();
@@ -47,22 +45,23 @@ function allocateMarked(transaction: WriteTransaction, value: number): number {
 }
 
 function firstByte(pager: Pager, pageNo: number): number {
-  const transaction = pager.beginRead();
-  if (transaction === null) throw new Error("no snapshot");
-  const value = transaction.read(pageNo)[0];
-  transaction.end();
-  return value ?? -1;
+  return read(pager, (transaction) => transaction.read(pageNo)[0] ?? -1);
+}
+
+function setWalEpoch(wal: SyncFile, epoch: number): void {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, epoch);
+  wal.write(bytes, { at: WAL_EPOCH_OFFSET });
 }
 
 describe("Pager", () => {
   it("starts an empty database with its header, first map and schema root", async () => {
     const files = newFiles();
-    const pager = await open(files);
+    const transaction = beginRead(await open(files));
     expect(files.database.getSize()).toBe(3 * PAGE_SIZE);
-    const transaction = pager.beginRead();
-    expect(transaction?.schemaVersion).toBe(0);
-    expect(transaction?.read(SCHEMA_ROOT_PAGE)[0]).toBe(0x02);
-    transaction?.end();
+    expect(transaction.schemaVersion).toBe(0);
+    expect(transaction.read(SCHEMA_ROOT_PAGE)[0]).toBe(TABLE_LEAF_TYPE);
+    transaction.end();
   });
 
   it("recovers committed transactions from the WAL after reopening", async () => {
@@ -76,7 +75,7 @@ describe("Pager", () => {
 
     const reopened = await open(reopenFiles(files));
     expect(firstByte(reopened, pageNo)).toBe(42);
-    expect(reopened.beginRead()?.schemaVersion).toBe(1);
+    expect(read(reopened, (transaction) => transaction.schemaVersion)).toBe(1);
   });
 
   it("ignores a torn transaction at the end of the WAL", async () => {
@@ -104,9 +103,7 @@ describe("Pager", () => {
 
     // The next transaction id, a valid checksum, but the header says the WAL
     // has since moved to generation 1: the frames belong to generation 0.
-    const epoch = new Uint8Array(4);
-    new DataView(epoch.buffer).setUint32(0, 1);
-    files.wal.write(epoch, { at: 12 });
+    setWalEpoch(files.wal, 1);
     const reopened = await open(reopenFiles(files));
     expect(reopened.latestCommit()).toBe(0);
   });
@@ -117,25 +114,26 @@ describe("Pager", () => {
     write(pager, (transaction) => {
       pageNo = allocateMarked(transaction, 1);
     });
-    const reader = pager.beginRead();
+    const reader = beginRead(pager);
     write(pager, (transaction) => {
       transaction.write(pageNo).set([2]);
     });
 
-    expect(reader?.read(pageNo)[0]).toBe(1);
+    expect(reader.read(pageNo)[0]).toBe(1);
     expect(firstByte(pager, pageNo)).toBe(2);
-    reader?.end();
+    reader.end();
   });
 
   it("drops a rolled back transaction", async () => {
     const pager = await open(newFiles());
-    const transaction = pager.beginWrite();
-    const pageNo = transaction?.allocate() ?? 0;
-    transaction?.rollback();
+    const transaction = beginWrite(pager);
+    const pageNo = transaction.allocate();
+    transaction.rollback();
     expect(pager.latestCommit()).toBe(0);
-    const next = pager.beginWrite();
-    expect(next?.allocate()).toBe(pageNo);
-    next?.rollback();
+
+    const next = beginWrite(pager);
+    expect(next.allocate()).toBe(pageNo);
+    next.rollback();
   });
 
   it("checkpoints no further than an open snapshot, then the rest", async () => {
@@ -145,18 +143,18 @@ describe("Pager", () => {
     write(pager, (transaction) => {
       pageNo = allocateMarked(transaction, 1);
     });
-    const reader = pager.beginRead();
+    const reader = beginRead(pager);
     write(pager, (transaction) => {
       transaction.write(pageNo).set([2]);
     });
 
     pager.checkpoint();
-    expect(reader?.read(pageNo)[0]).toBe(1);
-    expect(files.wal.getSize()).toBeGreaterThan(20);
+    expect(reader.read(pageNo)[0]).toBe(1);
+    expect(files.wal.getSize()).toBeGreaterThan(WAL_HEADER_SIZE);
 
-    reader?.end();
+    reader.end();
     pager.checkpoint();
-    expect(files.wal.getSize()).toBe(20);
+    expect(files.wal.getSize()).toBe(WAL_HEADER_SIZE);
     expect(firstByte(await open(reopenFiles(files)), pageNo)).toBe(2);
   });
 
@@ -165,11 +163,13 @@ describe("Pager", () => {
     const pager = await open(files);
     const pages: number[] = [];
     write(pager, (transaction) => {
-      for (let count = 0; count < 20; count++)
+      for (let count = 0; count < 20; count++) {
         pages.push(transaction.allocate());
+      }
     });
     expect(pages).toEqual(Array.from({ length: 20 }, (_, index) => index + 3));
 
+    const kept = pages.slice(0, 10);
     write(pager, (transaction) => {
       transaction.free(7);
       for (const pageNo of pages.slice(10)) transaction.free(pageNo);
@@ -178,22 +178,20 @@ describe("Pager", () => {
       expect(transaction.allocate()).toBe(7);
     });
     pager.checkpoint();
-    expect(files.database.getSize()).toBe(13 * PAGE_SIZE);
+    const lastKept = kept.at(-1) ?? 0;
+    expect(files.database.getSize()).toBe((lastKept + 1) * PAGE_SIZE);
   });
 
   it("refuses commits after a failed append it could not undo", async () => {
     const files = newFiles();
     const pager = await open(files);
-    const wal = files.wal as MemoryFile;
-    const failing = Object.assign(wal, {
-      write: () => {
-        throw new Error("disk full");
-      },
-      truncate: () => {
-        throw new Error("still failing");
-      },
-    });
-    expect(failing).toBe(wal);
+    files.wal.write = () => {
+      throw new Error("disk full");
+    };
+    files.wal.truncate = () => {
+      throw new Error("still failing");
+    };
+
     expect(() => {
       write(pager, (transaction) => allocateMarked(transaction, 1));
     }).toThrow(IoError);
@@ -202,7 +200,7 @@ describe("Pager", () => {
     }).toThrow(/unknown state/);
   });
 
-  it("rolls back an append that failed before its flush", async () => {
+  it("rolls back an append whose flush fails", async () => {
     const files = newFiles();
     const pager = await open(files);
     const flush = files.wal.flush.bind(files.wal);
@@ -214,6 +212,7 @@ describe("Pager", () => {
       }
       flush();
     };
+
     expect(() => {
       write(pager, (transaction) => allocateMarked(transaction, 1));
     }).toThrow(IoError);
@@ -223,9 +222,7 @@ describe("Pager", () => {
   });
 
   it("refuses any use of a transaction after it ends", async () => {
-    const pager = await open(newFiles());
-    const transaction = pager.beginWrite();
-    if (transaction === null) throw new Error("no snapshot");
+    const transaction = beginWrite(await open(newFiles()));
     const pageNo = allocateMarked(transaction, 1);
     transaction.commit();
     expect(() => transaction.write(pageNo)).toThrow(MisuseError);
@@ -245,14 +242,14 @@ describe("Pager", () => {
 let tabsOpened = 0;
 
 /** Two tabs sharing one database's files. */
-async function twoTabs() {
+async function twoTabs(): Promise<{ first: Pager; second: Pager }> {
   const database = new MemoryFile();
   const wal = new MemoryFile();
   const marks = new MemoryFile();
   const lockName = `tabs-${String(tabsOpened++)}`;
   const first = await open({ database, wal, marks }, { lockName });
   const second = await open({ database, wal, marks }, { lockName });
-  return { first, second, database, wal };
+  return { first, second };
 }
 
 describe("Pager across tabs", () => {
@@ -275,9 +272,9 @@ describe("Pager across tabs", () => {
 
     expect(second.beginRead()).toBeNull();
     second.catchUp();
-    const reader = second.beginRead();
-    expect(reader?.snapshot).toBe(2);
-    reader?.end();
+    const reader = beginRead(second);
+    expect(reader.snapshot).toBe(2);
+    reader.end();
   });
 
   it("never checkpoints past a snapshot the other tab holds", async () => {
@@ -290,8 +287,8 @@ describe("Pager across tabs", () => {
 
     // The second tab reads the page from the database file, at snapshot 1.
     second.catchUp();
-    const reader = second.beginRead();
-    expect(reader?.read(pageNo)[0]).toBe(1);
+    const reader = beginRead(second);
+    expect(reader.read(pageNo)[0]).toBe(1);
 
     // The first tab changes it and checkpoints, unaware of the snapshot but
     // for the read marks.
@@ -299,9 +296,9 @@ describe("Pager across tabs", () => {
       transaction.write(pageNo).set([2]);
     });
     first.checkpoint();
-    expect(reader?.read(pageNo)[0]).toBe(1);
+    expect(reader.read(pageNo)[0]).toBe(1);
 
-    reader?.end();
+    reader.end();
     first.checkpoint();
     second.catchUp();
     expect(firstByte(second, pageNo)).toBe(2);

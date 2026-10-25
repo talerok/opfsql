@@ -6,6 +6,8 @@ import type { BTreePageType } from "../btree-page.js";
 import {
   BTreePage,
   BTreePageEditor,
+  cellFootprint,
+  headerSize,
   indexInteriorCell,
   indexLeafCell,
   maxCellSize,
@@ -27,6 +29,29 @@ function record(size: number, fill: number): Uint8Array {
   return new Uint8Array(size).fill(fill);
 }
 
+interface ModelRow {
+  readonly rowid: number;
+  readonly record: Uint8Array;
+}
+
+/** Removes the row if the leaf has it, else inserts it if it fits; the model follows. */
+function toggleRow(
+  leaf: BTreePageEditor,
+  model: ModelRow[],
+  row: ModelRow,
+): void {
+  const index = leaf.lowerBound(row.rowid);
+  if (leaf.holds(index, row.rowid)) {
+    leaf.removeCell(index);
+    model.splice(index, 1);
+    return;
+  }
+  const cell = tableLeafCell(row.rowid, row.record);
+  if (!leaf.fits(cell)) return;
+  leaf.insertCell(index, cell);
+  model.splice(index, 0, row);
+}
+
 describe("B-tree pages", () => {
   it("read back table leaf cells by position", () => {
     const leaf = page("table-leaf");
@@ -41,8 +66,8 @@ describe("B-tree pages", () => {
     ]);
     expect(leaf.record(1)).toEqual(record(3, 1));
     expect(leaf.record(2)).toEqual(record(300, 7));
-    expect(leaf.position(10)).toBe(1);
-    expect(leaf.position(11)).toBe(2);
+    expect(leaf.lowerBound(10)).toBe(1);
+    expect(leaf.lowerBound(11)).toBe(2);
     expect(leaf.holds(1, 10)).toBe(true);
     expect(leaf.layoutProblems()).toEqual([]);
   });
@@ -54,7 +79,7 @@ describe("B-tree pages", () => {
 
     expect(
       [50, 100, 150, 200, 250].map((rowid) =>
-        interior.child(interior.childFor(rowid)),
+        interior.child(interior.childIndexFor(rowid)),
       ),
     ).toEqual([7, 8, 8, 99, 99]);
     interior.setChild(2, 42);
@@ -67,15 +92,19 @@ describe("B-tree pages", () => {
       Uint8Array.from(bytes),
     );
     for (const key of keys.toSorted(compareBytes)) {
-      leaf.insertCell(leaf.position(key), indexLeafCell(key));
+      leaf.insertCell(leaf.lowerBound(key), indexLeafCell(key));
     }
     expect(
       Array.from({ length: 4 }, (_, index) => [...leaf.key(index)]),
     ).toEqual([[1], [1, 2], [2, 0], [3]]);
     const interior = page("index-interior", 5);
     interior.insertCell(0, indexInteriorCell(4, Uint8Array.from([2])));
-    expect(interior.child(interior.childFor(Uint8Array.from([1, 9])))).toBe(4);
-    expect(interior.child(interior.childFor(Uint8Array.from([2])))).toBe(5);
+    expect(
+      interior.child(interior.childIndexFor(Uint8Array.from([1, 9]))),
+    ).toBe(4);
+    expect(interior.child(interior.childIndexFor(Uint8Array.from([2])))).toBe(
+      5,
+    );
   });
 
   it.each([1, 2, 3])(
@@ -83,19 +112,11 @@ describe("B-tree pages", () => {
     (seed) => {
       const random = mulberry32(seed);
       const leaf = page("table-leaf");
-      const model: { rowid: number; record: Uint8Array }[] = [];
+      const model: ModelRow[] = [];
       for (let step = 0; step < 2000; step++) {
         const rowid = Math.floor(random() * 500);
-        const index = leaf.position(rowid);
         const bytes = record(Math.floor(random() * 60), rowid % 256);
-        const cell = tableLeafCell(rowid, bytes);
-        if (leaf.holds(index, rowid)) {
-          leaf.removeCell(index);
-          model.splice(index, 1);
-        } else if (cell.length + 2 <= leaf.freeSpace) {
-          leaf.insertCell(index, cell);
-          model.splice(index, 0, { rowid, record: bytes });
-        }
+        toggleRow(leaf, model, { rowid, record: bytes });
         expect(leaf.cellCount).toBe(model.length);
       }
       expect(leaf.layoutProblems()).toEqual([]);
@@ -104,10 +125,10 @@ describe("B-tree pages", () => {
         expect(leaf.record(index)).toEqual(entry.record);
       }
       const used = model.reduce(
-        (total, _, index) => total + leaf.cell(index).length + 2,
+        (total, _, index) => total + cellFootprint(leaf.cell(index)),
         0,
       );
-      expect(leaf.freeSpace).toBe(PAGE_SIZE - 8 - used);
+      expect(leaf.freeSpace).toBe(PAGE_SIZE - headerSize("table-leaf") - used);
     },
   );
 

@@ -52,9 +52,12 @@ export function readVarint(bytes: Uint8Array, offset: number): number {
 
 /** Offset just past the varint at `offset`. */
 export function skipVarint(bytes: Uint8Array, offset: number): number {
-  let end = offset;
-  while ((bytes[end] ?? 0) >= 0x80) end++;
-  return end + 1;
+  for (let index = 0; index < MAX_VARINT_BYTES; index++) {
+    const byte = bytes[offset + index];
+    if (byte === undefined) break;
+    if (byte < 0x80) return offset + index + 1;
+  }
+  throw new CorruptError(`unterminated varint at byte ${String(offset)}`);
 }
 
 /** Maps a signed integer to an unsigned one, small magnitudes to small values. */

@@ -3,10 +3,10 @@ import { mulberry32 } from "../../../../test/support/random.js";
 import { randomValue } from "../../../../test/support/values.js";
 import { IndexKeyTooLargeError, RowTooLargeError } from "../../../errors.js";
 import type { Value } from "../../../values/index.js";
-import { areEqual, compareBytes } from "../../../values/index.js";
+import { compareBytes, rowKey } from "../../../values/index.js";
 import type { PageReader } from "../../btree/page-store.js";
 import { MemoryPages } from "../../btree/tests/memory-pages.js";
-import { encodeKey } from "../../format/key.js";
+import { encodeKey, keyRowid, prefixEnd } from "../../format/key.js";
 import { IndexWriter } from "../index-store.js";
 import type { StoredRow } from "../table-store.js";
 import { TableReader, TableWriter } from "../table-store.js";
@@ -54,10 +54,8 @@ describe("table rows", () => {
       expect(table.insert(rowid, row)).toBe(true);
     }
     for (const [rowid, row] of rows.entries()) {
-      const stored = values(table.get(rowid));
-      expect(
-        stored.every((value, column) => areEqual(value, row[column] ?? null)),
-      ).toBe(true);
+      // rowKey is equal exactly when every value is, and the count too.
+      expect(rowKey(values(table.get(rowid)))).toBe(rowKey(row));
     }
   });
 
@@ -147,20 +145,28 @@ describe("index entries", () => {
     expect([...index.keysFrom()]).toEqual(keys.toSorted(compareBytes));
     expect(index.has(keys[5] ?? new Uint8Array())).toBe(true);
 
+    // The entries for "k3" are those of rowids 3, 100, 197, …, in rowid order.
     const prefix = encodeKey(["k3"]);
+    const end = prefixEnd(prefix);
     const matching = [...index.keysFrom(prefix)].filter(
-      (key) => compareBytes(key.subarray(0, prefix.length), prefix) === 0,
+      (key) => compareBytes(key, end) < 0,
     );
-    expect(matching.length).toBeGreaterThan(0);
+    expect(matching.map((key) => keyRowid(key))).toEqual(
+      Array.from({ length: 21 }, (_, count) => 3 + 97 * count),
+    );
   });
 
-  it("refuse a key longer than a quarter page", () => {
+  it("take keys up to the limit, through splits, and refuse longer ones", () => {
     const pages = new MemoryPages(PAGE_SIZE);
     const index = new IndexWriter(pages, IndexWriter.create(pages), "i");
-    const tooLong = encodeKey(["x".repeat(index.maxKeySize)]);
+    const tooLong = new Uint8Array(index.maxKeySize + 1);
     expect(() => index.insert(tooLong)).toThrow(IndexKeyTooLargeError);
-    expect(index.insert(encodeKey(["x".repeat(index.maxKeySize - 20)]))).toBe(
-      true,
+
+    // Four fit a leaf, so twenty make interior pages of the longest keys.
+    const longest = Array.from({ length: 20 }, (_, count) =>
+      new Uint8Array(index.maxKeySize).fill(count + 1),
     );
+    for (const key of longest) expect(index.insert(key)).toBe(true);
+    expect([...index.keysFrom()]).toEqual(longest);
   });
 });

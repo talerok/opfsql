@@ -1,4 +1,5 @@
-import { highestInUse } from "./allocation.js";
+import type { PageReader } from "../btree/page-store.js";
+import { AllocationMapReader } from "./allocation.js";
 import type { DatabaseFile } from "./database-file.js";
 import type { ReadMarks } from "./read-marks.js";
 import { ReadTransaction, WriteTransaction } from "./transaction.js";
@@ -80,7 +81,7 @@ export class Pager {
   }
 
   unpin(snapshot: number): void {
-    this.addPin(snapshot, -1);
+    this.release(snapshot);
   }
 
   /** Reads what other tabs committed. True if anything changed. */
@@ -118,19 +119,34 @@ export class Pager {
 
   // --- Snapshots ---------------------------------------------------------------
 
+  /**
+   * Pins the latest commit. The pin is published before the checkpoint
+   * intent is read, so a checkpoint that announces its target later sees it;
+   * one that announced a target past the snapshot already wins.
+   */
   private pin(): number | null {
     const snapshot = this.latestCommit();
-    this.addPin(snapshot, 1);
+    this.hold(snapshot);
     const intent = this.options.marks?.checkpointIntent() ?? 0;
     if (intent <= snapshot) return snapshot;
-    this.addPin(snapshot, -1);
+    this.release(snapshot);
     return null;
   }
 
-  private addPin(snapshot: number, delta: 1 | -1): void {
-    const count = (this.pins.get(snapshot) ?? 0) + delta;
+  private hold(snapshot: number): void {
+    this.pins.set(snapshot, (this.pins.get(snapshot) ?? 0) + 1);
+    this.publishOldest();
+  }
+
+  private release(snapshot: number): void {
+    const count = (this.pins.get(snapshot) ?? 0) - 1;
     if (count > 0) this.pins.set(snapshot, count);
     else this.pins.delete(snapshot);
+    this.publishOldest();
+  }
+
+  /** Tells the WAL which versions it may drop, and other tabs what to keep. */
+  private publishOldest(): void {
     const oldest = this.oldestPin();
     this.wal.setOldestSnapshot(oldest);
     this.options.marks?.publish(oldest);
@@ -166,15 +182,19 @@ export class Pager {
   }
 
   private truncateFreeTail(snapshot: number): void {
-    const pageCount =
-      highestInUse(
-        (pageNo) => this.read(pageNo, snapshot),
-        this.pageSize,
-        this.pageCount(snapshot),
-      ) + 1;
+    const map = new AllocationMapReader(this.pagesAt(snapshot));
+    const lastInUse = map.highestInUse(this.pageCount(snapshot));
+    const pageCount = lastInUse + 1;
     if (pageCount >= this.file.pageCount) return;
     this.file.resize(pageCount);
     this.file.flush();
+  }
+
+  private pagesAt(snapshot: number): PageReader {
+    return {
+      pageSize: this.pageSize,
+      read: (pageNo) => this.read(pageNo, snapshot),
+    };
   }
 }
 

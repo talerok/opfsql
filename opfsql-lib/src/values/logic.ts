@@ -1,4 +1,4 @@
-import { compareValues } from "./order.js";
+import { areEqual, compareValues } from "./order.js";
 import type { Value } from "./value.js";
 
 // Three-valued logic: a condition is true, false or unknown (NULL).
@@ -26,10 +26,11 @@ export function compareSql(a: Value, b: Value): number | null {
   return a === null || b === null ? null : compareValues(a, b);
 }
 
-/** `a IS b`: like `=`, but two NULLs are equal and the result is never NULL. */
-export function isSame(a: Value, b: Value): boolean {
-  return compareValues(a, b) === 0;
-}
+/**
+ * `a IS b`: like `=`, but two NULLs are equal and the result is never NULL —
+ * which is exactly equality under the total order.
+ */
+export const isSame = areEqual;
 
 /**
  * `needle IN (items)`: true if an item equals the needle; otherwise NULL if

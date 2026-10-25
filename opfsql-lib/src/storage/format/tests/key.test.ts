@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../../../../test/support/random.js";
 import { randomValue } from "../../../../test/support/values.js";
 import type { Value } from "../../../values/index.js";
-import { compareBytes, compareValues } from "../../../values/index.js";
+import { compareBytes, compareValues, rowKey } from "../../../values/index.js";
 import { decodeKey, encodeKey, keyRowid, prefixEnd } from "../key.js";
 
 /** SQL order of value lists: by value, then a prefix first. */
@@ -40,7 +40,7 @@ describe("index keys", () => {
     for (let round = 0; round < 2000; round++) {
       const values = randomList(random);
       const decoded = decodeKey(encodeKey(values));
-      expect(compareLists(decoded, values)).toBe(0);
+      expect(rowKey(decoded)).toBe(rowKey(values));
     }
   });
 
@@ -53,7 +53,7 @@ describe("index keys", () => {
     expect(decodeKey(encodeKey(["a\0b"]))).toEqual(["a\0b"]);
   });
 
-  it("frame every key with a prefix between the prefix and its end", () => {
+  it("put every key that starts with a prefix between the prefix and its end", () => {
     const prefix = encodeKey(["user", 7]);
     const inside = encodeKey(["user", 7, "x", 42]);
     const after = encodeKey(["user", 8]);

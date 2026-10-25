@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../../../test/support/random.js";
 import { randomText, randomValue } from "../../../test/support/values.js";
+import { withoutNegativeZero } from "../convert.js";
 import { rowKey, valueKey } from "../key.js";
 import {
   areEqual,
@@ -13,8 +14,9 @@ import type { Value } from "../value.js";
 
 const encoder = new TextEncoder();
 
+/** -1, 0 or 1: Math.sign, which keeps -0, made comparable with toBe(0). */
 function sign(n: number): number {
-  return Math.sign(n) + 0;
+  return withoutNegativeZero(Math.sign(n));
 }
 
 describe("compareValues", () => {
@@ -97,7 +99,7 @@ describe("compareText", () => {
 
   it("puts code points above U+FFFF after U+E000–U+FFFF, unlike <", () => {
     const emoji = "\u{1F600}";
-    const privateUse = "";
+    const privateUse = "\u{E000}";
     expect(compareText(emoji, privateUse)).toBeGreaterThan(0);
   });
 });

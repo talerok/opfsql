@@ -1,8 +1,8 @@
 import { IoError } from "../../errors.js";
 import { crc32 } from "../file/crc32.js";
-import { readUint32, writeUint32 } from "../format/bytes.js";
 import { checkPrefix, PREFIX_SIZE, writePrefix } from "../file/file-prefix.js";
 import type { SyncFile } from "../file/sync-file.js";
+import { readUint32, writeUint32 } from "../format/bytes.js";
 
 // ---------------------------------------------------------------------------
 // The write-ahead log (docs/file-format.md, WAL file), and an index of the
@@ -23,8 +23,15 @@ const FRAME_TX_OFFSET = 4;
 const FRAME_EPOCH_OFFSET = 8;
 const FRAME_CHECKSUM_OFFSET = 12;
 const FRAME_HEADER_SIZE = 16;
+/** The page number a commit record has in its frame header. */
 const COMMIT_RECORD = 0xff_ff_ff_ff;
 const COMMIT_PAYLOAD_SIZE = 8;
+
+interface WalHeader {
+  readonly epoch: number;
+  /** The last transaction before this generation. */
+  readonly base: number;
+}
 
 interface Version {
   readonly txId: number;
@@ -36,11 +43,19 @@ interface Commit {
   readonly pageCount: number;
 }
 
-interface Frame {
-  readonly pageNo: number;
-  readonly txId: number;
-  readonly payload: Uint8Array;
-}
+/** What a frame holds: a version of a page, or the record that commits a transaction. */
+type Frame =
+  | {
+      readonly kind: "page";
+      readonly txId: number;
+      readonly pageNo: number;
+      readonly page: Uint8Array;
+    }
+  | {
+      readonly kind: "commit";
+      readonly txId: number;
+      readonly pageCount: number;
+    };
 
 export class Wal {
   private versions = new Map<number, Version[]>();
@@ -66,8 +81,8 @@ export class Wal {
   /** Opens the WAL, recovering the transactions it holds, or starts one. */
   static open(file: SyncFile, pageSize: number, name: string): Wal {
     const wal = new Wal(file, pageSize, name);
-    if (file.getSize() === 0) wal.writeHeader(0, 0);
-    else wal.recover();
+    if (file.getSize() === 0) wal.writeHeader();
+    else wal.startFrom(wal.readHeader());
     return wal;
   }
 
@@ -105,7 +120,7 @@ export class Wal {
   append(pages: ReadonlyMap<number, Uint8Array>, pageCount: number): number {
     if (this.failure !== null) throw this.failure;
     const txId = this.latest + 1;
-    const bytes = this.encodeTransaction(pages, txId, pageCount);
+    const bytes = this.encodeFrames(transactionFrames(pages, txId, pageCount));
     try {
       this.file.write(bytes, { at: this.offset });
       this.file.flush();
@@ -129,8 +144,7 @@ export class Wal {
     const header = this.readHeader();
     if (header.epoch !== this.epoch) {
       // Another tab restarted the WAL: everything so far is in the database file.
-      this.reset(header.epoch, header.base);
-      this.readFrom(HEADER_SIZE);
+      this.startFrom(header);
       return true;
     }
     if (this.file.getSize() <= this.offset) return false;
@@ -153,9 +167,9 @@ export class Wal {
 
   /** Starts an empty generation; every transaction must be in the database file. */
   restart(): void {
-    this.reset(this.epoch + 1, this.latest);
+    this.reset({ epoch: this.epoch + 1, base: this.latest });
     this.file.truncate(0);
-    this.writeHeader(this.epoch, this.base);
+    this.writeHeader();
   }
 
   close(): void {
@@ -164,15 +178,14 @@ export class Wal {
 
   // --- Reading the file --------------------------------------------------------
 
-  private recover(): void {
-    const header = this.readHeader();
-    this.reset(header.epoch, header.base);
+  /** Forgets what the index holds and reads the generation `header` starts. */
+  private startFrom(header: WalHeader): void {
+    this.reset(header);
     this.readFrom(HEADER_SIZE);
   }
 
-  private readHeader(): { epoch: number; base: number } {
-    const header = new Uint8Array(HEADER_SIZE);
-    this.file.read(header, { at: 0 });
+  private readHeader(): WalHeader {
+    const header = this.readBytes(0, HEADER_SIZE);
     checkPrefix(header, "wal", this.name);
     return {
       epoch: readUint32(header, EPOCH_OFFSET),
@@ -188,12 +201,12 @@ export class Wal {
   private readFrom(start: number): void {
     let pending = new Map<number, Uint8Array>();
     for (const { frame, end } of this.framesFrom(start)) {
-      if (frame.pageNo !== COMMIT_RECORD) {
-        pending.set(frame.pageNo, frame.payload);
+      if (frame.txId !== this.latest + 1) return;
+      if (frame.kind === "page") {
+        pending.set(frame.pageNo, frame.page);
         continue;
       }
-      if (frame.txId !== this.latest + 1) return;
-      this.addTransaction(frame.txId, pending, pageCountOf(frame));
+      this.addTransaction(frame.txId, pending, frame.pageCount);
       this.offset = end;
       pending = new Map();
     }
@@ -214,52 +227,37 @@ export class Wal {
   /** The frame at `offset`, or null if it is incomplete, torn or from another generation. */
   private readFrame(offset: number, fileSize: number): Frame | null {
     if (offset + FRAME_HEADER_SIZE > fileSize) return null;
-    const header = new Uint8Array(FRAME_HEADER_SIZE);
-    this.file.read(header, { at: offset });
-    const pageNo = readUint32(header, FRAME_PAGE_OFFSET);
-    const payloadSize =
-      pageNo === COMMIT_RECORD ? COMMIT_PAYLOAD_SIZE : this.pageSize;
+    const header = this.readBytes(offset, FRAME_HEADER_SIZE);
+    const isCommit = readUint32(header, FRAME_PAGE_OFFSET) === COMMIT_RECORD;
+    const payloadSize = isCommit ? COMMIT_PAYLOAD_SIZE : this.pageSize;
     const isComplete = offset + FRAME_HEADER_SIZE + payloadSize <= fileSize;
     const epoch = readUint32(header, FRAME_EPOCH_OFFSET);
     if (!isComplete || epoch !== this.epoch) return null;
 
-    const payload = new Uint8Array(payloadSize);
-    this.file.read(payload, { at: offset + FRAME_HEADER_SIZE });
-    if (!isIntact(header, payload)) return null;
-    return { pageNo, txId: readUint32(header, FRAME_TX_OFFSET), payload };
+    const payload = this.readBytes(offset + FRAME_HEADER_SIZE, payloadSize);
+    return isIntact(header, payload) ? decodeFrame(header, payload) : null;
+  }
+
+  private readBytes(offset: number, size: number): Uint8Array {
+    const bytes = new Uint8Array(size);
+    this.file.read(bytes, { at: offset });
+    return bytes;
   }
 
   // --- Writing the file --------------------------------------------------------
 
-  private writeHeader(epoch: number, base: number): void {
+  private writeHeader(): void {
     const header = new Uint8Array(HEADER_SIZE);
     writePrefix(header, "wal");
-    writeUint32(header, EPOCH_OFFSET, epoch);
-    writeUint32(header, BASE_OFFSET, base);
+    writeUint32(header, EPOCH_OFFSET, this.epoch);
+    writeUint32(header, BASE_OFFSET, this.base);
     this.file.write(header, { at: 0 });
     this.file.flush();
-    this.epoch = epoch;
-    this.base = base;
-    this.latest = Math.max(this.latest, base);
   }
 
-  /** The frames of a transaction: its pages, then its commit record. */
-  private encodeTransaction(
-    pages: ReadonlyMap<number, Uint8Array>,
-    txId: number,
-    pageCount: number,
-  ): Uint8Array {
-    const frames: Frame[] = [];
-    for (const [pageNo, payload] of pages) {
-      frames.push({ pageNo, txId, payload });
-    }
-    const commit = commitPayload(pageCount);
-    frames.push({ pageNo: COMMIT_RECORD, txId, payload: commit });
-
-    const sizes = frames.map((frame) => frameSize(frame));
-    const bytes = new Uint8Array(
-      sizes.reduce((total, size) => total + size, 0),
-    );
+  private encodeFrames(frames: readonly Frame[]): Uint8Array {
+    const size = frames.reduce((total, frame) => total + frameSize(frame), 0);
+    const bytes = new Uint8Array(size);
     let offset = 0;
     for (const frame of frames) {
       encodeFrame(bytes.subarray(offset), frame, this.epoch);
@@ -287,7 +285,7 @@ export class Wal {
 
   // --- The index ---------------------------------------------------------------
 
-  private reset(epoch: number, base: number): void {
+  private reset({ epoch, base }: WalHeader): void {
     this.versions = new Map();
     this.layered.clear();
     this.commits = [];
@@ -334,18 +332,53 @@ export class Wal {
   }
 }
 
+/** A transaction's frames: its pages, then its commit record. */
+function transactionFrames(
+  pages: ReadonlyMap<number, Uint8Array>,
+  txId: number,
+  pageCount: number,
+): Frame[] {
+  const frames: Frame[] = [];
+  for (const [pageNo, page] of pages) {
+    frames.push({ kind: "page", txId, pageNo, page });
+  }
+  frames.push({ kind: "commit", txId, pageCount });
+  return frames;
+}
+
 function frameSize(frame: Frame): number {
-  return FRAME_HEADER_SIZE + frame.payload.length;
+  const payloadSize =
+    frame.kind === "page" ? frame.page.length : COMMIT_PAYLOAD_SIZE;
+  return FRAME_HEADER_SIZE + payloadSize;
 }
 
 /** Writes `frame`, header then payload, at the start of `target`. */
 function encodeFrame(target: Uint8Array, frame: Frame, epoch: number): void {
-  writeUint32(target, FRAME_PAGE_OFFSET, frame.pageNo);
+  const pageNo = frame.kind === "page" ? frame.pageNo : COMMIT_RECORD;
+  writeUint32(target, FRAME_PAGE_OFFSET, pageNo);
   writeUint32(target, FRAME_TX_OFFSET, frame.txId);
   writeUint32(target, FRAME_EPOCH_OFFSET, epoch);
+  const payload = payloadOf(frame);
   const header = target.subarray(0, FRAME_HEADER_SIZE);
-  writeUint32(target, FRAME_CHECKSUM_OFFSET, checksumOf(header, frame.payload));
-  target.set(frame.payload, FRAME_HEADER_SIZE);
+  writeUint32(target, FRAME_CHECKSUM_OFFSET, checksumOf(header, payload));
+  target.set(payload, FRAME_HEADER_SIZE);
+}
+
+/** A page frame's payload is the page; a commit record's, the page count and a zero. */
+function payloadOf(frame: Frame): Uint8Array {
+  if (frame.kind === "page") return frame.page;
+  const payload = new Uint8Array(COMMIT_PAYLOAD_SIZE);
+  writeUint32(payload, 0, frame.pageCount);
+  return payload;
+}
+
+function decodeFrame(header: Uint8Array, payload: Uint8Array): Frame {
+  const pageNo = readUint32(header, FRAME_PAGE_OFFSET);
+  const txId = readUint32(header, FRAME_TX_OFFSET);
+  if (pageNo === COMMIT_RECORD) {
+    return { kind: "commit", txId, pageCount: readUint32(payload, 0) };
+  }
+  return { kind: "page", txId, pageNo, page: payload };
 }
 
 /** The checksum covers the header up to the checksum itself, and the payload. */
@@ -356,15 +389,4 @@ function checksumOf(header: Uint8Array, payload: Uint8Array): number {
 function isIntact(header: Uint8Array, payload: Uint8Array): boolean {
   const stored = readUint32(header, FRAME_CHECKSUM_OFFSET);
   return checksumOf(header, payload) === stored;
-}
-
-/** A commit record's payload: the page count, then zero. */
-function commitPayload(pageCount: number): Uint8Array {
-  const payload = new Uint8Array(COMMIT_PAYLOAD_SIZE);
-  writeUint32(payload, 0, pageCount);
-  return payload;
-}
-
-function pageCountOf(commit: Frame): number {
-  return readUint32(commit.payload, 0);
 }

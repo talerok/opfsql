@@ -5,6 +5,7 @@ export {
   hexToBytes,
   normalizeValue,
   numberFromText,
+  withoutNegativeZero,
 } from "./convert.js";
 export { rowKey, valueKey } from "./key.js";
 export { and, compareSql, isIn, isSame, not, or, type Truth } from "./logic.js";

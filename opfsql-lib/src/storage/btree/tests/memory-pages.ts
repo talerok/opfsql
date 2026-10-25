@@ -20,18 +20,18 @@ export class MemoryPages implements PageWriter {
 
   read(pageNo: number): Uint8Array {
     const page = this.dirty.get(pageNo) ?? this.committed.get(pageNo);
-    if (page === undefined)
+    if (page === undefined) {
       throw new Error(`page ${String(pageNo)} is not in use`);
+    }
     return page;
   }
 
   write(pageNo: number): Uint8Array {
-    let page = this.dirty.get(pageNo);
-    if (page === undefined) {
-      page = new Uint8Array(this.read(pageNo));
-      this.dirty.set(pageNo, page);
-    }
-    return page;
+    const dirty = this.dirty.get(pageNo);
+    if (dirty !== undefined) return dirty;
+    const copy = new Uint8Array(this.read(pageNo));
+    this.dirty.set(pageNo, copy);
+    return copy;
   }
 
   allocate(): number {
@@ -41,7 +41,7 @@ export class MemoryPages implements PageWriter {
   }
 
   free(pageNo: number): void {
-    this.read(pageNo);
+    this.requireInUse(pageNo);
     this.freed.add(pageNo);
   }
 
@@ -57,6 +57,11 @@ export class MemoryPages implements PageWriter {
     return [...this.committed]
       .map(([pageNo, page]) => `${String(pageNo)}:${String(checksum(page))}`)
       .join(" ");
+  }
+
+  /** Freeing a page twice, or one never allocated, is a bug in the tree. */
+  private requireInUse(pageNo: number): void {
+    this.read(pageNo);
   }
 }
 

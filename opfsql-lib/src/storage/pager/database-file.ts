@@ -63,7 +63,7 @@ export class DatabaseFile {
 
   /** Opens an existing database file, checking its header. */
   static open(file: SyncFile, name: string): DatabaseFile {
-    const header = new Uint8Array(PREFIX_SIZE + 4);
+    const header = new Uint8Array(PAGE_SIZE_OFFSET + 4);
     file.read(header, { at: 0 });
     checkPrefix(header, "database", name);
     const pageSize = readUint32(header, PAGE_SIZE_OFFSET);

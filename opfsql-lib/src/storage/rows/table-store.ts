@@ -2,8 +2,7 @@ import { RowTooLargeError } from "../../errors.js";
 import type { Value } from "../../values/index.js";
 import { BTree, BTreeWriter } from "../btree/btree.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
-import { tableLeafCell } from "../format/btree-page.js";
-import { varintSize, zigzag } from "../format/bytes.js";
+import { tableLeafCell, tableLeafCellSize } from "../format/btree-page.js";
 import type { PreparedField } from "../format/record.js";
 import {
   decodeBytes,
@@ -42,7 +41,7 @@ export class StoredRow {
   value(column: number): Value {
     if (!this.record.isOverflow(column)) return this.record.value(column);
     const reference = this.record.overflow(column);
-    return decodeBytes(reference.kind, readChain(this.pages, reference));
+    return decodeBytes(reference.holds, readChain(this.pages, reference));
   }
 
   /** The values of this row that live in overflow chains. */
@@ -58,14 +57,12 @@ export class StoredRow {
 }
 
 export class TableReader {
-  protected readonly tree: BTree;
-
+  /** `tree` is for TableWriter, which reads through the tree it writes. */
   constructor(
     protected readonly pages: PageReader,
     readonly root: number,
-  ) {
-    this.tree = new BTree(pages, root, "table");
-  }
+    protected readonly tree: BTree = new BTree(pages, root, "table"),
+  ) {}
 
   get(rowid: number): StoredRow | null {
     const found = this.tree.find(rowid);
@@ -88,16 +85,17 @@ export class TableReader {
 }
 
 export class TableWriter extends TableReader {
-  private readonly writer: BTreeWriter;
+  // The reader's pages and tree, typed for writing.
+  declare protected readonly pages: PageWriter;
+  declare protected readonly tree: BTreeWriter;
 
   /** `table` names the table in errors. */
   constructor(
-    private readonly pageWriter: PageWriter,
+    pages: PageWriter,
     root: number,
     private readonly table: string,
   ) {
-    super(pageWriter, root);
-    this.writer = new BTreeWriter(pageWriter, root, "table");
+    super(pages, root, new BTreeWriter(pages, root, "table"));
   }
 
   /** Allocates the root page of a new, empty table. */
@@ -107,15 +105,17 @@ export class TableWriter extends TableReader {
 
   /** Stores a row. False, changing nothing, if the rowid is taken. */
   insert(rowid: number, values: readonly Value[]): boolean {
+    // Checked first: encoding writes overflow chains, which a refused row
+    // must not leave behind.
     if (this.tree.find(rowid) !== null) return false;
-    return this.writer.insert(rowid, this.encodeCell(rowid, values));
+    return this.tree.insert(rowid, this.encodeCell(rowid, values));
   }
 
   /** Replaces a row. False, changing nothing, if there is none. */
   replace(rowid: number, values: readonly Value[]): boolean {
     const old = this.get(rowid);
     if (old === null) return false;
-    this.writer.replace(rowid, this.encodeCell(rowid, values));
+    this.tree.replace(rowid, this.encodeCell(rowid, values));
     this.freeChains(old);
     return true;
   }
@@ -124,7 +124,7 @@ export class TableWriter extends TableReader {
   delete(rowid: number): boolean {
     const old = this.get(rowid);
     if (old === null) return false;
-    this.writer.delete(rowid);
+    this.tree.delete(rowid);
     this.freeChains(old);
     return true;
   }
@@ -132,12 +132,12 @@ export class TableWriter extends TableReader {
   /** Frees every page of the table, its overflow chains included. */
   drop(): void {
     for (const row of this.scan()) this.freeChains(row);
-    this.writer.drop();
+    this.tree.drop();
   }
 
   private freeChains(row: StoredRow): void {
     for (const value of row.overflowValues()) {
-      freeChain(this.pageWriter, value);
+      freeChain(this.pages, value);
     }
   }
 
@@ -145,7 +145,7 @@ export class TableWriter extends TableReader {
   private encodeCell(rowid: number, values: readonly Value[]): Uint8Array {
     const fields = values.map((value) => prepareField(value));
     for (const { column, field } of this.valuesToMove(rowid, fields)) {
-      const firstPage = writeChain(this.pageWriter, field.bytes);
+      const firstPage = writeChain(this.pages, field.bytes);
       fields[column] = overflowField(field, firstPage);
     }
     return tableLeafCell(rowid, encodeRecord(fields));
@@ -160,7 +160,7 @@ export class TableWriter extends TableReader {
     rowid: number,
     fields: readonly PreparedField[],
   ): InlineColumn[] {
-    const limit = this.writer.maxLeafCellSize();
+    const limit = this.tree.maxLeafCellSize();
     const planned = [...fields];
     const moves: InlineColumn[] = [];
     while (cellSize(rowid, planned) > limit) {
@@ -184,13 +184,12 @@ interface InlineColumn {
 }
 
 function cellSize(rowid: number, fields: readonly PreparedField[]): number {
-  const recordLength = recordSize(fields);
-  return varintSize(zigzag(rowid)) + varintSize(recordLength) + recordLength;
+  return tableLeafCellSize(rowid, recordSize(fields));
 }
 
 function overflowField(field: InlineBytes, firstPage: number): PreparedField {
-  const { of, bytes } = field;
-  return prepareField(new OverflowValue(of, bytes.length, firstPage));
+  const { holds, bytes } = field;
+  return prepareField(new OverflowValue(holds, bytes.length, firstPage));
 }
 
 /**

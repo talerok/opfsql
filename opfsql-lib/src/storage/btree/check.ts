@@ -1,11 +1,13 @@
 import { CorruptError } from "../../errors.js";
 import { compareBytes } from "../../values/index.js";
-import type { BTreePageType } from "../format/btree-page.js";
 import { BTreePage, interiorCellKey } from "../format/btree-page.js";
-import type { TreeKey, TreeKind } from "./types.js";
 import type { PageReader } from "./page-store.js";
+import type { TreeKey, TreeKind } from "./types.js";
+import { pageTypeOf } from "./types.js";
 
 // Structural check of one B-tree: what the integrity check reports for it.
+// A corrupt tree may point back at its own pages or nest without end, so the
+// walk never reads a page twice and stops at a depth no real tree reaches.
 
 export interface TreeReport {
   /** Every page of the tree, for the page accounting. */
@@ -19,10 +21,8 @@ interface Bounds {
   readonly high: TreeKey | undefined;
 }
 
-const LEAF: Record<TreeKind, BTreePageType> = {
-  table: "table-leaf",
-  index: "index-leaf",
-};
+/** An interior page has at least two children, so 2³² pages stay this shallow. */
+const MAX_DEPTH = 32;
 
 export function checkTree(
   pages: PageReader,
@@ -45,7 +45,7 @@ function describe(key: TreeKey): string {
 }
 
 class TreeChecker {
-  private readonly pagesSeen: number[] = [];
+  private readonly pagesSeen = new Set<number>();
   private readonly problems: string[] = [];
   private entries = 0;
   private leafDepth: number | null = null;
@@ -58,30 +58,50 @@ class TreeChecker {
   run(root: number): TreeReport {
     this.visit(root, 1, { low: undefined, high: undefined });
     return {
-      pages: this.pagesSeen,
+      pages: [...this.pagesSeen],
       entries: this.entries,
       problems: this.problems,
     };
   }
 
   private visit(pageNo: number, depth: number, bounds: Bounds): void {
-    this.pagesSeen.push(pageNo);
+    const problem = this.visitProblem(pageNo, depth);
+    if (problem !== null) {
+      this.report(pageNo, problem);
+      return;
+    }
+    this.pagesSeen.add(pageNo);
     const page = this.readPage(pageNo);
     if (page === null) return;
-    for (const problem of page.layoutProblems()) this.report(pageNo, problem);
+    for (const layout of page.layoutProblems()) this.report(pageNo, layout);
     if (page.isLeaf) this.checkLeaf(pageNo, page, depth, bounds);
     else this.checkInterior(pageNo, page, depth, bounds);
   }
 
-  /** The page as a B-tree page, or null after reporting why it is not one. */
+  /** Why the walk must not read the page, or null. */
+  private visitProblem(pageNo: number, depth: number): string | null {
+    if (this.pagesSeen.has(pageNo)) return "is reached twice";
+    if (depth > MAX_DEPTH) return `is deeper than ${String(MAX_DEPTH)} levels`;
+    return null;
+  }
+
+  /**
+   * The page as a B-tree page of this tree's kind, or null after reporting
+   * why it is not one.
+   */
   private readPage(pageNo: number): BTreePage | null {
+    const page = this.tryRead(pageNo);
+    if (page === null) return null;
+    if (page.type === pageTypeOf(this.kind, page.isLeaf)) return page;
+    this.report(pageNo, `is a ${page.type} page in a ${this.kind} tree`);
+    return null;
+  }
+
+  private tryRead(pageNo: number): BTreePage | null {
     try {
       return new BTreePage(this.pages.read(pageNo));
     } catch (error) {
-      this.report(
-        pageNo,
-        error instanceof Error ? error.message : String(error),
-      );
+      this.report(pageNo, messageOf(error));
       return null;
     }
   }
@@ -92,9 +112,6 @@ class TreeChecker {
     depth: number,
     bounds: Bounds,
   ): void {
-    if (page.type !== LEAF[this.kind]) {
-      this.report(pageNo, `is a ${page.type} page in a ${this.kind} tree`);
-    }
     this.leafDepth ??= depth;
     if (depth !== this.leafDepth) {
       this.report(
@@ -112,8 +129,9 @@ class TreeChecker {
     depth: number,
     bounds: Bounds,
   ): void {
-    if (page.cellCount === 0)
+    if (page.cellCount === 0) {
       this.report(pageNo, "interior page without cells");
+    }
     const keys = Array.from({ length: page.cellCount }, (_, index) =>
       interiorCellKey(page.type, page.cell(index)),
     );
@@ -159,6 +177,10 @@ class TreeChecker {
   private report(pageNo: number, problem: string): void {
     this.problems.push(`page ${String(pageNo)}: ${problem}`);
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isWithin(key: TreeKey, { low, high }: Bounds): boolean {

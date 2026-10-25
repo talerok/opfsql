@@ -1,3 +1,5 @@
+import type { PageReader } from "../btree/page-store.js";
+
 // ---------------------------------------------------------------------------
 // Allocation maps (docs/file-format.md, Allocation maps). Pages are grouped:
 // group g covers pages g·G to (g+1)·G − 1, and its map — the group's second
@@ -9,9 +11,8 @@
 export const MAP_PAGE_TYPE = 0x06;
 const MAP_HEADER_SIZE = 8;
 
-/** Reads and edits map pages within one snapshot or transaction. */
-export interface MapPages {
-  read(pageNo: number): Uint8Array;
+/** Pages a transaction can change: what an AllocationMap edits. */
+export interface MapPages extends PageReader {
   write(pageNo: number): Uint8Array;
 }
 
@@ -20,8 +21,24 @@ export function groupSize(pageSize: number): number {
   return (pageSize - MAP_HEADER_SIZE) * 8;
 }
 
+/** The map page of the group `pageNo` is in: the group's second page. */
+export function mapPageOf(pageNo: number, pageSize: number): number {
+  return groupStartOf(pageNo, groupSize(pageSize)) + 1;
+}
+
 export function isMapPage(pageNo: number, pageSize: number): boolean {
-  return pageNo % groupSize(pageSize) === 1;
+  return pageNo === mapPageOf(pageNo, pageSize);
+}
+
+/** True for the first page of a group, which a new group's map follows. */
+export function isGroupStart(pageNo: number, pageSize: number): boolean {
+  return pageNo % groupSize(pageSize) === 0;
+}
+
+/** The page numbers of the map pages of a database of `pageCount` pages. */
+export function mapPageNumbers(pageSize: number, pageCount: number): number[] {
+  const size = groupSize(pageSize);
+  return groupStarts(0, pageCount, size).map((start) => start + 1);
 }
 
 /** A new map page at `mapPageNo`, marking itself and `alsoInUse` in use. */
@@ -32,64 +49,92 @@ export function newMapPage(
 ): Uint8Array {
   const map = new Uint8Array(pageSize);
   map[0] = MAP_PAGE_TYPE;
-  for (const pageNo of [mapPageNo, ...alsoInUse]) {
-    setBit(map, pageNo % groupSize(pageSize), true);
-  }
+  const size = groupSize(pageSize);
+  for (const pageNo of [mapPageNo, ...alsoInUse]) setBit(map, pageNo % size);
   return map;
 }
 
-export class AllocationMap {
-  private readonly size: number;
+/** Which pages are in use, as the map pages of one snapshot say. */
+export class AllocationMapReader {
+  protected readonly size: number;
 
-  constructor(
-    private readonly pages: MapPages,
-    pageSize: number,
-  ) {
-    this.size = groupSize(pageSize);
+  constructor(protected readonly pages: PageReader) {
+    this.size = groupSize(pages.pageSize);
   }
 
   isInUse(pageNo: number): boolean {
-    const map = this.pages.read(this.mapPageOf(pageNo));
-    return isBitSet(map, pageNo % this.size);
-  }
-
-  setInUse(pageNo: number, isInUse: boolean): void {
-    const map = this.pages.write(this.mapPageOf(pageNo));
-    setBit(map, pageNo % this.size, isInUse);
+    return isBitSet(this.mapOf(pageNo), pageNo % this.size);
   }
 
   /** The lowest free page from `from` up to, not including, `pageCount`. */
   findFree(from: number, pageCount: number): number | null {
-    const firstGroup = from - (from % this.size);
-    for (let start = firstGroup; start < pageCount; start += this.size) {
-      const map = this.pages.read(start + 1);
+    for (const start of groupStarts(from, pageCount, this.size)) {
       const fromBit = Math.max(from - start, 0);
-      const endBit = Math.min(pageCount - start, this.size);
-      const bit = firstClearBit(map, fromBit, endBit);
+      const endBit = this.endBit(start, pageCount);
+      const bit = firstClearBit(this.mapOf(start), fromBit, endBit);
       if (bit !== null) return start + bit;
     }
     return null;
   }
 
-  private mapPageOf(pageNo: number): number {
-    return pageNo - (pageNo % this.size) + 1;
+  /** The highest page in use below `pageCount`; the header always is. */
+  highestInUse(pageCount: number): number {
+    const starts = groupStarts(0, pageCount, this.size);
+    for (const start of starts.toReversed()) {
+      const bit = lastSetBit(this.mapOf(start), this.endBit(start, pageCount));
+      if (bit !== null) return start + bit;
+    }
+    return 0;
+  }
+
+  /** True if a page at or past `pageCount`, which cannot be in use, is marked so. */
+  hasBitsPast(pageCount: number): boolean {
+    const lastStart = groupStartOf(pageCount - 1, this.size);
+    const highest = lastSetBit(this.mapOf(lastStart), this.size);
+    return highest !== null && lastStart + highest >= pageCount;
+  }
+
+  /** The map page of the group `pageNo` is in. */
+  protected mapOf(pageNo: number): Uint8Array {
+    return this.pages.read(groupStartOf(pageNo, this.size) + 1);
+  }
+
+  /** Bits of the group starting at `start` that stand for pages below `pageCount`. */
+  private endBit(start: number, pageCount: number): number {
+    return Math.min(pageCount - start, this.size);
   }
 }
 
-/** The highest page in use below `pageCount`, reading map pages with `read`. */
-export function highestInUse(
-  read: (pageNo: number) => Uint8Array,
-  pageSize: number,
-  pageCount: number,
-): number {
-  const size = groupSize(pageSize);
-  const lastGroup = pageCount - 1 - ((pageCount - 1) % size);
-  for (let start = lastGroup; start >= 0; start -= size) {
-    const endBit = Math.min(pageCount - start, size);
-    const bit = lastSetBit(read(start + 1), endBit);
-    if (bit !== null) return start + bit;
+/** Which pages are in use, changed within a write transaction. */
+export class AllocationMap extends AllocationMapReader {
+  constructor(private readonly writer: MapPages) {
+    super(writer);
   }
-  return 0;
+
+  markInUse(pageNo: number): void {
+    setBit(this.mapToChange(pageNo), pageNo % this.size);
+  }
+
+  markFree(pageNo: number): void {
+    clearBit(this.mapToChange(pageNo), pageNo % this.size);
+  }
+
+  private mapToChange(pageNo: number): Uint8Array {
+    return this.writer.write(groupStartOf(pageNo, this.size) + 1);
+  }
+}
+
+function groupStartOf(pageNo: number, size: number): number {
+  return pageNo - (pageNo % size);
+}
+
+/** The first page of each group from the one holding `from` to the one holding `pageCount − 1`. */
+function groupStarts(from: number, pageCount: number, size: number): number[] {
+  const starts: number[] = [];
+  for (let start = groupStartOf(from, size); start < pageCount; start += size) {
+    starts.push(start);
+  }
+  return starts;
 }
 
 // --- Bits of a map page ---------------------------------------------------------
@@ -106,9 +151,12 @@ function isBitSet(map: Uint8Array, bit: number): boolean {
   return ((map[byteOf(bit)] ?? 0) & maskOf(bit)) !== 0;
 }
 
-function setBit(map: Uint8Array, bit: number, isSet: boolean): void {
-  const byte = map[byteOf(bit)] ?? 0;
-  map[byteOf(bit)] = isSet ? byte | maskOf(bit) : byte & ~maskOf(bit);
+function setBit(map: Uint8Array, bit: number): void {
+  map[byteOf(bit)] = (map[byteOf(bit)] ?? 0) | maskOf(bit);
+}
+
+function clearBit(map: Uint8Array, bit: number): void {
+  map[byteOf(bit)] = (map[byteOf(bit)] ?? 0) & ~maskOf(bit);
 }
 
 function isFullByteAt(map: Uint8Array, bit: number): boolean {

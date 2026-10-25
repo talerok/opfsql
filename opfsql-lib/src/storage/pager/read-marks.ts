@@ -27,8 +27,9 @@ function slotOffset(slot: number): number {
 }
 
 export class ReadMarks {
-  private readonly cell = new Uint8Array(8);
-  private readonly view = new DataView(this.cell.buffer);
+  /** One mark, as it is read from and written to the file. */
+  private readonly markBytes = new Uint8Array(8);
+  private readonly view = new DataView(this.markBytes.buffer);
 
   private constructor(
     private readonly handle: SyncFile,
@@ -38,18 +39,19 @@ export class ReadMarks {
   ) {}
 
   /**
-   * Opens the shared file (initialising it if needed) and claims a slot.
+   * Opens the shared file (initializing it if needed) and claims a slot.
    * Takes ownership of `handle`: it is closed with the marks, or right away
    * if opening fails.
    */
   static async open(handle: SyncFile, lockName: string): Promise<ReadMarks> {
     try {
       await navigator.locks.request(`${lockName}:shm-init`, () => {
-        if (!isInitialised(handle)) initialise(handle);
+        if (!isInitialized(handle)) initialize(handle);
       });
       const { slot, release } = await claimSlot(lockName);
       const marks = new ReadMarks(handle, lockName, slot, release);
-      marks.publish(null); // whatever a dead previous owner left
+      // Clears a mark that a dead previous owner of the slot left.
+      marks.publish(null);
       await marks.reclaimDeadSlots();
       return marks;
     } catch (error) {
@@ -107,13 +109,13 @@ export class ReadMarks {
   }
 
   private read(offset: number): number {
-    this.handle.read(this.cell, { at: offset });
+    this.handle.read(this.markBytes, { at: offset });
     return this.view.getFloat64(0);
   }
 
   private write(offset: number, value: number): void {
     this.view.setFloat64(0, value);
-    this.handle.write(this.cell, { at: offset });
+    this.handle.write(this.markBytes, { at: offset });
   }
 }
 
@@ -121,14 +123,14 @@ function slotLock(lockName: string, slot: number): string {
   return `${lockName}:slot:${String(slot)}`;
 }
 
-function isInitialised(handle: SyncFile): boolean {
+function isInitialized(handle: SyncFile): boolean {
   if (handle.getSize() < FILE_SIZE) return false;
   const prefix = new Uint8Array(PREFIX_SIZE);
   handle.read(prefix, { at: 0 });
   return hasPrefix(prefix, "shm");
 }
 
-function initialise(handle: SyncFile): void {
+function initialize(handle: SyncFile): void {
   const file = new Uint8Array(FILE_SIZE);
   const view = new DataView(file.buffer);
   writePrefix(file, "shm");

@@ -53,6 +53,7 @@ export function readChain(
 }
 
 export function freeChain(pages: PageWriter, chain: ChainReference): void {
+  // Walks the whole chain first: a corrupt one throws before any page is freed.
   const pageNumbers = [...chainPages(pages, chain)].map((page) => page.pageNo);
   for (const pageNo of pageNumbers) pages.free(pageNo);
 }

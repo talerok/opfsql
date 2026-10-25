@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { CorruptError } from "../../errors.js";
-import { MemoryFile } from "../file/sync-file.js";
 import { openPager } from "../open.js";
 import { SCHEMA_ROOT_PAGE } from "../pager/database-file.js";
 import type { Pager } from "../pager/pager.js";
-import type { WriteTransaction } from "../pager/transaction.js";
-import type { SchemaEntry } from "../rows/schema-table.js";
+import type { SchemaEntry, StoredSchemaEntry } from "../rows/schema-table.js";
 import { readSchemaTable, SchemaTableWriter } from "../rows/schema-table.js";
 import { TableWriter } from "../rows/table-store.js";
+import { memoryFiles, read, write } from "./pager-support.js";
 
 const users: SchemaEntry = {
   type: "table",
@@ -26,26 +25,11 @@ const usersName: SchemaEntry = {
 };
 
 async function newPager(): Promise<Pager> {
-  const files = { database: new MemoryFile(), wal: new MemoryFile() };
-  return openPager({ ...files, marks: null }, { name: "test", pageSize: 4096 });
+  return openPager(memoryFiles(), { name: "test", pageSize: 4096 });
 }
 
-function write<T>(pager: Pager, change: (tx: WriteTransaction) => T): T {
-  const transaction = pager.beginWrite();
-  if (transaction === null) throw new Error("no snapshot");
-  const result = change(transaction);
-  transaction.commit();
-  return result;
-}
-
-function readEntries(pager: Pager) {
-  const transaction = pager.beginRead();
-  if (transaction === null) throw new Error("no snapshot");
-  try {
-    return readSchemaTable(transaction);
-  } finally {
-    transaction.end();
-  }
+function readEntries(pager: Pager): StoredSchemaEntry[] {
+  return read(pager, (transaction) => readSchemaTable(transaction));
 }
 
 describe("the schema table", () => {

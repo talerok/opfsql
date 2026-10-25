@@ -2,7 +2,7 @@ import { InternalError, MisuseError } from "../../errors.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import {
   AllocationMap,
-  groupSize,
+  isGroupStart,
   isMapPage,
   newMapPage,
 } from "./allocation.js";
@@ -69,7 +69,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     super(pager, snapshot);
     this.initialPageCount = pager.pageCount(snapshot);
     this.pageCount = this.initialPageCount;
-    this.map = new AllocationMap(this, pager.pageSize);
+    this.map = new AllocationMap(this);
   }
 
   override read(pageNo: number): Uint8Array {
@@ -90,7 +90,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     this.ensureOpen();
     const pageNo =
       this.map.findFree(this.freeHint, this.pageCount) ?? this.extend();
-    this.map.setInUse(pageNo, true);
+    this.map.markInUse(pageNo);
     this.dirty.set(pageNo, new Uint8Array(this.pageSize));
     this.freeHint = pageNo + 1;
     return pageNo;
@@ -101,7 +101,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     if (pageNo < FIRST_ALLOCATABLE || isMapPage(pageNo, this.pageSize)) {
       throw new InternalError(`page ${String(pageNo)} can never be freed`);
     }
-    this.map.setInUse(pageNo, false);
+    this.map.markFree(pageNo);
     this.dirty.delete(pageNo);
     this.freeHint = Math.min(this.freeHint, pageNo);
   }
@@ -148,8 +148,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   private extend(): number {
     const pageNo = this.pageCount;
     this.pageCount = pageNo + 1;
-    const isGroupStart = pageNo % groupSize(this.pageSize) === 0;
-    if (isGroupStart) this.addMapPage(pageNo + 1);
+    if (isGroupStart(pageNo, this.pageSize)) this.addMapPage(pageNo + 1);
     return pageNo;
   }
 

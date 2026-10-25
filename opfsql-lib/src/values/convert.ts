@@ -1,16 +1,21 @@
 import { DatatypeMismatchError } from "../errors.js";
+import { canonicalJson } from "./order.js";
 import type { SqlType } from "./types.js";
 import type { JsonValue, Value } from "./value.js";
-import { kindOf } from "./value.js";
 
 // ---------------------------------------------------------------------------
 // Conversions between kinds (docs/semantics.md, Assignment and Casts).
 // Assignment converts only what it can convert without loss or guessing;
 // CAST also converts between booleans, numbers, text and hex BLOBs.
+//
+// Each conversion returns undefined when it does not apply; assignValue and
+// castValue turn that into the error, so every refusal reads the same.
 // ---------------------------------------------------------------------------
 
 /** A number as SQL text writes it: digits, an optional fraction and exponent. */
 const NUMERIC_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu;
+const HEX_TEXT = /^(?:[\da-f]{2})*$/iu;
+const DESCRIBED_TEXT_LENGTH = 40;
 
 /**
  * Normalizes a value coming from outside: NaN becomes NULL and -0 becomes 0.
@@ -26,56 +31,22 @@ export function normalizeValue(value: Value): Value {
 export function assignValue(value: Value, type: SqlType): Value {
   const normalized = normalizeValue(value);
   if (normalized === null) return null;
-  switch (type) {
-    case "INTEGER": {
-      return toInteger(normalized, type);
-    }
-    case "REAL": {
-      return toReal(normalized, type);
-    }
-    case "TEXT": {
-      return toText(normalized, type);
-    }
-    case "BLOB": {
-      return toBlob(normalized, type);
-    }
-    case "BOOLEAN": {
-      return toBoolean(normalized, type);
-    }
-    case "JSON": {
-      return toJson(normalized, type);
-    }
-    case "ANY": {
-      return normalized;
-    }
-  }
+  const assigned = assignmentOf(normalized, type);
+  if (assigned !== undefined) return assigned;
+  throw new DatatypeMismatchError(
+    `cannot store ${describe(normalized)} as ${type}`,
+  );
 }
 
 /** CAST(value AS type), or throws. */
 export function castValue(value: Value, type: SqlType): Value {
   const normalized = normalizeValue(value);
   if (normalized === null) return null;
-  switch (type) {
-    case "INTEGER": {
-      return toInteger(truncate(castToNumber(normalized, type)), type);
-    }
-    case "REAL": {
-      return castToNumber(normalized, type);
-    }
-    case "TEXT": {
-      return castToText(normalized);
-    }
-    case "BLOB": {
-      return castToBlob(normalized);
-    }
-    case "BOOLEAN": {
-      return castToBoolean(normalized);
-    }
-    case "JSON":
-    case "ANY": {
-      return assignValue(normalized, type);
-    }
-  }
+  const cast = castOf(normalized, type);
+  if (cast !== undefined) return cast;
+  throw new DatatypeMismatchError(
+    `cannot cast ${describe(normalized)} to ${type}`,
+  );
 }
 
 /** The number text writes exactly, or null if it is not a number. */
@@ -83,9 +54,13 @@ export function numberFromText(text: string): number | null {
   return NUMERIC_TEXT.test(text) ? Number(text) : null;
 }
 
+/** `number`, with -0 turned into 0: they compare equal, so they must be one value. */
+export function withoutNegativeZero(number: number): number {
+  return number === 0 ? 0 : number;
+}
+
 function normalizeNumber(value: number): number | null {
-  if (Number.isNaN(value)) return null;
-  return value === 0 ? 0 : value; // -0 becomes 0
+  return Number.isNaN(value) ? null : withoutNegativeZero(value);
 }
 
 function checkWellFormed(text: string): void {
@@ -98,83 +73,136 @@ function checkWellFormed(text: string): void {
 
 // --- Assignment --------------------------------------------------------------
 
-function toInteger(value: Value, type: SqlType): number {
-  const number = numberIn(value);
-  if (number !== null && Number.isSafeInteger(number)) return number;
-  throw mismatch(value, type);
+function assignmentOf(value: Value, type: SqlType): Value | undefined {
+  switch (type) {
+    case "INTEGER": {
+      return integerOf(value);
+    }
+    case "REAL": {
+      return numberOf(value);
+    }
+    case "TEXT": {
+      return textOf(value);
+    }
+    case "BLOB": {
+      return value instanceof Uint8Array ? value : undefined;
+    }
+    case "BOOLEAN": {
+      return booleanOf(value);
+    }
+    case "JSON": {
+      return jsonOf(value);
+    }
+    case "ANY": {
+      return value;
+    }
+  }
 }
 
-function toReal(value: Value, type: SqlType): number {
-  const number = numberIn(value);
-  if (number !== null) return number;
-  throw mismatch(value, type);
+/** A safe integer, or text that writes one exactly. */
+function integerOf(value: Value): number | undefined {
+  const number = numberOf(value);
+  if (number === undefined || !Number.isSafeInteger(number)) return undefined;
+  return number;
 }
 
-/** A number, or the number text writes exactly; null for anything else. */
-function numberIn(value: Value): number | null {
+/** A number, or text that writes one exactly. */
+function numberOf(value: Value): number | undefined {
   if (typeof value === "number") return value;
-  if (typeof value === "string") return numberFromText(value);
-  return null;
+  if (typeof value === "string") return numberFromText(value) ?? undefined;
+  return undefined;
 }
 
-function toText(value: Value, type: SqlType): string {
+/** Text, or a number as JavaScript prints it. */
+function textOf(value: Value): string | undefined {
   if (typeof value === "string") return value;
   if (typeof value === "number") return String(value);
-  throw mismatch(value, type);
+  return undefined;
 }
 
-function toBlob(value: Value, type: SqlType): Uint8Array {
-  if (value instanceof Uint8Array) return value;
-  throw mismatch(value, type);
-}
-
-function toBoolean(value: Value, type: SqlType): boolean {
+/** A boolean, or 0 and 1. */
+function booleanOf(value: Value): boolean | undefined {
   if (typeof value === "boolean") return value;
   if (value === 0 || value === 1) return value === 1;
-  throw mismatch(value, type);
+  return undefined;
 }
 
-function toJson(value: Value, type: SqlType): Value {
-  if (value instanceof Uint8Array) throw mismatch(value, type);
+/** Any value but a BLOB; text is parsed as JSON text. */
+function jsonOf(value: Value): Value | undefined {
+  if (value instanceof Uint8Array) return undefined;
   if (typeof value !== "string") return value;
+  return normalizeValue(parseJson(value));
+}
+
+function parseJson(text: string): JsonValue {
   try {
-    return normalizeValue(JSON.parse(value) as JsonValue);
+    return JSON.parse(text) as JsonValue;
   } catch {
-    throw new DatatypeMismatchError(`${describe(value)} is not valid JSON`);
+    throw new DatatypeMismatchError(`${describe(text)} is not valid JSON`);
   }
 }
 
 // --- Casts -------------------------------------------------------------------
 
-function castToNumber(value: Value, type: SqlType): number {
+function castOf(value: Value, type: SqlType): Value | undefined {
+  switch (type) {
+    case "INTEGER": {
+      return castToInteger(value);
+    }
+    case "REAL": {
+      return castToNumber(value);
+    }
+    case "TEXT": {
+      return castToText(value);
+    }
+    case "BLOB": {
+      return castToBlob(value);
+    }
+    case "BOOLEAN": {
+      return castToBoolean(value);
+    }
+    case "JSON":
+    case "ANY": {
+      return assignmentOf(value, type);
+    }
+  }
+}
+
+/** Numbers truncate toward zero. */
+function castToInteger(value: Value): number | undefined {
+  const number = castToNumber(value);
+  if (number === undefined) return undefined;
+  return integerOf(withoutNegativeZero(Math.trunc(number)));
+}
+
+/** Booleans are 0 and 1. */
+function castToNumber(value: Value): number | undefined {
   if (typeof value === "boolean") return Number(value);
-  return toReal(value, type);
+  return numberOf(value);
 }
 
-/** Rounds toward zero, never to -0. */
-function truncate(number: number): number {
-  const truncated = Math.trunc(number);
-  return truncated === 0 ? 0 : truncated;
-}
-
-function castToText(value: Value): string {
+/** Booleans are 'true' and 'false', BLOBs hex, JSON its canonical text. */
+function castToText(value: Value): string | undefined {
   if (typeof value === "boolean") return String(value);
   if (value instanceof Uint8Array) return bytesToHex(value);
-  if (kindOf(value) === "json") return JSON.stringify(value);
-  return toText(value, "TEXT");
+  if (typeof value === "object" && value !== null) return canonicalJson(value);
+  return textOf(value);
 }
 
-/** Text casts to a BLOB as hexadecimal. */
-function castToBlob(value: Value): Uint8Array {
-  if (typeof value === "string") return hexToBytes(value);
-  return toBlob(value, "BLOB");
+/** Text is read as hex. */
+function castToBlob(value: Value): Uint8Array | undefined {
+  if (typeof value === "string") {
+    return HEX_TEXT.test(value) ? hexToBytes(value) : undefined;
+  }
+  return value instanceof Uint8Array ? value : undefined;
 }
 
-function castToBoolean(value: Value): boolean {
-  const word = typeof value === "string" ? value.toLowerCase() : null;
+/** 'true' and 'false' in any case. */
+function castToBoolean(value: Value): boolean | undefined {
+  const word = typeof value === "string" ? value.toLowerCase() : undefined;
   if (word === "true") return true;
   if (word === "false") return false;
-  return toBoolean(value, "BOOLEAN");
+  return booleanOf(value);
 }
 
 // --- Hex -----------------------------------------------------------------------
@@ -186,7 +214,7 @@ export function bytesToHex(bytes: Uint8Array): string {
 }
 
 export function hexToBytes(hex: string): Uint8Array {
-  if (!/^(?:[\da-f]{2})*$/iu.test(hex)) {
+  if (!HEX_TEXT.test(hex)) {
     throw new DatatypeMismatchError(`${describe(hex)} is not hexadecimal`);
   }
   const bytes = new Uint8Array(hex.length / 2);
@@ -197,12 +225,6 @@ export function hexToBytes(hex: string): Uint8Array {
 }
 
 // --- Errors ------------------------------------------------------------------
-
-function mismatch(value: Value, type: SqlType): DatatypeMismatchError {
-  return new DatatypeMismatchError(
-    `cannot store ${describe(value)} as ${type}`,
-  );
-}
 
 function describe(value: Value): string {
   if (value === null) return "NULL";
@@ -215,8 +237,6 @@ function describe(value: Value): string {
   }
   return Array.isArray(value) ? "a JSON array" : "a JSON object";
 }
-
-const DESCRIBED_TEXT_LENGTH = 40;
 
 function shorten(text: string): string {
   if (text.length <= DESCRIBED_TEXT_LENGTH) return text;

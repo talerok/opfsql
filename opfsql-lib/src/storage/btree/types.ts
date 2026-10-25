@@ -1,4 +1,4 @@
-import type { BTreePage } from "../format/btree-page.js";
+import type { BTreePage, BTreePageType } from "../format/btree-page.js";
 
 export type TreeKind = "table" | "index";
 
@@ -9,4 +9,19 @@ export type TreeKey = number | Uint8Array;
 export interface Position {
   readonly page: BTreePage;
   readonly index: number;
+}
+
+export const LEAF_TYPE: Record<TreeKind, BTreePageType> = {
+  table: "table-leaf",
+  index: "index-leaf",
+};
+
+export const INTERIOR_TYPE: Record<TreeKind, BTreePageType> = {
+  table: "table-interior",
+  index: "index-interior",
+};
+
+/** The type a page of a `kind` tree has, as a leaf or an interior page. */
+export function pageTypeOf(kind: TreeKind, isLeaf: boolean): BTreePageType {
+  return isLeaf ? LEAF_TYPE[kind] : INTERIOR_TYPE[kind];
 }

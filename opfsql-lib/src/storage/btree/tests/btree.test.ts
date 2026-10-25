@@ -56,6 +56,17 @@ function insertAscending(tree: BTreeWriter, count: number, size: number): void {
   }
 }
 
+/** `count` different integers below `limit`. */
+function distinctRandom(
+  random: () => number,
+  count: number,
+  limit: number,
+): number[] {
+  const values = new Set<number>();
+  while (values.size < count) values.add(Math.floor(random() * limit));
+  return [...values];
+}
+
 describe("BTree", () => {
   it("keeps its root on the same page as it grows", () => {
     const { pages, root, tree } = setup();
@@ -80,10 +91,9 @@ describe("BTree", () => {
 
   it("splits evenly under random inserts", () => {
     const { pages, root, tree } = setup();
-    const random = mulberry32(5);
-    for (let count = 0; count < 2000;) {
-      const rowid = Math.floor(random() * 1e6);
-      if (tree.insert(rowid, tableLeafCell(rowid, record(rowid, 100)))) count++;
+    const randomRowids = distinctRandom(mulberry32(5), 2000, 1e6);
+    for (const rowid of randomRowids) {
+      tree.insert(rowid, tableLeafCell(rowid, record(rowid, 100)));
     }
     pages.commit();
     const all = leaves(pages, root);

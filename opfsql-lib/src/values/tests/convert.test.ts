@@ -73,7 +73,16 @@ describe("assignValue", () => {
   });
 
   it("stores NULL as every type", () => {
-    for (const type of ["INTEGER", "TEXT", "BLOB", "JSON"] as const) {
+    const types = [
+      "INTEGER",
+      "REAL",
+      "TEXT",
+      "BLOB",
+      "BOOLEAN",
+      "JSON",
+      "ANY",
+    ] as const;
+    for (const type of types) {
       expect(assignValue(null, type)).toBeNull();
     }
   });
@@ -89,7 +98,7 @@ describe("castValue", () => {
     ["REAL", false, 0],
     ["TEXT", true, "true"],
     ["TEXT", blob, "dead"],
-    ["TEXT", { b: 1, a: 2 }, '{"b":1,"a":2}'],
+    ["TEXT", { b: 1, a: 2 }, '{"a":2,"b":1}'],
     ["BLOB", "dEaD", blob],
     ["BOOLEAN", "TRUE", true],
     ["BOOLEAN", "false", false],
