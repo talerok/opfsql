@@ -131,7 +131,9 @@ function toJson(value: Value, type: SqlType): Value {
   try {
     return normalizeValue(JSON.parse(value) as JsonValue);
   } catch {
-    throw new DatatypeMismatchError(`${describe(value)} is not valid JSON`);
+    throw new DatatypeMismatchError(
+      `${describeValue(value)} is not valid JSON`,
+    );
   }
 }
 
@@ -191,7 +193,7 @@ export function bytesToHex(bytes: Uint8Array): string {
 
 export function hexToBytes(hex: string): Uint8Array {
   if (!/^(?:[\da-f]{2})*$/iu.test(hex)) {
-    throw new DatatypeMismatchError(`${describe(hex)} is not hexadecimal`);
+    throw new DatatypeMismatchError(`${describeValue(hex)} is not hexadecimal`);
   }
   const bytes = new Uint8Array(hex.length / 2);
   for (let index = 0; index < bytes.length; index++) {
@@ -204,11 +206,12 @@ export function hexToBytes(hex: string): Uint8Array {
 
 function mismatch(value: Value, type: SqlType): DatatypeMismatchError {
   return new DatatypeMismatchError(
-    `cannot store ${describe(value)} as ${type}`,
+    `cannot store ${describeValue(value)} as ${type}`,
   );
 }
 
-function describe(value: Value): string {
+/** A short description of a value for error messages. */
+export function describeValue(value: Value): string {
   if (value === null) return "NULL";
   if (typeof value === "boolean" || typeof value === "number") {
     return String(value);

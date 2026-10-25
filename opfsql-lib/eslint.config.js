@@ -146,6 +146,12 @@ export default config(
               except: ["./errors.ts"],
               message: "errors depends on nothing.",
             },
+            {
+              target: "./src/functions",
+              from: "./src",
+              except: ["./functions", "./values", "./errors.ts"],
+              message: "functions depends on nothing but values and errors.",
+            },
           ],
         },
       ],

@@ -1,9 +1,22 @@
+import { DatatypeMismatchError } from "../errors.js";
+import { describeValue } from "./convert.js";
 import { compareValues } from "./order.js";
 import type { Value } from "./value.js";
 
 // Three-valued logic: a condition is true, false or unknown (NULL).
 
 export type Truth = boolean | null;
+
+/**
+ * A value used as a condition: a BOOLEAN or NULL. Anything else is a
+ * DATATYPE_MISMATCH — conditions are never judged by truthiness.
+ */
+export function truthOf(value: Value): Truth {
+  if (value === null || typeof value === "boolean") return value;
+  throw new DatatypeMismatchError(
+    `${describeValue(value)} is not a BOOLEAN condition`,
+  );
+}
 
 export function and(a: Truth, b: Truth): Truth {
   if (a === false || b === false) return false;
