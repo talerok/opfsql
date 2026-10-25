@@ -1,5 +1,7 @@
 import { resetMockOPFS } from 'opfs-mock';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { BTree, type InternalNode } from '../btree.js';
+import { IndexKeyTooLargeError } from '../errors.js';
 import { SyncBTree } from '../index-btree/index-btree.js';
 import type { IndexKey } from '../index-btree/types.js';
 import { Storage } from '../storage.js';
@@ -13,19 +15,24 @@ function rid(a: number, b: number): RowId {
   return a * 1000 + b;
 }
 
+/** Small pages, so that a few thousand keys split nodes. */
 async function createStore(): Promise<SessionStore> {
-  const s = new OPFSSyncStorage(`ibt-test-${seq++}`);
+  const s = new OPFSSyncStorage(`ibt-test-${seq++}`, { pageSize: 4096 });
   const storage = new Storage(s);
   await storage.open();
   return storage.createSession();
 }
 
-/** Create an initialized (empty) index tree. */
+let rootPageNo: number;
+
+/** Create an empty index tree. */
 function createTree(ps: SyncIPageStore, unique = false): SyncBTree {
-  const metaPageNo = ps.allocPage();
-  const tree = new SyncBTree(metaPageNo, ps, unique);
-  tree.bulkLoad([]);
-  return tree;
+  rootPageNo = BTree.create(ps);
+  return new SyncBTree(ps, rootPageNo, { name: 'idx', unique });
+}
+
+function root(ps: SyncIPageStore) {
+  return ps.readPage<InternalNode<IndexKey>>(rootPageNo)!;
 }
 
 describe('SyncBTree', () => {
@@ -225,16 +232,14 @@ describe('SyncBTree', () => {
     });
 
     it('detects duplicate after leaf split (boundary case)', () => {
-      // Fill the tree with 128 unique keys so a leaf split promotes a
-      // separator whose first column equals one of the existing user keys.
-      // The key at the split boundary lives at the start of the right leaf;
-      // a naive existsWithPrefix would descend into the left leaf and miss it.
-      for (let i = 0; i < 128; i++) uniqueTree.insert([i], rid(0, i));
+      // A leaf split promotes a separator whose first column equals an
+      // existing user key, at the start of the right leaf. Looking up the
+      // user key descends into the left leaf and must go on to the right one.
+      for (let i = 0; i < 2000; i++) uniqueTree.insert([i], rid(0, i));
       ps.commit();
 
-      // key=64 exists as the first entry of the right leaf after the split.
-      // Attempting to re-insert it with a different rowId must throw.
-      expect(() => uniqueTree.insert([64], rid(0, 999))).toThrow(
+      const [boundary] = root(ps).keys[0];
+      expect(() => uniqueTree.insert([boundary], rid(0, 9999))).toThrow(
         'UNIQUE constraint failed',
       );
     });
@@ -262,48 +267,88 @@ describe('SyncBTree', () => {
 
   describe('node splitting', () => {
     it('handles enough inserts to trigger leaf split', () => {
-      for (let i = 0; i < 150; i++) tree.insert([i], rid(Math.floor(i / 50), i % 50));
+      for (let i = 0; i < 3000; i++) tree.insert([i], rid(Math.floor(i / 50), i % 50));
       ps.commit();
 
-      for (let i = 0; i < 150; i++) {
+      expect(root(ps).kind).toBe('internal');
+      for (let i = 0; i < 3000; i++) {
         expect(tree.lookup([i])).toHaveLength(1);
       }
     });
 
     it('range scan works across split nodes', () => {
-      for (let i = 0; i < 150; i++) tree.insert([i], rid(0, i));
+      for (let i = 0; i < 3000; i++) tree.insert([i], rid(0, i));
       ps.commit();
 
-      expect(tree.range({ lower: [140], upper: [149] })).toHaveLength(10);
+      const [boundary] = root(ps).keys[0] as number[];
+      expect(tree.range({ lower: [boundary - 5], upper: [boundary + 4] })).toHaveLength(10);
     });
 
     it('handles reverse-order inserts (worst case for splits)', () => {
-      for (let i = 200; i >= 0; i--) tree.insert([i], rid(0, i));
+      for (let i = 3000; i >= 0; i--) tree.insert([i], rid(0, i));
       ps.commit();
 
-      for (const k of [0, 50, 100, 150, 200]) {
+      expect(root(ps).kind).toBe('internal');
+      for (const k of [0, 750, 1500, 2250, 3000]) {
         expect(tree.lookup([k])).toEqual([rid(0, k)]);
       }
     });
 
     it('non-unique index with many duplicates splits without page overflow', () => {
-      // Mirrors the benchmark scenario that originally triggered the refactor:
-      // hundreds of rows share one indexed value. Pre-refactor these went
-      // into a single bucket and never split. Post-refactor each (key, rowId)
-      // is a separate entry, so leaves split naturally.
-      for (let i = 0; i < 500; i++) tree.insert([42], rid(0, i));
+      // Each (key, rowId) is a separate entry, so leaves split however many
+      // rows share one indexed value.
+      for (let i = 0; i < 3000; i++) tree.insert([42], rid(0, i));
       ps.commit();
 
+      expect(root(ps).kind).toBe('internal');
       const results = tree.lookup([42]);
-      expect(results).toHaveLength(500);
-      expect(new Set(results).size).toBe(500);
+      expect(results).toHaveLength(3000);
+      expect(new Set(results).size).toBe(3000);
+    });
+
+    it('rejects a key over a quarter of a page, changing nothing', () => {
+      tree.insert(['small'], rid(0, 0));
+      expect(() => tree.insert(['x'.repeat(1100)], rid(0, 1))).toThrow(
+        IndexKeyTooLargeError,
+      );
+      expect(() => tree.insert(['x'.repeat(1100)], rid(0, 1))).toThrow(
+        /key of index "idx" is \d+ bytes, exceeds the limit of \d+ bytes/,
+      );
+      tree.insert(['x'.repeat(900)], rid(0, 2));
+      expect(tree.range()).toEqual([rid(0, 0), rid(0, 2)]);
+    });
+  });
+
+  describe('first and last', () => {
+    it('skip entries whose first column is NULL', () => {
+      tree.insert([null, 1], rid(0, 0));
+      tree.insert([5, 1], rid(0, 1));
+      tree.insert([7, null], rid(0, 2));
+      tree.insert([3, null], rid(0, 3));
+
+      expect(tree.first()).toEqual({ key: [3, null], rowId: rid(0, 3) });
+      expect(tree.last()).toEqual({ key: [7, null], rowId: rid(0, 2) });
+    });
+
+    it('are null when every first column is NULL', () => {
+      tree.insert([null], rid(0, 0));
+      expect(tree.first()).toBeNull();
+      expect(tree.last()).toBeNull();
+    });
+
+    it('look past leaves emptied by deletes', () => {
+      for (let i = 0; i < 3000; i++) tree.insert([i], rid(0, i));
+      for (let i = 100; i < 3000; i++) tree.delete([i], rid(0, i));
+      for (let i = 0; i < 50; i++) tree.delete([i], rid(0, i));
+
+      expect(tree.first()).toEqual({ key: [50], rowId: rid(0, 50) });
+      expect(tree.last()).toEqual({ key: [99], rowId: rid(0, 99) });
     });
   });
 
   describe('bulkLoad', () => {
     it('bulk load sorted entries', () => {
-      const metaPage = ps.allocPage();
-      const bt = new SyncBTree(metaPage, ps, false);
+      const bt = new SyncBTree(ps, BTree.create(ps), { name: 'idx', unique: false });
       const entries = Array.from({ length: 50 }, (_, i) => ({ key: [i] as IndexKey, rowId: rid(0, i) }));
       bt.bulkLoad(entries);
       ps.commit();
@@ -314,16 +359,14 @@ describe('SyncBTree', () => {
     });
 
     it('bulk load empty entries creates empty tree', () => {
-      const metaPage = ps.allocPage();
-      const bt = new SyncBTree(metaPage, ps, false);
+      const bt = new SyncBTree(ps, BTree.create(ps), { name: 'idx', unique: false });
       bt.bulkLoad([]);
       ps.commit();
       expect(bt.lookup([1])).toEqual([]);
     });
 
     it('bulk load stores duplicate keys as separate entries in non-unique index', () => {
-      const metaPage = ps.allocPage();
-      const bt = new SyncBTree(metaPage, ps, false);
+      const bt = new SyncBTree(ps, BTree.create(ps), { name: 'idx', unique: false });
       const entries = [
         { key: [1] as IndexKey, rowId: rid(0, 0) },
         { key: [1] as IndexKey, rowId: rid(0, 1) },
@@ -336,8 +379,7 @@ describe('SyncBTree', () => {
     });
 
     it('bulk load unique rejects duplicates', () => {
-      const metaPage = ps.allocPage();
-      const bt = new SyncBTree(metaPage, ps, true);
+      const bt = new SyncBTree(ps, BTree.create(ps), { name: 'idx', unique: true });
       const entries = [
         { key: [1] as IndexKey, rowId: rid(0, 0) },
         { key: [1] as IndexKey, rowId: rid(0, 1) },
@@ -346,26 +388,26 @@ describe('SyncBTree', () => {
     });
 
     it('bulk load with many entries triggers internal nodes', () => {
-      const metaPage = ps.allocPage();
-      const bt = new SyncBTree(metaPage, ps, false);
-      const entries = Array.from({ length: 500 }, (_, i) => ({
+      rootPageNo = BTree.create(ps);
+      const bt = new SyncBTree(ps, rootPageNo, { name: 'idx', unique: false });
+      const entries = Array.from({ length: 5000 }, (_, i) => ({
         key: [i] as IndexKey,
         rowId: rid(Math.floor(i / 100), i % 100),
       }));
       bt.bulkLoad(entries);
       ps.commit();
 
-      for (const k of [0, 99, 250, 499]) {
+      expect(root(ps).kind).toBe('internal');
+      for (const k of [0, 99, 2500, 4999]) {
         expect(bt.lookup([k])).toHaveLength(1);
       }
-
-      expect(bt.range({ lower: [490] })).toHaveLength(10);
+      expect(bt.range({ lower: [4990] })).toHaveLength(10);
     });
   });
 
-  describe('readMeta — explicit error', () => {
-    it('throws descriptive error for invalid metaPageNo', () => {
-      const badTree = new SyncBTree(999, ps, false);
+  describe('missing root', () => {
+    it('throws a descriptive error', () => {
+      const badTree = new SyncBTree(ps, 999, { name: 'idx', unique: false });
       expect(() => badTree.lookup([1])).toThrow(/page 999/);
     });
   });

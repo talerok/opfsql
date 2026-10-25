@@ -30,7 +30,6 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
     rm = new SyncTableManager(ps, () => catalog);
 
     // Create a table 't1' in the catalog
-    const metaPageNo = rm.createTable();
     const column = (name: string) => ({
       name, type: 'ANY' as const, nullable: true, primaryKey: false,
       unique: false, autoIncrement: false, defaultValue: null,
@@ -38,9 +37,8 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
     const schema: TableSchema = {
       name: 't1',
       columns: [column('id'), column('val')],
-      metaPageNo,
     };
-    catalog.addTable(schema);
+    catalog.addTable({ ...schema, ...rm.createTable(schema) });
   });
 
   function collectScan(tableId: string) {
@@ -60,8 +58,8 @@ describe('SyncTableManager (row operations via SyncTableBTree)', () => {
     it('assigns sequential rowIds', () => {
       const r1 = rm.prepareInsert('t1', { id: 1 });
       const r2 = rm.prepareInsert('t1', { id: 2 });
-      expect(r1).toBe(0);
-      expect(r2).toBe(1);
+      expect(r1).toBe(1);
+      expect(r2).toBe(2);
     });
 
     it('inserts many rows (triggers B-tree splits)', () => {

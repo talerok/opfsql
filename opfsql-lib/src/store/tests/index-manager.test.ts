@@ -29,13 +29,13 @@ describe('SyncIndexManager', () => {
     im = new SyncIndexManager(ps, () => catalog);
 
     // Create a default non-unique index 'idx1' via bulkLoad
-    const metaPageNo = im.bulkLoad('idx1', [], false);
+    const rootPageNo = im.bulkLoad('idx1', [], false);
     catalog.addIndex({
       name: 'idx1',
       tableName: 'test',
       expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
       unique: false,
-      metaPageNo,
+      rootPageNo,
     });
   });
 
@@ -48,13 +48,13 @@ describe('SyncIndexManager', () => {
     });
 
     it('insert with unique=true enforces uniqueness', () => {
-      const metaPageNo = im.bulkLoad('idx_unique', [], true);
+      const rootPageNo = im.bulkLoad('idx_unique', [], true);
       catalog.addIndex({
         name: 'idx_unique',
         tableName: 'test',
         expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: true,
-        metaPageNo,
+        rootPageNo,
       });
 
       im.insert('idx_unique', [1], rid(0, 0));
@@ -63,13 +63,13 @@ describe('SyncIndexManager', () => {
 
     it('different indexes are independent', () => {
       // Create second index
-      const metaPageNo = im.bulkLoad('idx_b', [], false);
+      const rootPageNo = im.bulkLoad('idx_b', [], false);
       catalog.addIndex({
         name: 'idx_b',
         tableName: 'test',
         expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: false,
-        metaPageNo,
+        rootPageNo,
       });
 
       im.insert('idx1', [1], rid(0, 0));
@@ -96,13 +96,13 @@ describe('SyncIndexManager', () => {
   describe('bulkLoad', () => {
     it('bulk load creates searchable index', () => {
       const entries = Array.from({ length: 20 }, (_, i) => ({ key: [i * 10] as IndexKey, rowId: rid(0, i) }));
-      const metaPageNo = im.bulkLoad('idx_bulk', entries, false);
+      const rootPageNo = im.bulkLoad('idx_bulk', entries, false);
       catalog.addIndex({
         name: 'idx_bulk',
         tableName: 'test',
         expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: false,
-        metaPageNo,
+        rootPageNo,
       });
       ps.commit();
 
@@ -129,13 +129,13 @@ describe('SyncIndexManager', () => {
     });
 
     it('drop one index does not affect another', () => {
-      const metaPageNo = im.bulkLoad('idx_b', [], false);
+      const rootPageNo = im.bulkLoad('idx_b', [], false);
       catalog.addIndex({
         name: 'idx_b',
         tableName: 'test',
         expressions: [{ type: 'column', name: 'col1', returnType: 'INTEGER' }],
         unique: false,
-        metaPageNo,
+        rootPageNo,
       });
 
       im.insert('idx1', [1], rid(0, 0));

@@ -1,10 +1,14 @@
 import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import type { BTreeMeta, BTreeNode } from "../../store/index-btree/types.js";
-import { encodePage, type EncodedPage } from "../../store/page-codec.js";
+import type { InternalNode, LeafNode, Node } from "../../store/btree.js";
+import {
+  encodePage,
+  encodedSize,
+  type EncodedPage,
+} from "../../store/page-codec.js";
 import { decodeRow, encodeRow } from "../../store/row-codec.js";
-import type { TableBTreeMeta, TableNode } from "../../store/table-btree.js";
+import type { TableEntry } from "../../store/table-btree.js";
 import type { CatalogData, TableSchema } from "../../types.js";
 import { Engine } from "../engine.js";
 
@@ -17,10 +21,15 @@ const FREELIST_PAGE = 2;
 let seq = 0;
 let dbName: string;
 
+/** Small pages, so that table "t" spans several leaves. */
+function openStorage(): OPFSSyncStorage {
+  return new OPFSSyncStorage(dbName, { pageSize: 4096 });
+}
+
 beforeEach(async () => {
   resetMockOPFS();
   dbName = `integrity-${seq++}`;
-  const engine = await Engine.create(new OPFSSyncStorage(dbName));
+  const engine = await Engine.create(openStorage());
   const s = engine.createSession();
   await s.execute(
     "CREATE TABLE t (id INTEGER PRIMARY KEY, tag INTEGER, body TEXT)",
@@ -30,7 +39,7 @@ beforeEach(async () => {
     await s.execute("INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)", [
       id,
       id % 7,
-      `row ${id}`,
+      `row ${id}`.padEnd(40, "."),
     ]);
   }
   await s.execute("DELETE FROM t WHERE id % 5 = 0");
@@ -45,7 +54,7 @@ beforeEach(async () => {
 });
 
 async function check(): Promise<string[]> {
-  const engine = await Engine.create(new OPFSSyncStorage(dbName));
+  const engine = await Engine.create(openStorage());
   try {
     return engine.checkIntegrity();
   } finally {
@@ -53,19 +62,21 @@ async function check(): Promise<string[]> {
   }
 }
 
+type TableLeaf = LeafNode<TableEntry>;
+
 interface RawFile {
   read<T>(pageNo: number): T;
   write(pageNo: number, value: unknown): void;
   nextPageId: number;
+  catalog: CatalogData;
   table(name: string): TableSchema;
-  tableMetaPage(name: string): number;
-  indexMetaPage(name: string): number;
-  leftmostLeaf(metaPageNo: number): number;
+  /** Leaf pages of table `name`, in key order. */
+  leaves(name: string): number[];
 }
 
 /** Edits pages of the closed database file directly, bypassing the engine. */
 async function damage(edit: (file: RawFile) => void): Promise<void> {
-  const storage = new OPFSSyncStorage(dbName);
+  const storage = openStorage();
   await storage.open();
   const pages = new Map<number, EncodedPage>();
   const read = <T>(pageNo: number): T => {
@@ -74,27 +85,34 @@ async function damage(edit: (file: RawFile) => void): Promise<void> {
     return structuredClone(value);
   };
   const catalog = read<CatalogData>(CATALOG_PAGE);
+  const table = (name: string) => catalog.tables.find((t) => t.name === name)!;
   const file: RawFile = {
     read,
     write: (pageNo, value) => pages.set(pageNo, encodePage(value)),
     nextPageId: storage.getNextPageId(),
-    table: (name) => catalog.tables.find((t) => t.name === name)!,
-    tableMetaPage: (name) =>
-      catalog.tables.find((t) => t.name === name)!.metaPageNo!,
-    indexMetaPage: (name) =>
-      catalog.indexes.find((i) => i.name === name)!.metaPageNo!,
-    leftmostLeaf(metaPageNo) {
-      let pageNo = read<BTreeMeta>(metaPageNo).rootNodeId;
-      for (;;) {
-        const node = read<BTreeNode>(pageNo);
-        if (node.kind === "leaf") return pageNo;
-        pageNo = node.children[0];
-      }
+    catalog,
+    table,
+    leaves(name) {
+      const result: number[] = [];
+      const visit = (pageNo: number) => {
+        const node = read<Node<number, TableEntry>>(pageNo);
+        if (node.kind === "leaf") result.push(pageNo);
+        else node.children.forEach(visit);
+      };
+      visit(table(name).rootPageNo!);
+      return result;
     },
   };
   edit(file);
   storage.commit(pages, file.nextPageId);
   storage.close();
+}
+
+/** Replaces entry `i` of a table leaf, keeping its recorded size exact. */
+function withEntry(leaf: TableLeaf, i: number, entry: TableEntry): TableLeaf {
+  const bytes = leaf.bytes - encodedSize(leaf.entries[i]) + encodedSize(entry);
+  const entries = leaf.entries.map((e, j) => (j === i ? entry : e));
+  return { ...leaf, entries, bytes };
 }
 
 describe("checkIntegrity", () => {
@@ -104,12 +122,9 @@ describe("checkIntegrity", () => {
 
   it("detects a page shared by two trees", async () => {
     await damage((file) => {
-      const tableMeta = file.tableMetaPage("t");
-      const indexRoot = file.read<BTreeMeta>(
-        file.indexMetaPage("t_tag"),
-      ).rootNodeId;
-      const meta = file.read<TableBTreeMeta>(tableMeta);
-      file.write(tableMeta, { ...meta, rootNodeId: indexRoot });
+      const index = file.catalog.indexes.find((i) => i.name === "t_tag")!;
+      index.rootPageNo = file.table("t").rootPageNo;
+      file.write(CATALOG_PAGE, file.catalog);
     });
     expect(await check()).toContainEqual(
       expect.stringMatching(/is used by table "t" and index "t_tag"/),
@@ -129,7 +144,7 @@ describe("checkIntegrity", () => {
   it("detects a freelist entry that is still in use", async () => {
     let used = 0;
     await damage((file) => {
-      used = file.leftmostLeaf(file.tableMetaPage("t"));
+      used = file.leaves("t")[0];
       file.write(FREELIST_PAGE, [used]);
     });
     expect(await check()).toContainEqual(
@@ -139,22 +154,11 @@ describe("checkIntegrity", () => {
     );
   });
 
-  it("detects a broken leaf chain", async () => {
-    await damage((file) => {
-      const leaf = file.leftmostLeaf(file.tableMetaPage("t"));
-      file.write(leaf, { ...file.read<TableNode>(leaf), nextLeafId: null });
-    });
-    expect(await check()).toContainEqual(
-      expect.stringMatching(/table "t": leaf \d+ links to null, expected \d+/),
-    );
-  });
-
   it("detects keys out of order", async () => {
     await damage((file) => {
-      const pageNo = file.leftmostLeaf(file.tableMetaPage("t"));
-      const leaf = file.read<TableNode & { kind: "leaf" }>(pageNo);
-      [leaf.keys[0], leaf.keys[1]] = [leaf.keys[1], leaf.keys[0]];
-      [leaf.cells[0], leaf.cells[1]] = [leaf.cells[1], leaf.cells[0]];
+      const pageNo = file.leaves("t")[0];
+      const leaf = file.read<TableLeaf>(pageNo);
+      [leaf.entries[0], leaf.entries[1]] = [leaf.entries[1], leaf.entries[0]];
       file.write(pageNo, leaf);
     });
     expect(await check()).toContainEqual(
@@ -162,38 +166,69 @@ describe("checkIntegrity", () => {
     );
   });
 
-  it("detects a row count that does not match the tree", async () => {
+  it("detects a key outside its parent's separators", async () => {
     await damage((file) => {
-      const pageNo = file.tableMetaPage("t");
-      const meta = file.read<TableBTreeMeta>(pageNo);
-      file.write(pageNo, { ...meta, size: meta.size + 1 });
+      const pageNo = file.leaves("t")[1];
+      const leaf = file.read<TableLeaf>(pageNo);
+      file.write(pageNo, withEntry(leaf, 0, [1, leaf.entries[0][1]]));
+    });
+    expect(await check()).toContainEqual(
+      expect.stringMatching(
+        /table "t": page \d+ key 1 is outside its parent's separators/,
+      ),
+    );
+  });
+
+  it("detects a node whose recorded size is wrong", async () => {
+    let pageNo = 0;
+    await damage((file) => {
+      pageNo = file.table("t").rootPageNo!;
+      const root = file.read<InternalNode<number>>(pageNo);
+      file.write(pageNo, { ...root, bytes: root.bytes - 1 });
+    });
+    expect(await check()).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `table "t": page ${pageNo} records \\d+ bytes of items but holds \\d+`,
+        ),
+      ),
+    );
+  });
+
+  it("detects an index with more entries than its table has rows", async () => {
+    await damage((file) => {
+      const pageNo = file.leaves("t")[0];
+      const leaf = file.read<TableLeaf>(pageNo);
+      const bytes = leaf.bytes - encodedSize(leaf.entries[0]);
+      file.write(pageNo, { ...leaf, entries: leaf.entries.slice(1), bytes });
     });
     expect(await check()).toContain(
-      'table "t": meta records 241 entries, tree holds 240',
+      'index "t_tag" has 240 entries for 239 rows of "t"',
     );
   });
 
   it("detects an AUTOINCREMENT sequence behind the ids in use", async () => {
     await damage((file) => {
-      const pageNo = file.tableMetaPage("a");
-      const meta = file.read<TableBTreeMeta>(pageNo);
-      file.write(pageNo, { ...meta, lastAutoIncrement: 1 });
+      file.write(file.table("a").sequencePageNo!, 1);
     });
     expect(await check()).toContain(
-      'table "a": AUTOINCREMENT sequence 1 is behind id 2',
+      'table "a": AUTOINCREMENT sequence 1 is behind id 3',
     );
   });
 
   it("detects a row whose index entry does not match it", async () => {
     let rowId = 0;
     await damage((file) => {
-      const pageNo = file.leftmostLeaf(file.tableMetaPage("t"));
-      const leaf = file.read<TableNode & { kind: "leaf" }>(pageNo);
-      rowId = leaf.keys[0];
+      const pageNo = file.leaves("t")[0];
+      const leaf = file.read<TableLeaf>(pageNo);
+      const [id, cell] = leaf.entries[0];
+      rowId = id;
       const schema = file.table("t");
-      const row = decodeRow(schema, leaf.cells[0]);
-      leaf.cells[0] = encodeRow(schema, { ...row, tag: 99 });
-      file.write(pageNo, leaf);
+      const row = decodeRow(schema, cell);
+      file.write(
+        pageNo,
+        withEntry(leaf, 0, [id, encodeRow(schema, { ...row, tag: 99 })]),
+      );
     });
     expect(await check()).toEqual([
       `index "t_tag" has no entry [99] for row ${rowId} of "t"`,

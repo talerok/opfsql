@@ -23,7 +23,7 @@ const usersSchema: TableSchema = {
 
 function mockRowManager(rows: Array<{ rowId: number; row: Record<string, any> }> = []): SyncIRowManager {
   return {
-    createTable: vi.fn(() => 0),
+    createTable: vi.fn(() => ({ rootPageNo: 0 })),
     prepareInsert: vi.fn(() => 0),
     prepareUpdate: vi.fn(() => 0),
     prepareDelete: vi.fn(),

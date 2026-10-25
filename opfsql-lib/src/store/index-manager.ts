@@ -1,3 +1,4 @@
+import { BTree } from "./btree.js";
 import { SyncBTree } from "./index-btree/index-btree.js";
 import { computeBounds } from "./index-btree/search-bounds.js";
 import type {
@@ -18,7 +19,7 @@ export class SyncIndexManager implements SyncIIndexManager {
   private tree(indexName: string): SyncBTree {
     const indexDef = this.getCatalog().getIndex(indexName.toLowerCase());
     if (!indexDef) throw new Error(`Index "${indexName}" not found in catalog`);
-    return new SyncBTree(indexDef.metaPageNo!, this.ps, indexDef.unique);
+    return new SyncBTree(this.ps, indexDef.rootPageNo!, indexDef);
   }
 
   insert(indexName: string, key: IndexKey, rowId: RowId): void {
@@ -38,10 +39,11 @@ export class SyncIndexManager implements SyncIIndexManager {
     entries: Array<{ key: IndexKey; rowId: RowId }>,
     unique: boolean,
   ): number {
-    const metaPageNo = this.ps.allocPage();
-    const tree = new SyncBTree(metaPageNo, this.ps, unique);
-    tree.bulkLoad(entries);
-    return metaPageNo;
+    const rootPageNo = BTree.create(this.ps);
+    new SyncBTree(this.ps, rootPageNo, { name: indexName, unique }).bulkLoad(
+      entries,
+    );
+    return rootPageNo;
   }
 
   dropIndex(indexName: string): void {

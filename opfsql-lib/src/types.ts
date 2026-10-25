@@ -36,7 +36,10 @@ export interface ColumnDef {
 export interface TableSchema {
   name: string;
   columns: ColumnDef[];
-  metaPageNo?: number;
+  /** Root page of the table's B-tree, which never moves. */
+  rootPageNo?: number;
+  /** Page with the last AUTOINCREMENT value issued, if a column has AUTOINCREMENT. */
+  sequencePageNo?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +74,8 @@ export interface IndexDef {
   tableName: string;
   expressions: IndexExpression[];
   unique: boolean;
-  metaPageNo?: number;
+  /** Root page of the index's B-tree, which never moves. */
+  rootPageNo?: number;
 }
 
 export interface CatalogData {

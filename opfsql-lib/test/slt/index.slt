@@ -275,3 +275,23 @@ query IT nosort
 SELECT * FROM pk_test WHERE id = 3
 ----
 3|Updated
+
+# MIN/MAX through a composite index: NULL in a later column still counts
+statement ok
+CREATE TABLE mm (a INTEGER, b INTEGER)
+
+statement ok
+CREATE INDEX mm_ab ON mm (a, b)
+
+statement ok
+INSERT INTO mm VALUES (5, 1), (10, NULL), (NULL, 3), (1, NULL)
+
+query I nosort
+SELECT MAX(a) FROM mm
+----
+10
+
+query I nosort
+SELECT MIN(a) FROM mm
+----
+1

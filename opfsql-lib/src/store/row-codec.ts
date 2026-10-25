@@ -18,7 +18,13 @@ export function decodeRow(schema: TableSchema, cell: Uint8Array): Row {
   const values = decodeCbor<Value[]>(cell);
   const row: Row = {};
   schema.columns.forEach((column, i) => {
-    row[column.name] = i < values.length ? values[i] : column.defaultValue;
+    row[column.name] =
+      i < values.length ? detach(values[i]) : column.defaultValue;
   });
   return row;
+}
+
+/** A decoded BLOB is a view of the stored page; a row gets its own copy. */
+function detach(value: Value): Value {
+  return value instanceof Uint8Array ? new Uint8Array(value) : value;
 }

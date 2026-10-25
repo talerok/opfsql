@@ -1,5 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import { Engine } from "../index.js";
 import { openTestEngine } from "./test-engine.js";
 
@@ -224,5 +225,66 @@ describe("write lock", () => {
     await writer.execute("COMMIT");
     writer.close();
     reader.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Failed commit — nothing of the transaction survives
+// ---------------------------------------------------------------------------
+
+describe("failed commit", () => {
+  /** Opens an engine whose next commit fails the way a storage write would. */
+  async function createEngineWithFailingCommit(): Promise<() => void> {
+    const backend = new OPFSSyncStorage(`session-test-${seq++}`);
+    engine = await Engine.create(backend);
+    return () => {
+      vi.spyOn(backend, "commit").mockImplementationOnce(() => {
+        throw new Error("injected commit failure");
+      });
+    };
+  }
+
+  it("a failed COMMIT rolls back the whole transaction", async () => {
+    const failNextCommit = await createEngineWithFailingCommit();
+    const s = engine.createSession();
+    await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)");
+
+    await s.execute("BEGIN");
+    await s.execute("INSERT INTO t VALUES (1, 'a')");
+    await s.execute("INSERT INTO t VALUES (2, 'b')");
+    failNextCommit();
+    await expect(s.execute("COMMIT")).rejects.toThrow(
+      "injected commit failure",
+    );
+
+    const [empty] = await s.execute("SELECT * FROM t");
+    expect(empty.rows).toEqual([]);
+    // The session is out of the transaction and usable again.
+    await s.execute("INSERT INTO t VALUES (3, 'c')");
+    const [result] = await s.execute("SELECT * FROM t");
+    expect(result.rows).toEqual([{ id: 3, body: "c" }]);
+    expect(engine.checkIntegrity()).toEqual([]);
+    s.close();
+  });
+
+  it("schema from a failed commit is never published", async () => {
+    const failNextCommit = await createEngineWithFailingCommit();
+    const s = engine.createSession();
+    await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+
+    await s.execute("BEGIN");
+    await s.execute("CREATE TABLE u (id INTEGER PRIMARY KEY, body TEXT)");
+    await s.execute("INSERT INTO u VALUES (1, 'a')");
+    failNextCommit();
+    await expect(s.execute("COMMIT")).rejects.toThrow(
+      "injected commit failure",
+    );
+
+    const other = engine.createSession();
+    expect(other.getSchema().tables.map((t) => t.name)).toEqual(["t"]);
+    await expect(other.execute("SELECT * FROM u")).rejects.toThrow();
+    expect(engine.checkIntegrity()).toEqual([]);
+    other.close();
+    s.close();
   });
 });

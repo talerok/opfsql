@@ -147,9 +147,9 @@ describe('DDL executors', () => {
 
       const result = executeCreateIndex(op, catalog, rm, im);
       expect(result.catalogChanges[0].type).toBe('CREATE_INDEX');
-      // metaPageNo should be set from bulkLoad return
+      // rootPageNo should be set from bulkLoad return
       const indexChange = result.catalogChanges[0] as any;
-      expect(indexChange.index.metaPageNo).toBe(100);
+      expect(indexChange.index.rootPageNo).toBe(100);
     });
   });
 
@@ -307,7 +307,7 @@ function mockRowManager(
     readRow:          vi.fn(() => null),
     deleteTableData:  vi.fn(() => {}),
     rewriteTable:     vi.fn(() => {}),
-    createTable:      vi.fn((): number => 42),
+    createTable:      vi.fn(() => ({ rootPageNo: 42 })),
     nextAutoIncrement:    vi.fn(() => ++lastAuto),
     observeAutoIncrement: vi.fn((_t: string, value: number) => {
       lastAuto = Math.max(lastAuto, value);
@@ -782,7 +782,7 @@ describe('PK index via executeCreateTable', () => {
     expect(idxChange.index.name).toBe('__pk_users');
     expect(idxChange.index.unique).toBe(true);
     expect(idxChange.index.expressions).toEqual([{ type: 'column', name: 'id', returnType: 'INTEGER' }]);
-    expect(idxChange.index.metaPageNo).toBe(100);
+    expect(idxChange.index.rootPageNo).toBe(100);
   });
 
   it('CREATE TABLE without PK does not emit __pk_ index', () => {
@@ -819,7 +819,7 @@ describe('PK index via executeCreateTable', () => {
       tableName: 'users',
       expressions: [{ type: 'column' as const, name: 'id', returnType: 'INTEGER' as const }],
       unique: true,
-      metaPageNo: 100,
+      rootPageNo: 100,
     };
     const catalog = mockCatalog([usersSchema]);
     // Override getTableIndexes to return the PK index

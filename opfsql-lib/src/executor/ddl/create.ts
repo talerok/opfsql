@@ -26,8 +26,7 @@ export function executeCreateTable(
     throw new ExecutorError(`Table "${op.schema.name}" already exists`);
   }
 
-  const metaPageNo = rowManager.createTable();
-  const schema = { ...op.schema, metaPageNo };
+  const schema = { ...op.schema, ...rowManager.createTable(op.schema) };
 
   const changes: ExecuteResult["catalogChanges"] = [
     { type: "CREATE_TABLE", schema },
@@ -39,7 +38,7 @@ export function executeCreateTable(
     if (catalog.hasIndex(pkIdxName)) {
       throw new ExecutorError(`Internal index "${pkIdxName}" already exists`);
     }
-    const idxMetaPageNo = indexManager.bulkLoad(pkIdxName, [], true);
+    const idxRootPageNo = indexManager.bulkLoad(pkIdxName, [], true);
     const indexDef = {
       name: pkIdxName,
       tableName: op.schema.name,
@@ -49,7 +48,7 @@ export function executeCreateTable(
         returnType: c.type,
       })),
       unique: true,
-      metaPageNo: idxMetaPageNo,
+      rootPageNo: idxRootPageNo,
     };
     changes.push({ type: "CREATE_INDEX", index: indexDef });
   }
@@ -82,7 +81,7 @@ export function executeCreateIndex(
     const cmp = compareIndexKeys(a.key, b.key);
     return cmp !== 0 ? cmp : a.rowId - b.rowId;
   });
-  const metaPageNo = indexManager.bulkLoad(
+  const rootPageNo = indexManager.bulkLoad(
     op.index.name,
     entries,
     op.index.unique,
@@ -91,7 +90,7 @@ export function executeCreateIndex(
   return {
     ...EMPTY,
     catalogChanges: [
-      { type: "CREATE_INDEX", index: { ...op.index, metaPageNo } },
+      { type: "CREATE_INDEX", index: { ...op.index, rootPageNo } },
     ],
   };
 }

@@ -1,6 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PageOverflowError } from "../../store/errors.js";
+import { RowTooLargeError } from "../../store/errors.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { openTestEngine } from "./test-engine.js";
@@ -11,7 +11,7 @@ let seq = 0;
 
 beforeEach(async () => {
   resetMockOPFS();
-  engine = await openTestEngine(`page-overflow-${seq++}`);
+  engine = await openTestEngine(`large-rows-${seq++}`);
   session = engine.createSession();
   await session.execute(
     "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)",
@@ -30,11 +30,11 @@ async function bodies(table: string): Promise<unknown[]> {
   return r.type === "rows" ? r.rows.map((row) => row.body) : [];
 }
 
-describe("page overflow", () => {
+describe("large rows", () => {
   it("an oversized row is rejected and leaves no trace", async () => {
     await expect(
       session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]),
-    ).rejects.toThrow(PageOverflowError);
+    ).rejects.toThrow(RowTooLargeError);
     expect(await bodies("t")).toEqual([]);
 
     await session.execute("INSERT INTO t (body) VALUES ('small')");
@@ -48,9 +48,8 @@ describe("page overflow", () => {
     );
     await expect(
       session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]),
-    ).rejects.toThrow(PageOverflowError);
+    ).rejects.toThrow(RowTooLargeError);
 
-    // Enough rows to split leaves in both tables after the failure.
     for (let i = 0; i < 200; i++) {
       await session.execute("INSERT INTO t (body) VALUES ('t')");
       await session.execute("INSERT INTO w (body) VALUES ('w')");
@@ -59,46 +58,32 @@ describe("page overflow", () => {
     expect(await bodies("w")).toEqual(Array(200).fill("w"));
   });
 
-  it("a failed COMMIT rolls back the whole transaction", async () => {
+  it("an oversized row aborts the transaction it is in", async () => {
     await session.execute("BEGIN");
     await session.execute("INSERT INTO t (body) VALUES ('a')");
-    await session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]);
-    await expect(session.execute("COMMIT")).rejects.toThrow(PageOverflowError);
+    await expect(
+      session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]),
+    ).rejects.toThrow(RowTooLargeError);
+    await expect(session.execute("COMMIT")).rejects.toThrow(
+      "COMMIT treated as ROLLBACK",
+    );
 
     expect(await bodies("t")).toEqual([]);
-    // The session is out of the transaction and usable again.
     await session.execute("INSERT INTO t (body) VALUES ('b')");
     expect(await bodies("t")).toEqual(["b"]);
   });
 
-  it("schema from a failed commit is never published", async () => {
-    await session.execute("BEGIN");
-    await session.execute("CREATE TABLE u (id INTEGER PRIMARY KEY, body TEXT)");
-    await session.execute("INSERT INTO u (id, body) VALUES (1, $1)", [BIG]);
-    await expect(session.execute("COMMIT")).rejects.toThrow(PageOverflowError);
-
-    const other = engine.createSession();
-    expect(other.getSchema().tables.map((t) => t.name)).toEqual(["t"]);
-    await expect(other.execute("SELECT * FROM u")).rejects.toThrow();
-    other.close();
+  it("stores many medium rows in one table", async () => {
+    const medium = "y".repeat(500);
+    for (let i = 0; i < 300; i++) {
+      await session.execute("INSERT INTO t (body) VALUES ($1)", [medium]);
+    }
+    expect(await bodies("t")).toEqual(Array(300).fill(medium));
   });
 
-  // Known limits, lifted by the next steps of the page-overflow work.
-  // it.fails passes while the limit holds and flags the test once it is lifted.
-
-  it.fails(
-    "stores many medium rows in one table (byte-aware splits)",
-    async () => {
-      for (let i = 0; i < 300; i++) {
-        await session.execute("INSERT INTO t (body) VALUES ($1)", [
-          "y".repeat(500),
-        ]);
-      }
-      expect(await bodies("t")).toHaveLength(300);
-    },
-  );
-
-  it.fails("stores rows larger than a page (overflow pages)", async () => {
+  // A known limit, lifted by overflow pages. it.fails passes while the limit
+  // holds and flags the test once it is lifted.
+  it.fails("stores rows larger than a page", async () => {
     await session.execute("INSERT INTO t (body) VALUES ($1)", [BIG]);
     expect(await bodies("t")).toEqual([BIG]);
   });

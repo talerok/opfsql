@@ -1,5 +1,5 @@
+import { BTree } from "./btree.js";
 import { decodeRow, encodeRow } from "./row-codec.js";
-import type { TableBTreeMeta, TableLeafNode } from "./table-btree.js";
 import { SyncTableBTree } from "./table-btree.js";
 import type {
   ICatalog,
@@ -23,29 +23,18 @@ export class SyncTableManager implements SyncIRowManager {
   }
 
   private tree(schema: TableSchema): SyncTableBTree {
-    return new SyncTableBTree(schema.metaPageNo!, this.ps);
+    return new SyncTableBTree(this.ps, schema.rootPageNo!, schema.name);
   }
 
-  createTable(): number {
-    const metaPageNo = this.ps.allocPage();
-    const rootPageNo = this.ps.allocPage();
-    const leaf: TableLeafNode = {
-      kind: "leaf",
-      nodeId: rootPageNo,
-      keys: [],
-      cells: [],
-      nextLeafId: null,
-    };
-    const meta: TableBTreeMeta = {
-      rootNodeId: rootPageNo,
-      height: 1,
-      nextRowId: 0,
-      size: 0,
-      lastAutoIncrement: 0,
-    };
-    this.ps.writePage(rootPageNo, leaf);
-    this.ps.writePage(metaPageNo, meta);
-    return metaPageNo;
+  createTable(
+    schema: TableSchema,
+  ): Pick<TableSchema, "rootPageNo" | "sequencePageNo"> {
+    const rootPageNo = BTree.create(this.ps);
+    if (!schema.columns.some((c) => c.autoIncrement)) return { rootPageNo };
+
+    const sequencePageNo = this.ps.allocPage();
+    this.ps.writePage(sequencePageNo, 0);
+    return { rootPageNo, sequencePageNo };
   }
 
   prepareInsert(tableId: string, row: Row): RowId {
@@ -62,7 +51,7 @@ export class SyncTableManager implements SyncIRowManager {
   }
   *scanTable(tableId: string): Generator<{ rowId: RowId; row: Row }> {
     const schema = this.schema(tableId);
-    for (const { rowId, cell } of this.tree(schema).scan()) {
+    for (const [rowId, cell] of this.tree(schema).scan()) {
       yield { rowId, row: decodeRow(schema, cell) };
     }
   }
@@ -73,17 +62,35 @@ export class SyncTableManager implements SyncIRowManager {
   }
   rewriteTable(tableId: string, from: TableSchema, to: TableSchema): void {
     const tree = this.tree(this.schema(tableId));
-    for (const { rowId, cell } of [...tree.scan()]) {
+    for (const [rowId, cell] of [...tree.scan()]) {
       tree.update(rowId, encodeRow(to, decodeRow(from, cell)));
     }
   }
   nextAutoIncrement(tableId: string): number {
-    return this.tree(this.schema(tableId)).nextAutoIncrement();
+    const pageNo = this.sequencePage(tableId);
+    const value = this.ps.readPage<number>(pageNo)! + 1;
+    this.ps.writePage(pageNo, value);
+    return value;
   }
   observeAutoIncrement(tableId: string, value: number): void {
-    this.tree(this.schema(tableId)).observeAutoIncrement(value);
+    const pageNo = this.sequencePage(tableId);
+    if (value > this.ps.readPage<number>(pageNo)!) {
+      this.ps.writePage(pageNo, value);
+    }
   }
   deleteTableData(tableId: string): void {
-    this.tree(this.schema(tableId)).drop();
+    const schema = this.schema(tableId);
+    this.tree(schema).drop();
+    if (schema.sequencePageNo !== undefined) {
+      this.ps.freePage(schema.sequencePageNo);
+    }
+  }
+
+  private sequencePage(tableName: string): number {
+    const { sequencePageNo } = this.schema(tableName);
+    if (sequencePageNo === undefined) {
+      throw new Error(`Table "${tableName}" has no AUTOINCREMENT sequence`);
+    }
+    return sequencePageNo;
   }
 }

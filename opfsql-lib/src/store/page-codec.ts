@@ -1,7 +1,14 @@
 import { Encoder, decode } from "cbor-x";
 import { PageOverflowError } from "./errors.js";
 
-const encoder = new Encoder({ structuredClone: false, useRecords: true });
+// Byte strings are never tagged. By default cbor-x tags a Uint8Array but not
+// a Buffer, and only under Node, so the same row would encode to different
+// sizes depending on where its bytes came from.
+const encoder = new Encoder({
+  structuredClone: false,
+  useRecords: true,
+  tagUint8Array: false,
+});
 
 // ---------------------------------------------------------------------------
 // EncodedPage — a page value paired with its CBOR bytes.
@@ -33,6 +40,16 @@ export function encodeCbor(value: unknown): Uint8Array {
 
 export function decodeCbor<T>(bytes: Uint8Array): T {
   return decode(bytes) as T;
+}
+
+/**
+ * Encoded size of `value`. A CBOR array is its header followed by its items'
+ * encodings, so an array's size is its header plus its items' sizes — as
+ * long as the items hold no objects, whose record definitions one encoding
+ * shares between them.
+ */
+export function encodedSize(value: unknown): number {
+  return encoder.encode(value).length;
 }
 
 /** Throws PageOverflowError for the first page larger than `capacity`. */

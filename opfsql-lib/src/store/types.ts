@@ -90,6 +90,8 @@ export interface SyncIPageStorage {
 // ---------------------------------------------------------------------------
 
 export interface SyncIPageStore {
+  /** Largest encoded page payload, in bytes. */
+  readonly pageCapacity: number;
   readPage<T>(pageNo: number): T | null;
   writePage(pageNo: number, value: unknown): void;
   allocPage(): number;
@@ -103,7 +105,10 @@ export interface SyncIPageStore {
 // ---------------------------------------------------------------------------
 
 export interface SyncIRowManager {
-  createTable(): number;
+  /** Allocates the pages of a new table, for its schema to record. */
+  createTable(
+    schema: TableSchema,
+  ): Pick<TableSchema, "rootPageNo" | "sequencePageNo">;
   prepareInsert(tableId: string, row: Row): RowId;
   prepareUpdate(tableId: string, rowId: RowId, row: Row): RowId;
   prepareDelete(tableId: string, rowId: RowId): void;
@@ -122,14 +127,15 @@ export interface SyncIIndexManager {
   insert(indexName: string, key: IndexKey, rowId: RowId): void;
   delete(indexName: string, key: IndexKey, rowId: RowId): void;
   search(indexName: string, predicates: SearchPredicate[]): RowId[];
+  /** Builds a new index from `entries`, sorted by key; returns its root page. */
   bulkLoad(
     indexName: string,
     entries: Array<{ key: IndexKey; rowId: RowId }>,
     unique: boolean,
   ): number;
   dropIndex(indexName: string): void;
-  /** Smallest non-null key in the index, or null. */
+  /** The entry with the smallest non-NULL first column, or null. */
   first(indexName: string): { key: IndexKey; rowId: RowId } | null;
-  /** Largest non-null key in the index, or null. */
+  /** The entry with the largest non-NULL first column, or null. */
   last(indexName: string): { key: IndexKey; rowId: RowId } | null;
 }

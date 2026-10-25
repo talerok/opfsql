@@ -69,7 +69,7 @@ const rowStore: Record<number, Record<string, any>> = {
 
 function mockRowManager(): SyncIRowManager {
   return {
-    createTable: vi.fn(() => 0),
+    createTable: vi.fn(() => ({ rootPageNo: 0 })),
     prepareInsert: vi.fn(() => 0),
     prepareUpdate: vi.fn(() => 0),
     prepareDelete: vi.fn(),

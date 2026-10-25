@@ -19,6 +19,10 @@ export class SessionStore implements SyncIPageStore {
     private readonly catalogPageNo: number,
   ) {}
 
+  get pageCapacity(): number {
+    return this.storage.pageCapacity;
+  }
+
   readPage<T>(pageNo: number): T | null {
     if (this.buffer.has(pageNo)) {
       const v = this.buffer.get(pageNo);

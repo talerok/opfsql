@@ -19,6 +19,36 @@ export class PageOverflowError extends StorageError {
   }
 }
 
+/** A row is larger than a page can hold. Nothing was written. */
+export class RowTooLargeError extends StorageError {
+  override readonly name = "RowTooLargeError";
+
+  constructor(
+    readonly table: string,
+    readonly size: number,
+    readonly limit: number,
+  ) {
+    super(
+      `row of table "${table}" is ${size} bytes, exceeds the limit of ${limit} bytes`,
+    );
+  }
+}
+
+/** An index key is larger than its index allows. Nothing was written. */
+export class IndexKeyTooLargeError extends StorageError {
+  override readonly name = "IndexKeyTooLargeError";
+
+  constructor(
+    readonly index: string,
+    readonly size: number,
+    readonly limit: number,
+  ) {
+    super(
+      `key of index "${index}" is ${size} bytes, exceeds the limit of ${limit} bytes`,
+    );
+  }
+}
+
 /** The file was written in an on-disk format this version of opfsql does not read. */
 export class UnsupportedFormatError extends StorageError {
   override readonly name = "UnsupportedFormatError";

@@ -67,6 +67,10 @@ export class Storage {
   // Page I/O (direct backend access)
   // -------------------------------------------------------------------------
 
+  get pageCapacity(): number {
+    return this.backend.pageCapacity;
+  }
+
   /** Committed data as of `snapshot` (default: the latest commit). */
   readPage<T>(pageNo: number, snapshot?: number): T | null {
     return this.backend.readPage<T>(pageNo, snapshot);
