@@ -159,7 +159,7 @@ holds the lock until this promise settles".
 | `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries                                    |
 | `sql/parser`       | rebuilt: Pratt expressions, one name rule, NOT_SUPPORTED for what is parsed but not implemented                         |
 | `functions`        | built: one registry for the binder and the compiler                                                                     |
-| `expressions`      | built as `executor/evaluate`: the one compiler; moves to its own module with the plan types                             |
+| `expressions`      | built on `sql/plan`; the old pipeline keeps `executor/evaluate` until the switch                                        |
 | `sql/plan`         | contract written; binder, optimizer and executor move to it                                                             |
 | `sql/binder`       | to rebuild on `sql/plan`: grouping model, scopes, DDL to the schema model                                               |
 | `sql/optimizer`    | to rebuild on `sql/plan`: pure passes, access paths with residuals, physical plan                                       |

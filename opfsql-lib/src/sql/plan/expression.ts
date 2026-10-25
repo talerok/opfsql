@@ -29,7 +29,12 @@ export type ArithmeticOperator =
 export interface ColumnReference {
   readonly kind: "column";
   readonly binding: ColumnBinding;
-  /** Query levels out: 0 for this query, 1 for the one enclosing it, and so on. */
+  /**
+   * Query levels out: 0 for this query, 1 for the one enclosing it, and so
+   * on. A level is a subquery in an expression, whose outer row is pushed
+   * while it runs; a subquery in FROM is part of its query's plan, not a
+   * level of its own.
+   */
   readonly depth: number;
   /** As written, for messages and plans. */
   readonly name: string;
@@ -170,11 +175,18 @@ export interface JsonAccess {
 /** A subquery's plan, and whether it reads columns of enclosing queries. */
 interface SubqueryPart<Plan> {
   readonly plan: Plan;
-  /** False when it can run once and keep its result. */
+  /**
+   * True when it reads a column of an enclosing query — itself or through a
+   * subquery nested in it — and so runs again for each outer row. False
+   * when it can run once and keep its result.
+   */
   readonly isCorrelated: boolean;
 }
 
-/** `(SELECT …)` as a value: its one column of its first row, or NULL. */
+/**
+ * `(SELECT …)` as a value: its one column of its one row, or NULL without
+ * rows; several rows are an error (docs/semantics.md).
+ */
 export interface ScalarSubquery<Plan> extends SubqueryPart<Plan> {
   readonly kind: "scalar-subquery";
   readonly type: StaticType;
@@ -196,6 +208,11 @@ export interface QuantifiedComparison<Plan> extends SubqueryPart<Plan> {
   readonly needle: Expression<Plan>;
   readonly operator: ComparisonOperator;
   readonly quantifier: "ANY" | "ALL";
+  /**
+   * The type of the subquery's one column, which the needle is compared
+   * with — comparison affinity included, as for `=`.
+   */
+  readonly columnType: StaticType;
   readonly type: "BOOLEAN";
 }
 
