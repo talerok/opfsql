@@ -48,9 +48,9 @@ const round: ScalarFunction = {
 
 /**
  * Rounds to `digits` decimal places (0 to 30, as SQLite clamps them),
- * halves away from zero. Works on the decimal expansion of the double, so
- * 2.5 rounds to 3 and -2.5 to -3, while 1.005 — stored as 1.00499… —
- * rounds to 1.
+ * halves away from zero, as SQLite does: to an integer by adding 0.5 to
+ * the magnitude and truncating; to decimals by the exact decimal
+ * expansion of the double, so 1.005 — stored as 1.00499… — rounds to 1.
  */
 export function roundHalfAwayFromZero(value: number, digits: number): number {
   const places = Math.min(Math.max(digits, 0), 30);
@@ -58,7 +58,10 @@ export function roundHalfAwayFromZero(value: number, digits: number): number {
   if (!Number.isFinite(value) || magnitude >= INTEGRAL_DOUBLE) return value;
   // toFixed picks the larger of two equally close results: away from zero
   // for a non-negative number.
-  const rounded = Number(magnitude.toFixed(places));
+  const rounded =
+    places === 0
+      ? Math.trunc(magnitude + 0.5)
+      : Number(magnitude.toFixed(places));
   return positiveZero(value < 0 ? -rounded : rounded);
 }
 

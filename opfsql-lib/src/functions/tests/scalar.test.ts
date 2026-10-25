@@ -113,6 +113,13 @@ describe("numeric functions", () => {
     expect(call("round", [1.5, null])).toBeNull();
   });
 
+  it("ROUND agrees with SQLite on the edges", () => {
+    // sqlite3: round(0.49999999999999994) = 1.0, round(2.675, 2) = 2.67
+    expect(roundHalfAwayFromZero(0.49999999999999994, 0)).toBe(1);
+    expect(roundHalfAwayFromZero(2.675, 2)).toBeCloseTo(2.67, 10);
+    expect(roundHalfAwayFromZero(1.005, 2)).toBe(1);
+  });
+
   it("ROUND clamps the number of digits and leaves huge numbers alone", () => {
     expect(roundHalfAwayFromZero(1.25, -1)).toBe(1);
     expect(roundHalfAwayFromZero(1e300, 2)).toBe(1e300);
