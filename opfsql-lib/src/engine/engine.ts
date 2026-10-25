@@ -66,12 +66,11 @@ export class Engine {
       const shmHandle = await openShared(root, `${dbName}.opfsql-shm`);
       const marks = await ReadMarks.open(shmHandle, lockName);
       opened.push(marks);
-      const wal = new WalStorage(
-        main,
-        walHandle,
-        options.checkpointThreshold,
+      const wal = new WalStorage(main, walHandle, {
+        checkpointThreshold: options.checkpointThreshold,
         marks,
-      );
+        fileName: `${dbName}.opfsql-wal`,
+      });
       return await Engine.create(wal, {
         onCheckpointError: options.onCheckpointError,
         lockName,

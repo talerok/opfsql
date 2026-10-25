@@ -1,4 +1,9 @@
 import { StorageError } from "../errors.js";
+import {
+  FORMAT_PREFIX_SIZE,
+  hasFormatPrefix,
+  writeFormatPrefix,
+} from "../file-format.js";
 import type { ISyncFileHandle } from "./file-handle.js";
 
 // ---------------------------------------------------------------------------
@@ -7,10 +12,11 @@ import type { ISyncFileHandle } from "./file-handle.js";
 // brings the main file past a snapshot another tab still reads.
 //
 // Layout (big-endian):
-//   [0..7]    magic "OPFSSHM1"
-//   [8..15]   checkpoint intent  f64  (a checkpoint may bring the main file
+//   [0..11]   format prefix: magic "OPFSQLSM" + format version (file-format.ts)
+//   [12..15]  reserved
+//   [16..23]  checkpoint intent  f64  (a checkpoint may bring the main file
 //                                      up to this txId)
-//   [16..]    SLOT_COUNT slots   f64  (oldest snapshot open in the slot's
+//   [24..]    SLOT_COUNT slots   f64  (oldest snapshot open in the slot's
 //                                      tab; -1 = none)
 //
 // Each tab owns one slot for its lifetime by holding the Web Lock
@@ -20,9 +26,8 @@ import type { ISyncFileHandle } from "./file-handle.js";
 // tab's mark is never lost.
 // ---------------------------------------------------------------------------
 
-const MAGIC = new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x53, 0x48, 0x4d, 0x31]); // "OPFSSHM1"
-const INTENT_OFFSET = 8;
-const SLOTS_OFFSET = 16;
+const INTENT_OFFSET = 16;
+const SLOTS_OFFSET = 24;
 const SLOT_COUNT = 64;
 const FILE_SIZE = SLOTS_OFFSET + SLOT_COUNT * 8;
 const NO_MARK = -1;
@@ -132,15 +137,15 @@ function slotLock(lockName: string, slot: number): string {
 
 function isInitialised(handle: ISyncFileHandle): boolean {
   if (handle.getSize() < FILE_SIZE) return false;
-  const magic = new Uint8Array(MAGIC.length);
-  handle.read(magic, { at: 0 });
-  return magic.every((byte, i) => byte === MAGIC[i]);
+  const prefix = new Uint8Array(FORMAT_PREFIX_SIZE);
+  handle.read(prefix, { at: 0 });
+  return hasFormatPrefix(prefix, "shm");
 }
 
 function initialise(handle: ISyncFileHandle): void {
   const file = new Uint8Array(FILE_SIZE);
   const view = new DataView(file.buffer);
-  file.set(MAGIC, 0);
+  writeFormatPrefix(file, "shm");
   view.setFloat64(INTENT_OFFSET, 0, false);
   for (let slot = 0; slot < SLOT_COUNT; slot++) {
     view.setFloat64(slotOffset(slot), NO_MARK, false);

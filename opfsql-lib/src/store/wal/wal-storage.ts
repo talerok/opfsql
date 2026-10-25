@@ -1,4 +1,9 @@
 import { WalUnknownStateError } from "../errors.js";
+import {
+  checkFormatPrefix,
+  FORMAT_PREFIX_SIZE,
+  writeFormatPrefix,
+} from "../file-format.js";
 import { assertPagesFit, decodePage, type EncodedPage } from "../page-codec.js";
 import type { SyncIPageStorage } from "../types.js";
 import { crc32 } from "./crc32.js";
@@ -9,10 +14,10 @@ import type { ReadMarks } from "./read-marks.js";
 // WAL file format
 // ---------------------------------------------------------------------------
 //
-// Header (16 bytes):
-//   [0..7]    magic "OPFSWAL2"
-//   [8..11]   epoch    u32 BE  (incremented on each WAL restart)
-//   [12..15]  baseTxId u32 BE  (last transaction before this WAL generation;
+// Header (20 bytes):
+//   [0..11]   format prefix: magic "OPFSQLWL" + format version (file-format.ts)
+//   [12..15]  epoch    u32 BE  (incremented on each WAL restart)
+//   [16..19]  baseTxId u32 BE  (last transaction before this WAL generation;
 //                               transaction ids continue from it)
 //
 // Data frame (16 + payloadLen bytes):
@@ -44,17 +49,9 @@ import type { ReadMarks } from "./read-marks.js";
 // intent and takes a newer snapshot instead — the SQLite WAL protocol.
 // ---------------------------------------------------------------------------
 
-const WAL_MAGIC = new Uint8Array([
-  0x4f,
-  0x50,
-  0x46,
-  0x53,
-  0x57,
-  0x41,
-  0x4c,
-  0x32, // "OPFSWAL2"
-]);
-const WAL_HEADER_SIZE = 16;
+const EPOCH_OFFSET = FORMAT_PREFIX_SIZE;
+const BASE_TX_ID_OFFSET = FORMAT_PREFIX_SIZE + 4;
+const WAL_HEADER_SIZE = FORMAT_PREFIX_SIZE + 8;
 const FRAME_HEADER_SIZE = 16;
 const COMMIT_SENTINEL = 0xffffffff;
 const COMMIT_PAYLOAD_SIZE = 4;
@@ -78,6 +75,15 @@ function visibleVersion(
     if (versions[i].txId <= txId) return versions[i];
   }
   return undefined;
+}
+
+export interface WalOptions {
+  /** WAL frames after which needsCheckpoint() turns on. Default 1000. */
+  checkpointThreshold?: number;
+  /** Snapshots of other tabs sharing these files; omit for a single engine. */
+  marks?: ReadMarks;
+  /** The WAL's file name, for error messages. */
+  fileName?: string;
 }
 
 export class WalStorage implements SyncIPageStorage {
@@ -117,13 +123,19 @@ export class WalStorage implements SyncIPageStorage {
   /** WAL epoch — incremented on each WAL restart. */
   private epoch = 0;
 
+  private readonly checkpointThreshold: number;
+  private readonly marks: ReadMarks | undefined;
+  private readonly fileName: string;
+
   constructor(
     private readonly main: SyncIPageStorage,
     private readonly walHandle: ISyncFileHandle,
-    private readonly checkpointThreshold = 1000,
-    /** Snapshots of other tabs sharing these files; omit for a single engine. */
-    private readonly marks?: ReadMarks,
-  ) {}
+    options: WalOptions = {},
+  ) {
+    this.checkpointThreshold = options.checkpointThreshold ?? 1000;
+    this.marks = options.marks;
+    this.fileName = options.fileName ?? "WAL";
+  }
 
   // -------------------------------------------------------------------------
   // SyncIPageStorage
@@ -351,20 +363,16 @@ export class WalStorage implements SyncIPageStorage {
   private readHeader(): void {
     const headerBuf = new Uint8Array(WAL_HEADER_SIZE);
     this.walHandle.read(headerBuf, { at: 0 });
-    for (let i = 0; i < WAL_MAGIC.length; i++) {
-      if (headerBuf[i] !== WAL_MAGIC[i]) {
-        throw new Error("Invalid WAL file: bad magic");
-      }
-    }
+    checkFormatPrefix(headerBuf, "wal", this.fileName);
     const hv = new DataView(headerBuf.buffer);
-    this.epoch = hv.getUint32(8, false);
-    this.baseTxId = hv.getUint32(12, false);
+    this.epoch = hv.getUint32(EPOCH_OFFSET, false);
+    this.baseTxId = hv.getUint32(BASE_TX_ID_OFFSET, false);
   }
 
   /** Read epoch directly from WAL file header (for catch-up checks). */
   private readEpochFromFile(): number {
     const buf = new Uint8Array(4);
-    this.walHandle.read(buf, { at: 8 });
+    this.walHandle.read(buf, { at: EPOCH_OFFSET });
     return new DataView(buf.buffer).getUint32(0, false);
   }
 
@@ -549,10 +557,10 @@ export class WalStorage implements SyncIPageStorage {
 
   private initWalHeader(): void {
     const hdr = new Uint8Array(WAL_HEADER_SIZE);
-    hdr.set(WAL_MAGIC, 0);
+    writeFormatPrefix(hdr, "wal");
     const view = new DataView(hdr.buffer);
-    view.setUint32(8, this.epoch, false);
-    view.setUint32(12, this.baseTxId, false);
+    view.setUint32(EPOCH_OFFSET, this.epoch, false);
+    view.setUint32(BASE_TX_ID_OFFSET, this.baseTxId, false);
     this.walHandle.write(hdr, { at: 0 });
     this.walOffset = WAL_HEADER_SIZE;
   }

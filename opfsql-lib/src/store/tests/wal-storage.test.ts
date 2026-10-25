@@ -80,7 +80,7 @@ async function opened(
 ) {
   const m = main ?? await createMain();
   const w = walHandle ?? new MemoryFileHandle();
-  const wal = new WalStorage(m, w, threshold);
+  const wal = new WalStorage(m, w, { checkpointThreshold: threshold });
   await wal.open();
   return { main: m, walHandle: w, wal };
 }
@@ -387,8 +387,8 @@ describe('WalStorage', () => {
 
       wal.checkpoint();
 
-      // WAL file should be just the header (16 bytes)
-      expect(walHandle.getSize()).toBe(16);
+      // WAL file should be just the header (20 bytes)
+      expect(walHandle.getSize()).toBe(20);
     });
 
     it('reads still work after checkpoint (from main)', async () => {

@@ -23,7 +23,9 @@ async function openDatabase(checkpointThreshold?: number) {
   const wal = new WalStorage(
     new OPFSSyncStorage(name),
     new MemoryFileHandle(),
-    checkpointThreshold,
+    {
+      checkpointThreshold,
+    },
   );
   const engine = await Engine.create(wal);
   const writer = engine.createSession();

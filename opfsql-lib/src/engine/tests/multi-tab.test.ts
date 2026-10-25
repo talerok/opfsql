@@ -37,7 +37,10 @@ async function openTabs(
   const tabs: Tab[] = [];
   for (let i = 0; i < count; i++) {
     const marks = await ReadMarks.open(shmFile, lockName);
-    const wal = new WalStorage(main, walFile, 8, marks);
+    const wal = new WalStorage(main, walFile, {
+      checkpointThreshold: 8,
+      marks,
+    });
     const engine = await Engine.create(wal, { lockName });
     tabs.push({ engine, session: engine.createSession(), wal });
   }

@@ -19,6 +19,21 @@ export class PageOverflowError extends StorageError {
   }
 }
 
+/** The file was written in an on-disk format this version of opfsql does not read. */
+export class UnsupportedFormatError extends StorageError {
+  override readonly name = "UnsupportedFormatError";
+
+  constructor(
+    readonly file: string,
+    readonly version: number,
+    readonly supported: number,
+  ) {
+    super(
+      `"${file}" uses file format ${version}, but this opfsql reads format ${supported}`,
+    );
+  }
+}
+
 /**
  * Another tab already has the database open, and this browser lets only one
  * tab open its files: only Chromium supports several tabs per database.

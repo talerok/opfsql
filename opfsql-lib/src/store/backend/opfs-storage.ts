@@ -1,3 +1,9 @@
+import { StorageError } from "../errors.js";
+import {
+  checkFormatPrefix,
+  FORMAT_PREFIX_SIZE,
+  writeFormatPrefix,
+} from "../file-format.js";
 import { assertPagesFit, decodePage, type EncodedPage } from "../page-codec.js";
 import type { SyncIPageStorage } from "../types.js";
 
@@ -19,13 +25,13 @@ declare global {
 }
 
 // ---------------------------------------------------------------------------
-// File format (OPFSQL03)
+// File format
 // ---------------------------------------------------------------------------
 //
-// Page 0: header (PAGE_SIZE bytes, only first 16 used)
-//   [0..7]   magic  "OPFSQL03"
-//   [8..11]  pageSize  u32 big-endian
-//   [12..15] nextPageId u32
+// Page 0: header (PAGE_SIZE bytes, only the first 20 used)
+//   [0..11]  format prefix: magic "OPFSQLDB" + format version (file-format.ts)
+//   [12..15] pageSize   u32 BE
+//   [16..19] nextPageId u32 BE
 //
 // Page 1: catalog  (CBOR-encoded CatalogData)
 // Page 2: freelist (CBOR-encoded number[])
@@ -36,14 +42,11 @@ declare global {
 //   [4..]    CBOR bytes
 //
 // File size = nextPageId * pageSize (no trailing index blob).
-//
-// v03 change: index B-tree leaves store [...userKey, rowId] as unique keys
-// (SQLite-style). The rowId lives in the key's trailing element; there is no
-// separate parallel array. Leaves split normally regardless of duplicate skew.
 // ---------------------------------------------------------------------------
 
-const MAGIC = new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x33]); // "OPFSQL03"
-const HEADER_SIZE = 16;
+const PAGE_SIZE_OFFSET = FORMAT_PREFIX_SIZE;
+const NEXT_PAGE_ID_OFFSET = FORMAT_PREFIX_SIZE + 4;
+const HEADER_SIZE = FORMAT_PREFIX_SIZE + 8;
 const PAGE_LENGTH_PREFIX = 4;
 const DEFAULT_PAGE_SIZE = 32768; // 32 KB
 const MIN_PAGE_SIZE = 4096;
@@ -85,7 +88,7 @@ export class OPFSSyncStorage implements SyncIPageStorage {
   async open(): Promise<void> {
     if (this.handle) return; // already opened
     const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle(`${this.dbName}.opfsql`, {
+    const fh = await root.getFileHandle(this.fileName, {
       create: true,
     });
     this.handle = await fh.createSyncAccessHandle({
@@ -114,7 +117,7 @@ export class OPFSSyncStorage implements SyncIPageStorage {
 
   getNextPageId(): number {
     const buf = new Uint8Array(4);
-    this.handle.read(buf, { at: 12 });
+    this.handle.read(buf, { at: NEXT_PAGE_ID_OFFSET });
     this.nextPageId = new DataView(buf.buffer).getUint32(0, false);
     return this.nextPageId;
   }
@@ -149,37 +152,34 @@ export class OPFSSyncStorage implements SyncIPageStorage {
     this.nextPageId = nextPageId;
     const buf = new Uint8Array(HEADER_SIZE);
     const v = new DataView(buf.buffer);
-    buf.set(MAGIC, 0);
-    v.setUint32(8, this.pageSize, false);
-    v.setUint32(12, this.nextPageId, false);
+    writeFormatPrefix(buf, "database");
+    v.setUint32(PAGE_SIZE_OFFSET, this.pageSize, false);
+    v.setUint32(NEXT_PAGE_ID_OFFSET, this.nextPageId, false);
     this.handle.write(buf, { at: 0 });
   }
 
   private initNewFile(): void {
-    this.nextPageId = 3;
     this.handle.truncate(3 * this.pageSize);
-    const buf = new Uint8Array(HEADER_SIZE);
-    const v = new DataView(buf.buffer);
-    buf.set(MAGIC, 0);
-    v.setUint32(8, this.pageSize, false);
-    v.setUint32(12, this.nextPageId, false);
-    this.handle.write(buf, { at: 0 });
+    this.writeHeader(3);
     this.handle.flush();
   }
 
   private readHeader(): void {
     const buf = new Uint8Array(HEADER_SIZE);
     this.handle.read(buf, { at: 0 });
-    for (let i = 0; i < MAGIC.length; i++) {
-      if (buf[i] !== MAGIC[i])
-        throw new Error("Invalid OPFSQL file: bad magic");
-    }
+    checkFormatPrefix(buf, "database", this.fileName);
     const v = new DataView(buf.buffer);
-    const pageSize = v.getUint32(8, false);
+    const pageSize = v.getUint32(PAGE_SIZE_OFFSET, false);
     if (!isValidPageSize(pageSize)) {
-      throw new Error(`Invalid OPFSQL file: bad pageSize ${pageSize}`);
+      throw new StorageError(
+        `"${this.fileName}" has an invalid page size ${pageSize}`,
+      );
     }
     this.pageSize = pageSize;
-    this.nextPageId = v.getUint32(12, false);
+    this.nextPageId = v.getUint32(NEXT_PAGE_ID_OFFSET, false);
+  }
+
+  private get fileName(): string {
+    return `${this.dbName}.opfsql`;
   }
 }

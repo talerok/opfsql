@@ -17,7 +17,10 @@ export function commitBatch(
   backend.commit(batch, nextPageId);
 }
 
-/** Writes a read mark straight into a slot, as a tab that later died would have. */
+/**
+ * Writes a read mark straight into a slot (layout in read-marks.ts), as a tab
+ * that later died would have.
+ */
 export function writeOrphanMark(
   shm: ISyncFileHandle,
   slot: number,
@@ -25,5 +28,5 @@ export function writeOrphanMark(
 ): void {
   const cell = new Uint8Array(8);
   new DataView(cell.buffer).setFloat64(0, mark, false);
-  shm.write(cell, { at: 16 + slot * 8 });
+  shm.write(cell, { at: 24 + slot * 8 });
 }

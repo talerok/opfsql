@@ -48,7 +48,7 @@ describe("Engine.open", () => {
     ).createSyncAccessHandle();
     wal.write(new TextEncoder().encode("not a WAL header"), { at: 0 });
     wal.close();
-    await expect(Engine.open(dbName)).rejects.toThrow(/bad magic/);
+    await expect(Engine.open(dbName)).rejects.toThrow(/not an opfsql wal file/);
 
     // Nothing is left holding the files: the database opens once repaired.
     await root.removeEntry(`${dbName}.opfsql-wal`);

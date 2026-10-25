@@ -83,7 +83,7 @@ describe("snapshots across tabs", () => {
     shm: MemoryFileHandle,
   ) {
     const marks = await ReadMarks.open(shm, lockName);
-    const storage = new Storage(new WalStorage(main, wal, 1000, marks));
+    const storage = new Storage(new WalStorage(main, wal, { marks }));
     await storage.open();
     return storage;
   }

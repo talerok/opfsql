@@ -1,7 +1,8 @@
 import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { OPFSSyncStorage } from "../backend/opfs-storage.js";
-import { PageOverflowError } from "../errors.js";
+import { PageOverflowError, UnsupportedFormatError } from "../errors.js";
+import { writeFormatPrefix } from "../file-format.js";
 import { commitBatch } from "./helpers.js";
 
 beforeEach(() => {
@@ -186,50 +187,67 @@ describe("OPFSSyncStorage — open/close lifecycle", () => {
 });
 
 describe("OPFSSyncStorage — header validation", () => {
-  it("rejects file with bad magic", async () => {
-    // Create a file with garbage header
+  /** Writes a database file header by hand, as another writer would have. */
+  async function writeHeader(
+    dbName: string,
+    fill: (header: Uint8Array, view: DataView) => void,
+  ): Promise<void> {
     const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle("bad-magic.opfsql", { create: true });
+    const fh = await root.getFileHandle(`${dbName}.opfsql`, { create: true });
     const handle = await fh.createSyncAccessHandle();
-    const buf = new Uint8Array(16);
-    buf.set(new TextEncoder().encode("GARBAGE!"), 0);
-    handle.write(buf, { at: 0 });
+    const header = new Uint8Array(20);
+    fill(header, new DataView(header.buffer));
+    handle.write(header, { at: 0 });
     handle.close();
+  }
 
-    const storage = new OPFSSyncStorage("bad-magic");
-    await expect(storage.open()).rejects.toThrow(/bad magic/);
+  const validHeader = (pageSize: number) => (h: Uint8Array, v: DataView) => {
+    writeFormatPrefix(h, "database");
+    v.setUint32(12, pageSize, false);
+    v.setUint32(16, 3, false);
+  };
+
+  it("rejects a file that is not an opfsql database", async () => {
+    await writeHeader("garbage", (h) =>
+      h.set(new TextEncoder().encode("GARBAGE!")),
+    );
+    await expect(new OPFSSyncStorage("garbage").open()).rejects.toThrow(
+      /"garbage.opfsql" is not an opfsql database file/,
+    );
   });
 
-  it("rejects file with non-power-of-two pageSize", async () => {
-    const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle("bad-ps.opfsql", { create: true });
-    const handle = await fh.createSyncAccessHandle();
-    const buf = new Uint8Array(16);
-    // Write valid magic
-    buf.set(new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x33]), 0);
-    // Write invalid pageSize (5000 — not a power of 2)
-    new DataView(buf.buffer).setUint32(8, 5000, false);
-    new DataView(buf.buffer).setUint32(12, 3, false);
-    handle.write(buf, { at: 0 });
-    handle.close();
-
-    const storage = new OPFSSyncStorage("bad-ps");
-    await expect(storage.open()).rejects.toThrow(/bad pageSize/);
+  it("rejects a database written in an earlier format", async () => {
+    await writeHeader("legacy", (h) =>
+      h.set(new TextEncoder().encode("OPFSQL03")),
+    );
+    const open = new OPFSSyncStorage("legacy").open();
+    await expect(open).rejects.toThrow(UnsupportedFormatError);
+    await expect(open).rejects.toThrow(
+      /uses file format 3, but this opfsql reads format 4/,
+    );
   });
 
-  it("rejects file with pageSize too small", async () => {
-    const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle("small-ps.opfsql", { create: true });
-    const handle = await fh.createSyncAccessHandle();
-    const buf = new Uint8Array(16);
-    buf.set(new Uint8Array([0x4f, 0x50, 0x46, 0x53, 0x51, 0x4c, 0x30, 0x33]), 0);
-    // pageSize=1024 < 4096 minimum
-    new DataView(buf.buffer).setUint32(8, 1024, false);
-    new DataView(buf.buffer).setUint32(12, 3, false);
-    handle.write(buf, { at: 0 });
-    handle.close();
+  it("rejects a database written in a later format", async () => {
+    await writeHeader("future", (h, v) => {
+      validHeader(32768)(h, v);
+      v.setUint32(8, 5, false);
+    });
+    await expect(new OPFSSyncStorage("future").open()).rejects.toThrow(
+      UnsupportedFormatError,
+    );
+  });
 
-    const storage = new OPFSSyncStorage("small-ps");
-    await expect(storage.open()).rejects.toThrow(/bad pageSize/);
+  it("rejects a page size that is not a power of two", async () => {
+    await writeHeader("bad-ps", validHeader(5000));
+    await expect(new OPFSSyncStorage("bad-ps").open()).rejects.toThrow(
+      /invalid page size 5000/,
+    );
+  });
+
+  it("rejects a page size below the minimum", async () => {
+    await writeHeader("small-ps", validHeader(1024));
+    await expect(new OPFSSyncStorage("small-ps").open()).rejects.toThrow(
+      /invalid page size 1024/,
+    );
   });
 });
