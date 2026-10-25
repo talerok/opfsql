@@ -67,6 +67,8 @@ export interface SyncIPageStorage {
   isSnapshotSafe?(snapshot: number): boolean;
   /** Releases snapshots held by tabs that no longer exist. */
   releaseAbandonedSnapshots?(): Promise<void>;
+  /** Lowers a stale checkpoint intent to the latest commit (write lock held). */
+  resetCheckpointIntent?(): void;
   /**
    * Persist a batch of pages together with the new nextPageId. Rejects the
    * whole batch with PageOverflowError before writing if any page exceeds

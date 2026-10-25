@@ -107,7 +107,7 @@ export class Engine implements EngineContract, AsyncDisposable {
       lock: this.lock,
       schemas: this.schemas,
       createStore: () => this.storage.createSession(),
-      pin: (store) => this.pin(store),
+      pin: async (store, signal) => this.pin(store, signal),
       latestSchemaVersion: () => latestSchemaVersion(this.storage),
       maintain: () => {
         this.storage.checkpointIfNeeded();
@@ -140,22 +140,43 @@ export class Engine implements EngineContract, AsyncDisposable {
     if (this.state !== "open") throw new MisuseError("the database is closed");
   }
 
-  /** Picks up other tabs' commits, unless this engine holds the lock. */
-  private catchUp(): void {
-    if (!this.lock.isHeld) this.storage.catchUp();
+  /**
+   * Picks up other tabs' commits, unless this engine holds the lock (then
+   * there are none); true when it found some.
+   */
+  private catchUp(): boolean {
+    return !this.lock.isHeld && this.storage.catchUp();
   }
 
   /**
-   * Pins the latest commit. If another tab's checkpoint has already moved
-   * past what this engine knew, catch up and pin again; each round sees a
-   * newer commit, so this ends as soon as the engine is current.
+   * Pins the latest commit. A snapshot that another tab's checkpoint may
+   * already have passed is unsafe: catch up and pin again, as long as
+   * catching up finds commits. When it finds none, the checkpoint intent
+   * that made the snapshot unsafe is stale; reset it and pin again.
    */
-  private pin(store: SessionStore): number {
+  private async pin(store: SessionStore, signal: AbortSignal): Promise<number> {
     this.catchUp();
     for (;;) {
       const position = this.storage.latestCommit();
       if (store.beginSnapshot()) return position;
-      this.catchUp();
+      if (!this.catchUp()) await this.resetStaleIntent(signal);
+    }
+  }
+
+  /** Under the write lock: no checkpoint runs, so no intent is current. */
+  private async resetStaleIntent(signal: AbortSignal): Promise<void> {
+    if (this.lock.isHeld) {
+      this.storage.resetCheckpointIntent();
+      return;
+    }
+    const lease = await this.lock.acquire(this, {
+      signal,
+      timeout: this.busyTimeout,
+    });
+    try {
+      this.storage.resetCheckpointIntent();
+    } finally {
+      lease.release();
     }
   }
 
@@ -209,10 +230,10 @@ export class Engine implements EngineContract, AsyncDisposable {
    * once or free, every index matches its table. Returns the problems found;
    * an empty list means the database is consistent.
    */
-  checkIntegrity(): string[] {
+  async checkIntegrity(): Promise<string[]> {
     this.assertOpen();
     const store = this.storage.createSession();
-    const position = this.pin(store);
+    const position = await this.pin(store, this.lifetime.signal);
     try {
       const { catalog } = this.schemas.load(store, position);
       const problems = this.storage.checkIntegrity(catalog);

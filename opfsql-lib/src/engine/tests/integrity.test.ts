@@ -56,7 +56,7 @@ beforeEach(async () => {
 async function check(): Promise<string[]> {
   const engine = await Engine.create(openStorage());
   try {
-    return engine.checkIntegrity();
+    return await engine.checkIntegrity();
   } finally {
     await engine.close();
   }

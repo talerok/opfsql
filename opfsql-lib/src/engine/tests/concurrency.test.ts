@@ -74,7 +74,7 @@ describe("several sessions writing at once", () => {
       ),
     );
     expect(await ids(sessions[0])).toEqual([1, 2, 3, 4, 5]);
-    expect(engine.checkIntegrity()).toEqual([]);
+    expect(await engine.checkIntegrity()).toEqual([]);
   });
 
   it("keep both tables when two sessions create one each", async () => {
@@ -86,7 +86,7 @@ describe("several sessions writing at once", () => {
     ]);
     const names = await tableNamesOf(first.schema());
     expect(names).toEqual(["t", "a", "b"]);
-    expect(engine.checkIntegrity()).toEqual([]);
+    expect(await engine.checkIntegrity()).toEqual([]);
   });
 
   it("see each other's schema after a rolled-back DDL", async () => {

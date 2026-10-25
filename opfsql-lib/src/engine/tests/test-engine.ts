@@ -35,7 +35,7 @@ export async function openTestEngine(
   let closing: Promise<void> | null = null;
   vi.spyOn(engine, "close").mockImplementation(async () => {
     closing ??= (async () => {
-      const problems = engine.checkIntegrity();
+      const problems = await engine.checkIntegrity();
       await close();
       if (problems.length > 0) {
         throw new Error(

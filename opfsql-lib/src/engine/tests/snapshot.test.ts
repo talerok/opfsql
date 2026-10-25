@@ -86,7 +86,7 @@ describe("snapshot isolation", () => {
     await insert(writer, 41);
     expect(wal.getEpoch()).toBeGreaterThan(epoch);
     expect(await rows(reader)).toHaveLength(41);
-    expect(engine.checkIntegrity()).toEqual([]);
+    expect(await engine.checkIntegrity()).toEqual([]);
   });
 
   it("writing after another session's commit fails and can be retried", async () => {
@@ -174,7 +174,7 @@ describe("snapshot isolation", () => {
           for (const { session, snapshot } of readers) {
             expect(await rows(session)).toEqual(snapshot ?? expected());
           }
-          expect(engine.checkIntegrity()).toEqual([]);
+          expect(await engine.checkIntegrity()).toEqual([]);
         }
       },
     );

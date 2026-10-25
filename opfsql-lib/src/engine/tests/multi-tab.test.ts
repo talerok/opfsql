@@ -110,7 +110,7 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
           .map(([id, v]) => ({ id, v }));
         for (const tab of tabs) {
           expect(await rows(tab.session)).toEqual(expected);
-          expect(tab.engine.checkIntegrity()).toEqual([]);
+          expect(await tab.engine.checkIntegrity()).toEqual([]);
         }
       }
     });
@@ -166,7 +166,7 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
 
         for (const [j, tab] of tabs.entries()) {
           expect(await rows(tab.session)).toEqual(snapshots[j] ?? expected());
-          expect(tab.engine.checkIntegrity()).toEqual([]);
+          expect(await tab.engine.checkIntegrity()).toEqual([]);
         }
       }
     });

@@ -40,7 +40,7 @@ describe("schema changes across tabs", () => {
         "a_tbl",
         "b_tbl",
       ]);
-      expect(tab.engine.checkIntegrity()).toEqual([]);
+      expect(await tab.engine.checkIntegrity()).toEqual([]);
     }
   });
 
@@ -58,7 +58,7 @@ describe("schema changes across tabs", () => {
     await tabB.execute("COMMIT");
     await indexing;
 
-    expect(a.engine.checkIntegrity()).toEqual([]);
+    expect(await a.engine.checkIntegrity()).toEqual([]);
     const [result] = await tabB.execute("SELECT id FROM t WHERE v = 'two'");
     expect(result.rows).toEqual([[2]]);
   });

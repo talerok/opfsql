@@ -23,7 +23,7 @@ export interface TransactionHost {
    * Pins the latest commit in `store` and returns its position, catching up
    * with other tabs first unless this engine holds the write lock.
    */
-  pin(store: SessionStore): number;
+  pin(store: SessionStore, signal: AbortSignal): Promise<number>;
   latestSchemaVersion(): number;
   /** Deferred maintenance (checkpoints), run under the lock after a commit. */
   maintain(): void;
@@ -53,7 +53,7 @@ export class Transaction {
   ): Promise<Transaction> {
     const lease = mode === "immediate" ? await acquire(context, signal) : null;
     try {
-      const position = context.host.pin(context.store);
+      const position = await context.host.pin(context.store, signal);
       const schema = context.host.schemas.load(context.store, position);
       return new Transaction(context, schema, lease);
     } catch (error) {

@@ -137,7 +137,7 @@ class Fuzzer {
   }
 
   private async verify(): Promise<void> {
-    expect(this.engine.checkIntegrity()).toEqual([]);
+    expect(await this.engine.checkIntegrity()).toEqual([]);
 
     const [all] = await this.session.execute(
       "SELECT id, tag, body FROM t ORDER BY id",

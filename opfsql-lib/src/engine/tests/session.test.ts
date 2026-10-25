@@ -292,7 +292,7 @@ describe("failed commit", () => {
     await s.execute("INSERT INTO t VALUES (3, 'c')");
     const [result] = await s.execute("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 3, body: "c" }]);
-    expect(engine.checkIntegrity()).toEqual([]);
+    expect(await engine.checkIntegrity()).toEqual([]);
     await s.close();
   });
 
@@ -313,7 +313,7 @@ describe("failed commit", () => {
     const schema = await other.schema();
     expect(schema.tables.map((table) => table.name)).toEqual(["t"]);
     await expect(other.execute("SELECT * FROM u")).rejects.toThrow();
-    expect(engine.checkIntegrity()).toEqual([]);
+    expect(await engine.checkIntegrity()).toEqual([]);
     await other.close();
     await s.close();
   });

@@ -10,11 +10,6 @@ import type { CatalogData, ICatalog, SyncIPageStorage } from "./types.js";
 const CATALOG_PAGE_NO = 1;
 const FREELIST_PAGE_NO = 2;
 
-export interface CatchUpResult {
-  catalog: boolean;
-  data: boolean;
-}
-
 export interface StorageOptions {
   /**
    * Called when the checkpoint that follows a commit fails. The commit itself
@@ -194,22 +189,21 @@ export class Storage {
   // Catch-up
   // -------------------------------------------------------------------------
 
-  catchUp(): CatchUpResult | null {
+  /** Picks up other tabs' commits; true when there were any. */
+  catchUp(): boolean {
     const changes = this.backend.catchUp?.();
-
-    if (!changes) {
-      return null;
-    }
-
+    if (!changes) return false;
     this.refreshFromStorage();
-    const array = [...changes];
+    return true;
+  }
 
-    // Empty set = epoch change (full invalidation) → both true
-    const empty = array.length === 0;
-
-    const catalog = empty || changes.has(CATALOG_PAGE_NO);
-    const data = empty || array.some((p) => p !== CATALOG_PAGE_NO);
-    return { catalog, data };
+  /**
+   * Lowers the checkpoint intent to the latest commit. Only for an intent
+   * no snapshot can satisfy because no checkpoint is going on — call it
+   * holding the write lock, caught up.
+   */
+  resetCheckpointIntent(): void {
+    this.backend.resetCheckpointIntent?.();
   }
 
   // -------------------------------------------------------------------------

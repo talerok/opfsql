@@ -259,12 +259,15 @@ export class SessionCore {
   }
 
   /** Runs `read` on the schema this session sees: its transaction's, or the latest. */
-  private withSchema<T>(read: (schema: VersionedSchema) => T): T {
+  private async withSchema<T>(
+    signal: AbortSignal,
+    read: (schema: VersionedSchema) => T,
+  ): Promise<T> {
     const transaction = this.transaction;
     if (transaction?.isAborted === true) throw new TransactionAbortedError();
     if (transaction !== null) return read(transaction.schema);
     const { store } = this.context;
-    const position = this.host.pin(store);
+    const position = await this.host.pin(store, signal);
     try {
       return read(this.host.schemas.load(store, position));
     } finally {
@@ -305,11 +308,11 @@ export class SessionCore {
 
   /** Parses and binds `sql`, so a statement that cannot run fails here. */
   async prepare(sql: string, options: CallOptions): Promise<PreparedPlan> {
-    return this.call(options, sql, () => {
+    return this.call(options, sql, async (signal) => {
       const statement = onlyStatement(parseScript(sql), "prepare()");
       const plan = new PreparedPlan(sql, statement);
       if (statementKind(statement) !== "transaction") {
-        this.withSchema((schema) => plan.bind(schema.catalog));
+        await this.withSchema(signal, (schema) => plan.bind(schema.catalog));
       }
       return plan;
     });
@@ -350,8 +353,8 @@ export class SessionCore {
   }
 
   async schema(options: CallOptions): Promise<Schema> {
-    return this.call(options, "", () =>
-      this.withSchema((schema) => describeSchema(schema.catalog)),
+    return this.call(options, "", async (signal) =>
+      this.withSchema(signal, (schema) => describeSchema(schema.catalog)),
     );
   }
 
