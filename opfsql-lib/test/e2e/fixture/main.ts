@@ -48,6 +48,9 @@ const api = {
     try {
       await root.removeEntry(`${dbName}.opfsql-wal`);
     } catch {}
+    try {
+      await root.removeEntry(`${dbName}.opfsql-shm`);
+    } catch {}
   },
 };
 

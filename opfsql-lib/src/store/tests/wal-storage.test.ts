@@ -489,7 +489,7 @@ describe('WalStorage', () => {
     it('a snapshot reads the versions committed up to it', async () => {
       const { wal } = await opened();
       commitBatch(wal, { 3: 'v1' }, 4);
-      wal.prune(1); // a snapshot at transaction 1 is open
+      wal.setOldestSnapshot(1); // a snapshot at transaction 1 is open
       commitBatch(wal, { 3: 'v2', 4: 'new' }, 5);
 
       expect(wal.readPage(3, 1)).toBe('v1');
@@ -497,18 +497,18 @@ describe('WalStorage', () => {
       expect(wal.readPage(3)).toBe('v2');
     });
 
-    it('pruning drops versions no open snapshot can see', async () => {
+    it('versions no open snapshot can see are dropped', async () => {
       const { wal } = await opened();
       commitBatch(wal, { 3: 'v1' }, 4);
-      wal.prune(1);
+      wal.setOldestSnapshot(1);
       commitBatch(wal, { 3: 'v2' }, 4);
       commitBatch(wal, { 3: 'v3' }, 4);
       expect(wal.readPage(3, 2)).toBe('v2');
 
-      wal.prune(3); // every open snapshot now sees transaction 3
+      wal.setOldestSnapshot(3); // every open snapshot now sees transaction 3
       expect(wal.readPage(3)).toBe('v3');
       // v1 and v2 are gone: a read at an older position would fall through to
-      // the main file, which is why prune() only ever gets the oldest snapshot.
+      // the main file, which is why setOldestSnapshot() only ever gets the oldest one.
       expect(wal.readPage(3, 2)).toBeNull();
     });
 
@@ -516,7 +516,7 @@ describe('WalStorage', () => {
       const main = await createMain();
       const { wal } = await opened(main);
       commitBatch(wal, { 3: 'v1' }, 4);
-      wal.prune(1);
+      wal.setOldestSnapshot(1);
       commitBatch(wal, { 3: 'v2' }, 4);
 
       wal.checkpoint(1);
@@ -525,7 +525,7 @@ describe('WalStorage', () => {
       expect(wal.readPage(3)).toBe('v2');
       expect(wal.getEpoch()).toBe(0);
 
-      wal.prune(2);
+      wal.setOldestSnapshot(2);
       wal.checkpoint(2);
       expect(main.readPage(3)).toBe('v2');
       expect(wal.getEpoch()).toBe(1);

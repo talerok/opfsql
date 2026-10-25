@@ -3,6 +3,7 @@ import { OPFSSyncStorage } from "../store/backend/opfs-storage.js";
 import { Catalog } from "../store/catalog.js";
 import { Storage } from "../store/storage.js";
 import type { SyncIPageStorage } from "../store/types.js";
+import { ReadMarks } from "../store/wal/read-marks.js";
 import { WalStorage } from "../store/wal/wal-storage.js";
 import { checkIndexConsistency } from "./integrity.js";
 import { Session } from "./session.js";
@@ -54,21 +55,21 @@ export class Engine {
       pageSize: options.pageSize,
     });
     const root = await navigator.storage.getDirectory();
-    const walFh = await root.getFileHandle(`${dbName}.opfsql-wal`, {
-      create: true,
-    });
-    const walHandle = await walFh.createSyncAccessHandle({
-      mode: "readwrite-unsafe",
-    });
+    const openShared = async (file: string) =>
+      (await root.getFileHandle(file, { create: true })).createSyncAccessHandle(
+        { mode: "readwrite-unsafe" },
+      );
+    const lockName = `opfsql:${dbName}`;
 
     const wal = new WalStorage(
       mainStorage,
-      walHandle,
+      await openShared(`${dbName}.opfsql-wal`),
       options.checkpointThreshold,
+      await ReadMarks.open(await openShared(`${dbName}.opfsql-shm`), lockName),
     );
     return Engine.create(wal, {
       onCheckpointError: options.onCheckpointError,
-      lockName: `opfsql:${dbName}`,
+      lockName,
     });
   }
 
@@ -129,8 +130,20 @@ export class Engine {
     return data ? Catalog.deserialize(data) : new Catalog();
   }
 
-  checkpoint(): void {
-    this.storage.checkpoint();
+  /**
+   * Brings the main file as far forward as the snapshots open in every tab
+   * allow. Holds the write lock, so restarting the WAL cannot race another
+   * tab's commit.
+   */
+  async checkpoint(): Promise<void> {
+    if (!this.lockName || this.webLockRelease) {
+      this.storage.checkpoint();
+      return;
+    }
+    await navigator.locks.request(`${this.lockName}:write`, () => {
+      this.catchUp();
+      this.storage.checkpoint();
+    });
   }
 
   /**

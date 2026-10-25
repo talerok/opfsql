@@ -75,7 +75,7 @@ class Fuzzer {
     if (r < 0.9) return this.delete(this.pick(ids));
     if (r < 0.95) {
       this.log.push("checkpoint");
-      this.engine.checkpoint();
+      await this.engine.checkpoint();
       return;
     }
     this.log.push("reopen");

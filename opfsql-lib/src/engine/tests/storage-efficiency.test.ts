@@ -87,7 +87,7 @@ describe("storage efficiency budgets", () => {
     const { name, engine, session } = await openDatabase();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)");
     await insertSmallRows(session, 0, ROWS);
-    engine.checkpoint();
+    await engine.checkpoint();
     session.close();
     engine.close();
 
@@ -99,12 +99,12 @@ describe("storage efficiency budgets", () => {
     const { name, engine, session } = await openDatabase();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)");
     await insertSmallRows(session, 0, ROWS);
-    engine.checkpoint();
+    await engine.checkpoint();
     const filled = await fileSize(name);
 
     await session.execute("DELETE FROM t");
     await insertSmallRows(session, ROWS, ROWS);
-    engine.checkpoint();
+    await engine.checkpoint();
     const growth = (await fileSize(name)) / filled;
     expect(growth).toBeLessThanOrEqual(BUDGET.growthAfterDeleteAndRefill);
   });

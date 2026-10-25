@@ -2,20 +2,23 @@ import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
 import { MemoryFileHandle } from "../../store/wal/file-handle.js";
+import { writeOrphanMark } from "../../store/tests/helpers.js";
+import { ReadMarks } from "../../store/wal/read-marks.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
 import { Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { mulberry32 } from "./random.js";
 
 // ---------------------------------------------------------------------------
-// Several engines ("tabs") on one database, coordinated through Web Locks the
-// way real tabs are. Each tab has its own WAL index and catalog; only the
-// files are shared.
+// Several engines ("tabs") on one database, coordinated the way real tabs
+// are: Web Locks for writers, read marks for snapshots. Each tab has its own
+// WAL index and catalog; only the files are shared.
 // ---------------------------------------------------------------------------
 
 interface Tab {
   engine: Engine;
   session: Session;
+  wal: WalStorage;
 }
 
 /**
@@ -23,15 +26,20 @@ interface Tab {
  * allows one handle per file, so the tabs share the handle objects instead —
  * the bytes every tab reads and writes are the same either way.
  */
-async function openTabs(name: string, count: number): Promise<Tab[]> {
+async function openTabs(
+  name: string,
+  count: number,
+  shmFile = new MemoryFileHandle(),
+): Promise<Tab[]> {
   const main = new OPFSSyncStorage(name, { pageSize: 4096 });
   const walFile = new MemoryFileHandle();
+  const lockName = `opfsql:${name}`;
   const tabs: Tab[] = [];
   for (let i = 0; i < count; i++) {
-    const engine = await Engine.create(new WalStorage(main, walFile, 8), {
-      lockName: `opfsql:${name}`,
-    });
-    tabs.push({ engine, session: engine.createSession() });
+    const marks = await ReadMarks.open(shmFile, lockName);
+    const wal = new WalStorage(main, walFile, 8, marks);
+    const engine = await Engine.create(wal, { lockName });
+    tabs.push({ engine, session: engine.createSession(), wal });
   }
   return tabs;
 }
@@ -94,7 +102,7 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
           }
           await session.execute("COMMIT");
         } else {
-          engine.checkpoint();
+          await engine.checkpoint();
         }
 
         const expected = [...model.entries()]
@@ -108,6 +116,79 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     });
   }
 
+  // Tabs open and close read transactions at random while others write and
+  // checkpoint; every open transaction must keep seeing the model as of its
+  // BEGIN, and every other read must see the latest model.
+  for (const seed of [1, 2, 3]) {
+    it(`transactions in every tab keep their snapshots (seed ${seed})`, async () => {
+      const random = mulberry32(seed);
+      const tabs = await openTabs(`tx-tabs-${seed}`, 3);
+      const model = new Map<number, number>();
+      const snapshots: Array<unknown[] | null> = tabs.map(() => null);
+      const expected = () =>
+        [...model.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([id, v]) => ({ id, v }));
+      let nextId = 1;
+
+      await tabs[0].session.execute(
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
+      );
+
+      for (let step = 0; step < 300; step++) {
+        const i = Math.floor(random() * tabs.length);
+        const { engine, session } = tabs[i];
+        const r = random();
+        const ids = [...model.keys()];
+
+        if (snapshots[i] === null && r < 0.45) {
+          if (ids.length === 0 || r < 0.25) {
+            const id = nextId++;
+            await session.execute("INSERT INTO t (id, v) VALUES ($1, $2)", [
+              id,
+              step,
+            ]);
+            model.set(id, step);
+          } else {
+            const id = ids[Math.floor(random() * ids.length)];
+            await session.execute("DELETE FROM t WHERE id = $1", [id]);
+            model.delete(id);
+          }
+        } else if (snapshots[i] === null && r < 0.65) {
+          await session.execute("BEGIN");
+          snapshots[i] = expected();
+        } else if (snapshots[i] !== null && r < 0.8) {
+          await session.execute("COMMIT");
+          snapshots[i] = null;
+        } else {
+          await engine.checkpoint();
+        }
+
+        for (const [j, tab] of tabs.entries()) {
+          expect(await rows(tab.session)).toEqual(snapshots[j] ?? expected());
+          expect(tab.engine.checkIntegrity()).toEqual([]);
+        }
+      }
+    });
+  }
+
+  it("a tab that died with a snapshot open does not hold checkpoints back for good", async () => {
+    const shmFile = new MemoryFileHandle();
+    const [writer] = await openTabs("dead-tab", 1, shmFile);
+    await writer.session.execute(
+      "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
+    );
+    writeOrphanMark(shmFile, 63, 1); // a tab crashed holding snapshot 1
+    const epoch = writer.wal.getEpoch();
+
+    for (let id = 1; id <= 40; id++) {
+      await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
+        id,
+      ]);
+    }
+    expect(writer.wal.getEpoch()).toBeGreaterThan(epoch);
+  });
+
   it("AUTOINCREMENT ids stay unique when tabs take turns inserting", async () => {
     const tabs = await openTabs("autoincrement", 2);
     await tabs[0].session.execute(
@@ -116,7 +197,7 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     for (let i = 0; i < 50; i++) {
       const { engine, session } = tabs[i % 2];
       await session.execute("INSERT INTO t (v) VALUES ($1)", [i]);
-      if (i % 7 === 0) engine.checkpoint();
+      if (i % 7 === 0) await engine.checkpoint();
     }
 
     const [result] = await tabs[1].session.execute(
@@ -127,34 +208,28 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     );
   });
 
-  // Known bug, fixed by coordinating readers with checkpoints: a checkpoint
-  // overwrites main-file pages in place while another tab's transaction may
-  // still be reading their old versions.
-  it.fails(
-    "a transaction keeps its snapshot while another tab writes and checkpoints",
-    async () => {
-      const [writer, reader] = await openTabs("snapshot", 2);
-      await writer.session.execute(
-        "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
-      );
-      for (let id = 1; id <= 100; id++) {
-        await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
-          id,
-        ]);
-      }
-      writer.engine.checkpoint();
+  it("a transaction keeps its snapshot while another tab writes and checkpoints", async () => {
+    const [writer, reader] = await openTabs("snapshot", 2);
+    await writer.session.execute(
+      "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
+    );
+    for (let id = 1; id <= 100; id++) {
+      await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
+        id,
+      ]);
+    }
+    await writer.engine.checkpoint();
 
-      await reader.session.execute("BEGIN");
-      const snapshot = await rows(reader.session);
-      for (let id = 101; id <= 300; id++) {
-        await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
-          id,
-        ]);
-      }
-      writer.engine.checkpoint();
+    await reader.session.execute("BEGIN");
+    const snapshot = await rows(reader.session);
+    for (let id = 101; id <= 300; id++) {
+      await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
+        id,
+      ]);
+    }
+    await writer.engine.checkpoint();
 
-      expect(await rows(reader.session)).toEqual(snapshot);
-      await reader.session.execute("COMMIT");
-    },
-  );
+    expect(await rows(reader.session)).toEqual(snapshot);
+    await reader.session.execute("COMMIT");
+  });
 });

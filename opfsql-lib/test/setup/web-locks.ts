@@ -1,19 +1,83 @@
-// Node has no Web Locks API. Engines use it to serialize writers across tabs;
-// tests are single-threaded, so an in-process exclusive queue per lock name
-// is a faithful stand-in.
-const tails = new Map<string, Promise<unknown>>();
+// Node has no Web Locks API. Engines use it to coordinate tabs; tests run in
+// one thread, so an in-process lock manager with the spec's grant rules is a
+// faithful stand-in: shared and exclusive modes, a fair FIFO queue (a request
+// waits behind every earlier one it conflicts with), and ifAvailable.
+
+type Mode = "shared" | "exclusive";
+
+interface Pending {
+  mode: Mode;
+  grant(): void;
+}
+
+interface LockState {
+  held: Mode[];
+  queue: Pending[];
+}
+
+const states = new Map<string, LockState>();
+
+function stateOf(name: string): LockState {
+  let state = states.get(name);
+  if (!state) {
+    state = { held: [], queue: [] };
+    states.set(name, state);
+  }
+  return state;
+}
+
+function compatible(held: Mode[], mode: Mode): boolean {
+  return mode === "shared" ? !held.includes("exclusive") : held.length === 0;
+}
+
+function pump(state: LockState): void {
+  while (state.queue.length && compatible(state.held, state.queue[0].mode)) {
+    state.queue.shift()!.grant();
+  }
+}
 
 function request(
   name: string,
-  callback: LockGrantedCallback<unknown>,
+  ...args:
+    | [LockGrantedCallback<unknown>]
+    | [LockOptions, LockGrantedCallback<unknown>]
 ): Promise<unknown> {
-  const previous = tails.get(name) ?? Promise.resolve();
-  const held = previous.then(() => callback({ name, mode: "exclusive" }));
-  tails.set(
-    name,
-    held.catch(() => undefined),
-  );
-  return held;
+  const [options, callback] = args.length === 1 ? [{}, args[0]] : args;
+  const mode: Mode = options.mode ?? "exclusive";
+  const state = stateOf(name);
+
+  if (
+    options.ifAvailable &&
+    !(state.queue.length === 0 && compatible(state.held, mode))
+  ) {
+    return Promise.resolve().then(() => callback(null));
+  }
+
+  return new Promise((resolve, reject) => {
+    state.queue.push({
+      mode,
+      grant() {
+        state.held.push(mode);
+        const release = () => {
+          state.held.splice(state.held.indexOf(mode), 1);
+          pump(state);
+        };
+        Promise.resolve()
+          .then(() => callback({ name, mode }))
+          .then(
+            (value) => {
+              release();
+              resolve(value);
+            },
+            (err) => {
+              release();
+              reject(err);
+            },
+          );
+      },
+    });
+    pump(state);
+  });
 }
 
 Object.defineProperty(navigator, "locks", {

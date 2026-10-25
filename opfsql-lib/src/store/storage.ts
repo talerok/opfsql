@@ -81,27 +81,41 @@ export class Storage {
     return this.backend.latestCommit?.() ?? 0;
   }
 
-  /** Pins the latest commit: its pages stay readable until released. */
-  pinSnapshot(): number {
+  /**
+   * Pins the latest commit, so its pages stay readable until released.
+   * Returns null when another tab's checkpoint may already have moved past
+   * it: catch up and try again.
+   */
+  tryPinSnapshot(): number | null {
     const snapshot = this.latestCommit();
-    this.pins.set(snapshot, (this.pins.get(snapshot) ?? 0) + 1);
-    this.backend.prune?.(this.oldestSnapshot());
-    return snapshot;
+    this.addPin(snapshot, 1);
+    if (this.backend.isSnapshotSafe?.(snapshot) ?? true) return snapshot;
+    this.addPin(snapshot, -1);
+    return null;
   }
 
   releaseSnapshot(snapshot: number): void {
-    const count = this.pins.get(snapshot) ?? 0;
-    if (count <= 1) this.pins.delete(snapshot);
-    else this.pins.set(snapshot, count - 1);
-    this.backend.prune?.(this.oldestSnapshot());
+    this.addPin(snapshot, -1);
+  }
+
+  private addPin(snapshot: number, delta: 1 | -1): void {
+    const count = (this.pins.get(snapshot) ?? 0) + delta;
+    if (count > 0) this.pins.set(snapshot, count);
+    else this.pins.delete(snapshot);
+    this.backend.setOldestSnapshot?.(this.oldestPin());
+  }
+
+  private oldestPin(): number | null {
+    let oldest: number | null = null;
+    for (const snapshot of this.pins.keys()) {
+      if (oldest === null || snapshot < oldest) oldest = snapshot;
+    }
+    return oldest;
   }
 
   /** Oldest pinned snapshot, or the latest commit when nothing is pinned. */
   private oldestSnapshot(): number {
-    let oldest = this.latestCommit();
-    for (const snapshot of this.pins.keys())
-      oldest = Math.min(oldest, snapshot);
-    return oldest;
+    return this.oldestPin() ?? this.latestCommit();
   }
 
   // -------------------------------------------------------------------------
@@ -219,6 +233,14 @@ export class Storage {
       this.checkpoint();
     } catch (err) {
       this.reportCheckpointError(err);
+      return;
+    }
+    // Still needed: a snapshot holds it back. If that snapshot belongs to a
+    // tab that died, free it so the next checkpoint can go further.
+    if (this.backend.needsCheckpoint?.()) {
+      this.backend
+        .releaseAbandonedSnapshots?.()
+        .catch((err: unknown) => this.reportCheckpointError(err));
     }
   }
 

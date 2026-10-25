@@ -66,11 +66,14 @@ export class SessionStore implements SyncIPageStore {
   // Read snapshot
   // -------------------------------------------------------------------------
 
-  /** Pins the latest commit: reads see it until endSnapshot(), whatever commits later. */
-  beginSnapshot(): void {
-    if (this.readSnapshot === null) {
-      this.readSnapshot = this.storage.pinSnapshot();
-    }
+  /**
+   * Pins the latest commit: reads see it until endSnapshot(), whatever
+   * commits later. False when the latest commit this engine knows of is
+   * already behind another tab's checkpoint: catch up and call again.
+   */
+  beginSnapshot(): boolean {
+    this.readSnapshot ??= this.storage.tryPinSnapshot();
+    return this.readSnapshot !== null;
   }
 
   endSnapshot(): void {

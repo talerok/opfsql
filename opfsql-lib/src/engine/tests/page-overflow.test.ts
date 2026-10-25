@@ -39,7 +39,7 @@ describe("page overflow", () => {
 
     await session.execute("INSERT INTO t (body) VALUES ('small')");
     expect(await bodies("t")).toEqual(["small"]);
-    expect(() => engine.checkpoint()).not.toThrow();
+    await expect(engine.checkpoint()).resolves.toBeUndefined();
   });
 
   it("a failed statement leaves other tables intact", async () => {

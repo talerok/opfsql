@@ -178,8 +178,8 @@ export class Session {
 
     const autocommit = !this.inTransaction;
     if (autocommit) {
+      this.beginSnapshot();
       this.catalogSnapshot = this.catalog.serialize();
-      this.sessionStore.beginSnapshot();
     }
 
     try {
@@ -205,6 +205,18 @@ export class Session {
         this.transactionAborted = true;
       }
       throw err;
+    }
+  }
+
+  /**
+   * Pins the latest commit. If another tab's checkpoint has already moved
+   * past what this engine knew, catch up and pin again; each round sees a
+   * newer commit, so this ends as soon as the engine is current.
+   */
+  private beginSnapshot(): void {
+    while (!this.sessionStore.beginSnapshot()) {
+      this.host.catchUp();
+      this.refreshCatalog();
     }
   }
 
@@ -244,8 +256,8 @@ export class Session {
     if (this.inTransaction) {
       throw new EngineError("already in a transaction");
     }
+    this.beginSnapshot();
     this.catalogSnapshot = this.catalog.serialize();
-    this.sessionStore.beginSnapshot();
     this.inTransaction = true;
     return { type: "ok", rowsAffected: 0 };
   }

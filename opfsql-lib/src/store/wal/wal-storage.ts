@@ -3,6 +3,7 @@ import { assertPagesFit, decodePage, type EncodedPage } from "../page-codec.js";
 import type { SyncIPageStorage } from "../types.js";
 import { crc32 } from "./crc32.js";
 import type { ISyncFileHandle } from "./file-handle.js";
+import type { ReadMarks } from "./read-marks.js";
 
 // ---------------------------------------------------------------------------
 // WAL file format
@@ -36,6 +37,11 @@ import type { ISyncFileHandle } from "./file-handle.js";
 // a read returns the newest version not after the snapshot, else the main
 // file. The main file is only ever brought up to a txId no live snapshot is
 // older than, so whatever a snapshot reads from it is still what it saw.
+//
+// With read marks, "live" covers every tab: each tab publishes its oldest
+// snapshot, and a checkpoint announces its target (the intent) before reading
+// the marks. A tab that publishes an older snapshot after that read sees the
+// intent and takes a newer snapshot instead — the SQLite WAL protocol.
 // ---------------------------------------------------------------------------
 
 const WAL_MAGIC = new Uint8Array([
@@ -115,6 +121,8 @@ export class WalStorage implements SyncIPageStorage {
     private readonly main: SyncIPageStorage,
     private readonly walHandle: ISyncFileHandle,
     private readonly checkpointThreshold = 1000,
+    /** Snapshots of other tabs sharing these files; omit for a single engine. */
+    private readonly marks?: ReadMarks,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -136,6 +144,7 @@ export class WalStorage implements SyncIPageStorage {
   }
 
   close(): void {
+    this.marks?.close();
     this.walHandle.close();
     this.main.close();
   }
@@ -187,12 +196,31 @@ export class WalStorage implements SyncIPageStorage {
     this.currentTxId++;
   }
 
-  /** Drops page versions that no snapshot at or after `oldestSnapshot` can see. */
-  prune(oldestSnapshot: number): void {
-    this.pruneBound = oldestSnapshot;
+  /**
+   * The oldest snapshot open in this engine (null: none). Page versions no
+   * open snapshot can see are dropped, and other tabs learn the snapshot
+   * through the read marks.
+   */
+  setOldestSnapshot(oldest: number | null): void {
+    this.pruneBound = oldest ?? Infinity;
     for (const pageNo of this.layeredPages) {
       this.dropInvisible(pageNo, this.walIndex.get(pageNo)!);
     }
+    this.marks?.publish(oldest);
+  }
+
+  /**
+   * False when another tab's checkpoint may already be bringing the main file
+   * past `snapshot`, which was taken before catching up with it: catch up and
+   * take a newer snapshot.
+   */
+  isSnapshotSafe(snapshot: number): boolean {
+    return !this.marks || this.marks.checkpointIntent() <= snapshot;
+  }
+
+  /** Clears read marks of tabs that died with a snapshot open. */
+  async releaseAbandonedSnapshots(): Promise<void> {
+    await this.marks?.reclaimDeadSlots();
   }
 
   needsCheckpoint(): boolean {
@@ -218,7 +246,7 @@ export class WalStorage implements SyncIPageStorage {
    * still authoritative, so a later checkpoint can retry.
    */
   checkpoint(upTo = this.latestCommit()): void {
-    const target = Math.min(upTo, this.latestCommit());
+    const target = this.agreeOnTarget(Math.min(upTo, this.latestCommit()));
     if (target > this.backfilledTxId) {
       const pages = new Map<number, EncodedPage>();
       for (const [pageNo, versions] of this.walIndex) {
@@ -233,6 +261,21 @@ export class WalStorage implements SyncIPageStorage {
     }
     if (this.backfilledTxId === this.latestCommit() && this.commits.length) {
       this.restart();
+    }
+  }
+
+  /**
+   * Lowers the target to the oldest snapshot any tab has open. The intent is
+   * written before each read of the marks, so a tab that publishes an older
+   * snapshot afterwards sees it and takes a newer snapshot instead.
+   */
+  private agreeOnTarget(target: number): number {
+    if (!this.marks) return target;
+    for (;;) {
+      this.marks.setCheckpointIntent(target);
+      const oldest = this.marks.oldestMark();
+      if (oldest === null || oldest >= target) return target;
+      target = oldest;
     }
   }
 

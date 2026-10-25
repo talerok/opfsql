@@ -167,7 +167,7 @@ describe("snapshot isolation", () => {
             await reader.session.execute("COMMIT");
             reader.snapshot = null;
           } else if (r < 0.9) {
-            engine.checkpoint();
+            await engine.checkpoint();
           }
 
           for (const { session, snapshot } of readers) {

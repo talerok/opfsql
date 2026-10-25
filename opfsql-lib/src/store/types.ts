@@ -61,8 +61,12 @@ export interface SyncIPageStorage {
   getNextPageId(): number;
   /** Position of the latest commit, for backends that keep page versions. */
   latestCommit?(): number;
-  /** Drops page versions no snapshot at or after `oldestSnapshot` can see. */
-  prune?(oldestSnapshot: number): void;
+  /** Oldest snapshot open in this engine (null: none), for backends that keep page versions. */
+  setOldestSnapshot?(oldest: number | null): void;
+  /** False if a snapshot taken at `snapshot` may already be outdated by another tab's checkpoint. */
+  isSnapshotSafe?(snapshot: number): boolean;
+  /** Releases snapshots held by tabs that no longer exist. */
+  releaseAbandonedSnapshots?(): Promise<void>;
   /**
    * Persist a batch of pages together with the new nextPageId. Rejects the
    * whole batch with PageOverflowError before writing if any page exceeds
