@@ -11,9 +11,15 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit -p . && tsc -p tsconfig.check.json",
+    "lint": "eslint .",
+    "lint:prune": "eslint . --prune-suppressions",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npx playwright test --config test/e2e/infra/config.ts",
@@ -44,12 +50,19 @@
     "url": "https://github.com/talerok/opfsql/issues"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@playwright/test": "^1.52.0",
     "@types/node": "^22.20.5",
     "@vitest/coverage-v8": "^3.2.4",
     "esbuild": "^0.28.0",
+    "eslint": "10.12.0",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-import-x": "4.17.1",
+    "eslint-plugin-sonarjs": "4.2.2",
+    "eslint-plugin-unicorn": "77.0.0",
     "opfs-mock": "^2.6.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "8.71.1",
     "vite": "^6.0.0",
     "vitest": "^3.0.0"
   },

@@ -26,7 +26,6 @@ type ExecuteHandler = (
 ) => ExecuteResult;
 
 // Type safety is guaranteed by Map keys matching plan.type at runtime.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const handlers = new Map<string, ExecuteHandler>([
   [
     LogicalOperatorType.LOGICAL_CREATE_TABLE,
