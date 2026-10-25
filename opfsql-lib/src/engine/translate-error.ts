@@ -14,12 +14,12 @@ import {
   RowTooLargeError,
   StorageError,
   UnsupportedFormatError,
-  WalUnknownStateError,
 } from "../store/errors.js";
 
 // Everything the engine's API throws is an OpfsqlError. The layers below are
-// being rebuilt to throw them directly; until they all do, this is where
-// their older errors get a code. An OpfsqlError passes through unchanged.
+// being rebuilt to throw them directly; until they all do, this maps their
+// older errors to codes — by class, never by message. An OpfsqlError passes
+// through unchanged.
 
 /**
  * The OpfsqlError to report for `error`, thrown while running `sql` (which
@@ -28,20 +28,23 @@ import {
 export function toOpfsqlError(error: unknown, sql = ""): OpfsqlError {
   if (error instanceof OpfsqlError) return error;
   if (error instanceof ParseError) return syntaxError(error, sql);
-  if (error instanceof BindError) return new SemanticError(error.message);
-  if (error instanceof ExecutorError) return executorError(error);
-  if (error instanceof StorageError) return storageError(error);
-  if (error instanceof DOMException) return domError(error);
-  if (error instanceof Error && error.message.includes("constraint failed")) {
-    return withCode("CONSTRAINT_VIOLATION", error);
+  if (error instanceof BindError || error instanceof ExecutorError) {
+    return new SemanticError(error.message, { cause: error });
   }
-  return new InternalError(
-    error instanceof Error ? error.message : String(error),
-    { cause: error },
-  );
+  if (error instanceof StorageError) {
+    return new OpfsqlError(storageCode(error), error.message, { cause: error });
+  }
+  if (error instanceof DOMException) {
+    return new OpfsqlError(domCode(error), error.message, { cause: error });
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new InternalError(message, { cause: error });
 }
 
-/** Records which statement of a script `error` came from. */
+/**
+ * Records which statement of a script `error` came from. Only for an error
+ * made for this call: the engine creates every error it reports afresh.
+ */
 export function locateStatement(
   error: OpfsqlError,
   statementIndex: number,
@@ -55,10 +58,6 @@ export function locateStatement(
   return error;
 }
 
-function withCode(code: ErrorCode, error: Error): OpfsqlError {
-  return new OpfsqlError(code, error.message, { cause: error });
-}
-
 function syntaxError(error: ParseError, sql: string): SqlSyntaxError {
   const lines = sql.split("\n").slice(0, Math.max(error.line - 1, 0));
   const lineStart = lines.reduce((offset, line) => offset + line.length + 1, 0);
@@ -69,34 +68,14 @@ function syntaxError(error: ParseError, sql: string): SqlSyntaxError {
   );
 }
 
-function executorError(error: ExecutorError): OpfsqlError {
-  const message = error.message;
-  if (message.includes("Cannot cast") || message.includes("Cannot apply")) {
-    return withCode("DATATYPE_MISMATCH", error);
-  }
-  return message.includes("parameter")
-    ? withCode("MISUSE", error)
-    : new SemanticError(message);
+const TOO_LARGE = [RowTooLargeError, IndexKeyTooLargeError, PageOverflowError];
+
+function storageCode(error: StorageError): ErrorCode {
+  if (TOO_LARGE.some((kind) => error instanceof kind)) return "TOO_LARGE";
+  const isOtherFormat = error instanceof UnsupportedFormatError;
+  return isOtherFormat ? "UNSUPPORTED_FORMAT" : "IO_ERROR";
 }
 
-function storageError(error: StorageError): OpfsqlError {
-  if (
-    error instanceof RowTooLargeError ||
-    error instanceof IndexKeyTooLargeError ||
-    error instanceof PageOverflowError
-  ) {
-    return withCode("TOO_LARGE", error);
-  }
-  if (error instanceof UnsupportedFormatError) {
-    return withCode("UNSUPPORTED_FORMAT", error);
-  }
-  const isForeignFile =
-    !(error instanceof WalUnknownStateError) &&
-    error.message.includes("is not an opfsql");
-  return withCode(isForeignFile ? "CORRUPT" : "IO_ERROR", error);
-}
-
-function domError(error: DOMException): OpfsqlError {
-  const isFull = error.name === "QuotaExceededError";
-  return withCode(isFull ? "STORAGE_FULL" : "IO_ERROR", error);
+function domCode(error: DOMException): ErrorCode {
+  return error.name === "QuotaExceededError" ? "STORAGE_FULL" : "IO_ERROR";
 }

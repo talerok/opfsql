@@ -29,11 +29,10 @@ export interface TransactionHost {
   maintain(): void;
 }
 
-/** Where a transaction runs: its session's store, its engine, and who holds the lock. */
+/** Where a transaction runs: its session's store and its engine. */
 export interface TransactionContext {
   readonly store: SessionStore;
   readonly host: TransactionHost;
-  readonly owner: object;
 }
 
 /**
@@ -183,7 +182,7 @@ async function acquire(
   context: TransactionContext,
   signal: AbortSignal,
 ): Promise<Lease> {
-  const lease = await context.host.lock.acquire(context.owner, {
+  const lease = await context.host.lock.acquire({
     signal,
     timeout: context.host.busyTimeout,
   });

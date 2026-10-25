@@ -169,7 +169,7 @@ export class Engine implements EngineContract, AsyncDisposable {
       this.storage.resetCheckpointIntent();
       return;
     }
-    const lease = await this.lock.acquire(this, {
+    const lease = await this.lock.acquire({
       signal,
       timeout: this.busyTimeout,
     });
@@ -185,7 +185,7 @@ export class Engine implements EngineContract, AsyncDisposable {
       this.storage.checkpoint();
       return;
     }
-    const lease = await this.lock.acquire(this, {
+    const lease = await this.lock.acquire({
       signal,
       timeout: this.busyTimeout,
     });

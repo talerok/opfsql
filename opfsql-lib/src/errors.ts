@@ -82,8 +82,8 @@ export class SqlSyntaxError extends OpfsqlError {
 export class SemanticError extends OpfsqlError {
   override readonly name = "SemanticError";
 
-  constructor(message: string) {
-    super("SEMANTIC_ERROR", message);
+  constructor(message: string, options?: ErrorOptions) {
+    super("SEMANTIC_ERROR", message, options);
   }
 }
 
@@ -109,8 +109,8 @@ export class MisuseError extends OpfsqlError {
 export class DatatypeMismatchError extends OpfsqlError {
   override readonly name = "DatatypeMismatchError";
 
-  constructor(message: string) {
-    super("DATATYPE_MISMATCH", message);
+  constructor(message: string, options?: ErrorOptions) {
+    super("DATATYPE_MISMATCH", message, options);
   }
 }
 

@@ -1,3 +1,4 @@
+import { DatatypeMismatchError, OpfsqlError } from "../errors.js";
 import { BTree } from "./btree.js";
 import { decodeRow, encodeRow, rowidColumn } from "./row-codec.js";
 import { SyncTableBTree } from "./table-btree.js";
@@ -125,12 +126,15 @@ export class SyncTableManager implements SyncIRowManager {
 function toRowId(schema: TableSchema, value: Value): RowId {
   if (typeof value === "number" && Number.isSafeInteger(value)) return value;
   const column = rowidColumn(schema)!.name;
-  throw new Error(
+  throw new DatatypeMismatchError(
     `datatype mismatch: PRIMARY KEY "${column}" of table "${schema.name}" must be an integer, got ${value === null ? "NULL" : JSON.stringify(value)}`,
   );
 }
 
-function uniqueViolation(schema: TableSchema): Error {
+function uniqueViolation(schema: TableSchema): OpfsqlError {
   const column = rowidColumn(schema)!.name;
-  return new Error(`UNIQUE constraint failed: ${schema.name}.${column}`);
+  return new OpfsqlError(
+    "CONSTRAINT_VIOLATION",
+    `UNIQUE constraint failed: ${schema.name}.${column}`,
+  );
 }

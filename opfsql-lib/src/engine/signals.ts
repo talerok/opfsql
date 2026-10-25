@@ -41,10 +41,14 @@ function nothingToDispose(): void {
   // no listeners were added
 }
 
-/** The error a call fails with when `signal` stops it. */
+/**
+ * The error a call fails with when `signal` stops it: a new one for every
+ * call, since the engine records on it which statement failed. Our own
+ * reasons ("the session was closed") lend it their message.
+ */
 export function abortErrorOf(signal: AbortSignal): OpfsqlError {
   const reason: unknown = signal.reason;
-  return reason instanceof OpfsqlError
-    ? reason
-    : new AbortError("the call was aborted", { cause: reason });
+  const message =
+    reason instanceof OpfsqlError ? reason.message : "the call was aborted";
+  return new AbortError(message, { cause: reason });
 }

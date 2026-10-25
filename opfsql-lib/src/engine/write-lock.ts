@@ -22,7 +22,7 @@ type Grant = PromiseWithResolvers<() => void>;
  * timeout and cancellable through the signal.
  */
 export class WriteLock {
-  private holder: object | null = null;
+  private isTaken = false;
 
   constructor(
     private readonly name: string,
@@ -30,12 +30,24 @@ export class WriteLock {
     private readonly onGranted: () => void,
   ) {}
 
-  /** True while a session of this engine holds the lock. */
-  get isHeld(): boolean {
-    return this.holder !== null;
+  private leaseFor(release: () => void): Lease {
+    let isReleased = false;
+    return {
+      release: () => {
+        if (isReleased) return;
+        isReleased = true;
+        this.isTaken = false;
+        release();
+      },
+    };
   }
 
-  async acquire(owner: object, wait: Wait): Promise<Lease> {
+  /** True while a session (or the engine) holds the lock. */
+  get isHeld(): boolean {
+    return this.isTaken;
+  }
+
+  async acquire(wait: Wait): Promise<Lease> {
     const release = await requestLock(this.name, wait);
     try {
       this.onGranted();
@@ -43,69 +55,102 @@ export class WriteLock {
       release();
       throw error;
     }
-    this.holder = owner;
-    let isReleased = false;
-    return {
-      release: () => {
-        if (isReleased) return;
-        isReleased = true;
-        this.holder = null;
-        release();
-      },
-    };
+    this.isTaken = true;
+    return this.leaseFor(release);
   }
 }
 
 /** Resolves with the function that releases the lock, once it is granted. */
 async function requestLock(name: string, wait: Wait): Promise<() => void> {
   if (wait.signal.aborted) throw abortErrorOf(wait.signal);
-  const grant: Grant = Promise.withResolvers();
-  if (wait.timeout <= 0) {
-    hold(name, { ifAvailable: true }, grant);
-    return grant.promise;
-  }
-  const timer = new AbortController();
-  const handle =
-    wait.timeout === Infinity
-      ? undefined
-      : setTimeout(() => {
-          timer.abort(new BusyError(wait.timeout));
-        }, wait.timeout);
+  const isFreeLockOnly = wait.timeout <= 0;
+  if (isFreeLockOnly) return hold(name, { ifAvailable: true });
+  const timer = busyTimer(wait.timeout);
   const linked = linkSignals([wait.signal, timer.signal]);
-  hold(name, { signal: linked.signal }, grant);
   try {
-    return await grant.promise;
+    return await hold(name, { signal: linked.signal });
   } catch (error) {
-    throw linked.signal.aborted ? abortErrorOf(linked.signal) : error;
+    throw waitFailure(error, wait, timer.signal);
   } finally {
-    clearTimeout(handle);
+    timer.dispose();
     linked.dispose();
   }
 }
 
-/** Requests the lock; `grant` settles once it is granted or refused. */
-function hold(name: string, options: LockOptions, grant: Grant): void {
-  void (async () => {
-    try {
-      await navigator.locks.request(name, options, async (lock) => {
-        if (lock === null) {
-          grant.reject(new BusyError(0));
-          return;
-        }
-        const released = Promise.withResolvers<undefined>();
-        grant.resolve(() => {
-          released.resolve(undefined);
-        });
-        await released.promise;
-      });
-    } catch (error) {
-      grant.reject(
-        error instanceof OpfsqlError
-          ? error
-          : new InternalError("requesting the write lock failed", {
-              cause: error,
-            }),
-      );
-    }
-  })();
+/** Why the wait ended without the lock. */
+function waitFailure(
+  error: unknown,
+  wait: Wait,
+  timer: AbortSignal,
+): OpfsqlError {
+  if (timer.aborted) return new BusyError(wait.timeout);
+  if (wait.signal.aborted) return abortErrorOf(wait.signal);
+  if (error instanceof OpfsqlError) return error;
+  return new InternalError("requesting the write lock failed", {
+    cause: error,
+  });
+}
+
+interface BusyTimer {
+  readonly signal: AbortSignal;
+  dispose(): void;
+}
+
+/** A signal that aborts once `timeout` ms have passed; Infinity never does. */
+function busyTimer(timeout: number): BusyTimer {
+  const controller = new AbortController();
+  if (timeout === Infinity) {
+    return { signal: controller.signal, dispose: neverStarted };
+  }
+  const handle = setTimeout(() => {
+    controller.abort();
+  }, timeout);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(handle);
+    },
+  };
+}
+
+function neverStarted(): void {
+  // a timer that never runs has nothing to clear
+}
+
+/** Requests the lock; resolves with its release once granted. */
+async function hold(name: string, options: LockOptions): Promise<() => void> {
+  const grant: Grant = Promise.withResolvers();
+  const request = navigator.locks.request(name, options, async (lock) => {
+    await keep(lock, grant);
+  });
+  void rejectOnFailure(request, grant);
+  return grant.promise;
+}
+
+/**
+ * Holds a granted lock until its release is called — the browser keeps the
+ * lock until this promise settles. No lock means `ifAvailable` found none.
+ */
+async function keep(lock: Lock | null, grant: Grant): Promise<void> {
+  if (lock === null) {
+    grant.reject(new BusyError(0));
+    return;
+  }
+  const released = Promise.withResolvers<undefined>();
+  grant.resolve(() => {
+    released.resolve(undefined);
+  });
+  await released.promise;
+}
+
+/** A request that fails before it is granted fails the grant. */
+async function rejectOnFailure(
+  request: Promise<unknown>,
+  grant: Grant,
+): Promise<void> {
+  try {
+    await request;
+  } catch (error) {
+    grant.reject(error);
+  }
 }

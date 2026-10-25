@@ -69,7 +69,7 @@ export class SessionCore {
     private readonly host: SessionHost,
     private readonly options: SessionOptions,
   ) {
-    this.context = { store: host.createStore(), host, owner: this };
+    this.context = { store: host.createStore(), host };
   }
 
   private async shutdown(): Promise<void> {
