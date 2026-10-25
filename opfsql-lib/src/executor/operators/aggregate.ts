@@ -1,6 +1,7 @@
 import {
   type Accumulator,
   startAggregate,
+  type StaticType,
   staticType,
 } from "../../functions/index.js";
 import type {
@@ -8,7 +9,7 @@ import type {
   ColumnBinding,
   LogicalAggregate,
 } from "../../sql/binder/types.js";
-import { rowKey, type Value } from "../../values/index.js";
+import { rowKey, type Value, valueKey } from "../../values/index.js";
 import {
   type CompiledExpression,
   compileExpression,
@@ -29,6 +30,9 @@ import { drainOperator, type RowFilter } from "./shared.js";
 interface CompiledAggregate {
   readonly expression: BoundAggregateExpression;
   readonly arguments: readonly CompiledExpression[];
+  readonly argumentTypes: readonly StaticType[];
+  /** One row's argument values, refilled for each row. */
+  readonly values: Value[];
 }
 
 interface Group {
@@ -58,6 +62,10 @@ export class PhysicalHashAggregate implements SyncPhysicalOperator {
       arguments: expression.children.map((argument) =>
         compileExpression(argument, resolver, context),
       ),
+      argumentTypes: expression.children.map((argument) =>
+        staticType(argument.returnType),
+      ),
+      values: [],
     }));
     this.having =
       operator.havingExpression === null
@@ -75,32 +83,41 @@ export class PhysicalHashAggregate implements SyncPhysicalOperator {
     if (rows.length === 0 && this.groupKeys.length === 0) {
       groups.set("", this.newGroup([]));
     }
+    const isSingleKey = this.groupKeys.length === 1;
     for (const row of rows) {
       const values = this.groupKeys.map((key) => key(row));
-      const key = rowKey(values);
+      // One key needs no list encoding: equal values, equal keys.
+      const key = isSingleKey ? valueKey(values[0]) : rowKey(values);
       let group = groups.get(key);
       if (group === undefined) {
         group = this.newGroup(values);
         groups.set(key, group);
       }
-      for (const [index, aggregate] of this.aggregates.entries()) {
-        group.accumulators[index]?.add(
-          aggregate.arguments.map((argument) => argument(row)),
-        );
-      }
+      this.accumulate(group, row);
     }
     return groups;
+  }
+
+  private accumulate(group: Group, row: Tuple): void {
+    for (let index = 0; index < this.aggregates.length; index++) {
+      const aggregate = this.aggregates[index];
+      const { values } = aggregate;
+      for (
+        let position = 0;
+        position < aggregate.arguments.length;
+        position++
+      ) {
+        values[position] = aggregate.arguments[position](row);
+      }
+      group.accumulators[index].add(values);
+    }
   }
 
   private newGroup(values: readonly Value[]): Group {
     return {
       values,
-      accumulators: this.aggregates.map(({ expression }) =>
-        startAggregate(
-          expression.function,
-          expression.children.map((child) => staticType(child.returnType)),
-          expression.distinct,
-        ),
+      accumulators: this.aggregates.map(({ expression, argumentTypes }) =>
+        startAggregate(expression.function, argumentTypes, expression.distinct),
       ),
     };
   }

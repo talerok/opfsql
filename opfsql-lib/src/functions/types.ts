@@ -75,7 +75,10 @@ export interface ScalarFunction {
 
 /** Collects the rows of one group and produces the aggregate's value. */
 export interface Accumulator {
-  /** One row's argument values; rows with a NULL argument never arrive. */
+  /**
+   * One row's argument values; rows with a NULL argument never arrive. The
+   * array is reused for the next row: keep values, never the array.
+   */
   add(values: readonly Value[]): void;
   result(): Value;
 }
