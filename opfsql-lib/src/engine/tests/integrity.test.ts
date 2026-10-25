@@ -30,13 +30,13 @@ beforeEach(async () => {
   resetMockOPFS();
   dbName = `integrity-${seq++}`;
   const engine = await Engine.create(openStorage());
-  const s = engine.createSession();
+  const s = engine.connect();
   await s.execute(
     "CREATE TABLE t (id INTEGER PRIMARY KEY, tag INTEGER, body TEXT)",
   );
   await s.execute("CREATE INDEX t_tag ON t (tag)");
   for (let id = 1; id <= 300; id++) {
-    await s.execute("INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)", [
+    await s.query("INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)", [
       id,
       id % 7,
       `row ${id}`.padEnd(40, "."),
@@ -47,10 +47,10 @@ beforeEach(async () => {
     "CREATE TABLE a (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
   );
   for (const name of ["x", "y", "z"]) {
-    await s.execute("INSERT INTO a (name) VALUES ($1)", [name]);
+    await s.query("INSERT INTO a (name) VALUES ($1)", [name]);
   }
-  s.close();
-  engine.close();
+  await s.close();
+  await engine.close();
 });
 
 async function check(): Promise<string[]> {
@@ -58,7 +58,7 @@ async function check(): Promise<string[]> {
   try {
     return engine.checkIntegrity();
   } finally {
-    engine.close();
+    await engine.close();
   }
 }
 

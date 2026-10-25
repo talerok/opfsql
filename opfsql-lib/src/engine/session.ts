@@ -1,407 +1,140 @@
-import { Binder } from "../sql/binder/index.js";
-import { execute } from "../executor/execute/index.js";
-import type { CatalogChange } from "../executor/types.js";
-import { optimize } from "../sql/optimizer/index.js";
-import { Parser } from "../sql/parser/index.js";
-import {
-  StatementType,
-  TransactionType,
-  type ExplainStatement,
-  type Statement,
-  type TransactionStatement,
-} from "../sql/parser/types.js";
-import { Catalog } from "../store/catalog.js";
-import { SyncIndexManager } from "../store/index-manager.js";
-import type { SessionStore } from "../store/session-store.js";
-import { SyncTableManager } from "../store/table-manager.js";
+import { MisuseError } from "../errors.js";
+import type { Value } from "../values/index.js";
 import type {
-  CatalogData,
-  SyncIIndexManager,
-  SyncIRowManager,
-} from "../store/types.js";
-import type { Value } from "../types.js";
-import { formatPlan } from "./explain.js";
-import {
-  EngineError,
-  PreparedStatement,
-  SerializationError,
-  type Result,
-} from "./types.js";
+  CallOptions,
+  Result,
+  Schema,
+  SessionContract,
+  StatementContract,
+  TransactionOptions,
+} from "./api/index.js";
+import type { SessionCore } from "./session-core.js";
+import type { PreparedPlan } from "./statements.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+/**
+ * A connection to the database inside the worker: its own transaction, its
+ * own snapshot. Calls run one at a time, in the order they were made. Close
+ * it when done; one that is garbage-collected is closed by its engine.
+ */
+export class Session implements SessionContract, AsyncDisposable {
+  /** Engine.connect() makes sessions. */
+  constructor(private readonly core: SessionCore) {}
 
-const WRITE_STATEMENTS = new Set<StatementType>([
-  StatementType.INSERT_STATEMENT,
-  StatementType.UPDATE_STATEMENT,
-  StatementType.DELETE_STATEMENT,
-  StatementType.CREATE_TABLE_STATEMENT,
-  StatementType.CREATE_INDEX_STATEMENT,
-  StatementType.ALTER_TABLE_STATEMENT,
-  StatementType.DROP_STATEMENT,
-]);
+  private async rollbackQuietly(): Promise<void> {
+    try {
+      await this.rollback();
+    } catch {
+      // the error worth reporting is the one that made us roll back
+    }
+  }
 
-function isWriteStatement(type: StatementType): boolean {
-  return WRITE_STATEMENTS.has(type);
-}
+  /** True between BEGIN and COMMIT or ROLLBACK, aborted or not. */
+  get inTransaction(): boolean {
+    return this.core.inTransaction;
+  }
 
-/** What a session needs from its engine. */
-export interface SessionHost {
-  acquireWriteLock(): Promise<void> | void;
-  releaseWriteLock(): void;
-  /** Picks up commits made by other engines (tabs) on the same database. */
-  catchUp(): void;
-  getCatalog(): Catalog;
-  onCatalogCommit(data: CatalogData): void;
+  /** Runs one statement. */
+  async query(
+    sql: string,
+    parameters?: readonly Value[],
+    options: CallOptions = {},
+  ): Promise<Result> {
+    return this.core.query(sql, parameters, options);
+  }
+
+  /** Runs a script of statements; see docs/api.md for how they commit. */
+  async execute(script: string, options: CallOptions = {}): Promise<Result[]> {
+    return this.core.execute(script, options);
+  }
+
+  /** Parses and binds one statement for repeated runs. */
+  async prepare(
+    sql: string,
+    options: CallOptions = {},
+  ): Promise<PreparedStatement> {
+    const plan = await this.core.prepare(sql, options);
+    return new PreparedStatement(this, this.core, plan);
+  }
+
+  /** BEGIN, deferred unless `options.mode` says otherwise. */
+  async begin(options: TransactionOptions = {}): Promise<void> {
+    await this.core.begin(options);
+  }
+
+  async commit(options: CallOptions = {}): Promise<void> {
+    await this.core.commit(options);
+  }
+
+  async rollback(options: CallOptions = {}): Promise<void> {
+    await this.core.rollback(options);
+  }
+
   /**
-   * Deferred storage maintenance (checkpoints). Called by a writer once its
-   * snapshot is released and while it still holds the write lock.
+   * Begins a transaction (immediate unless `options.mode` says otherwise),
+   * runs `work` and commits; rolls back and rethrows if `work` throws.
    */
-  maintain(): void;
+  async transaction<T>(
+    work: (session: Session) => Promise<T> | T,
+    options: TransactionOptions = {},
+  ): Promise<T> {
+    await this.begin({ ...options, mode: options.mode ?? "immediate" });
+    let value: T;
+    try {
+      value = await work(this);
+    } catch (error) {
+      await this.rollbackQuietly();
+      throw error;
+    }
+    await this.commit();
+    return value;
+  }
+
+  /** The schema this session sees. */
+  async schema(options: CallOptions = {}): Promise<Schema> {
+    return this.core.schema(options);
+  }
+
+  async close(): Promise<void> {
+    await this.core.close();
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
+  }
 }
 
-// ---------------------------------------------------------------------------
-// Session — per-connection SQL execution
-//
-// Every statement outside a transaction reads one snapshot: the latest commit
-// when it starts. A transaction reads the snapshot taken at BEGIN throughout,
-// so it never sees commits made after it began; if it writes after such a
-// commit, it fails with SerializationError instead of writing on stale reads.
-// ---------------------------------------------------------------------------
-
-export class Session {
-  private binder!: Binder;
-  private readonly rowManager: SyncIRowManager;
-  private readonly indexManager: SyncIIndexManager;
-
-  private catalog!: Catalog;
-  private lastCatalogVersion = -1;
-  private inTransaction = false;
-  private transactionAborted = false;
-  private catalogSnapshot: CatalogData | null = null;
-  private catalogDirty = false;
-  private holdingWriteLock = false;
+/**
+ * A statement parsed and bound once. When the schema changes it binds again
+ * before its next run; it never goes stale.
+ */
+export class PreparedStatement implements StatementContract, Disposable {
+  private isClosed = false;
 
   constructor(
-    private sessionStore: SessionStore,
-    private parser: Parser,
-    private readonly host: SessionHost,
-  ) {
-    this.refreshCatalog();
-    this.rowManager = new SyncTableManager(sessionStore, () => this.catalog);
-    this.indexManager = new SyncIndexManager(sessionStore, () => this.catalog);
+    /** The session it runs on; kept alive while the statement is. */
+    readonly session: Session,
+    private readonly core: SessionCore,
+    private readonly plan: PreparedPlan,
+  ) {}
+
+  /** Result column names as of the last bind; empty for writes. */
+  get columns(): readonly string[] {
+    return this.plan.columns;
   }
 
-  // -------------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------------
-
-  async execute(sql: string, params?: Value[]): Promise<Result[]> {
-    const statements = this.parser.parse(sql);
-    const results: Result[] = [];
-    for (const stmt of statements) {
-      results.push(await this.executeOne(stmt, params));
-    }
-    return results;
-  }
-
-  prepare(sql: string): PreparedStatement {
-    const stmts = this.parser.parse(sql);
-    if (stmts.length !== 1) {
-      throw new EngineError("prepare() requires exactly one statement");
-    }
-
-    const stmt = stmts[0];
-    const preparedVersion = this.host.getCatalog().version;
-    return new PreparedStatement((params) =>
-      this.executeOne(stmt, params, preparedVersion),
-    );
-  }
-
-  getSchema(): CatalogData {
-    this.host.catchUp();
-    this.refreshCatalog();
-    return this.catalog.snapshot();
+  async query(
+    parameters?: readonly Value[],
+    options: CallOptions = {},
+  ): Promise<Result> {
+    if (this.isClosed) throw new MisuseError("the statement is closed");
+    return this.core.runPrepared(this.plan, parameters, options);
   }
 
   close(): void {
-    if (this.inTransaction) this.rollbackTransaction();
-    this.tryReleaseWriteLock();
-    this.sessionStore = null!;
-    this.parser = null!;
-    this.catalog = null!;
-    this.binder = null!;
+    this.isClosed = true;
   }
 
-  // -------------------------------------------------------------------------
-  // Statement dispatch
-  // -------------------------------------------------------------------------
-
-  private async executeOne(
-    stmt: Statement,
-    params?: Value[],
-    preparedVersion?: number,
-  ): Promise<Result> {
-    if (!this.inTransaction) {
-      this.host.catchUp();
-      this.refreshCatalog();
-    }
-    if (
-      preparedVersion !== undefined &&
-      this.host.getCatalog().version !== preparedVersion
-    ) {
-      throw new EngineError(
-        "prepared statement is stale: schema has changed since prepare()",
-      );
-    }
-
-    if (stmt.type === StatementType.TRANSACTION_STATEMENT) {
-      return this.executeTCL(stmt);
-    }
-
-    if (stmt.type === StatementType.EXPLAIN_STATEMENT) {
-      return this.executeExplain(stmt);
-    }
-
-    if (this.transactionAborted) {
-      throw new EngineError(
-        "current transaction is aborted, commands ignored until end of transaction block",
-      );
-    }
-
-    const writes = isWriteStatement(stmt.type);
-    if (writes && !this.holdingWriteLock) {
-      await this.host.acquireWriteLock();
-      this.holdingWriteLock = true;
-    }
-
-    const autocommit = !this.inTransaction;
-    if (autocommit) {
-      this.beginSnapshot();
-      this.catalogSnapshot = this.catalog.serialize();
-    }
-
-    try {
-      if (writes && this.sessionStore.isSnapshotStale()) {
-        throw new SerializationError();
-      }
-      const result = this.runPipeline(stmt, params);
-
-      if (autocommit) {
-        this.commitWrites();
-        this.endStatement();
-      }
-
-      return result;
-    } catch (err) {
-      this.sessionStore.rollback();
-      this.restoreCatalog();
-      this.catalogDirty = false;
-
-      if (autocommit) {
-        this.endStatement();
-      } else {
-        this.transactionAborted = true;
-      }
-      throw err;
-    }
-  }
-
-  /**
-   * Pins the latest commit. If another tab's checkpoint has already moved
-   * past what this engine knew, catch up and pin again; each round sees a
-   * newer commit, so this ends as soon as the engine is current.
-   */
-  private beginSnapshot(): void {
-    while (!this.sessionStore.beginSnapshot()) {
-      this.host.catchUp();
-      this.refreshCatalog();
-    }
-  }
-
-  private endStatement(): void {
-    this.catalogSnapshot = null;
-    this.catalogDirty = false;
-    this.sessionStore.endSnapshot();
-    this.tryReleaseWriteLock();
-  }
-
-  private executeExplain(stmt: ExplainStatement): Result {
-    const bound = this.binder.bindStatement(stmt.statement);
-    const optimized = optimize(bound, this.catalog);
-    const rows = [{ plan: formatPlan(optimized) }];
-    return { type: "rows", rows };
-  }
-
-  // -------------------------------------------------------------------------
-  // TCL
-  // -------------------------------------------------------------------------
-
-  private executeTCL(stmt: TransactionStatement): Result {
-    switch (stmt.transaction_type) {
-      case TransactionType.BEGIN:
-        return this.beginTransaction();
-      case TransactionType.COMMIT:
-        return this.commitTransaction();
-      case TransactionType.ROLLBACK:
-        return this.rollbackTransaction();
-      default:
-        const unreachable: never = stmt.transaction_type;
-        throw new EngineError(`Unknown transaction type: ${unreachable}`);
-    }
-  }
-
-  private beginTransaction(): Result {
-    if (this.inTransaction) {
-      throw new EngineError("already in a transaction");
-    }
-    this.beginSnapshot();
-    this.catalogSnapshot = this.catalog.serialize();
-    this.inTransaction = true;
-    return { type: "ok", rowsAffected: 0 };
-  }
-
-  private commitTransaction(): Result {
-    if (!this.inTransaction) {
-      return { type: "ok", rowsAffected: 0 };
-    }
-
-    if (this.transactionAborted) {
-      this.endTransaction();
-      throw new EngineError(
-        "current transaction is aborted, COMMIT treated as ROLLBACK",
-      );
-    }
-
-    try {
-      this.commitWrites();
-    } catch (err) {
-      this.rollbackTransaction();
-      throw err;
-    }
-
-    this.endTransaction();
-    return { type: "ok", rowsAffected: 0 };
-  }
-
-  private rollbackTransaction(): Result {
-    if (!this.inTransaction) {
-      return { type: "ok", rowsAffected: 0 };
-    }
-
-    if (!this.transactionAborted) {
-      this.sessionStore.rollback();
-      this.restoreCatalog();
-    }
-
-    this.endTransaction();
-    return { type: "ok", rowsAffected: 0 };
-  }
-
-  // -------------------------------------------------------------------------
-  // Pipeline
-  // -------------------------------------------------------------------------
-
-  private runPipeline(stmt: Statement, params?: readonly Value[]): Result {
-    const bound = this.binder.bindStatement(stmt);
-    const optimized = optimize(bound, this.catalog);
-    const result = execute(
-      optimized,
-      this.rowManager,
-      this.catalog,
-      this.indexManager,
-      params,
-    );
-
-    const hasCatalogChanges = result.catalogChanges.length > 0;
-    for (const change of result.catalogChanges) {
-      this.applyCatalogChange(change);
-    }
-    if (hasCatalogChanges) {
-      this.binder = new Binder(this.catalog);
-      this.catalogDirty = true;
-    }
-
-    if (stmt.type === StatementType.SELECT_STATEMENT) {
-      return { type: "rows", rows: result.rows };
-    }
-    return { type: "ok", rowsAffected: result.rowsAffected };
-  }
-
-  // -------------------------------------------------------------------------
-  // State management
-  // -------------------------------------------------------------------------
-
-  private refreshCatalog(): void {
-    const engine = this.host.getCatalog();
-    if (engine.version === this.lastCatalogVersion) return;
-    this.catalog = engine.clone();
-    this.lastCatalogVersion = engine.version;
-    this.binder = new Binder(this.catalog);
-  }
-
-  private restoreCatalog(): void {
-    if (this.catalogSnapshot) {
-      this.catalog = Catalog.deserialize(this.catalogSnapshot);
-      this.binder = new Binder(this.catalog);
-    }
-  }
-
-  /** Maintenance runs first: after this session's snapshot is gone, under the lock. */
-  private tryReleaseWriteLock(): void {
-    if (this.holdingWriteLock) {
-      this.host.maintain();
-      this.host.releaseWriteLock();
-      this.holdingWriteLock = false;
-    }
-  }
-
-  private endTransaction(): void {
-    this.catalogSnapshot = null;
-    this.catalogDirty = false;
-    this.inTransaction = false;
-    this.transactionAborted = false;
-    this.sessionStore.endSnapshot();
-    this.tryReleaseWriteLock();
-  }
-
-  // -------------------------------------------------------------------------
-  // Catalog mutations
-  // -------------------------------------------------------------------------
-
-  private applyCatalogChange(change: CatalogChange): void {
-    switch (change.type) {
-      case "CREATE_TABLE":
-        this.catalog.addTable(change.schema);
-        break;
-      case "DROP_TABLE":
-        this.catalog.removeTable(change.name);
-        break;
-      case "ALTER_TABLE":
-        this.catalog.updateTable(change.after);
-        break;
-      case "CREATE_INDEX":
-        this.catalog.addIndex(change.index);
-        break;
-      case "DROP_INDEX":
-        this.catalog.removeIndex(change.name);
-        break;
-    }
-  }
-
-  /** Persist buffered writes; catalog changes reach the engine only once durable. */
-  private commitWrites(): void {
-    const catalogData = this.catalogDirty ? this.writeCatalog() : null;
-    this.sessionStore.commit();
-    if (catalogData) {
-      this.host.onCatalogCommit(catalogData);
-    }
-  }
-
-  private writeCatalog(): CatalogData {
-    const data = this.catalog.prepareCommit();
-    this.sessionStore.writeCatalog(data);
-    return data;
+  [Symbol.dispose](): void {
+    this.close();
   }
 }

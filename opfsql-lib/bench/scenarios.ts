@@ -47,11 +47,11 @@ async function insertProducts(
   from: number,
   count: number,
 ): Promise<void> {
-  const insert = session.prepare(
+  const insert = await session.prepare(
     "INSERT INTO products VALUES ($1, $2, $3, $4)",
   );
   await session.execute("BEGIN");
-  for (let id = from; id < from + count; id++) await insert.run(product(id));
+  for (let id = from; id < from + count; id++) await insert.query(product(id));
   await session.execute("COMMIT");
 }
 
@@ -67,9 +67,11 @@ export const SCENARIOS: Scenario[] = [
     ops: 100,
     setup: (s) => createProducts(s, TABLE_ROWS),
     async run(s) {
-      const insert = s.prepare("INSERT INTO products VALUES ($1, $2, $3, $4)");
+      const insert = await s.prepare(
+        "INSERT INTO products VALUES ($1, $2, $3, $4)",
+      );
       for (let id = TABLE_ROWS; id < TABLE_ROWS + 100; id++) {
-        await insert.run(product(id));
+        await insert.query(product(id));
       }
     },
   },
@@ -79,8 +81,9 @@ export const SCENARIOS: Scenario[] = [
     readOnly: true,
     setup: (s) => createProducts(s, TABLE_ROWS),
     async run(s) {
-      const select = s.prepare("SELECT * FROM products WHERE id = $1");
-      for (let i = 0; i < 1000; i++) await select.run([scatter(i, TABLE_ROWS)]);
+      const select = await s.prepare("SELECT * FROM products WHERE id = $1");
+      for (let i = 0; i < 1000; i++)
+        await select.query([scatter(i, TABLE_ROWS)]);
     },
   },
   {
@@ -91,10 +94,10 @@ export const SCENARIOS: Scenario[] = [
     async run(s) {
       for (let i = 0; i < 100; i++) {
         const low = scatter(i, 9_000) / 100;
-        await s.execute(
-          "SELECT * FROM products WHERE price BETWEEN $1 AND $2",
-          [low, low + 10],
-        );
+        await s.query("SELECT * FROM products WHERE price BETWEEN $1 AND $2", [
+          low,
+          low + 10,
+        ]);
       }
     },
   },
@@ -125,9 +128,11 @@ export const SCENARIOS: Scenario[] = [
     ops: 100,
     setup: (s) => createProducts(s, TABLE_ROWS),
     async run(s) {
-      const update = s.prepare("UPDATE products SET price = $1 WHERE id = $2");
+      const update = await s.prepare(
+        "UPDATE products SET price = $1 WHERE id = $2",
+      );
       for (let i = 0; i < 100; i++) {
-        await update.run([i, scatter(i, TABLE_ROWS)]);
+        await update.query([i, scatter(i, TABLE_ROWS)]);
       }
     },
   },
@@ -136,8 +141,9 @@ export const SCENARIOS: Scenario[] = [
     ops: 100,
     setup: (s) => createProducts(s, TABLE_ROWS),
     async run(s) {
-      const remove = s.prepare("DELETE FROM products WHERE id = $1");
-      for (let i = 0; i < 100; i++) await remove.run([scatter(i, TABLE_ROWS)]);
+      const remove = await s.prepare("DELETE FROM products WHERE id = $1");
+      for (let i = 0; i < 100; i++)
+        await remove.query([scatter(i, TABLE_ROWS)]);
     },
   },
 ];

@@ -34,7 +34,7 @@ async function openDatabase() {
   const name = `efficiency-${seq++}`;
   const wal = new WalStorage(new OPFSSyncStorage(name), new MemoryFileHandle());
   const engine = await Engine.create(wal);
-  return { name, wal, engine, session: engine.createSession() };
+  return { name, wal, engine, session: engine.connect() };
 }
 
 async function fileSize(name: string): Promise<number> {
@@ -44,10 +44,12 @@ async function fileSize(name: string): Promise<number> {
 }
 
 async function insertSmallRows(session: Session, from: number, count: number) {
-  const insert = session.prepare("INSERT INTO t (id, body) VALUES ($1, $2)");
+  const insert = await session.prepare(
+    "INSERT INTO t (id, body) VALUES ($1, $2)",
+  );
   await session.execute("BEGIN");
   for (let id = from; id < from + count; id++) {
-    await insert.run([id, "x".repeat(50)]);
+    await insert.query([id, "x".repeat(50)]);
   }
   await session.execute("COMMIT");
 }
@@ -88,8 +90,8 @@ describe("storage efficiency budgets", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)");
     await insertSmallRows(session, 0, ROWS);
     await engine.checkpoint();
-    session.close();
-    engine.close();
+    await session.close();
+    await engine.close();
 
     const bytesPerRow = Math.ceil((await fileSize(name)) / ROWS);
     expect(bytesPerRow).toBeLessThanOrEqual(BUDGET.fileBytesPerSmallRow);

@@ -9,7 +9,6 @@ import { drainOperator } from "../operators/utils.js";
 import { createPhysicalPlan } from "../planner/index.js";
 import type { Resolver } from "../resolve.js";
 import type { CTECacheEntry, ExecuteResult, Tuple, Value } from "../types.js";
-import { extractColumnNames, tuplesToRows } from "./result.js";
 
 export function createEvalContext(
   rowManager: SyncIRowManager,
@@ -41,10 +40,7 @@ export function executeSelect(
     ctx,
     indexManager,
   );
-  const tuples = drainOperator(physical);
-  const columnNames = extractColumnNames(plan);
-  const rows = tuplesToRows(tuples, columnNames);
-
+  const rows = drainOperator(physical);
   return { rows, rowsAffected: 0, catalogChanges: [] };
 }
 

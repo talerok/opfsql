@@ -133,8 +133,8 @@ function formatValue(v: unknown): string {
   return String(v);
 }
 
-function formatRow(row: Record<string, unknown>): string {
-  return Object.values(row).map(formatValue).join("|");
+function formatRow(row: readonly unknown[]): string {
+  return row.map(formatValue).join("|");
 }
 
 export async function runSlt(
@@ -189,24 +189,22 @@ export async function runSlt(
         const results = await session.execute(block.sql);
         const queryResult = results[0];
 
-        if (!queryResult || queryResult.type !== "rows") {
+        if (!queryResult) {
           result.failed++;
           result.errors.push({
             blockIndex: idx,
             sql: block.sql,
-            message: `Expected rows result but got ${queryResult?.type ?? "nothing"}`,
+            message: "Expected rows result but got nothing",
           });
           continue;
         }
 
-        const rows = queryResult.rows ?? [];
+        const rows = queryResult.rows;
         let actual: string[];
 
         if (block.sort === "valuesort") {
           // Flatten all values and sort
-          const allValues = rows.flatMap((r) =>
-            Object.values(r).map(formatValue),
-          );
+          const allValues = rows.flatMap((r) => r.map(formatValue));
           actual = allValues.sort();
           const expectedSorted = [...block.expected].sort();
           if (actual.join("\n") !== expectedSorted.join("\n")) {

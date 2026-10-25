@@ -42,14 +42,14 @@ async function openTabs(
       marks,
     });
     const engine = await Engine.create(wal, { lockName });
-    tabs.push({ engine, session: engine.createSession(), wal });
+    tabs.push({ engine, session: engine.connect(), wal });
   }
   return tabs;
 }
 
 async function rows(session: Session): Promise<unknown[]> {
   const [result] = await session.execute("SELECT id, v FROM t ORDER BY id");
-  return result.type === "rows" ? result.rows : [];
+  return result.objects();
 }
 
 beforeEach(() => {
@@ -80,24 +80,21 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
 
         if (r < 0.4 || ids.length === 0) {
           const id = nextId++;
-          await session.execute("INSERT INTO t (id, v) VALUES ($1, $2)", [
-            id,
-            v,
-          ]);
+          await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [id, v]);
           model.set(id, v);
         } else if (r < 0.6) {
           const id = pick(ids);
-          await session.execute("UPDATE t SET v = $1 WHERE id = $2", [v, id]);
+          await session.query("UPDATE t SET v = $1 WHERE id = $2", [v, id]);
           model.set(id, v);
         } else if (r < 0.75) {
           const id = pick(ids);
-          await session.execute("DELETE FROM t WHERE id = $1", [id]);
+          await session.query("DELETE FROM t WHERE id = $1", [id]);
           model.delete(id);
         } else if (r < 0.9) {
           await session.execute("BEGIN");
           for (let i = 0; i < 3; i++) {
             const id = nextId++;
-            await session.execute("INSERT INTO t (id, v) VALUES ($1, $2)", [
+            await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [
               id,
               v + i,
             ]);
@@ -147,14 +144,14 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
         if (snapshots[i] === null && r < 0.45) {
           if (ids.length === 0 || r < 0.25) {
             const id = nextId++;
-            await session.execute("INSERT INTO t (id, v) VALUES ($1, $2)", [
+            await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [
               id,
               step,
             ]);
             model.set(id, step);
           } else {
             const id = ids[Math.floor(random() * ids.length)];
-            await session.execute("DELETE FROM t WHERE id = $1", [id]);
+            await session.query("DELETE FROM t WHERE id = $1", [id]);
             model.delete(id);
           }
         } else if (snapshots[i] === null && r < 0.65) {
@@ -185,9 +182,7 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     const epoch = writer.wal.getEpoch();
 
     for (let id = 1; id <= 40; id++) {
-      await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
-        id,
-      ]);
+      await writer.session.query("INSERT INTO t (id, v) VALUES ($1, 0)", [id]);
     }
     expect(writer.wal.getEpoch()).toBeGreaterThan(epoch);
   });
@@ -199,14 +194,14 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     );
     for (let i = 0; i < 50; i++) {
       const { engine, session } = tabs[i % 2];
-      await session.execute("INSERT INTO t (v) VALUES ($1)", [i]);
+      await session.query("INSERT INTO t (v) VALUES ($1)", [i]);
       if (i % 7 === 0) await engine.checkpoint();
     }
 
     const [result] = await tabs[1].session.execute(
       "SELECT id, v FROM t ORDER BY id",
     );
-    expect(result.type === "rows" ? result.rows : []).toEqual(
+    expect(result.objects()).toEqual(
       Array.from({ length: 50 }, (_, i) => ({ id: i + 1, v: i })),
     );
   });
@@ -217,18 +212,14 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
       "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
     );
     for (let id = 1; id <= 100; id++) {
-      await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
-        id,
-      ]);
+      await writer.session.query("INSERT INTO t (id, v) VALUES ($1, 0)", [id]);
     }
     await writer.engine.checkpoint();
 
     await reader.session.execute("BEGIN");
     const snapshot = await rows(reader.session);
     for (let id = 101; id <= 300; id++) {
-      await writer.session.execute("INSERT INTO t (id, v) VALUES ($1, 0)", [
-        id,
-      ]);
+      await writer.session.query("INSERT INTO t (id, v) VALUES ($1, 0)", [id]);
     }
     await writer.engine.checkpoint();
 

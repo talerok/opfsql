@@ -5,7 +5,7 @@ import { MemoryFileHandle } from "../../store/wal/file-handle.js";
 import { WalStorage } from "../../store/wal/wal-storage.js";
 import { Engine } from "../engine.js";
 import type { Session } from "../session.js";
-import { SerializationError } from "../types.js";
+import { SerializationError } from "../../errors.js";
 import { mulberry32 } from "../../../test/support/random.js";
 
 // Snapshot isolation between sessions of one engine. Page versions live in
@@ -28,24 +28,24 @@ async function openDatabase(checkpointThreshold?: number) {
     },
   );
   const engine = await Engine.create(wal);
-  const writer = engine.createSession();
+  const writer = engine.connect();
   await writer.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)");
   return { wal, engine, writer };
 }
 
 async function rows(session: Session): Promise<unknown[]> {
   const [r] = await session.execute("SELECT id, v FROM t ORDER BY id");
-  return r.type === "rows" ? r.rows : [];
+  return r.objects();
 }
 
 async function insert(session: Session, id: number, v = 0): Promise<void> {
-  await session.execute("INSERT INTO t (id, v) VALUES ($1, $2)", [id, v]);
+  await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [id, v]);
 }
 
 describe("snapshot isolation", () => {
   it("a transaction does not see commits made after it began", async () => {
     const { engine, writer } = await openDatabase();
-    const reader = engine.createSession();
+    const reader = engine.connect();
     await insert(writer, 1);
 
     await reader.execute("BEGIN");
@@ -63,7 +63,7 @@ describe("snapshot isolation", () => {
 
   it("a statement outside a transaction sees every earlier commit", async () => {
     const { engine, writer } = await openDatabase();
-    const reader = engine.createSession();
+    const reader = engine.connect();
     await insert(writer, 1);
     expect(await rows(reader)).toEqual([{ id: 1, v: 0 }]);
     await insert(writer, 2);
@@ -72,7 +72,7 @@ describe("snapshot isolation", () => {
 
   it("an open snapshot survives checkpoints and holds back the WAL restart", async () => {
     const { wal, engine, writer } = await openDatabase(4);
-    const reader = engine.createSession();
+    const reader = engine.connect();
     await insert(writer, 1);
 
     await reader.execute("BEGIN");
@@ -91,14 +91,16 @@ describe("snapshot isolation", () => {
 
   it("writing after another session's commit fails and can be retried", async () => {
     const { engine, writer } = await openDatabase();
-    const other = engine.createSession();
+    const other = engine.connect();
     await insert(writer, 1);
 
     await writer.execute("BEGIN");
     await rows(writer);
     await insert(other, 2);
     await expect(insert(writer, 3)).rejects.toThrow(SerializationError);
-    await expect(rows(writer)).rejects.toThrow(/transaction is aborted/);
+    await expect(rows(writer)).rejects.toMatchObject({
+      code: "TRANSACTION_ABORTED",
+    });
     await writer.execute("ROLLBACK");
 
     await writer.execute("BEGIN");
@@ -109,7 +111,7 @@ describe("snapshot isolation", () => {
 
   it("a writing transaction with no concurrent commits succeeds", async () => {
     const { engine, writer } = await openDatabase();
-    const reader = engine.createSession();
+    const reader = engine.connect();
     await reader.execute("BEGIN");
     await rows(reader);
 
@@ -133,7 +135,7 @@ describe("snapshot isolation", () => {
         const { engine, writer } = await openDatabase(8);
         const model = new Map<number, number>();
         const readers = Array.from({ length: 3 }, () => ({
-          session: engine.createSession(),
+          session: engine.connect(),
           snapshot: null as unknown[] | null,
         }));
         const expected = () =>
@@ -153,14 +155,11 @@ describe("snapshot isolation", () => {
             model.set(id, step);
           } else if (r < 0.5) {
             const id = ids[Math.floor(random() * ids.length)];
-            await writer.execute("UPDATE t SET v = $1 WHERE id = $2", [
-              step,
-              id,
-            ]);
+            await writer.query("UPDATE t SET v = $1 WHERE id = $2", [step, id]);
             model.set(id, step);
           } else if (r < 0.6) {
             const id = ids[Math.floor(random() * ids.length)];
-            await writer.execute("DELETE FROM t WHERE id = $1", [id]);
+            await writer.query("DELETE FROM t WHERE id = $1", [id]);
             model.delete(id);
           } else if (r < 0.75 && reader.snapshot === null) {
             await reader.session.execute("BEGIN");

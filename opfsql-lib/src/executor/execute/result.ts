@@ -1,59 +1,48 @@
-import type {
-  BoundAggregateExpression,
-  BoundColumnRefExpression,
-  LogicalOperator,
-  LogicalProjection,
-} from "../../sql/binder/types.js";
 import {
   BoundExpressionClass,
   LogicalOperatorType,
+  type BoundExpression,
+  type LogicalOperator,
+  type LogicalProjection,
 } from "../../sql/binder/types.js";
-import type { Row } from "../../store/types.js";
-import type { Tuple } from "../types.js";
 
-export function extractColumnNames(plan: LogicalOperator): string[] {
-  const proj = findProjection(plan);
-  if (!proj) return plan.types.map((_, i) => `column${i}`);
+// Results are rows of values in column order (the executor's tuples, as
+// they are); this names their columns. Names may repeat — `SELECT t.id, u.id`
+// has two columns called id — so callers keep positions, never key by name.
 
-  return proj.expressions.map((expr, i) => {
-    if (proj.aliases[i]) return proj.aliases[i]!;
-
-    if (expr.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF)
-      return (expr as BoundColumnRefExpression).columnName;
-
-    if (expr.expressionClass === BoundExpressionClass.BOUND_AGGREGATE) {
-      const agg = expr as BoundAggregateExpression;
-      return agg.isStar
-        ? `${agg.functionName.toLowerCase()}_star`
-        : `${agg.functionName.toLowerCase()}_${i}`;
-    }
-
-    return `column${i}`;
-  });
+/** The result column names of a bound plan, in order. */
+export function outputColumnNames(plan: LogicalOperator): string[] {
+  const projection = findProjection(plan);
+  return projection === null
+    ? plan.types.map((_, index) => `column${String(index)}`)
+    : projection.expressions.map(
+        (expression, index) =>
+          projection.aliases[index] ?? expressionName(expression, index),
+      );
 }
 
+function expressionName(expression: BoundExpression, index: number): string {
+  if (expression.expressionClass === BoundExpressionClass.BOUND_COLUMN_REF) {
+    return expression.columnName;
+  }
+  if (expression.expressionClass === BoundExpressionClass.BOUND_AGGREGATE) {
+    const name = expression.functionName.toLowerCase();
+    return expression.isStar ? `${name}_star` : `${name}_${String(index)}`;
+  }
+  return `column${String(index)}`;
+}
+
+/** The first projection depth-first; of a WITH, the one of its main query. */
 function findProjection(plan: LogicalOperator): LogicalProjection | null {
-  if (plan.type === LogicalOperatorType.LOGICAL_PROJECTION) {
-    return plan as LogicalProjection;
-  }
-
-  if (plan.type === LogicalOperatorType.LOGICAL_MATERIALIZED_CTE) {
-    return findProjection(plan.children[1]);
-  }
-
-  for (const child of plan.children) {
-    const found = findProjection(child);
-    if (found) return found;
+  const pending: LogicalOperator[] = [plan];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    if (node.type === LogicalOperatorType.LOGICAL_PROJECTION) return node;
+    if (node.type === LogicalOperatorType.LOGICAL_MATERIALIZED_CTE) {
+      const [, query] = node.children;
+      pending.push(query);
+    } else {
+      pending.push(...node.children.toReversed());
+    }
   }
   return null;
-}
-
-export function tuplesToRows(tuples: Tuple[], columnNames: string[]): Row[] {
-  return tuples.map((tuple) => {
-    const row: Row = {};
-    for (let i = 0; i < columnNames.length; i++) {
-      row[columnNames[i]] = tuple[i] ?? null;
-    }
-    return row;
-  });
 }

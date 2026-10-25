@@ -18,21 +18,32 @@ declare module "vitest" {
  * The engine is integrity-checked when closed, so every engine-level test
  * also verifies the database it leaves behind.
  */
-export async function openTestEngine(dbName: string): Promise<Engine> {
+export async function openTestEngine(
+  databaseName: string,
+  options: { busyTimeout?: number } = {},
+): Promise<Engine> {
   const engine =
     inject("backend") === "wal"
-      ? await Engine.open(dbName, { pageSize: 4096, checkpointThreshold: 8 })
-      : await Engine.create(new OPFSSyncStorage(dbName));
+      ? await Engine.open(databaseName, {
+          ...options,
+          pageSize: 4096,
+          checkpointThreshold: 8,
+        })
+      : await Engine.create(new OPFSSyncStorage(databaseName), options);
 
   const close = engine.close.bind(engine);
-  vi.spyOn(engine, "close").mockImplementation(() => {
-    const problems = engine.checkIntegrity();
-    close();
-    if (problems.length > 0) {
-      throw new Error(
-        `integrity check failed for "${dbName}":\n  ${problems.join("\n  ")}`,
-      );
-    }
+  let closing: Promise<void> | null = null;
+  vi.spyOn(engine, "close").mockImplementation(async () => {
+    closing ??= (async () => {
+      const problems = engine.checkIntegrity();
+      await close();
+      if (problems.length > 0) {
+        throw new Error(
+          `integrity check failed for "${databaseName}":\n  ${problems.join("\n  ")}`,
+        );
+      }
+    })();
+    return closing;
   });
   return engine;
 }

@@ -14,6 +14,7 @@ import type {
   ICatalog,
 } from "../../store/types.js";
 import { execute } from "../execute/index.js";
+import { outputColumnNames } from "../execute/result.js";
 import { colRef } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ function makeProjection(child: LogicalGet): LogicalProjection {
 // ---------------------------------------------------------------------------
 
 describe("execute", () => {
-  it("SELECT returns rows with column names from projection", () => {
+  it("SELECT returns rows of values; the projection names the columns", () => {
     const rows = [
       { rowId: 1, row: { id: 1, name: "Alice" } },
       { rowId: 2, row: { id: 2, name: "Bob" } },
@@ -147,9 +148,10 @@ describe("execute", () => {
     const result = execute(plan, rm, catalog);
 
     expect(result.rows).toEqual([
-      { id: 1, name: "Alice" },
-      { id: 2, name: "Bob" },
+      [1, "Alice"],
+      [2, "Bob"],
     ]);
+    expect(outputColumnNames(plan)).toEqual(["id", "name"]);
     expect(result.rowsAffected).toBe(0);
     expect(result.catalogChanges).toEqual([]);
   });
@@ -163,7 +165,8 @@ describe("execute", () => {
     const plan = makeGet();
     const result = execute(plan, rm, catalog);
 
-    expect(result.rows).toEqual([{ column0: 1, column1: "Alice" }]);
+    expect(result.rows).toEqual([[1, "Alice"]]);
+    expect(outputColumnNames(plan)).toEqual(["column0", "column1"]);
   });
 
   it("SELECT with aliased projection uses alias names", () => {
@@ -175,7 +178,8 @@ describe("execute", () => {
     proj.aliases = ["user_id", "user_name"];
     const result = execute(proj, rm, catalog);
 
-    expect(result.rows).toEqual([{ user_id: 1, user_name: "Alice" }]);
+    expect(result.rows).toEqual([[1, "Alice"]]);
+    expect(outputColumnNames(proj)).toEqual(["user_id", "user_name"]);
   });
 
   it("SELECT with empty table returns no rows", () => {
@@ -211,7 +215,7 @@ describe("execute", () => {
     const plan = makeProjection(get);
     const result = execute(plan, rm, catalog, undefined, [2]);
 
-    expect(result.rows).toEqual([{ id: 2, name: "Bob" }]);
+    expect(result.rows).toEqual([[2, "Bob"]]);
   });
 
   it("CREATE TABLE routes to DDL executor and returns catalog change", () => {

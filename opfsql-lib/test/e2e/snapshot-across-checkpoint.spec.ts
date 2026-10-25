@@ -1,5 +1,12 @@
 import { test, expect } from "./infra/fixtures";
-import { openTab, initDb, openDb, exec, closeDb, cleanOpfs } from "./infra/db";
+import {
+  openTab,
+  initDatabase,
+  openDatabase,
+  exec,
+  closeDatabase,
+  cleanOpfs,
+} from "./infra/database";
 
 // Enough single-row commits to pass the default checkpoint threshold
 // (1000 WAL frames) and make the writing tab checkpoint.
@@ -20,7 +27,7 @@ async function count(
     page,
     `SELECT COUNT(*) AS n FROM t WHERE ${where}`,
   );
-  return result.rows[0].n;
+  return Number(result.rows[0][0]);
 }
 
 test.describe("Snapshots across tabs", { tag: "@multi-tab" }, () => {
@@ -28,13 +35,13 @@ test.describe("Snapshots across tabs", { tag: "@multi-tab" }, () => {
     context,
   }) => {
     const tabA = await openTab(context);
-    await initDb(tabA);
+    await initDatabase(tabA);
     await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
     // Checkpoints move these rows into the main file, where tab B will read them.
     await exec(tabA, inserts(1));
 
     const tabB = await openTab(context);
-    await openDb(tabB);
+    await openDatabase(tabB);
     await exec(tabB, "BEGIN");
     expect(await count(tabB)).toBe(BATCH);
 
@@ -49,8 +56,8 @@ test.describe("Snapshots across tabs", { tag: "@multi-tab" }, () => {
     expect(await count(tabB)).toBe(2 * BATCH);
     expect(await count(tabB, "val = 'changed'")).toBe(200);
 
-    await closeDb(tabB);
-    await closeDb(tabA);
+    await closeDatabase(tabB);
+    await closeDatabase(tabA);
     await cleanOpfs(tabA);
   });
 });

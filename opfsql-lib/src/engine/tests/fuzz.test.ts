@@ -1,5 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
+import { OpfsqlError } from "../../errors.js";
 import { RowTooLargeError } from "../../store/errors.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
@@ -12,7 +13,7 @@ import { openTestEngine } from "./test-engine.js";
 // Random INSERT / UPDATE / DELETE with realistic value sizes (bytes to hundreds
 // of KB), plus checkpoints and reopens at random points, checked against a
 // plain Map and engine.checkIntegrity() after every step. A statement must
-// either succeed and be reflected in the model, or fail with RowTooLargeError
+// either succeed and be reflected in the model, or fail with TOO_LARGE
 // and leave the database exactly as it was. Seeds are fixed so any failure
 // reproduces.
 // ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ class Fuzzer {
         cause: err,
       });
     } finally {
-      this.close();
+      await this.close();
     }
   }
 
@@ -79,7 +80,7 @@ class Fuzzer {
       return;
     }
     this.log.push("reopen");
-    this.close();
+    await this.close();
     await this.open();
   }
 
@@ -89,7 +90,7 @@ class Fuzzer {
     await this.write(
       `insert ${id} (${row.body.length} B)`,
       () =>
-        this.session.execute(
+        this.session.query(
           "INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)",
           [id, row.tag, row.body],
         ),
@@ -102,7 +103,7 @@ class Fuzzer {
     await this.write(
       `update ${id} (${row.body.length} B)`,
       () =>
-        this.session.execute("UPDATE t SET tag = $1, body = $2 WHERE id = $3", [
+        this.session.query("UPDATE t SET tag = $1, body = $2 WHERE id = $3", [
           row.tag,
           row.body,
           id,
@@ -114,7 +115,7 @@ class Fuzzer {
   private async delete(id: number): Promise<void> {
     await this.write(
       `delete ${id}`,
-      () => this.session.execute("DELETE FROM t WHERE id = $1", [id]),
+      () => this.session.query("DELETE FROM t WHERE id = $1", [id]),
       () => this.model.delete(id),
     );
   }
@@ -129,7 +130,8 @@ class Fuzzer {
       applyToModel();
       this.log.push(description);
     } catch (err) {
-      if (!(err instanceof RowTooLargeError)) throw err;
+      if (!(err instanceof OpfsqlError && err.code === "TOO_LARGE")) throw err;
+      expect(err.cause).toBeInstanceOf(RowTooLargeError);
       this.log.push(`${description} → rejected: ${err.message}`);
     }
   }
@@ -143,14 +145,14 @@ class Fuzzer {
     const expected = [...this.model.entries()]
       .sort(([a], [b]) => a - b)
       .map(([id, row]) => ({ id, ...row }));
-    expect(all.type === "rows" ? all.rows : all).toEqual(expected);
+    expect(all.objects()).toEqual(expected);
 
     const tag = Math.floor(this.random() * 10);
-    const [byTag] = await this.session.execute(
+    const byTag = await this.session.query(
       "SELECT id FROM t WHERE tag = $1 ORDER BY id",
       [tag],
     );
-    expect(byTag.type === "rows" ? byTag.rows : byTag).toEqual(
+    expect(byTag.objects()).toEqual(
       expected.filter((row) => row.tag === tag).map(({ id }) => ({ id })),
     );
   }
@@ -176,12 +178,12 @@ class Fuzzer {
 
   private async open(): Promise<void> {
     this.engine = await openTestEngine(this.dbName);
-    this.session = this.engine.createSession();
+    this.session = this.engine.connect();
   }
 
-  private close(): void {
-    this.session.close();
-    this.engine.close();
+  private async close(): Promise<void> {
+    await this.session.close();
+    await this.engine.close();
   }
 }
 
