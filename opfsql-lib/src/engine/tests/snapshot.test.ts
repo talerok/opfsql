@@ -1,36 +1,24 @@
-import { resetMockOPFS } from "opfs-mock";
-import { beforeEach, describe, expect, it } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import { MemoryFileHandle } from "../../store/wal/file-handle.js";
-import { WalStorage } from "../../store/wal/wal-storage.js";
+import { describe, expect, it, vi } from "vitest";
+import { MemoryFile } from "../../storage/file/sync-file.js";
 import { createEngine } from "../engine.js";
 import type { Session } from "../session.js";
 import { SerializationError } from "../../errors.js";
 import { mulberry32 } from "../../../test/support/random.js";
 
-// Snapshot isolation between sessions of one engine. Page versions live in
-// the WAL, so these tests build the WAL stack themselves; a bare page file has
-// no versions to give a snapshot.
-
-let seq = 0;
-
-beforeEach(() => {
-  resetMockOPFS();
-});
+// Snapshot isolation between sessions of one engine, on memory files, with
+// the checkpoint threshold each test needs.
 
 async function openDatabase(checkpointThreshold?: number) {
-  const name = `snapshot-${seq++}`;
-  const wal = new WalStorage(
-    new OPFSSyncStorage(name),
-    new MemoryFileHandle(),
-    {
-      checkpointThreshold,
-    },
-  );
-  const engine = await createEngine(wal);
+  const wal = new MemoryFile();
+  const files = { database: new MemoryFile(), wal, marks: null };
+  const engine = await createEngine(files, {
+    ...(checkpointThreshold !== undefined && { checkpointThreshold }),
+  });
   const writer = engine.connect();
   await writer.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)");
-  return { wal, engine, writer };
+  /** WAL restarts: a checkpoint that brought everything into the file. */
+  const restarts = vi.spyOn(wal, "truncate");
+  return { restarts, engine, writer };
 }
 
 async function rows(session: Session): Promise<unknown[]> {
@@ -71,20 +59,20 @@ describe("snapshot isolation", () => {
   });
 
   it("an open snapshot survives checkpoints and holds back the WAL restart", async () => {
-    const { wal, engine, writer } = await openDatabase(4);
+    const { restarts, engine, writer } = await openDatabase(4);
     const reader = engine.connect();
     await insert(writer, 1);
 
     await reader.execute("BEGIN");
     const before = await rows(reader);
-    const epoch = wal.getEpoch();
+    restarts.mockClear();
     for (let id = 2; id <= 40; id++) await insert(writer, id);
     expect(await rows(reader)).toEqual(before);
-    expect(wal.getEpoch()).toBe(epoch);
+    expect(restarts).not.toHaveBeenCalled();
     await reader.execute("COMMIT");
 
     await insert(writer, 41);
-    expect(wal.getEpoch()).toBeGreaterThan(epoch);
+    expect(restarts).toHaveBeenCalledWith(0);
     expect(await rows(reader)).toHaveLength(41);
     expect(await engine.checkIntegrity()).toEqual([]);
   });
@@ -98,9 +86,9 @@ describe("snapshot isolation", () => {
     await rows(writer);
     await insert(other, 2);
     await expect(insert(writer, 3)).rejects.toThrow(SerializationError);
-    await expect(rows(writer)).rejects.toMatchObject({
-      code: "TRANSACTION_ABORTED",
-    });
+    // The transaction goes on reading its snapshot; it cannot write.
+    expect(await rows(writer)).toEqual([{ id: 1, v: 0 }]);
+    await expect(insert(writer, 4)).rejects.toThrow(SerializationError);
     await writer.execute("ROLLBACK");
 
     await writer.execute("BEGIN");

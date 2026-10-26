@@ -78,6 +78,40 @@ describe("result rows", () => {
     const star = await session.query("SELECT * FROM u");
     expect(star.columns).toEqual(["id", "t_id"]);
   });
+
+  it("are named by alias, else by the column read, else by the expression as written", async () => {
+    const result = await session.query(
+      "SELECT t.id, v AS value, id + 1, count(*), lower(v) FROM t GROUP BY id, v",
+    );
+    expect(result.columns).toEqual([
+      "id",
+      "value",
+      "id + 1",
+      "count(*)",
+      "lower(v)",
+    ]);
+    const union = await session.query(
+      "SELECT id AS first FROM t UNION SELECT t_id AS second FROM u",
+    );
+    expect(union.columns).toEqual(["first"]);
+  });
+
+  it("hold copies of BLOBs, which a caller may change", async () => {
+    await session.execute(
+      "CREATE TABLE b (id INTEGER PRIMARY KEY, data BLOB); INSERT INTO b VALUES (1, x'0102')",
+    );
+    const statement = await session.prepare(
+      "SELECT data, x'0a0b' FROM b WHERE id = 1",
+    );
+    const first = await statement.query();
+    const [row] = first.rows;
+    for (const value of row) (value as Uint8Array).fill(0);
+
+    const second = await statement.query();
+    expect(second.rows).toEqual([
+      [new Uint8Array([1, 2]), new Uint8Array([10, 11])],
+    ]);
+  });
 });
 
 describe("changes and lastInsertRowid", () => {
@@ -166,20 +200,17 @@ describe("scripts", () => {
     expect(await ids("t")).toEqual([1]);
   });
 
-  it("inside an earlier call's transaction, abort it on failure", async () => {
+  it("inside an earlier call's transaction, roll back the failed statement alone", async () => {
     await session.query("BEGIN");
     await session.query("INSERT INTO t VALUES (1, 'a')");
     await expect(
       session.execute(
-        "INSERT INTO t VALUES (2, 'b'); INSERT INTO t VALUES (1, 'c')",
+        "INSERT INTO t VALUES (2, 'b'); INSERT INTO t VALUES (1, 'c'); INSERT INTO t VALUES (3, 'skipped')",
       ),
     ).rejects.toMatchObject({ statementIndex: 1 });
     expect(session.inTransaction).toBe(true);
-    await expect(session.query("SELECT 1")).rejects.toMatchObject({
-      code: "TRANSACTION_ABORTED",
-    });
-    await session.query("ROLLBACK");
-    expect(await ids("t")).toEqual([]);
+    await session.query("COMMIT");
+    expect(await ids("t")).toEqual([1, 2]);
   });
 
   it("take no parameters; query takes one statement", async () => {

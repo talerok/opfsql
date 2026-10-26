@@ -1,6 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, Session } from "../index.js";
+import type { Engine, Session } from "../index.js";
 import { openTestEngine } from "./test-engine.js";
 
 let engine: Engine;
@@ -8,7 +8,7 @@ let session: Session;
 let seq = 0;
 
 async function createEngine(): Promise<Engine> {
-  engine = await openTestEngine(`explain-test-${seq++}`);
+  engine = await openTestEngine(`explain-test-${String(seq++)}`);
   session = engine.connect();
   return engine;
 }
@@ -18,8 +18,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await session?.close();
-  await engine?.close();
+  await session.close();
+  await engine.close();
 });
 
 async function explain(sql: string): Promise<string> {
@@ -30,97 +30,90 @@ async function explain(sql: string): Promise<string> {
 
 // ---------------------------------------------------------------------------
 
+/** The tables of the plan-shape cases; each case adds the indexes it needs. */
+const TABLES = `
+  CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, cat TEXT, val INTEGER);
+  CREATE TABLE a (id INTEGER PRIMARY KEY);
+  CREATE TABLE b (id INTEGER PRIMARY KEY, a_id INTEGER);
+`;
+
+interface Shape {
+  readonly shows: string;
+  readonly indexes?: string;
+  readonly sql: string;
+  /** Lines the plan holds. */
+  readonly lines: readonly (string | RegExp)[];
+}
+
+const SHAPES: readonly Shape[] = [
+  {
+    shows: "a table scan under a project",
+    sql: "SELECT * FROM t",
+    lines: ["project#1 id, name, cat, val", "  table-scan t#0"],
+  },
+  {
+    shows: "a filter on one table as its scan's residual",
+    sql: "SELECT id FROM t WHERE val > 10",
+    lines: [/^ {2}table-scan t#0 residual: \(?val > 10\)?$/],
+  },
+  {
+    shows: "a hash join for JOIN",
+    sql: "SELECT * FROM a JOIN b ON a.id = b.a_id",
+    lines: [
+      "  hash-join inner on id = a_id",
+      "    table-scan a#0",
+      "    table-scan b#1",
+    ],
+  },
+  {
+    shows: "a top-n for ORDER BY with LIMIT",
+    sql: "SELECT * FROM t ORDER BY val DESC LIMIT 5",
+    lines: [/^ +top-n 5 by val DESC$/],
+  },
+  {
+    shows: "a hash aggregate for GROUP BY",
+    sql: "SELECT cat, SUM(val) FROM t GROUP BY cat",
+    lines: [/^ {2}hash-aggregate#\d+#\d+ group by cat compute sum\(val\)$/],
+  },
+  {
+    shows: "an index scan when an index fits",
+    indexes: "CREATE INDEX idx_val ON t (val)",
+    sql: "SELECT * FROM t WHERE val = 1",
+    lines: ["  index-scan t#0 using idx_val (val = 1)"],
+  },
+  {
+    shows: "a hash distinct",
+    sql: "SELECT DISTINCT name FROM t",
+    lines: ["hash-distinct"],
+  },
+  {
+    shows: "an INSERT and its source",
+    sql: "INSERT INTO t (id, name) VALUES (1, 'x')",
+    lines: ["insert into t", "  values#0 (1, 'x')"],
+  },
+  {
+    shows: "an UPDATE and the rows it reads",
+    sql: "UPDATE t SET name = 'y' WHERE id = 1",
+    lines: ["update t", "  rowid-lookup t#0 (rowid = 1)"],
+  },
+  {
+    shows: "a DELETE and the rows it reads",
+    sql: "DELETE FROM t WHERE id = 1",
+    lines: ["delete from t", "  rowid-lookup t#0 (rowid = 1)"],
+  },
+];
+
 describe("EXPLAIN", () => {
-  it("returns a plan for a simple SELECT", async () => {
+  it.each(SHAPES)("shows $shows", async ({ indexes = "", sql, lines }) => {
     await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
-    const plan = await explain("EXPLAIN SELECT * FROM t");
-    expect(plan).toContain("Scan t");
-    expect(plan).toContain("Projection");
-  });
-
-  it("shows pushed-down filter on scan", async () => {
-    await createEngine();
-    await session.execute(
-      "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
-    );
-    const plan = await explain("EXPLAIN SELECT * FROM t WHERE val > 10");
-    // Simple filters get pushed into the scan node
-    expect(plan).toContain("Scan t [t.val > 10]");
-  });
-
-  it("shows HashJoin for JOIN", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE a (id INTEGER PRIMARY KEY)");
-    await session.execute(
-      "CREATE TABLE b (id INTEGER PRIMARY KEY, a_id INTEGER)",
-    );
-    const plan = await explain(
-      "EXPLAIN SELECT * FROM a JOIN b ON a.id = b.a_id",
-    );
-    expect(plan).toContain("HashJoin [INNER]");
-    expect(plan).toContain("Scan a");
-    expect(plan).toContain("Scan b");
-  });
-
-  it("shows Sort and Limit", async () => {
-    await createEngine();
-    await session.execute(
-      "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
-    );
-    const plan = await explain(
-      "EXPLAIN SELECT * FROM t ORDER BY val DESC LIMIT 5",
-    );
-    expect(plan).toContain("Sort");
-    expect(plan).toContain("DESC");
-    expect(plan).toContain("Limit 5");
-  });
-
-  it("shows Aggregate for GROUP BY", async () => {
-    await createEngine();
-    await session.execute(
-      "CREATE TABLE t (id INTEGER PRIMARY KEY, cat TEXT, val INTEGER)",
-    );
-    const plan = await explain(
-      "EXPLAIN SELECT cat, SUM(val) FROM t GROUP BY cat",
-    );
-    expect(plan).toContain("Aggregate");
-    expect(plan).toContain("SUM");
-    expect(plan).toContain("group by");
-  });
-
-  it("shows IndexScan when index exists", async () => {
-    await createEngine();
-    await session.execute(
-      "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
-    );
-    await session.execute("CREATE INDEX idx_val ON t (val)");
-    const plan = await explain("EXPLAIN SELECT * FROM t WHERE val = 1");
-    expect(plan).toContain("IndexScan t (idx_val)");
-  });
-
-  it("shows Insert plan", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
-    const plan = await explain(
-      "EXPLAIN INSERT INTO t (id, val) VALUES (1, 'x')",
-    );
-    expect(plan).toContain("Insert t");
-  });
-
-  it("shows Update plan", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
-    const plan = await explain("EXPLAIN UPDATE t SET val = 'y' WHERE id = 1");
-    expect(plan).toContain("Update t");
-    expect(plan).toContain("Scan t");
-  });
-
-  it("shows Delete plan", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    const plan = await explain("EXPLAIN DELETE FROM t WHERE id = 1");
-    expect(plan).toContain("Delete t");
+    await session.execute(TABLES + indexes);
+    const text = await explain(`EXPLAIN ${sql}`);
+    const plan = text.split("\n");
+    for (const line of lines) {
+      expect(plan).toContainEqual(
+        typeof line === "string" ? line : expect.stringMatching(line),
+      );
+    }
   });
 
   it("does not modify database state", async () => {
@@ -132,19 +125,48 @@ describe("EXPLAIN", () => {
     expect(result.objects()).toHaveLength(1);
   });
 
-  it("shows Distinct", async () => {
-    await createEngine();
-    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)");
-    const plan = await explain("EXPLAIN SELECT DISTINCT val FROM t");
-    expect(plan).toContain("Distinct");
-  });
-
   it("result type is rows with plan column", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     const [result] = await session.execute("EXPLAIN SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
     expect(typeof result.objects()[0].plan).toBe("string");
+  });
+
+  it("shows a subquery's plan after the main plan", async () => {
+    await createEngine();
+    await session.execute(
+      "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
+    );
+    await session.execute("CREATE TABLE a (id INTEGER PRIMARY KEY)");
+    const plan = await explain(
+      "EXPLAIN SELECT id FROM t WHERE val IN (SELECT id FROM a)",
+    );
+    expect(plan).toContain("(subquery 1)");
+    expect(plan).toMatch(
+      /\nsubquery 1:\n {2}project#2 id\n {4}table-scan a#1$/,
+    );
+  });
+
+  it("refuses to explain BEGIN, COMMIT and ROLLBACK", async () => {
+    await createEngine();
+    await expect(session.query("EXPLAIN BEGIN")).rejects.toMatchObject({
+      code: "NOT_SUPPORTED",
+    });
+  });
+
+  it("shows DDL as what it does", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    expect(await explain("EXPLAIN CREATE TABLE u (id INTEGER)")).toBe(
+      "create table u",
+    );
+    expect(await explain("EXPLAIN CREATE INDEX t_id ON t (id)")).toBe(
+      "create index t_id on t",
+    );
+    expect(await explain("EXPLAIN DROP TABLE t")).toBe("drop table t");
+    const [result] = await session.execute("SELECT count(*) FROM t");
+    expect(result.rows).toEqual([[0]]);
   });
 
   it("plan is properly indented (children deeper than parents)", async () => {
@@ -164,18 +186,31 @@ describe("EXPLAIN", () => {
   // ORDER BY via Index
   // -------------------------------------------------------------------------
 
-  it("shows IndexOrderScan and eliminates Sort", async () => {
+  it("reads an index in order for ORDER BY with a LIMIT, without a sort", async () => {
+    await createEngine();
+    await session.execute(
+      "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
+    );
+    await session.execute("CREATE INDEX idx_val ON t (val)");
+    const plan = await explain(
+      "EXPLAIN SELECT * FROM t ORDER BY val ASC LIMIT 3",
+    );
+    expect(plan).toContain("index-scan t#0 using idx_val");
+    expect(plan).not.toMatch(/sort|top-n/);
+  });
+
+  it("sorts a whole table rather than read every row through an index", async () => {
     await createEngine();
     await session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
     const plan = await explain("EXPLAIN SELECT * FROM t ORDER BY val ASC");
-    expect(plan).toContain("IndexOrderScan t (idx_val)");
-    expect(plan).not.toContain("Sort");
+    expect(plan).toContain("sort val ASC");
+    expect(plan).toContain("table-scan t#0");
   });
 
-  it("ORDER BY with same index as filter eliminates Sort", async () => {
+  it("ORDER BY on the index the filter uses needs no sort", async () => {
     await createEngine();
     await session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
@@ -184,18 +219,22 @@ describe("EXPLAIN", () => {
     const plan = await explain(
       "EXPLAIN SELECT * FROM t WHERE val > 5 ORDER BY val ASC",
     );
-    expect(plan).toContain("IndexScan t (idx_val)");
-    expect(plan).not.toContain("Sort");
+    expect(plan).toContain("index-scan t#0 using idx_val (val > 5)");
+    expect(plan).not.toContain("sort");
   });
 
-  it("ORDER BY DESC keeps Sort (no reverse scan)", async () => {
+  it("reads an index backward for ORDER BY … DESC with a LIMIT", async () => {
     await createEngine();
     await session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
-    const plan = await explain("EXPLAIN SELECT * FROM t ORDER BY val DESC");
-    expect(plan).toContain("Sort");
+    const plan = await explain(
+      "EXPLAIN SELECT * FROM t ORDER BY val DESC LIMIT 3",
+    );
+    expect(plan).toContain("using idx_val");
+    expect(plan).toContain("descending");
+    expect(plan).not.toMatch(/sort|top-n/);
   });
 
   it("ORDER BY via index returns correct results", async () => {
@@ -230,24 +269,24 @@ describe("EXPLAIN", () => {
   // MIN/MAX via Index
   // -------------------------------------------------------------------------
 
-  it("shows IndexMinMax for MIN", async () => {
+  it("reads MIN from an index", async () => {
     await createEngine();
     await session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
     const plan = await explain("EXPLAIN SELECT MIN(val) FROM t");
-    expect(plan).toContain("IndexMinMax [MIN] (idx_val)");
+    expect(plan).toContain("index-extreme#2 MIN(val) of t using idx_val");
   });
 
-  it("shows IndexMinMax for MAX", async () => {
+  it("reads MAX from an index", async () => {
     await createEngine();
     await session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
     const plan = await explain("EXPLAIN SELECT MAX(val) FROM t");
-    expect(plan).toContain("IndexMinMax [MAX] (idx_val)");
+    expect(plan).toContain("index-extreme#2 MAX(val) of t using idx_val");
   });
 
   it("MIN via index returns correct result", async () => {
@@ -296,7 +335,7 @@ describe("EXPLAIN", () => {
   // OR / Index Union
   // -------------------------------------------------------------------------
 
-  it("shows IndexUnionScan for OR with two indexed columns", async () => {
+  it("shows an index union for OR over two indexed columns", async () => {
     await createEngine();
     await session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER)",
@@ -304,7 +343,9 @@ describe("EXPLAIN", () => {
     await session.execute("CREATE INDEX idx_a ON t (a)");
     await session.execute("CREATE INDEX idx_b ON t (b)");
     const plan = await explain("EXPLAIN SELECT * FROM t WHERE a = 1 OR b = 2");
-    expect(plan).toContain("IndexUnionScan t (idx_a, idx_b)");
+    expect(plan).toMatch(
+      /index-union t#0 \[using idx_a \(a = 1\); using idx_b \(b = 2\)\]/,
+    );
   });
 
   it("OR / Index Union returns correct results", async () => {

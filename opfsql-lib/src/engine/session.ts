@@ -20,7 +20,7 @@ export class Session implements SessionContract, AsyncDisposable {
   /** Engine.connect() makes sessions. */
   constructor(private readonly core: SessionCore) {}
 
-  /** True between BEGIN and COMMIT or ROLLBACK, aborted or not. */
+  /** True between BEGIN and COMMIT or ROLLBACK. */
   get inTransaction(): boolean {
     return this.core.inTransaction;
   }
@@ -39,7 +39,7 @@ export class Session implements SessionContract, AsyncDisposable {
     return this.keptAliveUntil(this.core.execute(script, options));
   }
 
-  /** Parses and binds one statement for repeated runs. */
+  /** Parses and plans one statement for repeated runs. */
   async prepare(
     sql: string,
     options: CallOptions = {},
@@ -115,8 +115,8 @@ export class Session implements SessionContract, AsyncDisposable {
 }
 
 /**
- * A statement parsed and bound once. When the schema changes it binds again
- * before its next run; it never goes stale.
+ * A statement parsed and planned once. When the schema changes it plans
+ * again before its next run; it never goes stale.
  */
 export class PreparedStatement implements StatementContract, Disposable {
   private isClosed = false;
@@ -128,7 +128,7 @@ export class PreparedStatement implements StatementContract, Disposable {
     private readonly step: Step,
   ) {}
 
-  /** Result column names as of the last bind; empty for writes. */
+  /** Result column names as of the last plan; empty for writes. */
   get columns(): readonly string[] {
     return this.step.columns;
   }

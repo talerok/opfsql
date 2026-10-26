@@ -1,19 +1,22 @@
 import { inject, vi } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import { createEngine, Engine } from "../engine.js";
+import { Engine } from "../engine.js";
 
 declare module "vitest" {
   export interface ProvidedContext {
-    backend: "opfs" | "wal";
+    pages: "default" | "small";
   }
 }
 
+/** What the "small-pages" project opens databases with. */
+export const SMALL_PAGES = { pageSize: 4096, checkpointThreshold: 8 };
+
 /**
- * Opens an engine on the backend of the current vitest project (vitest.config.ts):
- * - "opfs": OPFSSyncStorage directly — the engine in isolation.
- * - "wal":  Engine.open, the production stack (WAL + checkpoints), with 4 KB
- *           pages and a low checkpoint threshold so that ordinary test data
- *           reaches page limits and checkpoints.
+ * Opens an engine with Engine.open, as the vitest project says
+ * (vitest.config.ts):
+ * - "default": the default page size and checkpoint threshold;
+ * - "small-pages": 4 KB pages and a low checkpoint threshold, so that
+ *   ordinary test data splits B-trees, spills into overflow pages and
+ *   reaches checkpoints.
  *
  * The engine is integrity-checked when closed, so every engine-level test
  * also verifies the database it leaves behind.
@@ -22,14 +25,8 @@ export async function openTestEngine(
   databaseName: string,
   options: { busyTimeout?: number } = {},
 ): Promise<Engine> {
-  const engine =
-    inject("backend") === "wal"
-      ? await Engine.open(databaseName, {
-          ...options,
-          pageSize: 4096,
-          checkpointThreshold: 8,
-        })
-      : await createEngine(new OPFSSyncStorage(databaseName), options);
+  const pages = inject("pages") === "small" ? SMALL_PAGES : {};
+  const engine = await Engine.open(databaseName, { ...options, ...pages });
 
   const close = engine.close.bind(engine);
   let closing: Promise<void> | null = null;

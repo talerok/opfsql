@@ -24,9 +24,9 @@
     "src/expressions",
     "src/executor",
     "src/legacy/executor/evaluate",
-    "src/engine/api",
+    "src/engine",
     "src/worker",
     "test/support"
   ],
-  "exclude": ["src/worker/tests"]
+  "exclude": ["src/engine/tests", "src/worker/tests"]
 }

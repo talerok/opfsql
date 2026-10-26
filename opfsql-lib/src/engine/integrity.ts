@@ -1,34 +1,27 @@
-import { buildIndexKey } from "../legacy/executor/dml/utils/index-maintenance.js";
-import { SyncBTree } from "../store/index-btree/index-btree.js";
-import { SyncTableManager } from "../store/table-manager.js";
-import type { ICatalog, SyncIPageStore } from "../store/types.js";
+import { CorruptError } from "../errors.js";
+import type { Schema } from "../schema/index.js";
+import { checkStorage, type ReadTransaction } from "../storage/index.js";
+import { checkTables } from "../table/index.js";
+import { compileIndexKey } from "./index-keys.js";
+
+// The integrity check (docs/file-format.md, Integrity): storage first —
+// every B-tree well formed, every page used once or free — then what rows
+// mean to their tables, which only means something on sound trees.
 
 /**
- * Checks that every row has its entry in every index of its table, using the
- * same key derivation as index maintenance. Together with the store check
- * (entry count == row count, stored keys unique) this makes each index an
- * exact mirror of its table.
+ * The problems found in the snapshot `pages` reads; none if it is sound. A
+ * schema that does not load, or a record that does not decode, is one.
  */
-export function checkIndexConsistency(
-  pages: SyncIPageStore,
-  catalog: ICatalog,
+export function checkIntegrity(
+  pages: ReadTransaction,
+  loadSchema: (pages: ReadTransaction) => Schema,
 ): string[] {
-  const problems: string[] = [];
-  const rows = new SyncTableManager(pages, () => catalog);
-
-  for (const table of catalog.getAllTables()) {
-    for (const index of catalog.getTableIndexes(table.name)) {
-      if (index.rowid) continue; // the table's own tree
-      const tree = new SyncBTree(pages, index.rootPageNo!, index);
-      for (const { rowId, row } of rows.scanTable(table.name)) {
-        const key = buildIndexKey(row, table, index);
-        if (!tree.lookup(key).includes(rowId)) {
-          problems.push(
-            `index "${index.name}" has no entry ${JSON.stringify(key)} for row ${rowId} of "${table.name}"`,
-          );
-        }
-      }
-    }
+  const problems = checkStorage(pages);
+  if (problems.length > 0) return problems;
+  try {
+    return checkTables(pages, loadSchema(pages), compileIndexKey);
+  } catch (error) {
+    if (error instanceof CorruptError) return [error.message];
+    throw error;
   }
-  return problems;
 }

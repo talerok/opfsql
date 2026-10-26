@@ -185,8 +185,8 @@ describe("waiting for the lock across tabs", () => {
     expect(result.rows).toEqual([[1], [3]]);
   });
 
-  it("an aborted transaction releases the lock at once", async () => {
-    const [a, b] = await openTabs(`aborted-${String(seq++)}`, 2, {
+  it("a failed statement keeps its transaction's lock until ROLLBACK", async () => {
+    const [a, b] = await openTabs(`failed-statement-${String(seq++)}`, 2, {
       busyTimeout: 0,
     });
     const tabA = a.engine.connect();
@@ -198,10 +198,13 @@ describe("waiting for the lock across tabs", () => {
     await expect(tabA.execute("INSERT INTO t VALUES (1)")).rejects.toThrow();
     expect(tabA.inTransaction).toBe(true);
 
+    await expect(
+      tabB.execute("INSERT INTO t VALUES (2)"),
+    ).rejects.toMatchObject({ code: "BUSY" });
+    await tabA.execute("ROLLBACK");
     await tabB.execute("INSERT INTO t VALUES (2)");
-    await expect(tabA.execute("COMMIT")).rejects.toMatchObject({
-      code: "TRANSACTION_ABORTED",
-    });
+    const [result] = await tabA.execute("SELECT id FROM t");
+    expect(result.rows).toEqual([[2]]);
   });
 
   it("a closed engine releases its lock and rolls back its transaction", async () => {

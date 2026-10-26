@@ -3,9 +3,13 @@ import { type ErrorCode, InternalError, OpfsqlError } from "../errors.js";
 
 // Errors cross the worker boundary as plain data and come back as the same
 // class: an OpfsqlError subclass keeps its code, message, own fields (offset,
-// timeout, statementIndex, …) and its cause; a DOMException stays one.
+// timeout, statementIndex, a constraint's columns, …) and its cause; a
+// DOMException stays one.
 
-export type WireField = string | number | boolean | null;
+type WireValue = string | number | boolean | null;
+
+/** A field that crosses: a plain value, or a list of them. */
+export type WireField = WireValue | readonly WireValue[];
 
 export interface WireError {
   readonly kind: "opfsql" | "dom" | "error";
@@ -86,6 +90,11 @@ function fieldsOf(error: Error): Record<string, WireField> {
 }
 
 function isField(value: unknown): value is WireField {
+  if (!Array.isArray(value)) return isWireValue(value);
+  return value.every((item: unknown) => isWireValue(item));
+}
+
+function isWireValue(value: unknown): value is WireValue {
   return (
     value === null ||
     typeof value === "string" ||

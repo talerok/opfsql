@@ -534,14 +534,19 @@ CREATE INDEX IF NOT EXISTS idx_docs_age ON docs (data.age)
 # Should not error even though idx_docs_age already exists
 
 # ============================================================================
-# 21. Error: bare JSON column in index (always object)
+# 21. A bare JSON column can be indexed: objects and arrays have a place in
+#     the total order, by their canonical text (docs/semantics.md, Order and
+#     equality)
 # ============================================================================
 
-statement error
-CREATE INDEX idx_bad ON docs (data)
+statement ok
+CREATE INDEX idx_data ON docs (data)
+
+statement ok
+DROP INDEX idx_data
 
 # ============================================================================
-# 22. Runtime error: JSON path returns object/array (non-scalar key)
+# 22. A JSON path may give an object or an array as an index key
 # ============================================================================
 
 statement ok
@@ -554,29 +559,42 @@ CREATE INDEX idx_nested ON nested_test (data.info)
 statement ok
 INSERT INTO nested_test VALUES (1, '{"info": "hello"}')
 
-# Object value — should fail at runtime (index key must be scalar)
-statement error
+# Object and array values are keys like any other
+statement ok
 INSERT INTO nested_test VALUES (2, '{"info": {"x": 1, "y": 2}}')
 
-# Array value — should also fail
-statement error
+statement ok
 INSERT INTO nested_test VALUES (3, '{"info": [1, 2, 3]}')
 
-# Verify only the valid row exists
 query IT nosort
 SELECT id, data.info FROM nested_test WHERE data.info = 'hello'
 ----
 1|hello
 
+# TEXT before JSON; an array's canonical text before an object's
+query I nosort
+SELECT id FROM nested_test ORDER BY data.info
+----
+1
+3
+2
+
 statement ok
 DROP TABLE nested_test
 
 # ============================================================================
-# 23. Error: reserved index name prefix
+# 23. __pk_ is an ordinary prefix: only opfsql_ is reserved
+#     (docs/semantics.md, Names)
 # ============================================================================
 
-statement error
+statement ok
 CREATE INDEX __pk_test ON docs (score)
+
+statement ok
+DROP INDEX __pk_test
+
+statement error
+CREATE INDEX opfsql_test ON docs (score)
 
 # ============================================================================
 # 24. Expression index with nested function: MD5(CAST(score AS TEXT))

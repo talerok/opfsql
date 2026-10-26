@@ -26,8 +26,6 @@ export type ErrorCode =
   | "BUSY"
   /** Another writer committed since this transaction's snapshot. */
   | "SERIALIZATION_FAILURE"
-  /** A statement failed earlier in this transaction; only ROLLBACK works. */
-  | "TRANSACTION_ABORTED"
   /** Another tab has the database open, and this browser allows one. */
   | "DATABASE_IN_USE"
   /** The caller aborted the call, or closed what it ran on, while it waited. */
@@ -264,17 +262,6 @@ export class SerializationError extends OpfsqlError {
       "SERIALIZATION_FAILURE",
       "could not serialize: the database changed since this transaction began; roll back and retry",
     );
-  }
-}
-
-/** A statement failed earlier in this transaction; only ROLLBACK works. */
-export class TransactionAbortedError extends OpfsqlError {
-  override readonly name = "TransactionAbortedError";
-
-  constructor(
-    message = "the transaction was aborted by an earlier error; roll it back",
-  ) {
-    super("TRANSACTION_ABORTED", message);
   }
 }
 

@@ -1,6 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
+import { MemoryFile } from "../../storage/file/sync-file.js";
 import type { Engine } from "../index.js";
 import { createEngine as engineOn } from "../engine.js";
 import { openTestEngine } from "./test-engine.js";
@@ -265,10 +265,10 @@ describe("write lock", () => {
 describe("failed commit", () => {
   /** Opens an engine whose next commit fails the way a storage write would. */
   async function createEngineWithFailingCommit(): Promise<() => void> {
-    const backend = new OPFSSyncStorage(`session-test-${String(seq++)}`);
-    engine = await engineOn(backend);
+    const wal = new MemoryFile();
+    engine = await engineOn({ database: new MemoryFile(), wal, marks: null });
     return () => {
-      vi.spyOn(backend, "commit").mockImplementationOnce(() => {
+      vi.spyOn(wal, "write").mockImplementationOnce(() => {
         throw new Error("injected commit failure");
       });
     };
@@ -283,9 +283,10 @@ describe("failed commit", () => {
     await s.execute("INSERT INTO t VALUES (1, 'a')");
     await s.execute("INSERT INTO t VALUES (2, 'b')");
     failNextCommit();
-    await expect(s.execute("COMMIT")).rejects.toThrow(
-      "injected commit failure",
-    );
+    await expect(s.execute("COMMIT")).rejects.toMatchObject({
+      code: "IO_ERROR",
+      cause: new Error("injected commit failure"),
+    });
 
     const [empty] = await s.execute("SELECT * FROM t");
     expect(empty.objects()).toEqual([]);
@@ -306,9 +307,10 @@ describe("failed commit", () => {
     await s.execute("CREATE TABLE u (id INTEGER PRIMARY KEY, body TEXT)");
     await s.execute("INSERT INTO u VALUES (1, 'a')");
     failNextCommit();
-    await expect(s.execute("COMMIT")).rejects.toThrow(
-      "injected commit failure",
-    );
+    await expect(s.execute("COMMIT")).rejects.toMatchObject({
+      code: "IO_ERROR",
+      cause: new Error("injected commit failure"),
+    });
 
     const other = engine.connect();
     const schema = await other.schema();

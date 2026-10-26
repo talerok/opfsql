@@ -1,54 +1,61 @@
-import { resetMockOPFS } from "opfs-mock";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import { MemoryFileHandle } from "../../store/wal/file-handle.js";
-import { WalStorage } from "../../store/wal/wal-storage.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryFile } from "../../storage/file/sync-file.js";
+import { Pager } from "../../storage/pager/pager.js";
 import { createEngine } from "../engine.js";
 import type { Session } from "../session.js";
 
 // ---------------------------------------------------------------------------
 // Storage-efficiency budgets: today's measured costs, enforced as ceilings so
 // they can only improve. A change that makes one cheaper lowers it here.
-// Measured on the production stack (WAL over the page file, default 32 KB
-// pages); the data is deterministic, so the numbers are exact.
+// Measured with the default page size; the data is deterministic, so the
+// numbers are exact.
 // ---------------------------------------------------------------------------
 
 const BUDGET = {
   /** Pages one single-row INSERT writes, by table shape. */
   pagesPerInsert: { autoincrement: 2, integerKey: 1, noKey: 1 },
   /** File bytes per row for rows of ~60 bytes. */
-  fileBytesPerSmallRow: 92,
+  fileBytesPerSmallRow: 68,
   /** File size after "insert N, delete all, insert N" over after "insert N". */
-  growthAfterDeleteAndRefill: 1.65,
+  growthAfterDeleteAndRefill: 1,
 };
 
 const ROWS = 5000;
 
-let seq = 0;
-
-beforeEach(() => {
-  resetMockOPFS();
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 async function openDatabase() {
-  const name = `efficiency-${seq++}`;
-  const wal = new WalStorage(new OPFSSyncStorage(name), new MemoryFileHandle());
-  const engine = await createEngine(wal);
-  return { name, wal, engine, session: engine.connect() };
+  const database = new MemoryFile();
+  const files = { database, wal: new MemoryFile(), marks: null };
+  const engine = await createEngine(files);
+  return { database, engine, session: engine.connect() };
 }
 
-async function fileSize(name: string): Promise<number> {
-  const root = await navigator.storage.getDirectory();
-  const file = await (await root.getFileHandle(`${name}.opfsql`)).getFile();
-  return file.size;
+/** Pages the commit `work` makes writes to the WAL. */
+async function pagesWrittenBy(work: () => Promise<unknown>): Promise<number> {
+  const append = Reflect.get<Pager, "append">(Pager.prototype, "append");
+  let written = 0;
+  vi.spyOn(Pager.prototype, "append").mockImplementation(function counted(
+    this: Pager,
+    pages,
+    pageCount,
+  ) {
+    written += pages.size;
+    return append.call(this, pages, pageCount);
+  });
+  await work();
+  return written;
 }
 
-async function insertSmallRows(session: Session, from: number, count: number) {
+/** ROWS rows of about 60 bytes, ids from `from` on, in one transaction. */
+async function insertSmallRows(session: Session, from: number) {
   const insert = await session.prepare(
     "INSERT INTO t (id, body) VALUES ($1, $2)",
   );
   await session.execute("BEGIN");
-  for (let id = from; id < from + count; id++) {
+  for (let id = from; id < from + ROWS; id++) {
     await insert.query([id, "x".repeat(50)]);
   }
   await session.execute("COMMIT");
@@ -73,41 +80,42 @@ describe("storage efficiency budgets", () => {
     },
   ] as const)(
     "a single-row INSERT into a table with $shape stays within its page budget",
-    async ({ shape, columns, inserts: [first, measured] }) => {
-      const { wal, session } = await openDatabase();
+    async ({ shape, columns, inserts }) => {
+      const [first, measured] = inserts;
+      const { session } = await openDatabase();
       await session.execute(`CREATE TABLE t (${columns})`);
       await session.execute(`INSERT INTO t ${first}`);
 
-      const commit = vi.spyOn(wal, "commit");
-      await session.execute(`INSERT INTO t ${measured}`);
-      const pages = commit.mock.calls[0][0].size;
+      const pages = await pagesWrittenBy(async () =>
+        session.execute(`INSERT INTO t ${measured}`),
+      );
       expect(pages).toBeLessThanOrEqual(BUDGET.pagesPerInsert[shape]);
     },
   );
 
   it("small rows stay within the file-size budget", async () => {
-    const { name, engine, session } = await openDatabase();
+    const { database, engine, session } = await openDatabase();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)");
-    await insertSmallRows(session, 0, ROWS);
+    await insertSmallRows(session, 0);
     await engine.checkpoint();
     await session.close();
     await engine.close();
 
-    const bytesPerRow = Math.ceil((await fileSize(name)) / ROWS);
+    const bytesPerRow = Math.ceil(database.getSize() / ROWS);
     expect(bytesPerRow).toBeLessThanOrEqual(BUDGET.fileBytesPerSmallRow);
   });
 
   it("refilling a table after DELETE stays within the growth budget", async () => {
-    const { name, engine, session } = await openDatabase();
+    const { database, engine, session } = await openDatabase();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, body TEXT)");
-    await insertSmallRows(session, 0, ROWS);
+    await insertSmallRows(session, 0);
     await engine.checkpoint();
-    const filled = await fileSize(name);
+    const filled = database.getSize();
 
     await session.execute("DELETE FROM t");
-    await insertSmallRows(session, ROWS, ROWS);
+    await insertSmallRows(session, ROWS);
     await engine.checkpoint();
-    const growth = (await fileSize(name)) / filled;
+    const growth = database.getSize() / filled;
     expect(growth).toBeLessThanOrEqual(BUDGET.growthAfterDeleteAndRefill);
   });
 });

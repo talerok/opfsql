@@ -8,11 +8,11 @@ CREATE TABLE j (id INTEGER PRIMARY KEY, data JSON)
 statement ok
 INSERT INTO j VALUES (1, '{"v": 9}'), (2, '{"v": "10"}'), (3, '{"v": 10}'), (4, '{"v": "9"}'), (5, '{"v": true}'), (6, '{"v": 1}'), (7, '{"v": null}'), (8, '{"v": 9.0}')
 
-# Numbers before text; '10' before '9' as text (NULLs last: the
-# parser's default order for ASC, for now)
+# NULLs first ascending; numbers before text; '10' before '9' as text
 query IT nosort
 SELECT id, data.v FROM j ORDER BY data.v, id
 ----
+7|NULL
 5|true
 6|1
 1|9
@@ -20,7 +20,6 @@ SELECT id, data.v FROM j ORDER BY data.v, id
 3|10
 2|10
 4|9
-7|NULL
 
 query T rowsort
 SELECT DISTINCT data.v FROM j

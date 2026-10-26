@@ -1,9 +1,16 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MisuseError } from "../../errors.js";
-import { Binder } from "../../legacy/binder/index.js";
-import { Engine, PreparedStatement, Session } from "../index.js";
+import { bindStatement } from "../../sql/binder/index.js";
+import type * as BinderModule from "../../sql/binder/index.js";
+import { Engine, PreparedStatement, type Session } from "../index.js";
 import { openTestEngine } from "./test-engine.js";
+
+// Binding is counted: a prepared statement binds again only for a new schema.
+vi.mock("../../sql/binder/index.js", async (importOriginal) => {
+  const binder: typeof BinderModule = await importOriginal();
+  return { ...binder, bindStatement: vi.fn(binder.bindStatement) };
+});
 
 let engine: Engine;
 let session: Session;
@@ -415,31 +422,79 @@ describe("recursive CTE", () => {
 // ---------------------------------------------------------------------------
 
 describe("error handling", () => {
-  it("error in middle of transaction aborts entire transaction", async () => {
+  it("a failed statement in a transaction is rolled back alone", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
 
     await session.execute("BEGIN");
     await session.execute("INSERT INTO t (id) VALUES (1)");
-
     await expect(
       session.execute("INSERT INTO nonexistent (id) VALUES (2)"),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "SEMANTIC_ERROR" });
+    expect(session.inTransaction).toBe(true);
 
-    await expect(
-      session.execute("INSERT INTO t (id) VALUES (3)"),
-    ).rejects.toMatchObject({ code: "TRANSACTION_ABORTED" });
-
-    const commit = session.execute("COMMIT");
-    await expect(commit).rejects.toMatchObject({ code: "TRANSACTION_ABORTED" });
-    await expect(commit).rejects.toThrow(/rolled it back/);
+    await session.execute("INSERT INTO t (id) VALUES (3)");
+    await session.execute("COMMIT");
     expect(session.inTransaction).toBe(false);
 
-    const [result] = await session.execute("SELECT * FROM t");
-    expect(result.objects()).toHaveLength(0);
+    const [result] = await session.execute("SELECT id FROM t ORDER BY id");
+    expect(result.rows).toEqual([[1], [3]]);
   });
 
-  it("ROLLBACK after aborted transaction allows new work", async () => {
+  it("a caught UNIQUE violation leaves the transaction going on", async () => {
+    await createEngine();
+    await session.execute(
+      "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE)",
+    );
+
+    await session.execute("BEGIN");
+    await session.query("INSERT INTO users (email) VALUES ('a@x')");
+    await expect(
+      session.query("INSERT INTO users (email) VALUES ('a@x')"),
+    ).rejects.toMatchObject({ code: "CONSTRAINT_VIOLATION" });
+    await session.query("INSERT INTO users (email) VALUES ('b@x')");
+    await session.execute("COMMIT");
+
+    const [result] = await session.execute(
+      "SELECT email FROM users ORDER BY email",
+    );
+    expect(result.rows).toEqual([["a@x"], ["b@x"]]);
+  });
+
+  it("a multi-row INSERT that fails at row 3 leaves rows 1 and 2 out", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+
+    await session.execute("BEGIN");
+    await session.query("INSERT INTO t VALUES (10, 'kept')");
+    await expect(
+      session.query("INSERT INTO t VALUES (1, 'a'), (2, 'b'), (10, 'c')"),
+    ).rejects.toMatchObject({ code: "CONSTRAINT_VIOLATION" });
+    await session.execute("COMMIT");
+
+    const [result] = await session.execute("SELECT id, v FROM t");
+    expect(result.rows).toEqual([[10, "kept"]]);
+  });
+
+  it("a failed DDL statement leaves the transaction's schema as it was", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+    await session.execute("INSERT INTO t VALUES (1, 'x'), (2, 'x')");
+
+    await session.execute("BEGIN");
+    await session.execute("CREATE TABLE a (id INTEGER PRIMARY KEY)");
+    await expect(
+      session.execute("CREATE UNIQUE INDEX t_v ON t (v)"),
+    ).rejects.toMatchObject({ code: "CONSTRAINT_VIOLATION" });
+    await session.execute("CREATE TABLE b (id INTEGER PRIMARY KEY)");
+    await session.execute("COMMIT");
+
+    const schema = await session.schema();
+    expect(schema.tables.map((table) => table.name)).toEqual(["t", "a", "b"]);
+    expect(schema.tables[0].indexes).toEqual([]);
+  });
+
+  it("ROLLBACK after a failed statement discards the rest", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
 
@@ -630,17 +685,28 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
 });
 
 // ---------------------------------------------------------------------------
-// CREATE INDEX — __pk_ prefix rejection
+// CREATE INDEX — reserved names
 // ---------------------------------------------------------------------------
 
-describe("CREATE INDEX — __pk_ prefix", () => {
-  it("rejects index name with __pk_ prefix", async () => {
+describe("CREATE INDEX — reserved names", () => {
+  it("allows names starting with __pk_, which mean nothing special", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER, name TEXT)");
+    await session.execute("CREATE INDEX __pk_t ON t (name)");
+
+    const schema = await session.schema();
+    expect(schema.tables[0].indexes.map((index) => index.name)).toEqual([
+      "__pk_t",
+    ]);
+  });
+
+  it("rejects names starting with opfsql_", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER, name TEXT)");
 
     await expect(
-      session.execute("CREATE INDEX __pk_t ON t (name)"),
-    ).rejects.toThrow(/__pk_/);
+      session.execute("CREATE INDEX opfsql_t ON t (name)"),
+    ).rejects.toThrow(/reserved/);
   });
 });
 
@@ -658,7 +724,7 @@ describe("ALTER TABLE DROP COLUMN — index reference", () => {
 
     await expect(
       session.execute("ALTER TABLE t DROP COLUMN name"),
-    ).rejects.toThrow(/referenced by index/);
+    ).rejects.toThrow(/cannot drop column name of t: index idx_name/);
   });
 
   it("allows DROP COLUMN after dropping the index", async () => {
@@ -1209,7 +1275,8 @@ describe("prepared statements", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
     await session.execute("CREATE TABLE other (id INTEGER PRIMARY KEY)");
     const statement = await session.prepare("SELECT v FROM t WHERE id = $1");
-    const binds = vi.spyOn(Binder.prototype, "bindStatement");
+    const binds = vi.mocked(bindStatement);
+    binds.mockClear();
 
     for (let id = 1; id <= 5; id++) {
       await session.query("INSERT INTO t VALUES ($1, 'x')", [id]);
@@ -1224,7 +1291,6 @@ describe("prepared statements", () => {
     await statement.query([1]);
     await statement.query([2]);
     expect(binds).toHaveBeenCalledTimes(1);
-    binds.mockRestore();
   });
 
   it("fail with the binding error when the schema change broke them", async () => {

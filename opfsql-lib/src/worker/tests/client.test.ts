@@ -12,9 +12,7 @@ import {
   SemanticError,
   SqlSyntaxError,
 } from "../../errors.js";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import { MemoryFileHandle } from "../../store/wal/file-handle.js";
-import { WalStorage } from "../../store/wal/wal-storage.js";
+import { MemoryFile } from "../../storage/file/sync-file.js";
 import { type Database, openDatabase } from "../client.js";
 import { failureOf } from "../../../test/support/failure.js";
 import { Channel, CLOSE_TIMEOUT, START_TIMEOUT } from "../channel.js";
@@ -99,15 +97,18 @@ describe("a database served by a worker", () => {
   it("reports checkpoint failures through onCheckpointError", async () => {
     const failures: unknown[] = [];
     const worker = startTestWorker(async (name, options) => {
-      const wal = new WalStorage(
-        new OPFSSyncStorage(name, { pageSize: 4096 }),
-        new MemoryFileHandle(),
-        { checkpointThreshold: 1 },
-      );
-      vi.spyOn(wal, "checkpoint").mockImplementation(() => {
+      const database = new MemoryFile();
+      const files = { database, wal: new MemoryFile(), marks: null };
+      const engine = await createEngine(files, {
+        ...options,
+        name,
+        checkpointThreshold: 1,
+      });
+      // Opened: from now on, only a checkpoint writes the database file.
+      vi.spyOn(database, "write").mockImplementation(() => {
         throw new Error("disk on fire");
       });
-      return createEngine(wal, options);
+      return engineContract(engine);
     });
     const database = await openDatabase(`client-${String(seq++)}`, {
       worker,
@@ -401,16 +402,19 @@ describe("transactions", () => {
     await database.query("INSERT INTO t VALUES (2)");
   });
 
-  it("transaction() reports a swallowed statement error at commit", async () => {
+  it("transaction() commits what work did around a statement error it caught", async () => {
     const { database } = await open();
     await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    await expect(
-      database.transaction(async (tx) => {
-        await tx.query("INSERT INTO t VALUES (1)");
-        await failureOf(tx.query("INSERT INTO t VALUES (1)"));
-      }),
-    ).rejects.toMatchObject({ code: "TRANSACTION_ABORTED" });
-    expect(await rowsOf(database.query("SELECT id FROM t"))).toEqual([]);
+    await database.transaction(async (tx) => {
+      await tx.query("INSERT INTO t VALUES (1)");
+      const failure = await failureOf(tx.query("INSERT INTO t VALUES (1)"));
+      expect(failure).toMatchObject({ code: "CONSTRAINT_VIOLATION" });
+      await tx.query("INSERT INTO t VALUES (2)");
+    });
+    expect(await rowsOf(database.query("SELECT id FROM t"))).toEqual([
+      [1],
+      [2],
+    ]);
   });
 });
 

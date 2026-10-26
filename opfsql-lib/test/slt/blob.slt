@@ -139,25 +139,53 @@ SELECT id, data FROM t WHERE id = 1
 1|CAFE
 
 # ============================================================================
-# Error: CREATE INDEX on BLOB column
+# BLOBs can be indexed and be keys: index keys follow the one total order,
+# BLOBs byte by byte (docs/semantics.md, Order and equality)
 # ============================================================================
 
-statement error
+statement ok
 CREATE INDEX idx ON t(data)
 
-# ============================================================================
-# Error: BLOB PRIMARY KEY
-# ============================================================================
+query I nosort
+SELECT id FROM t WHERE data = x'CAFE'
+----
+1
+
+query I nosort
+SELECT id FROM t WHERE data > x'00' ORDER BY data
+----
+2
+1
+
+statement ok
+CREATE TABLE blob_key (data BLOB PRIMARY KEY)
+
+statement ok
+INSERT INTO blob_key VALUES (x'0102'), (x'01')
 
 statement error
-CREATE TABLE bad1 (data BLOB PRIMARY KEY)
+INSERT INTO blob_key VALUES (x'01')
 
-# ============================================================================
-# Error: BLOB UNIQUE
-# ============================================================================
+query T nosort
+SELECT data FROM blob_key ORDER BY data
+----
+01
+0102
+
+statement ok
+CREATE TABLE blob_unique (id INTEGER, data BLOB UNIQUE)
+
+statement ok
+INSERT INTO blob_unique VALUES (1, x'FF'), (2, NULL), (3, NULL)
 
 statement error
-CREATE TABLE bad2 (id INTEGER, data BLOB UNIQUE)
+INSERT INTO blob_unique VALUES (4, x'FF')
+
+statement ok
+DROP TABLE blob_key
+
+statement ok
+DROP TABLE blob_unique
 
 # ============================================================================
 # LENGTH returns byte count
