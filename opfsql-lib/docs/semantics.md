@@ -30,7 +30,9 @@ UTF-8 without changing it.
 Names of tables, columns and indexes are kept as written and compared
 without regard to the case of ASCII letters, as in SQLite: `Users` and
 `USERS` are the same table, while `Été` and `été` are two. Tables and indexes
-share one namespace. Names starting with `opfsql_` are reserved.
+share one namespace. Names starting with `opfsql_` are reserved: the
+tables opfsql keeps under them can be read, never written, created or dropped
+by a statement.
 
 ## Column types
 
@@ -216,9 +218,11 @@ points) in text and bytes in BLOBs.
 | `json_valid(x)`                              | whether `x` is JSON (TEXT is parsed)                                                                                                                                                            |
 | `like(pattern, x [, escape])`                | `x LIKE pattern` (see Text matching)                                                                                                                                                            |
 
-The result of `coalesce`, `ifnull`, `iif` (and of CASE) has the type its
-arguments share; INTEGER with REAL is REAL; any other mix has no static
-type, and arithmetic on it decides by the value.
+The result of `coalesce`, `ifnull`, `iif` and CASE, and each column of a
+UNION, INTERSECT, EXCEPT or VALUES, has the type its values share; INTEGER
+with REAL is REAL; any other mix has no static type, and arithmetic on it
+decides by the value. So `CASE WHEN x THEN 1 ELSE 'a' END` is allowed, and
+`SELECT 1 UNION SELECT '1'` gives two rows.
 
 A JSON argument is a JSON value when its static type is JSON, and JSON
 text to parse when it is TEXT; malformed text fails with
