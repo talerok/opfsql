@@ -219,7 +219,6 @@ export default config(
                 "expressions depends on nothing but sql/plan, functions, values and errors.",
             },
             {
-              // Storage too: index scans seek and read key ranges as bytes.
               target: "./src/executor",
               from: "./src",
               except: [
@@ -227,14 +226,13 @@ export default config(
                 "./sql/plan",
                 "./expressions",
                 "./table",
-                "./storage",
                 "./functions",
                 "./schema",
                 "./values",
                 "./errors.ts",
               ],
               message:
-                "executor depends on nothing but sql/plan, expressions, table, storage, functions, schema, values and errors.",
+                "executor depends on nothing but sql/plan, expressions, table, functions, schema, values and errors.",
             },
             {
               target: "./src/sql/parser",

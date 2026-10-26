@@ -1,3 +1,4 @@
+import type { Tuple } from "../expressions/index.js";
 import type {
   Delete,
   Insert,
@@ -5,44 +6,51 @@ import type {
   Query,
   Update,
 } from "../sql/plan/index.js";
+import type { Tables, WritableTables } from "../table/index.js";
 import type { Value } from "../values/index.js";
 import { compilePlan, statementContext } from "./compile.js";
 import { drain } from "./operator.js";
-import { type Outcome, type Target, writeTargetOf } from "./target.js";
 import { runDelete } from "./writes/delete.js";
 import { runInsert } from "./writes/insert.js";
+import type { WriteOutcome } from "./writes/outcome.js";
 import { runUpdate } from "./writes/update.js";
 
-/** The statements the executor runs; DDL goes through the table layer's Catalog. */
-export type ExecutableStatement =
-  | Query<physical.Plan>
-  | Insert<physical.Plan>
-  | Update<physical.Plan>
-  | Delete<physical.Plan>;
+/** A statement that writes rows; DDL goes through the table layer's Catalog. */
+export type WriteStatement =
+  Insert<physical.Plan> | Update<physical.Plan> | Delete<physical.Plan>;
 
 /**
- * Runs a planned statement with `parameters`, compiling its plan for this
- * run: parameters are read while compiling, like constants.
+ * Runs a planned query with `parameters`, compiling its plan for this run —
+ * parameters are read while compiling, like constants — and returns its
+ * rows. `checkpoint` is called once per batch the query reads.
  */
-export function execute(
-  statement: ExecutableStatement,
-  target: Target,
+export function runQuery(
+  statement: Query<physical.Plan>,
+  tables: Tables,
   parameters: readonly Value[],
-): Outcome {
+  checkpoint?: () => void,
+): readonly Tuple[] {
+  const context = statementContext(tables, parameters, checkpoint);
+  return drain(compilePlan(statement.plan, context));
+}
+
+/** Runs a planned INSERT, UPDATE or DELETE, as runQuery runs a query. */
+export function runWrite(
+  statement: WriteStatement,
+  tables: WritableTables,
+  parameters: readonly Value[],
+  checkpoint?: () => void,
+): WriteOutcome {
+  const context = statementContext(tables, parameters, checkpoint);
   switch (statement.kind) {
-    case "query": {
-      const context = statementContext(target.pages, parameters);
-      const rows = drain(compilePlan(statement.plan, context));
-      return { rows, changes: 0, lastInsertRowid: null };
-    }
     case "insert": {
-      return runInsert(statement, writeTargetOf(target), parameters);
+      return runInsert(statement, tables, context);
     }
     case "update": {
-      return runUpdate(statement, writeTargetOf(target), parameters);
+      return runUpdate(statement, tables, context);
     }
     case "delete": {
-      return runDelete(statement, writeTargetOf(target), parameters);
+      return runDelete(statement, tables, context);
     }
   }
 }

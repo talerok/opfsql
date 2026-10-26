@@ -55,25 +55,21 @@ switch, together with `src/store`.
 
 Dependencies point down the request path and never back:
 
-| Module             | May use                                                                                  |
-| ------------------ | ---------------------------------------------------------------------------------------- |
-| `values`, `errors` | nothing else                                                                             |
-| `schema`           | `values`, `errors`                                                                       |
-| `storage`          | `values`, `errors`                                                                       |
-| `functions`        | `values`, `errors`                                                                       |
-| `sql/parser`       | `values`, `errors`                                                                       |
-| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                                |
-| `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                              |
-| `sql/binder`       | `sql/parser`, `sql/plan`, `schema`, `functions`, `values`, `errors`                      |
-| `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                                  |
-| `table`            | `storage`, `schema`, `functions`, `values`, `errors`                                     |
-| `executor`         | `sql/plan`, `expressions`, `table`, `storage`, `functions`, `schema`, `values`, `errors` |
-| `engine`           | all of the above                                                                         |
-| `worker`           | `engine`, `errors`, `values`                                                             |
-
-The executor uses `storage` for index scans, whose key ranges are ranges of
-encoded keys sought and walked as bytes, and for the type of the pages it
-runs on; rows and every write go through `table`.
+| Module             | May use                                                                       |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `values`, `errors` | nothing else                                                                  |
+| `schema`           | `values`, `errors`                                                            |
+| `storage`          | `values`, `errors`                                                            |
+| `functions`        | `values`, `errors`                                                            |
+| `sql/parser`       | `values`, `errors`                                                            |
+| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                     |
+| `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                   |
+| `sql/binder`       | `sql/parser`, `sql/plan`, `schema`, `functions`, `values`, `errors`           |
+| `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                       |
+| `table`            | `storage`, `schema`, `functions`, `values`, `errors`                          |
+| `executor`         | `sql/plan`, `expressions`, `table`, `functions`, `schema`, `values`, `errors` |
+| `engine`           | all of the above                                                              |
+| `worker`           | `engine`, `errors`, `values`                                                  |
 
 ESLint enforces the table for every module already rebuilt
 (`import-x/no-restricted-paths` in `eslint.config.js`); the rest join as they

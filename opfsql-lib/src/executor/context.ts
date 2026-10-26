@@ -8,7 +8,7 @@ import {
   type Tuple,
 } from "../expressions/index.js";
 import type { physical } from "../sql/plan/index.js";
-import type { PageReader } from "../storage/index.js";
+import type { Tables } from "../table/index.js";
 import type { Value } from "../values/index.js";
 import type { CteTable } from "./operators/ctes.js";
 
@@ -18,8 +18,8 @@ export interface Context {
   readonly query: QueryContext;
   /** The CTEs a `cte-scan` here may read, by index. */
   readonly ctes: ReadonlyMap<number, CteTable>;
-  /** The transaction's pages. */
-  readonly pages: PageReader;
+  /** The transaction's tables. */
+  readonly tables: Tables;
 }
 
 /** The scope of expressions over rows of `layout`. */

@@ -1,7 +1,7 @@
 import { InternalError } from "../errors.js";
 import { createRun, type SubqueryCompiler } from "../expressions/index.js";
 import type { physical } from "../sql/plan/index.js";
-import type { PageReader } from "../storage/index.js";
+import type { Tables } from "../table/index.js";
 import type { Value } from "../values/index.js";
 import { type Context, levelOf } from "./context.js";
 import { drain, type Operator, take } from "./operator.js";
@@ -44,14 +44,19 @@ type CtePlan = Extract<
   { readonly kind: "cte" | "cte-scan" | "recursive-cte" }
 >;
 
-/** The context of a statement's own query level, for a run with `parameters`. */
+/**
+ * The context of a statement's own query level, for a run with `parameters`
+ * and the engine's `checkpoint`.
+ */
 export function statementContext(
-  pages: PageReader,
+  tables: Tables,
   parameters: readonly Value[],
+  checkpoint?: () => void,
 ): Context {
   const ctes = new Map<number, CteTable>();
-  const run = createRun(parameters, subqueryCompiler(pages, ctes));
-  return { query: { run, outerLayouts: [] }, ctes, pages };
+  const subqueries = subqueryCompiler(tables, ctes);
+  const run = createRun(parameters, subqueries, checkpoint);
+  return { query: { run, outerLayouts: [] }, ctes, tables };
 }
 
 export function compilePlan(plan: physical.Plan, context: Context): Operator {
@@ -190,7 +195,7 @@ function compileCte(plan: CtePlan, context: Context): Operator {
  */
 function withCte(context: Context, cteIndex: number, table: CteTable): Context {
   const ctes = new Map(context.ctes).set(cteIndex, table);
-  const subqueries = subqueryCompiler(context.pages, ctes);
+  const subqueries = subqueryCompiler(context.tables, ctes);
   const run = { ...context.query.run, subqueries };
   return { ...context, ctes, query: { ...context.query, run } };
 }
@@ -200,12 +205,12 @@ function withCte(context: Context, cteIndex: number, table: CteTable): Context {
  * written in; each call of `rows` starts it over, and stops at `limit` rows.
  */
 function subqueryCompiler(
-  pages: PageReader,
+  tables: Tables,
   ctes: ReadonlyMap<number, CteTable>,
 ): SubqueryCompiler {
   return {
     compile: (plan, query) => {
-      const root = compilePlan(plan, { query, ctes, pages });
+      const root = compilePlan(plan, { query, ctes, tables });
       return {
         rows: (count) => {
           root.rescan();

@@ -5,30 +5,25 @@ import type {
   TableShape,
 } from "../../schema/index.js";
 import { constraintIndexName } from "../../schema/index.js";
-import type {
-  Delete,
-  Insert,
-  physical,
-  Query,
-  Update,
-} from "../../sql/plan/index.js";
-import type {
-  PageReader,
-  Pager,
-  WriteTransaction,
-} from "../../storage/index.js";
-import { beginWrite, read } from "../../storage/tests/pager-support.js";
-import type { CompileExpression } from "../../table/index.js";
+import type { physical, Query } from "../../sql/plan/index.js";
+import {
+  type CompileExpression,
+  IndexKeys,
+  Tables,
+  WritableTables,
+} from "../../table/index.js";
 import { Database } from "../../table/tests/database.js";
 import type { Value } from "../../values/index.js";
-import { execute, type Outcome, type Target } from "../index.js";
+import {
+  runQuery,
+  runWrite,
+  type WriteOutcome,
+  type WriteStatement,
+} from "../index.js";
 
 // A database for executor tests: tables made through the catalog, rows
 // through the table layer, and statements run by the executor in read or
 // write transactions on a pager over memory files.
-
-export type Write =
-  Insert<physical.Plan> | Update<physical.Plan> | Delete<physical.Plan>;
 
 /** lower(name), the one key expression here, for a row whose column 1 is the name. */
 export const compileLower: CompileExpression = (sql) => {
@@ -90,57 +85,26 @@ export class TestDatabase {
 
   /** Runs a query plan in a read transaction. */
   query(plan: physical.Plan, parameters: readonly Value[] = []): Value[][] {
-    return read(this.database.pager, (pages) =>
-      this.rowsOf(plan, pages, parameters),
-    );
-  }
-
-  /** Runs a write in a write transaction: committed if it succeeds, rolled back if not. */
-  run(statement: Write, parameters: readonly Value[] = []): Outcome {
-    return attempt(this.database.pager, (pages) =>
-      execute(statement, this.target(pages), parameters),
-    );
-  }
-
-  /** Runs a write in a read transaction, where it cannot write. */
-  runReading(statement: Write): Outcome {
-    return read(this.database.pager, (pages) =>
-      execute(statement, this.target(pages), []),
-    );
-  }
-
-  private rowsOf(
-    plan: physical.Plan,
-    pages: PageReader,
-    parameters: readonly Value[],
-  ): Value[][] {
     const statement: Query<physical.Plan> = {
       kind: "query",
       plan,
       columns: [],
       parameterCount: parameters.length,
     };
-    const { rows } = execute(statement, this.target(pages), parameters);
-    return rows.map((row) => [...row]);
+    return this.database.reading((pages) => {
+      const tables = new Tables(pages, this.database.schema);
+      return runQuery(statement, tables, parameters).map((row) => [...row]);
+    });
   }
 
-  private target(pages: PageReader): Target {
-    const { schema } = this.database;
-    return { pages, schema, compileExpression: compileLower };
-  }
-}
-
-function attempt<T>(
-  pager: Pager,
-  change: (transaction: WriteTransaction) => T,
-): T {
-  const transaction = beginWrite(pager);
-  try {
-    const result = change(transaction);
-    transaction.commit();
-    return result;
-  } catch (error) {
-    transaction.rollback();
-    throw error;
+  /** Runs a write in a write transaction: committed if it succeeds, rolled back if not. */
+  run(
+    statement: WriteStatement,
+    parameters: readonly Value[] = [],
+  ): WriteOutcome {
+    const keys = new IndexKeys(this.database.schema, compileLower);
+    return this.database.writing((pages) =>
+      runWrite(statement, new WritableTables(pages, keys), parameters),
+    );
   }
 }

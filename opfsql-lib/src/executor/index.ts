@@ -3,5 +3,5 @@
 // over for each outer row, and INSERT, UPDATE and DELETE through the table
 // layer, each reading what it changes before changing any of it.
 
-export { type ExecutableStatement, execute } from "./execute.js";
-export type { Outcome, Target } from "./target.js";
+export { runQuery, runWrite, type WriteStatement } from "./execute.js";
+export type { WriteOutcome } from "./writes/outcome.js";

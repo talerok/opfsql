@@ -1,16 +1,16 @@
 import type { physical } from "../../sql/plan/index.js";
-import type { TableRow, TableRows } from "../../table/index.js";
+import type { KeyBound, TableRow, TableRows } from "../../table/index.js";
 import { compareValues, type Value } from "../../values/index.js";
 import type { Context } from "../context.js";
 import { type Operator, WalkOperator } from "../operator.js";
-import { compileBound, compileSeek, type SeekBound } from "./seek.js";
+import { compileEqual, compileRange } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
 
 // ---------------------------------------------------------------------------
-// Rows by rowid: listed rowids, or a range of them. A rowid is an INTEGER,
-// so seek values convert as `rowid = value` would, and a value that no
-// integer can equal selects nothing — while a range bound of another kind
-// still compares by the total order: every rowid is below 'a'.
+// Rows by rowid: listed rowids, or a range of them. A value no rowid can
+// equal — NULL, a fraction, a value of another kind — selects nothing from a
+// list; a range bound of another kind still compares by the total order, so
+// every rowid is above `false` and below 'a'.
 // ---------------------------------------------------------------------------
 
 /** The rowids a set selects in one run: some, in order and each once, or a range. */
@@ -18,9 +18,14 @@ export type RowidSelection =
   | { readonly kind: "list"; readonly rowids: readonly number[] }
   | { readonly kind: "range"; readonly first: number; readonly last: number };
 
-const NO_ROWIDS: RowidSelection = { kind: "list", rowids: [] };
+/** A range end that lets every rowid through: from the first, or to the last. */
+const OPEN_START = -Infinity;
+const OPEN_END = Infinity;
+/** A range end that lets no rowid through. */
+const START_PAST_EVERY_ROWID = Infinity;
+const END_BEFORE_EVERY_ROWID = -Infinity;
 
-/** Rows by rowid, each once. */
+/** Rows by rowid, each once, in rowid order. */
 export function rowidLookup(
   plan: physical.RowidLookup,
   context: Context,
@@ -37,13 +42,19 @@ export function compileRowidSet(
 ): () => RowidSelection {
   switch (set.kind) {
     case "list": {
-      const values = set.values.map((value) => compileSeek(value, context));
-      return () => listOf(values.map((value) => value()));
+      const values = compileEqual(set.values, context);
+      return () => listOf(values());
     }
     case "range": {
-      const lower = compileBound(set.range.lower, context);
-      const upper = compileBound(set.range.upper, context);
-      return () => rangeOf(firstRowid(lower()), lastRowid(upper()));
+      const range = compileRange(set.range, context);
+      return () => {
+        const { lower = null, upper = null } = range() ?? {};
+        return {
+          kind: "range",
+          first: firstRowid(lower),
+          last: lastRowid(upper),
+        };
+      };
     }
   }
 }
@@ -54,7 +65,7 @@ export function* rowsSelected(
   rows: TableRows,
 ): Generator<TableRow> {
   if (selection.kind === "range") {
-    yield* rowsInRange(selection.first, selection.last, rows);
+    yield* rows.rowsBetween(selection.first, selection.last);
     return;
   }
   for (const rowid of selection.rowids) {
@@ -63,19 +74,7 @@ export function* rowsSelected(
   }
 }
 
-function* rowsInRange(
-  first: number,
-  last: number,
-  rows: TableRows,
-): Generator<TableRow> {
-  const from = first === -Infinity ? undefined : first;
-  for (const row of rows.scan(from)) {
-    if (row.rowid > last) return;
-    yield row;
-  }
-}
-
-/** The integers among `values`, each once and in order: no other value equals a rowid. */
+/** The rowids among `values`, each once and in order. */
 function listOf(values: readonly Value[]): RowidSelection {
   const rowids = values.filter((value): value is number =>
     Number.isSafeInteger(value),
@@ -84,30 +83,25 @@ function listOf(values: readonly Value[]): RowidSelection {
   return { kind: "list", rowids: distinct };
 }
 
-function rangeOf(first: number, last: number): RowidSelection {
-  const isEmpty = first > last || first === Infinity || last === -Infinity;
-  return isEmpty ? NO_ROWIDS : { kind: "range", first, last };
-}
-
-/** The smallest rowid at or above a lower bound; Infinity when none can be. */
-function firstRowid(bound: SeekBound | null): number {
-  if (bound === null) return -Infinity;
-  const { value, isInclusive } = bound;
-  if (value === null) return Infinity;
+/** The smallest rowid a lower bound lets through. */
+function firstRowid(lower: KeyBound | null): number {
+  if (lower === null) return OPEN_START;
+  const { value, isInclusive } = lower;
+  if (value === null) return START_PAST_EVERY_ROWID;
   if (typeof value !== "number") {
-    return sortsBeforeNumbers(value) ? -Infinity : Infinity;
+    return sortsBeforeNumbers(value) ? OPEN_START : START_PAST_EVERY_ROWID;
   }
   const isExactStart = isInclusive && Number.isSafeInteger(value);
   return isExactStart ? value : Math.floor(value) + 1;
 }
 
-/** The largest rowid at or below an upper bound; -Infinity when none can be. */
-function lastRowid(bound: SeekBound | null): number {
-  if (bound === null) return Infinity;
-  const { value, isInclusive } = bound;
-  if (value === null) return -Infinity;
+/** The largest rowid an upper bound lets through. */
+function lastRowid(upper: KeyBound | null): number {
+  if (upper === null) return OPEN_END;
+  const { value, isInclusive } = upper;
+  if (value === null) return END_BEFORE_EVERY_ROWID;
   if (typeof value !== "number") {
-    return sortsBeforeNumbers(value) ? -Infinity : Infinity;
+    return sortsBeforeNumbers(value) ? END_BEFORE_EVERY_ROWID : OPEN_END;
   }
   const isExactEnd = isInclusive && Number.isSafeInteger(value);
   return isExactEnd ? value : Math.ceil(value) - 1;

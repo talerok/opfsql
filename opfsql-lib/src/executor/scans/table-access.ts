@@ -1,7 +1,6 @@
 import type { Tuple } from "../../expressions/index.js";
 import { physical, ROWID_COLUMN } from "../../sql/plan/index.js";
-import type { TableRow } from "../../table/index.js";
-import { TableRows } from "../../table/index.js";
+import type { TableRow, TableRows } from "../../table/index.js";
 import { compileConditions, type Context, scopeOf } from "../context.js";
 
 /** A scan node: every one reads one table, outputs columns and checks a residual. */
@@ -35,7 +34,7 @@ export function tableAccess(
       if (residual(tuple)) yield tuple;
     }
   }
-  return { rows: new TableRows(context.pages, plan.table), matching };
+  return { rows: context.tables.rows(plan.table), matching };
 }
 
 /** The row's values for `columns`, ROWID_COLUMN being its rowid. */

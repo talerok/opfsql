@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { ConstraintError, InternalError } from "../../errors.js";
+import { ConstraintError } from "../../errors.js";
 import type {
   Index,
   IndexShape,
@@ -142,7 +142,7 @@ describe("INSERT", () => {
     const outcome = database.run(
       insert(items, [1, 3], rows(["c", "C"], ["d", null])),
     );
-    expect(outcome).toEqual({ rows: [], changes: 2, lastInsertRowid: 4 });
+    expect(outcome).toEqual({ changes: 2, lastInsertRowid: 4 });
     expect(database.rows(items).slice(2)).toEqual([
       [3, "c", 1, "C"],
       [4, "d", 1, null],
@@ -198,7 +198,7 @@ describe("ON CONFLICT", () => {
         action,
       ),
     );
-    expect(outcome).toEqual({ rows: [], changes: 1, lastInsertRowid: 3 });
+    expect(outcome).toEqual({ changes: 1, lastInsertRowid: 3 });
     expect(database.rows(items).map(([, itemName]) => itemName)).toEqual([
       "a",
       "b",
@@ -217,7 +217,6 @@ describe("ON CONFLICT", () => {
   it("DO UPDATE sets the row in the way from it and the refused row", () => {
     const statement = upsert([[1, "x", "5", "Z"]], "rowid", addQuantity(false));
     expect(database.run(statement)).toEqual({
-      rows: [],
       changes: 1,
       lastInsertRowid: null,
     });
@@ -243,7 +242,7 @@ describe("UPDATE", () => {
         { column: 2, value: arithmetic(qty, "+", constant(10)) },
       ]),
     );
-    expect(outcome).toEqual({ rows: [], changes: 2, lastInsertRowid: null });
+    expect(outcome).toEqual({ changes: 2, lastInsertRowid: null });
     expect(columnOfItems(2)).toEqual([11, 11]);
     expect(database.problems()).toEqual([]);
   });
@@ -319,7 +318,6 @@ describe("DELETE", () => {
     const doomed = source(items, ITEMS, [ROWID_COLUMN]);
     const scan = indexScan(doomed, byQty, keys([constant(1)]));
     expect(database.run(deleteFrom(doomed, scan))).toEqual({
-      rows: [],
       changes: 2,
       lastInsertRowid: null,
     });
@@ -336,12 +334,5 @@ describe("DELETE", () => {
     const named = filter(tableScan(wide), compare(name, "=", constant("a")));
     expect(database.run(deleteFrom(wide, named)).changes).toBe(1);
     expect(database.rows(items)).toEqual([[2, "b", 1, "B"]]);
-  });
-
-  it("needs a write transaction", () => {
-    const doomed = source(items, ITEMS, [ROWID_COLUMN]);
-    expect(() =>
-      database.runReading(deleteFrom(doomed, tableScan(doomed))),
-    ).toThrow(InternalError);
   });
 });
