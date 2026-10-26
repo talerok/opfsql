@@ -96,7 +96,7 @@ export class Engine implements AsyncDisposable {
    * allow, under the write lock, so it cannot race another tab's commit.
    */
   async checkpoint(options: CallOptions = {}): Promise<void> {
-    await this.inTurn(options, async (signal) =>
+    await this.call(options, async (signal) =>
       this.transactions.checkpoint(signal),
     );
   }
@@ -108,7 +108,7 @@ export class Engine implements AsyncDisposable {
    * query does: a writer's uncommitted pages are not in it.
    */
   async checkIntegrity(options: CallOptions = {}): Promise<string[]> {
-    return this.inTurn(options, async (signal) => {
+    return this.call(options, async (signal) => {
       const pages = await this.transactions.beginRead(signal);
       try {
         return checkIntegrity(pages, (read) => this.schemas.load(read).schema);
@@ -154,7 +154,7 @@ export class Engine implements AsyncDisposable {
   }
 
   /** Runs engine-level work one at a time, cancelled by close or `options.signal`. */
-  private async inTurn<T>(
+  private async call<T>(
     options: CallOptions,
     work: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {

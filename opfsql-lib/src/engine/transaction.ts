@@ -2,24 +2,19 @@ import { InternalError } from "../errors.js";
 import { runQuery, runWrite } from "../executor/index.js";
 import type { Schema } from "../schema/index.js";
 import type { ReadTransaction, WriteTransaction } from "../storage/index.js";
-import {
-  Catalog,
-  type IndexKeys,
-  Tables,
-  WritableTables,
-} from "../table/index.js";
+import { Catalog, Tables, WritableTables } from "../table/index.js";
 import type { ParameterValues } from "../values/index.js";
 import { emptyResult, type Result, type TransactionMode } from "./api/index.js";
 import type { TransactionManager, Writer } from "./transaction-manager.js";
 import { runDdl } from "./ddl.js";
 import { compileIndexKey } from "./index-keys.js";
 import { changesResult, rowsResult } from "./results.js";
-import { readSchema, type SchemaCache } from "./schemas.js";
+import { type LoadedSchema, readSchema, type SchemaCache } from "./schemas.js";
 import {
   checkParameters,
   columnsOf,
   type Planned,
-  type Step,
+  type CachedStatement,
 } from "./statements.js";
 
 /** What a transaction needs from its engine. */
@@ -41,7 +36,7 @@ export class Transaction {
   private isOpen = true;
 
   /** The schema the next statement sees: the snapshot's, with this transaction's DDL. */
-  private working: IndexKeys;
+  private working: LoadedSchema;
 
   private constructor(
     private readonly host: TransactionHost,
@@ -49,7 +44,7 @@ export class Transaction {
     private pages: ReadTransaction,
     private writer: Writer | null,
     /** The schema as of the snapshot. */
-    private readonly base: IndexKeys,
+    private readonly base: LoadedSchema,
   ) {
     this.working = base;
   }
@@ -108,7 +103,7 @@ export class Transaction {
    * thing that can pair a plan with the schema it runs on. One that writes
    * needs makeWritable first.
    */
-  run(step: Step, parameters: ParameterValues): Result {
+  run(step: CachedStatement, parameters: ParameterValues): Result {
     this.ensureOpen();
     const planned = step.plan(this.working.schema);
     checkParameters(planned, parameters);
@@ -145,7 +140,7 @@ export class Transaction {
       case "explain": {
         return rowsResult(columnsOf(planned), [[planned.text]]);
       }
-      case "write": {
+      case "dml": {
         const { statement } = planned;
         return this.inSavepoint((transaction) => {
           const tables = new WritableTables(transaction, this.working);

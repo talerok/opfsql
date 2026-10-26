@@ -30,8 +30,12 @@ export function parseScript(sql: string): readonly Statement[] {
   return parse(sql);
 }
 
-/** What a statement needs from its transaction. */
-export type StatementKind = "read" | "write" | "transaction";
+/**
+ * What a statement needs from its transaction: a snapshot to read, the
+ * write lock (DML and DDL), or neither — BEGIN, COMMIT and ROLLBACK, which
+ * control the transaction itself.
+ */
+export type StatementKind = "read" | "write" | "control";
 
 export function statementKind(statement: Statement): StatementKind {
   switch (statement.type) {
@@ -49,7 +53,7 @@ export function statementKind(statement: Statement): StatementKind {
       return "write";
     }
     case StatementType.TRANSACTION_STATEMENT: {
-      return "transaction";
+      return "control";
     }
   }
 }
@@ -82,7 +86,7 @@ export function beginMode(statement: BeginStatement): TransactionMode {
 /** A statement bound and optimized against one schema: what a transaction runs. */
 export type Planned =
   | { readonly kind: "query"; readonly statement: Query<physical.Plan> }
-  | { readonly kind: "write"; readonly statement: WriteStatement }
+  | { readonly kind: "dml"; readonly statement: WriteStatement }
   | { readonly kind: "ddl"; readonly statement: Ddl }
   | {
       readonly kind: "explain";
@@ -104,7 +108,7 @@ export function columnsOf(planned: Planned): readonly string[] {
     case "explain": {
       return EXPLAIN_COLUMNS;
     }
-    case "write":
+    case "dml":
     case "ddl": {
       return [];
     }
@@ -113,17 +117,15 @@ export function columnsOf(planned: Planned): readonly string[] {
 
 /**
  * A statement to run, with its plan for the schema it last ran against:
- * planned again only when it runs against another one. A prepared
+ * planned again only when it runs against another one. Every statement
+ * runs as one — a query, each statement of a script — and a prepared
  * statement keeps one.
  */
-export class Step {
+export class CachedStatement {
   private last: { readonly schema: Schema; readonly planned: Planned } | null =
     null;
 
-  constructor(
-    readonly sql: string,
-    readonly statement: Statement,
-  ) {}
+  constructor(readonly statement: Statement) {}
 
   get kind(): StatementKind {
     return statementKind(this.statement);
@@ -157,7 +159,7 @@ export function checkParameters(
 function parameterCountOf(planned: Planned): number {
   switch (planned.kind) {
     case "query":
-    case "write": {
+    case "dml": {
       return planned.statement.parameterCount;
     }
     case "explain": {
@@ -206,7 +208,7 @@ function plannedOf(statement: PlannedStatement<physical.Plan>): Planned {
     case "insert":
     case "update":
     case "delete": {
-      return { kind: "write", statement };
+      return { kind: "dml", statement };
     }
     case "create-table":
     case "create-index":

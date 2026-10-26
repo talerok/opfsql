@@ -23,10 +23,14 @@ import {
   type TransactionOptions,
 } from "./api/index.js";
 import { describeSchema } from "./describe-schema.js";
-import { eachStep, planAhead, StepFailure } from "./script.js";
-import { beginMode, checkParameters, parseScript, Step } from "./statements.js";
+import { eachStep, planAhead, StepFailure, locateStatement } from "./script.js";
+import {
+  beginMode,
+  checkParameters,
+  parseScript,
+  CachedStatement,
+} from "./statements.js";
 import { Transaction, type TransactionHost } from "./transaction.js";
-import { locateStatement } from "./locate-statement.js";
 
 /** What a session needs from its engine. */
 export interface SessionHost extends TransactionHost {
@@ -74,7 +78,7 @@ export class SessionCore {
     const values = parametersOf(parameters);
     return this.call(options, async (signal) => {
       const statement = onlyStatement(parseScript(sql), "query()");
-      return this.runOne(new Step(sql, statement), values, signal);
+      return this.runStatement(new CachedStatement(statement), values, signal);
     });
   }
 
@@ -82,7 +86,7 @@ export class SessionCore {
   async execute(script: string, options: CallOptions): Promise<Result[]> {
     return this.call(options, async (signal) => {
       const steps = parseScript(script).map(
-        (statement) => new Step(script, statement),
+        (statement) => new CachedStatement(statement),
       );
       try {
         return await this.runScript(steps, signal);
@@ -94,10 +98,12 @@ export class SessionCore {
   }
 
   /** Parses and plans `sql`, so a statement that cannot run fails here. */
-  async prepare(sql: string, options: CallOptions): Promise<Step> {
+  async prepare(sql: string, options: CallOptions): Promise<CachedStatement> {
     return this.call(options, async (signal) => {
-      const step = new Step(sql, onlyStatement(parseScript(sql), "prepare()"));
-      if (step.kind !== "transaction") {
+      const step = new CachedStatement(
+        onlyStatement(parseScript(sql), "prepare()"),
+      );
+      if (step.kind !== "control") {
         await this.withSchema(signal, (schema) => step.plan(schema));
       }
       return step;
@@ -106,13 +112,13 @@ export class SessionCore {
 
   /** Runs a prepared statement; its parameters are checked as query()'s are. */
   async runPrepared(
-    step: Step,
+    step: CachedStatement,
     parameters: readonly Value[] | undefined,
     options: CallOptions,
   ): Promise<Result> {
     const values = parametersOf(parameters);
     return this.call(options, async (signal) =>
-      this.runOne(step, values, signal),
+      this.runStatement(step, values, signal),
     );
   }
 
@@ -173,7 +179,7 @@ export class SessionCore {
     const linked = linkSignals([options.signal, this.lifetime.signal]);
     try {
       return await this.queue.run(
-        async () => this.inTurn(task, linked.signal),
+        async () => this.withNoLeftoverTransaction(task, linked.signal),
         linked.signal,
       );
     } catch (error) {
@@ -188,7 +194,7 @@ export class SessionCore {
    * stay — whether the task succeeded or failed, so no path through a task
    * can leave one behind.
    */
-  private async inTurn<T>(
+  private async withNoLeftoverTransaction<T>(
     task: (signal: AbortSignal) => Promise<T> | T,
     signal: AbortSignal,
   ): Promise<T> {
@@ -230,18 +236,18 @@ export class SessionCore {
    * rolls back a transaction the script began. Failures are StepFailures.
    */
   private async runScript(
-    steps: readonly Step[],
+    steps: readonly CachedStatement[],
     signal: AbortSignal,
   ): Promise<Result[]> {
     const isOneTransaction =
       this.transaction === null &&
-      steps.every((step) => step.kind !== "transaction");
-    if (isOneTransaction) return this.runAsOne(steps, signal);
-    return this.runInOrder(steps, signal);
+      steps.every((step) => step.kind !== "control");
+    if (isOneTransaction) return this.runScriptAsOneTransaction(steps, signal);
+    return this.runScriptStatements(steps, signal);
   }
 
-  private async runAsOne(
-    steps: readonly Step[],
+  private async runScriptAsOneTransaction(
+    steps: readonly CachedStatement[],
     signal: AbortSignal,
   ): Promise<Result[]> {
     if (steps.length === 0) return [];
@@ -258,14 +264,14 @@ export class SessionCore {
     }
   }
 
-  private async runInOrder(
-    steps: readonly Step[],
+  private async runScriptStatements(
+    steps: readonly CachedStatement[],
     signal: AbortSignal,
   ): Promise<Result[]> {
     const before = this.transaction;
     try {
       return await eachStep(steps, async (step) =>
-        this.runOne(step, NO_PARAMETERS, signal),
+        this.runStatement(step, NO_PARAMETERS, signal),
       );
     } catch (error) {
       this.endBegunSince(before);
@@ -280,7 +286,7 @@ export class SessionCore {
    * against — so one that cannot bind fails without waiting for the lock.
    */
   private async beginForScript(
-    steps: readonly Step[],
+    steps: readonly CachedStatement[],
     signal: AbortSignal,
   ): Promise<Transaction> {
     const isWriting = steps.some((step) => step.kind === "write");
@@ -294,8 +300,8 @@ export class SessionCore {
   }
 
   /** One statement, as if sent alone: query(), a prepared statement, a script's step. */
-  private async runOne(
-    step: Step,
+  private async runStatement(
+    step: CachedStatement,
     parameters: ParameterValues,
     signal: AbortSignal,
   ): Promise<Result> {
@@ -305,8 +311,9 @@ export class SessionCore {
       return emptyResult;
     }
     const transaction = this.transaction;
-    if (transaction === null) return this.runAlone(step, parameters, signal);
-    return this.runInTransaction(transaction, step, parameters, signal);
+    if (transaction === null)
+      return this.runInOwnTransaction(step, parameters, signal);
+    return this.runInOpenTransaction(transaction, step, parameters, signal);
   }
 
   /**
@@ -314,8 +321,8 @@ export class SessionCore {
    * latest schema before it waits for the lock, so one that cannot bind
    * fails at once; the plan after the lock is the one that counts.
    */
-  private async runAlone(
-    step: Step,
+  private async runInOwnTransaction(
+    step: CachedStatement,
     parameters: ParameterValues,
     signal: AbortSignal,
   ): Promise<Result> {
@@ -343,9 +350,9 @@ export class SessionCore {
    * after the statement has planned, so a statement that cannot bind never
    * waits. A failure leaves the transaction as it was before the statement.
    */
-  private async runInTransaction(
+  private async runInOpenTransaction(
     transaction: Transaction,
-    step: Step,
+    step: CachedStatement,
     parameters: ParameterValues,
     signal: AbortSignal,
   ): Promise<Result> {
