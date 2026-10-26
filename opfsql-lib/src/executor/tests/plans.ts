@@ -376,10 +376,17 @@ export function insert(
   };
 }
 
+/** What an UPDATE does besides its assignments. */
+interface UpdateOptions {
+  /** True when an assignment's subquery reads the target table, as the binder says. */
+  readonly readsTarget?: boolean;
+}
+
 export function update(
   from: Source,
   sourcePlan: Plan,
   assignments: Assignment<Plan>[],
+  { readsTarget = false }: UpdateOptions = {},
 ): Update<Plan> {
   return {
     kind: "update",
@@ -387,6 +394,7 @@ export function update(
     tableIndex: from.tableIndex,
     source: sourcePlan,
     assignments,
+    readsTarget,
     parameterCount: 0,
   };
 }

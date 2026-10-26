@@ -28,7 +28,7 @@ export type QueryBinder = (
 export class BindContext {
   private lastIndex = -1;
   private parameters = 0;
-  private readonly tablesRead = new Set<string>();
+  private readonly tableReads = new Map<string, number>();
 
   constructor(
     readonly schema: Schema,
@@ -53,12 +53,16 @@ export class BindContext {
 
   /** Records that the statement reads table `name`, wherever it names it. */
   noteTableRead(name: string): void {
-    this.tablesRead.add(nameKey(name));
+    const key = nameKey(name);
+    this.tableReads.set(key, this.readsOf(key) + 1);
   }
 
-  /** True if what was bound so far reads table `name`. */
-  hasRead(name: string): boolean {
-    return this.tablesRead.has(nameKey(name));
+  /**
+   * How many reads of table `name` what was bound so far holds: compared
+   * before and after a clause, whether the clause reads it.
+   */
+  readsOf(name: string): number {
+    return this.tableReads.get(nameKey(name)) ?? 0;
   }
 }
 

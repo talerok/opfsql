@@ -422,12 +422,106 @@ describe("UPDATE from the table as it was", () => {
       [aggregateCall("sum", [column(U_INDEX, 1, "INTEGER")])],
     );
     const running = [{ column: 1, value: scalarSubquery(sum, "correlated") }];
-    fresh.run(update(target, tableScan(target), running));
+    fresh.run(
+      update(target, tableScan(target), running, { readsTarget: true }),
+    );
     expect(fresh.rows(t)).toEqual([
       [1, 1],
       [2, 3],
       [3, 6],
     ]);
+  });
+});
+
+/** The table indexes of a table of 10 000 rows, and of its x index. */
+const COUNTED = 7;
+const COUNTED_ROWS = 10_000;
+
+/** The counts an UPDATE had reached when it wrote its first row. */
+interface AtFirstWrite {
+  /** Rows its source had produced: rowids found. */
+  readonly found: number;
+  /** New rows it had computed, each from a row read by its rowid. */
+  readonly computed: number;
+}
+
+/**
+ * An index key on x that, once armed, notes the counts at the first row
+ * written: the first key computed, for the old row the editor replaces.
+ */
+class FirstUpdate {
+  isArmed = false;
+  noted: AtFirstWrite | null = null;
+  readonly found = new Counting();
+  readonly computed = new Counting();
+  readonly compile: CompileExpression = () => (row) => this.keyOf(row);
+
+  private keyOf(row: readonly Value[]): Value {
+    if (this.isArmed) {
+      const { found, computed } = this;
+      this.noted ??= { found: found.calls, computed: computed.calls };
+    }
+    return row[1] ?? null;
+  }
+}
+
+/**
+ * UPDATE t SET x = x + 1 over 10 000 rows, found by a scan that reads only
+ * their rowids, as the optimizer narrows it: x is read with each row, by
+ * its rowid. What the update had counted at its first write, and after.
+ */
+async function updateCounted(
+  isTargetRead: boolean,
+): Promise<{ atFirstWrite: AtFirstWrite | null; after: AtFirstWrite }> {
+  const counts = new FirstUpdate();
+  const fresh = await TestDatabase.open(counts.compile);
+  const t = fresh.createTable({
+    name: "t",
+    columns: [columnOf("id", "INTEGER"), columnOf("x", "INTEGER")],
+    rowidColumn: 0,
+    isAutoincrement: false,
+  });
+  const x: IndexKey = { kind: "expression", sql: "x", type: "INTEGER" };
+  const byX = { name: "t_x", table: "t", keys: [x] } as const;
+  fresh.createIndex({ ...byX, isUnique: false, origin: "statement" }, t);
+  fresh.insert(
+    t,
+    Array.from({ length: COUNTED_ROWS }, (_, index) => [index + 1, index]),
+  );
+
+  const rowids = source(t, COUNTED, [ROWID_COLUMN]);
+  const rowid = column(COUNTED, ROWID_COLUMN, "INTEGER");
+  const found = compare(counts.found.of(rowid), ">", constant(0));
+  const plusOne = arithmetic(column(COUNTED, 1, "INTEGER"), "+", constant(1));
+  const assignments = [{ column: 1, value: counts.computed.of(plusOne) }];
+  counts.isArmed = true;
+  const outcome = fresh.run(
+    update(rowids, filter(tableScan(rowids), found), assignments, {
+      readsTarget: isTargetRead,
+    }),
+  );
+  expect(outcome.changes).toBe(COUNTED_ROWS);
+  const xs = fresh.rows(t).map((row) => row[1]);
+  expect(xs).toEqual(Array.from({ length: COUNTED_ROWS }, (_, n) => n + 1));
+  const after = { found: counts.found.calls, computed: counts.computed.calls };
+  return { atFirstWrite: counts.noted, after };
+}
+
+describe("UPDATE, one row at a time", () => {
+  it("holds rowids, not rows: each row is read by its rowid and written before the next is read", async () => {
+    const all = { found: COUNTED_ROWS, computed: COUNTED_ROWS };
+    expect(await updateCounted(false)).toEqual({
+      atFirstWrite: { found: COUNTED_ROWS, computed: 1 },
+      after: all,
+    });
+  });
+
+  it("computes every new row before writing any when an assignment reads the target", async () => {
+    const all = { found: COUNTED_ROWS, computed: COUNTED_ROWS };
+    expect(await updateCounted(true)).toEqual({
+      atFirstWrite: all,
+      after: all,
+    });
   });
 });
 

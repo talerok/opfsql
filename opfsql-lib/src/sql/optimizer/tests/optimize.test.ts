@@ -100,7 +100,7 @@ function columnsRead(statement: Statement<physical.Plan>): readonly number[] {
 }
 
 describe("DML", () => {
-  it("gives an UPDATE's source an access path, keeping every column and the rowid", () => {
+  it("gives an UPDATE's source an access path, reading the rowid alone", () => {
     const target = get(u, "id", "name", "age", "email", "tag", "rowid");
     const source = filter(target, compare(column(u, "id"), "=", constant(5)));
     const statement = optimized({
@@ -109,6 +109,7 @@ describe("DML", () => {
       tableIndex: 1,
       source,
       assignments: [{ column: 2, value: plus(age, constant(1)) }],
+      readsTarget: false,
       parameterCount: 0,
     });
     expect(sourceOf(statement)).toBe("rowid-lookup users#1 (rowid = 5)");
@@ -118,7 +119,8 @@ describe("DML", () => {
     ) {
       throw new InternalError("an update with its rowid lookup");
     }
-    expect(statement.source.columns).toEqual(target.columns);
+    // The update reads each row by its rowid, assignments and all.
+    expect(statement.source.columns).toEqual([ROWID_COLUMN]);
     expect(statement.assignments).toEqual([
       { column: 2, value: plus(age, constant(1)) },
     ]);
