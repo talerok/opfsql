@@ -17,6 +17,7 @@ export {
   type Layout,
   type OuterRows,
   type QueryContext,
+  type QueryLevel,
   type Run,
   type Scope,
   type SubqueryCompiler,

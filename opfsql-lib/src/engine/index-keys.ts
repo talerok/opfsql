@@ -33,7 +33,8 @@ export const compileIndexKey: CompileExpression = (sql, table) => {
   const scope: Scope = {
     layout: positions(KEY_TABLE, table.columns.length),
     outerLayouts: [],
-    run: createRun(NO_PARAMETERS, { compile: refuseSubquery }),
+    run: createRun(NO_PARAMETERS),
+    subqueries: { compile: refuseSubquery },
   };
   return compileExpression(expression, scope);
 };

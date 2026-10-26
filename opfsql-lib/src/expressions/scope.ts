@@ -18,14 +18,23 @@ export type Layout = readonly ColumnBinding[];
 /** An expression compiled for one layout: the value for a row. */
 export type CompiledExpression = (row: Tuple) => Value;
 
-/** Where one query level is compiled: its run, and its enclosing rows. */
-export interface QueryContext {
+/** A query level: the run it belongs to, and its enclosing rows. */
+export interface QueryLevel {
   readonly run: Run;
   /**
    * The layouts of the enclosing queries' rows, nearest first: a column of
    * depth d is found in `outerLayouts[d − 1]`.
    */
   readonly outerLayouts: readonly Layout[];
+}
+
+/** Where one query level is compiled. */
+export interface QueryContext extends QueryLevel {
+  /**
+   * The executor's compiler for the subqueries written at this level: it
+   * knows which CTEs are in scope here.
+   */
+  readonly subqueries: SubqueryCompiler;
 }
 
 /** Where an expression is compiled: a query level and its input's layout. */
@@ -38,8 +47,6 @@ export interface Scope extends QueryContext {
 export interface Run {
   /** The run's parameters, checked and normalized where they came in. */
   readonly parameters: ParameterValues;
-  /** The executor's compiler for the subqueries in the run's expressions. */
-  readonly subqueries: SubqueryCompiler;
   /** The rows of the enclosing queries while correlated subqueries run. */
   readonly outer: OuterRows;
   /**
@@ -53,10 +60,10 @@ export interface Run {
 /** Turns a subquery's plan into something to run: the executor's part. */
 export interface SubqueryCompiler {
   /**
-   * Compiles `plan` once for the run; its columns of depth d read rows of
-   * `context.outerLayouts[d − 1]`.
+   * Compiles `plan` once for the run, as the query level `level`: its
+   * columns of depth d read rows of `level.outerLayouts[d − 1]`.
    */
-  compile(plan: physical.Plan, context: QueryContext): CompiledSubquery;
+  compile(plan: physical.Plan, level: QueryLevel): CompiledSubquery;
 }
 
 /** A subquery's operators, compiled once and run as often as needed. */
@@ -111,21 +118,15 @@ export class OuterRows {
 }
 
 /**
- * A run with `parameters`, the executor's subquery compiler and the engine's
- * checkpoint, which does nothing unless given. The parameters were checked
- * and normalized where they came in (values' parametersOf): the type says so.
+ * A run with `parameters` and the engine's checkpoint, which does nothing
+ * unless given. The parameters were checked and normalized where they came
+ * in (values' parametersOf): the type says so.
  */
 export function createRun(
   parameters: ParameterValues,
-  subqueries: SubqueryCompiler,
   checkpoint: () => void = runToTheEnd,
 ): Run {
-  return {
-    parameters,
-    subqueries,
-    outer: new OuterRows(),
-    checkpoint,
-  };
+  return { parameters, outer: new OuterRows(), checkpoint };
 }
 
 function runToTheEnd(): void {

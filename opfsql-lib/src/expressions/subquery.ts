@@ -17,7 +17,7 @@ import type {
   CompiledSubquery,
   Compiler,
   OuterRows,
-  QueryContext,
+  QueryLevel,
   Scope,
   Tuple,
 } from "./scope.js";
@@ -156,11 +156,11 @@ function sealed<T>(outer: OuterRows, run: () => T): T {
  * `scope`: the rows of `scope.layout` are its depth-1 rows.
  */
 function compilePlan(expression: Subquery, scope: Scope): CompiledSubquery {
-  const context: QueryContext = {
+  const level: QueryLevel = {
     run: scope.run,
     outerLayouts: [scope.layout, ...scope.outerLayouts],
   };
-  return scope.run.subqueries.compile(expression.plan, context);
+  return scope.subqueries.compile(expression.plan, level);
 }
 
 function onlyValue(rows: readonly Tuple[]): Value {

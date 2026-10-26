@@ -5,8 +5,8 @@ import {
   compileExpression,
   compilePredicate,
   createRun,
-  type Layout,
-  type Run,
+  type Scope,
+  type SubqueryCompiler,
   type Tuple,
 } from "../../../expressions/index.js";
 import {
@@ -41,16 +41,24 @@ export function runPlan(
   bindKey: KeyBinder,
 ): readonly Tuple[] {
   const holder: { context?: Context } = {};
-  const run = createRun(parametersOf(parameters), {
-    compile: (subplan, query) => ({
+  const subqueries: SubqueryCompiler = {
+    compile: (subplan, level) => ({
       rows: (limit) => {
         if (holder.context === undefined) throw new InternalError("no run yet");
-        const context = { ...holder.context, outerLayouts: query.outerLayouts };
+        const context = { ...holder.context, outerLayouts: level.outerLayouts };
         return evaluate(subplan, context).slice(0, limit);
       },
     }),
-  });
-  holder.context = { tables, run, outerLayouts: [], ctes: new Map(), bindKey };
+  };
+  const run = createRun(parametersOf(parameters));
+  holder.context = {
+    tables,
+    run,
+    subqueries,
+    outerLayouts: [],
+    ctes: new Map(),
+    bindKey,
+  };
   return evaluate(plan, holder.context);
 }
 
@@ -150,16 +158,9 @@ function evaluate(plan: physical.Plan, context: Context): readonly Tuple[] {
   }
 }
 
-function scopeOf(
-  child: physical.Plan,
-  context: Context,
-): {
-  readonly layout: Layout;
-  readonly outerLayouts: readonly Layout[];
-  readonly run: Run;
-} {
-  const { outerLayouts, run } = context;
-  return { layout: physical.layoutOf(child), outerLayouts, run };
+function scopeOf(child: physical.Plan, context: Context): Scope {
+  const { outerLayouts, run, subqueries } = context;
+  return { layout: physical.layoutOf(child), outerLayouts, run, subqueries };
 }
 
 function transformed(
@@ -235,14 +236,14 @@ function aggregated(
 type Join = physical.HashJoin | physical.NestedLoopJoin | physical.LookupJoin;
 
 function joined(plan: Join, context: Context): readonly Tuple[] {
-  const { outerLayouts, run } = context;
+  const { outerLayouts, run, subqueries } = context;
   const layout = [
     ...physical.layoutOf(plan.left),
     ...physical.layoutOf(plan.right),
   ];
   const conditions = conditionsOf(plan);
   const tests = conditions.map((condition) =>
-    compilePredicate(condition, { layout, outerLayouts, run }),
+    compilePredicate(condition, { layout, outerLayouts, run, subqueries }),
   );
   const rightsOf = rightRowsOf(plan, context);
   const nulls = physical.layoutOf(plan.right).map((): Value => null);
@@ -317,7 +318,9 @@ function ordered(
     return limited(rows, plan.limit, plan.offset, context);
   }
   const layout = physical.layoutOf(plan.child);
-  const sorted = rows.toSorted(compareByKeys(plan.keys, layout, context.run));
+  const sorted = rows.toSorted(
+    compareByKeys(plan.keys, { ...context, layout }),
+  );
   if (plan.kind === "sort") return sorted;
   return limited(sorted, plan.limit, plan.offset, context);
 }
@@ -325,12 +328,11 @@ function ordered(
 /** The order of rows by `keys`, NULLs placed as each key says. */
 export function compareByKeys(
   keys: readonly physical.OrderKey[],
-  layout: Layout,
-  run: Run,
+  scope: Scope,
 ): (a: Tuple, b: Tuple) => number {
   const sides = keys.map((key) => ({
     key,
-    value: compileExpression(key.expression, { layout, outerLayouts: [], run }),
+    value: compileExpression(key.expression, scope),
   }));
   return (a, b) => {
     for (const { key, value } of sides) {
