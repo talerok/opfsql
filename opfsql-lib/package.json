@@ -1,7 +1,7 @@
 {
   "name": "opfsql",
   "version": "0.0.2",
-  "description": "Lightweight SQL engine in TypeScript. ~40 KB gzipped, zero native deps. Runs in browser workers via OPFS.",
+  "description": "An embedded SQL database for the browser, in TypeScript with no dependencies. Runs in a worker over OPFS.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

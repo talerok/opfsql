@@ -1,19 +1,31 @@
 # opfsql
 
-Lightweight SQL engine written in TypeScript. ~40 KB gzipped, zero native dependencies. Runs in browser workers via OPFS.
+An embedded SQL database for the browser, written in TypeScript, with no
+dependencies. It runs in a dedicated worker and stores its data in the
+origin's private file system (OPFS); several tabs can share one database in
+Chromium. The page's client is about 6 KB gzipped, the worker about 78 KB.
 
 [Live Client](https://talerok.github.io/opfsql/client/) | [Benchmark](https://talerok.github.io/opfsql/benchmark/)
 
 ## Quick Start
 
 ```ts
-import { WorkerEngine } from "opfsql";
+// db-worker.ts — the worker's script
+import { serveDatabase } from "opfsql/worker";
+serveDatabase();
+```
 
-const engine = new WorkerEngine(new URL("./worker.ts", import.meta.url));
-await engine.open("my-db");
-const conn = await engine.connect();
+```ts
+// main.ts
+import { openDatabase } from "opfsql";
 
-await conn.exec(`
+const db = await openDatabase("app", {
+  worker: new Worker(new URL("./db-worker.ts", import.meta.url), {
+    type: "module",
+  }),
+});
+
+await db.execute(`
   CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -21,69 +33,51 @@ await conn.exec(`
   )
 `);
 
-await conn.exec("INSERT INTO users (name, email) VALUES ($1, $2)", [
+await db.query("INSERT INTO users (name, email) VALUES ($1, $2)", [
   "Alice",
   "alice@example.com",
 ]);
 
-const [result] = await conn.exec("SELECT * FROM users");
-// result.type === "rows"
-// result.rows === [{ id: 1, name: "Alice", email: "alice@example.com" }]
+const result = await db.query("SELECT id, name FROM users");
+result.columns; // ["id", "name"]
+result.rows; // [[1, "Alice"]]
+result.objects(); // [{ id: 1, name: "Alice" }]
 
-await conn.disconnect();
-await engine.close();
+await db.close();
 ```
 
 ## API
 
-### `WorkerEngine`
+[docs/api.md](opfsql-lib/docs/api.md) is the full contract; in short:
 
-| Method                | Returns               | Description                       |
-| --------------------- | --------------------- | --------------------------------- |
-| `engine.open(dbName)` | `Promise<void>`       | Open database in worker           |
-| `engine.connect()`    | `Promise<Connection>` | Create a new connection (session) |
-| `engine.close()`      | `Promise<void>`       | Close the database                |
+| `Database` (from `openDatabase`) | Does                                                      |
+| -------------------------------- | --------------------------------------------------------- |
+| `query(sql, params?)`            | runs one statement and returns its `Result`               |
+| `execute(script)`                | runs a script of statements, one `Result` each            |
+| `prepare(sql)`                   | a `Statement` planned once, run with `query(params?)`     |
+| `transaction(work)`              | runs `work` in a transaction on a connection of its own   |
+| `connect()`                      | a `Connection`: calls in order, transactions across calls |
+| `schema()`                       | the tables, columns and indexes                           |
+| `close()`                        | closes the database and terminates the worker             |
 
-### `Connection`
+A `Result` has `columns`, `rows` (arrays of values), `changes`,
+`lastInsertRowid` and `objects()`. Parameters are `$1`, `$2`, …, and a
+statement takes exactly as many as it uses. Errors are `OpfsqlError`s with
+a stable `code` (`CONSTRAINT_VIOLATION`, `BUSY`, …), and keep their class
+across the worker boundary.
 
-| Method                    | Returns                            | Description                                       |
-| ------------------------- | ---------------------------------- | ------------------------------------------------- |
-| `conn.exec(sql, params?)` | `Promise<Result[]>`                | Execute one or more SQL statements                |
-| `conn.prepare(sql)`       | `Promise<RemotePreparedStatement>` | Prepare a single statement for repeated execution |
-| `conn.getSchema()`        | `Promise<CatalogData>`             | Get current database schema                       |
-| `conn.disconnect()`       | `Promise<void>`                    | Close the connection                              |
+Inside a worker, `Engine.open(name)` from `"opfsql/worker"` gives the same
+API without messages.
 
-### `RemotePreparedStatement`
-
-| Method              | Returns           | Description                      |
-| ------------------- | ----------------- | -------------------------------- |
-| `stmt.run(params?)` | `Promise<Result>` | Execute with optional parameters |
-| `stmt.free()`       | `Promise<void>`   | Release the prepared statement   |
-
-### `Result`
-
-```ts
-type Result =
-  | { type: "rows"; rows: Row[] }
-  | { type: "ok"; rowsAffected: number };
-
-type Row = Record<string, Value>;
-type Value = string | number | boolean | null | JsonValue | Uint8Array;
-```
-
-### Parameters
-
-Use `$1`, `$2`, etc. for parameterized queries:
-
-```ts
-await conn.exec("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"]);
-```
+Transactions read one snapshot; one writer at a time holds the write lock,
+across tabs. A statement that fails inside a transaction is rolled back
+alone, as in SQLite, and the transaction goes on.
 
 ## Supported SQL
 
 ### Data Types
 
-`INTEGER`, `BIGINT`, `SMALLINT`, `FLOAT`/`REAL`, `DOUBLE`, `TEXT`/`VARCHAR`/`CHAR`, `BLOB`, `BOOLEAN`, `JSON`
+`INTEGER` (`INT`, `BIGINT`, `SMALLINT`, `TINYINT`), `REAL` (`FLOAT`, `DOUBLE`), `TEXT` (`VARCHAR(n)`, `CHAR(n)`), `BLOB`, `BOOLEAN`, `JSON`, `ANY` — see [docs/semantics.md](opfsql-lib/docs/semantics.md)
 
 ### Statements
 
@@ -93,13 +87,13 @@ await conn.exec("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"])
 | `INSERT`                        | Multi-row, `INSERT...SELECT`, `ON CONFLICT DO NOTHING/UPDATE`      |
 | `UPDATE`                        | Expressions in `SET`                                               |
 | `DELETE`                        | With or without `WHERE`                                            |
-| `CREATE TABLE`                  | `IF NOT EXISTS`, column and table-level constraints                |
+| `CREATE TABLE`                  | `IF NOT EXISTS`, column constraints, a table-level `PRIMARY KEY`   |
 | `ALTER TABLE`                   | `ADD COLUMN`, `DROP COLUMN`                                        |
 | `DROP TABLE`                    | `IF EXISTS`                                                        |
 | `CREATE INDEX`                  | `UNIQUE`, multi-column, expression-based, `IF NOT EXISTS`          |
 | `DROP INDEX`                    |                                                                    |
 | `BEGIN` / `COMMIT` / `ROLLBACK` | Snapshot isolation, autocommit for standalone statements           |
-| `EXPLAIN`                       | Shows optimized logical plan for any statement                     |
+| `EXPLAIN`                       | Shows the physical plan a statement runs                           |
 
 ### Clauses
 
@@ -110,8 +104,8 @@ await conn.exec("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"])
 | `GROUP BY`            | Multiple columns                                       |
 | `HAVING`              |                                                        |
 | `LIMIT` / `OFFSET`    |                                                        |
-| `JOIN`                | `INNER`, `LEFT`, `CROSS`; `ON` and `USING`             |
-| `UNION` / `UNION ALL` | Chainable                                              |
+| `JOIN`                | `INNER`, `LEFT`, `RIGHT`, `CROSS`; `ON` and `USING`    |
+| `UNION` / `UNION ALL` | Chainable; also `INTERSECT` and `EXCEPT`               |
 | `WITH` (CTE)          | Multiple CTEs, `WITH RECURSIVE`                        |
 
 ### Expressions
@@ -135,17 +129,19 @@ await conn.exec("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"])
 
 **Aggregate:** `COUNT(*)`, `COUNT(col)`, `COUNT(DISTINCT col)`, `SUM`, `AVG`, `MIN`, `MAX`
 
-**String:** `UPPER`, `LOWER`, `LENGTH`, `TRIM`, `LTRIM`, `RTRIM`, `SUBSTR`/`SUBSTRING`, `REPLACE`, `CONCAT`
+**String:** `UPPER`, `LOWER`, `LENGTH`, `TRIM`, `LTRIM`, `RTRIM`, `SUBSTR`/`SUBSTRING`, `REPLACE`, `INSTR`, `CONCAT`, `CONCAT_WS`, `HEX`, `LIKE`
 
-**Math:** `ABS`, `ROUND`, `FLOOR`, `CEIL`/`CEILING`
+**Math:** `ABS`, `SIGN`, `ROUND`, `FLOOR`, `CEIL`/`CEILING`, `RANDOM`
+
+**JSON:** `JSON_EXTRACT`, `JSON_TYPE`, `JSON_ARRAY_LENGTH`, `JSON_VALID`
 
 **Hash:** `MD5`
 
-**Utility:** `COALESCE`, `NULLIF`, `TYPEOF`
+**Utility:** `COALESCE`, `IFNULL`, `NULLIF`, `IIF`, `TYPEOF`
 
 ### Constraints
 
-`PRIMARY KEY`, `UNIQUE`, `NOT NULL`, `DEFAULT`, `AUTOINCREMENT`, `FOREIGN KEY` (parsed, not enforced)
+`PRIMARY KEY`, `UNIQUE`, `NOT NULL`, `DEFAULT`, `AUTOINCREMENT`
 
 ### Other
 
@@ -157,40 +153,38 @@ await conn.exec("SELECT * FROM users WHERE id = $1 AND name = $2", [1, "Alice"])
 ## Architecture
 
 ```
-Lexer --> Parser --> Binder --> Optimizer --> Executor
-                       |                        |
-                    Catalog              +------+------+
-                                         |             |
-                                     RowManager   IndexManager
-                                         |             |
-                                     TableBTree   IndexBTree
-                                         |             |
-                                         +------+------+
-                                                |
-                                            PageStore
-                                        (WAL + page cache)
-                                                |
-                                              OPFS
+text ─parse─▶ syntax tree ─bind─▶ bound statement ─optimize─▶ physical plan ─run─▶ rows
+             sql/parser           sql/binder                  sql/optimizer         executor
+                                                                                       │
+                                                       table: rows, indexes, constraints
+                                                                                       │
+                                     storage: B-trees, WAL, snapshots, read marks — OPFS
 ```
 
-- **Lexer / Parser** — SQL text to AST
-- **Binder** — resolves names, types, and constraints against the catalog
-- **Optimizer** — rewrites logical plan (predicate pushdown, join reordering, index selection)
-- **Executor** — pull-based iterator model (volcano), executes physical operators
-- **RowManager / IndexManager** — logical layer over B-trees, handles row CRUD and index maintenance
-- **TableBTree / IndexBTree** — B+ trees for row storage (keyed by rowId) and secondary indexes (composite keys → rowId buckets)
-- **PageStore** — page-level I/O with LRU cache and WAL for crash safety
-- **OPFS** — Origin Private File System (synchronous access handle in workers)
+- **sql/parser** — SQL text to syntax trees
+- **sql/binder** — resolves names, scopes and types against the schema
+- **sql/optimizer** — pushes filters down, chooses joins, access paths, sort order and MIN/MAX through indexes
+- **executor** — pulls rows through operators in batches, no more than it needs
+- **table** — one write path for rows, constraints, rowids, AUTOINCREMENT and index entries
+- **storage** — pages as bytes (format 5), B+trees, a WAL with snapshot isolation, read marks shared across tabs
+- **engine / worker** — sessions, transactions, the write lock, and the client the page talks to
+
+[docs/architecture.md](opfsql-lib/docs/architecture.md) has the module map and rules,
+[docs/file-format.md](opfsql-lib/docs/file-format.md) the files. Databases
+written by opfsql 0.0.x (file format 4) are not read: opening one fails with
+`UNSUPPORTED_FORMAT`.
 
 ## Not Supported (vs SQLite)
 
 | Feature                                                      | Status                       |
 | ------------------------------------------------------------ | ---------------------------- |
 | Window functions (`OVER`, `PARTITION BY`, `ROW_NUMBER`, ...) | Not supported                |
-| `RIGHT JOIN` / `FULL OUTER JOIN`                             | Not supported                |
+| `FULL OUTER JOIN`, `NATURAL JOIN`                            | Not supported                |
+| `FOREIGN KEY`, `REFERENCES`                                  | Not supported                |
+| A table-level `UNIQUE` constraint                            | Not supported                |
 | Views (`CREATE VIEW`)                                        | Not supported                |
 | Triggers                                                     | Not supported                |
-| Savepoints                                                   | Not supported                |
+| `SAVEPOINT` / `RELEASE` / `ROLLBACK TO`                      | Not supported                |
 | `CHECK` constraints                                          | Not supported                |
 | `ATTACH` / `DETACH`                                          | Not supported                |
 | `PRAGMA`                                                     | Not supported                |

@@ -49,9 +49,11 @@ worker        the worker host and the client     │
 ```
 
 `docs/planning.md` is the contract between binder, optimizer and executor.
-Until the engine moves to them, the previous binder, optimizer and executor
-live in `src/legacy` and serve it; they are deleted, not migrated, at the
-switch, together with `src/store`.
+The engine strings the stages together: it parses a statement, binds and
+optimizes it against the schema of the snapshot it reads, and runs the
+plan — a query through the executor, DDL through the table layer's catalog
+— keeping a prepared statement's plan for as long as that schema is
+current.
 
 Dependencies point down the request path and never back:
 
@@ -71,9 +73,8 @@ Dependencies point down the request path and never back:
 | `engine`           | all of the above                                                              |
 | `worker`           | `engine`, `errors`, `values`                                                  |
 
-ESLint enforces the table for every module already rebuilt
-(`import-x/no-restricted-paths` in `eslint.config.js`); the rest join as they
-are rebuilt.
+ESLint enforces the table (`import-x/no-restricted-paths` in
+`eslint.config.js`).
 
 Everything a statement does below `engine` is synchronous and
 deterministic: given the same files and statements, it does the same thing.
@@ -108,9 +109,10 @@ surface is its `index.ts`; other modules import from there.
 at most 4 parameters (pass an object beyond that).
 
 **Strict everywhere.** Lint errors in code written before these rules are
-listed in `eslint-suppressions.json`, which only shrinks. Rebuilt modules
-join `tsconfig.strict.json`, which adds `noUncheckedIndexedAccess`,
-`exactOptionalPropertyTypes` and the other strict flags; when it covers
+listed in `eslint-suppressions.json`, which only shrinks.
+`tsconfig.strict.json` adds `noUncheckedIndexedAccess`,
+`exactOptionalPropertyTypes` and the other strict flags; it covers all of
+`src` but the engine's and the worker's tests, and when it covers
 everything, it becomes the only configuration.
 
 ## How code reads
@@ -154,32 +156,23 @@ holds the lock until this promise settles".
 
 ## Where the rebuild stands
 
-| Module             | State                                                                                                                   |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `values`, `errors` | rebuilt                                                                                                                 |
-| `schema`           | built: the model and name rules                                                                                         |
-| `storage`          | built: format 5 — pages, WAL, B-trees, rows, index entries, the schema table, integrity check                           |
-| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries                                    |
-| `sql/parser`       | rebuilt and reviewed for readability: Pratt expressions, one name rule, unions for every state                          |
-| `functions`        | built: one registry for the binder and the compiler                                                                     |
-| `expressions`      | built on `sql/plan`; the old compiler stays in `src/legacy/executor/evaluate` until the switch                          |
-| `sql/plan`         | contract written and reviewed against three implementations                                                             |
-| `sql/binder`       | built and reviewed; the old one is in `src/legacy` until the switch                                                     |
-| `sql/optimizer`    | built and reviewed; the old one is in `src/legacy` until the switch                                                     |
-| `executor`         | built and reviewed; the old one is in `src/legacy` until the switch                                                     |
-| `engine`, `worker` | rebuilt: snapshots, one write lock, queues, states, the worker API (docs/api.md); still on the old storage, `src/store` |
+| Module             | State                                                                                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `values`, `errors` | rebuilt                                                                                               |
+| `schema`           | built: the model and name rules                                                                       |
+| `storage`          | built: format 5 — pages, WAL, B-trees, rows, index entries, the schema table, integrity check         |
+| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries                  |
+| `sql/parser`       | rebuilt and reviewed for readability: Pratt expressions, one name rule, unions for every state        |
+| `functions`        | built: one registry for the binder and the compiler                                                   |
+| `expressions`      | built on `sql/plan`                                                                                   |
+| `sql/plan`         | contract written and reviewed against three implementations                                           |
+| `sql/binder`       | built and reviewed                                                                                    |
+| `sql/optimizer`    | built and reviewed                                                                                    |
+| `executor`         | built and reviewed                                                                                    |
+| `engine`, `worker` | rebuilt, and on format 5 and the pipeline above: statement rollback, schemas by version (docs/api.md) |
 
-The switch moves the engine onto the new modules:
-
-- open format-5 files; pin a snapshot per transaction, catch up and lower a
-  stale checkpoint intent under the write lock; checkpoint as before;
-- run each statement in a savepoint of its write transaction; only a failed
-  commit ends the transaction (docs/planning.md, Execution);
-- load the schema per schema version, with index keys compiled once per
-  version for the table layer;
-- parse, bind, optimize, run; DDL through the catalog; EXPLAIN from the
-  physical plan; integrity as checkStorage plus checkTables;
-- copy BLOBs into results, so a caller never holds a cached plan's bytes;
-- give the run a checkpoint that can end a statement (a time limit, later);
-- delete `src/store`, `src/legacy` and cbor-x; bring the SLT expectations and
-  docs/api.md up to the new semantics.
+The format-4 store, the previous binder, optimizer, executor and expression
+compiler, and cbor-x are gone; a format-4 database fails to open with
+`UNSUPPORTED_FORMAT`. The executor's checkpoint — called once per batch,
+where a statement can be ended — is wired to nothing yet: it is there for a
+time limit.
