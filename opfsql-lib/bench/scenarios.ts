@@ -189,7 +189,7 @@ async function createDocuments(
 }
 
 /**
- * Pages through a query that returns `PAGE` rows before the cursor, each
+ * Pages through a query that returns a page of rows before the cursor, each
  * page's last row giving the next cursor at `cursorColumn`; the pages read.
  */
 async function pageThrough(
@@ -202,7 +202,7 @@ async function pageThrough(
   let cursor = start;
   let pages = 0;
   for (;;) {
-    const { rows } = await page.query([cursor, PAGE]);
+    const { rows } = await page.query([cursor]);
     const last = rows.at(-1);
     if (last === undefined) return pages;
     cursor = Number(last[cursorColumn]);
@@ -359,7 +359,7 @@ export const SCENARIOS: Scenario[] = [
     setup: createAllProducts,
     async run(s) {
       const sql =
-        "SELECT * FROM products WHERE id < $1 ORDER BY id DESC LIMIT $2";
+        "SELECT * FROM products WHERE id < $1 ORDER BY id DESC LIMIT 20";
       await pageThrough(s, sql, TABLE_ROWS, 0);
     },
   },
@@ -370,7 +370,7 @@ export const SCENARIOS: Scenario[] = [
     setup: createEvents,
     async run(s) {
       const sql =
-        "SELECT * FROM events WHERE created_at < $1 ORDER BY created_at DESC LIMIT $2";
+        "SELECT * FROM events WHERE created_at < $1 ORDER BY created_at DESC LIMIT 20";
       await pageThrough(s, sql, Number.MAX_SAFE_INTEGER, 1);
     },
   },
