@@ -7,7 +7,7 @@ import {
 import { physical } from "../../sql/plan/index.js";
 import { compareValues, type Value } from "../../values/index.js";
 import { type Context, scopeOf } from "../context.js";
-import { type Operator, rowsOf, WalkOperator } from "../operator.js";
+import { drain, type Operator, WalkOperator } from "../operator.js";
 import { compileWindow, type Window } from "./limit.js";
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ export function topN(
 
 function sortedRows(child: Operator, ordering: Ordering): Tuple[] {
   const rows: SortedRow[] = [];
-  for (const row of rowsOf(child)) {
+  for (const row of drain(child)) {
     rows.push(ordering.sortedRow(row, rows.length));
   }
   // Array sorting is stable, and the arrival order breaks ties anyway.
@@ -78,7 +78,7 @@ function firstRows(
   if (limit === 0) return [];
   const heap = new BoundedHeap(offset + limit, ordering.compare);
   let arrival = 0;
-  for (const row of rowsOf(child)) {
+  for (const row of drain(child)) {
     heap.offer(ordering.sortedRow(row, arrival++));
   }
   return heap
@@ -177,7 +177,8 @@ class BoundedHeap {
 
   private siftDown(start: number): void {
     let position = start;
-    for (let last = this.lastOf(position); last !== position;) {
+    let last = this.lastOf(position);
+    while (last !== position) {
       this.swap(position, last);
       position = last;
       last = this.lastOf(position);

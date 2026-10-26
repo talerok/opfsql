@@ -1,7 +1,7 @@
 import { InternalError } from "../../errors.js";
-import type { Tuple } from "../../expressions/index.js";
+import type { Run, Tuple } from "../../expressions/index.js";
 import { firstSighting } from "../../values/index.js";
-import { drain, type Operator, WalkOperator } from "../operator.js";
+import { type Demand, type Operator, pull, WalkOperator } from "../operator.js";
 
 // ---------------------------------------------------------------------------
 // Common table expressions (docs/planning.md, Execution). A CTE's result is
@@ -60,10 +60,10 @@ export function cte(
 ): Operator {
   let isStarted = false;
   return {
-    next: () => {
+    next: (max) => {
       if (!isStarted) table.spoolFrom(definition);
       isStarted = true;
-      return body.next();
+      return body.next(max);
     },
     rescan: () => {
       isStarted = false;
@@ -77,25 +77,58 @@ export function cteScan(table: CteTable): Operator {
   return new WalkOperator(() => rowsOfTable(table), []);
 }
 
-/** The anchor's rows, then each step's, until a step adds none. */
+/** What a recursive CTE needs besides its anchor and step. */
+export interface Recursion {
+  /** The rows the last run added, which the step reads. */
+  readonly workingSet: CteTable;
+  /** UNION ALL keeps duplicates; UNION adds only rows not seen yet. */
+  readonly isUnionAll: boolean;
+  /** The run, whose checkpoint each step calls. */
+  readonly run: Run;
+}
+
+/**
+ * The anchor's rows, then each step's on the rows the run before added,
+ * until a step adds none: each run's rows pulled as they are wanted.
+ */
 export function recursiveCte(
   anchor: Operator,
   step: Operator,
-  workingSet: CteTable,
-  isUnionAll: boolean,
+  recursion: Recursion,
 ): Operator {
-  function* rows(): Generator<Tuple> {
-    // UNION adds only rows not seen yet, in this run or an earlier one.
-    const isAdded = isUnionAll ? () => true : firstSighting();
-    let added = drain(anchor).filter((row) => isAdded(row));
-    while (added.length > 0) {
-      yield* added;
-      workingSet.hold(added);
-      step.rescan();
-      added = drain(step).filter((row) => isAdded(row));
-    }
+  return new WalkOperator(
+    (demand) => recursiveRows([anchor, step], recursion, demand),
+    [anchor, step],
+  );
+}
+
+function* recursiveRows(
+  [anchor, step]: readonly [Operator, Operator],
+  { workingSet, isUnionAll, run }: Recursion,
+  demand: Demand,
+): Generator<Tuple> {
+  const isNew = isUnionAll ? () => true : firstSighting();
+  let added = yield* newRows(pull(anchor, demand), isNew);
+  while (added.length > 0) {
+    run.checkpoint();
+    workingSet.hold(added);
+    step.rescan();
+    added = yield* newRows(pull(step, demand), isNew);
   }
-  return new WalkOperator(rows, [anchor, step]);
+}
+
+/** The rows `isNew` keeps, yielded as they come and returned together. */
+function* newRows(
+  rows: Iterable<Tuple>,
+  isNew: (row: Tuple) => boolean,
+): Generator<Tuple, Tuple[]> {
+  const added: Tuple[] = [];
+  for (const row of rows) {
+    if (!isNew(row)) continue;
+    added.push(row);
+    yield row;
+  }
+  return added;
 }
 
 function* rowsOfTable(table: CteTable): Generator<Tuple> {
@@ -128,7 +161,7 @@ class Spool {
   /** Pulls from the source until `count` rows are held or it has none left. */
   private fillTo(count: number): void {
     while (this.#rows.length < count && this.#source !== null) {
-      const batch = this.#source.next();
+      const batch = this.#source.next(count - this.#rows.length);
       if (batch === null) this.#source = null;
       else this.#rows.push(...batch);
     }

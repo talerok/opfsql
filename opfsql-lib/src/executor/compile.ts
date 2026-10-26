@@ -184,7 +184,9 @@ function compileCte(plan: CtePlan, context: Context): Operator {
       const anchor = compilePlan(plan.anchor, context);
       const stepContext = withCte(context, plan.cteIndex, workingSet);
       const step = compilePlan(plan.step, stepContext);
-      return recursiveCte(anchor, step, workingSet, plan.isUnionAll);
+      const { isUnionAll } = plan;
+      const { run } = context.query;
+      return recursiveCte(anchor, step, { workingSet, isUnionAll, run });
     }
   }
 }

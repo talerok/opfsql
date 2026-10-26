@@ -83,8 +83,12 @@ export class TestDatabase {
     return [...this.database.problems(), ...this.database.tableProblems()];
   }
 
-  /** Runs a query plan in a read transaction. */
-  query(plan: physical.Plan, parameters: readonly Value[] = []): Value[][] {
+  /** Runs a query plan in a read transaction, with the engine's `checkpoint` if given. */
+  query(
+    plan: physical.Plan,
+    parameters: readonly Value[] = [],
+    checkpoint?: () => void,
+  ): Value[][] {
     const statement: Query<physical.Plan> = {
       kind: "query",
       plan,
@@ -93,7 +97,8 @@ export class TestDatabase {
     };
     return this.database.reading((pages) => {
       const tables = new Tables(pages, this.database.schema);
-      return runQuery(statement, tables, parameters).map((row) => [...row]);
+      const rows = runQuery(statement, tables, parameters, checkpoint);
+      return rows.map((row) => [...row]);
     });
   }
 

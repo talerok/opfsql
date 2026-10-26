@@ -9,7 +9,7 @@ import type { Accumulator } from "../../functions/index.js";
 import { physical } from "../../sql/plan/index.js";
 import { rowKey, type Value } from "../../values/index.js";
 import { type Context, scopeOf } from "../context.js";
-import { type Operator, rowsOf, WalkOperator } from "../operator.js";
+import { drain, type Operator, WalkOperator } from "../operator.js";
 
 /**
  * Groups keyed by rowKey — so two group values fall in one group exactly
@@ -43,8 +43,10 @@ export function hashAggregate(
 
 function groupRows(child: Operator, grouping: Grouping): Tuple[] {
   const groups = new Map<string, Group>();
-  if (grouping.keys.length === 0) groupOf(groups, [], grouping);
-  for (const row of rowsOf(child)) {
+  const isOneGroup = grouping.keys.length === 0;
+  // Without GROUP BY there is one group, even over no rows.
+  if (isOneGroup) groupOf(groups, [], grouping);
+  for (const row of drain(child)) {
     const values = grouping.keys.map((key) => key(row));
     addRow(groupOf(groups, values, grouping), row, grouping);
   }

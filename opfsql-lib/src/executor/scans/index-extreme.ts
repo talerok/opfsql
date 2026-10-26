@@ -1,6 +1,6 @@
 import type { physical } from "../../sql/plan/index.js";
 import type { Context } from "../context.js";
-import { type Operator, WalkOperator } from "../operator.js";
+import { leafOperator, type Operator } from "../operator.js";
 import { compileEqual } from "./seeks.js";
 
 /**
@@ -14,5 +14,8 @@ export function indexExtreme(
   const index = context.tables.index(plan.index);
   const equal = compileEqual(plan.equal, context);
   const end = plan.extreme === "MIN" ? "first" : "last";
-  return new WalkOperator(() => [[index.extreme(equal(), end)]].values(), []);
+  return leafOperator(
+    () => [[index.extreme(equal(), end)]].values(),
+    context.query.run,
+  );
 }

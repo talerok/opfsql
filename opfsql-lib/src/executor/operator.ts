@@ -1,103 +1,128 @@
-import type { Tuple } from "../expressions/index.js";
+import type { Run, Tuple } from "../expressions/index.js";
 
 // ---------------------------------------------------------------------------
 // Operators (docs/planning.md, Execution): a plan node compiled for one run,
-// pulled in batches. Batches start at one row and double, so EXISTS, a
-// scalar subquery or LIMIT 1 decodes about as many rows as it needs, while a
-// full scan soon moves in batches of hundreds.
+// pulled in batches of at most what its caller asks for. An operator
+// evaluates no more of its input than the rows it returns need — but for a
+// sort, an aggregate, a hash join's build side and a set operation's other
+// side, which need all of theirs — so a row past a LIMIT, or past the one
+// row EXISTS needs, is never evaluated and cannot fail the statement.
 // ---------------------------------------------------------------------------
 
 export interface Operator {
-  /** The next batch of rows, never empty, or null when there are no more. */
-  next(): readonly Tuple[] | null;
+  /** The next batch of at most `max` rows, never empty, or null when there are no more. */
+  next(max: number): readonly Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
   rescan(): void;
 }
 
-const FIRST_BATCH = 1;
-const LARGEST_BATCH = 512;
+/** The most rows an operator returns at once. */
+export const BATCH_SIZE = 512;
 
-/** A walk over an operator's rows, from the start. */
-export type Walk = () => Iterator<Tuple>;
+/** How many more rows the batch being filled wants: what a walk pulls its children by. */
+export interface Demand {
+  readonly wanted: number;
+}
+
+/** Every row there is: what a sort, an aggregate or a hash join's build side pulls by. */
+export const EVERY_ROW: Demand = { wanted: BATCH_SIZE };
+
+/** One row at a time: what a join pulls its left side by, each row of which may give several. */
+export const ONE_ROW: Demand = { wanted: 1 };
+
+/** An operator's rows from the start, its children pulled as `demand` wants. */
+export type Walk = (demand: Demand) => Iterator<Tuple>;
 
 /**
- * An operator whose rows come from a walk: started on the first pull, and
+ * An operator whose rows come from a walk, started on the first pull and
  * again after each rescan, which also rescans the operator's children.
  */
 export class WalkOperator implements Operator {
   #rows: Iterator<Tuple> | null = null;
-  #batchSize = FIRST_BATCH;
+  readonly #batch = new Batch();
 
+  /** `beforeBatch` runs before each batch: a leaf's checkpoint. */
   constructor(
     private readonly walk: Walk,
     private readonly children: readonly Operator[],
+    private readonly beforeBatch: (() => void) | null = null,
   ) {}
 
-  next(): readonly Tuple[] | null {
-    this.#rows ??= this.walk();
-    const batch = takeBatch(this.#rows, this.#batchSize);
-    this.#batchSize = Math.min(this.#batchSize * 2, LARGEST_BATCH);
-    return batch;
+  next(max: number): readonly Tuple[] | null {
+    this.beforeBatch?.();
+    this.#rows ??= this.walk(this.#batch);
+    return this.#batch.fill(this.#rows, Math.min(max, BATCH_SIZE));
   }
 
   rescan(): void {
     this.#rows = null;
-    this.#batchSize = FIRST_BATCH;
     for (const child of this.children) child.rescan();
+  }
+}
+
+/**
+ * An operator over rows of its own — a scan's, VALUES' — which calls the
+ * run's checkpoint once per batch, where the engine can end the statement.
+ */
+export function leafOperator(rows: () => Iterator<Tuple>, run: Run): Operator {
+  return new WalkOperator(rows, [], () => {
+    run.checkpoint();
+  });
+}
+
+/** The operator's rows, pulled in batches of what `demand` wants. */
+export function* pull(operator: Operator, demand: Demand): Generator<Tuple> {
+  let batch = operator.next(demand.wanted);
+  while (batch !== null) {
+    yield* batch;
+    batch = operator.next(demand.wanted);
   }
 }
 
 /** Every row the operator has left. */
 export function drain(operator: Operator): Tuple[] {
+  return [...pull(operator, EVERY_ROW)];
+}
+
+/** At most `count` of the operator's rows, evaluating no more than those. */
+export function take(operator: Operator, count: number): Tuple[] {
   const rows: Tuple[] = [];
-  for (let batch = operator.next(); batch !== null; batch = operator.next()) {
-    for (const row of batch) rows.push(row);
+  if (count <= 0) return rows;
+  const pulled = pull(operator, upTo(count, rows));
+  for (const row of pulled) {
+    rows.push(row);
+    if (rows.length === count) break;
   }
   return rows;
 }
 
-/** At most `limit` of the operator's rows, pulling no batch past them. */
-export function take(operator: Operator, limit: number): Tuple[] {
-  const rows: Tuple[] = [];
-  while (rows.length < limit) {
-    const batch = operator.next();
-    if (batch === null) return rows;
-    const wanted = batch.slice(0, limit - rows.length);
-    for (const row of wanted) rows.push(row);
-  }
-  return rows;
+/** A demand for what `rows` lack of `count`. */
+function upTo(count: number, rows: readonly Tuple[]): Demand {
+  return {
+    get wanted() {
+      return count - rows.length;
+    },
+  };
 }
 
-/** The operator's rows one at a time, pulled batch by batch. */
-export function* rowsOf(operator: Operator): Generator<Tuple> {
-  for (let batch = operator.next(); batch !== null; batch = operator.next()) {
-    yield* batch;
-  }
-}
+/** A batch being filled from a walk, whose demand is what the batch still wants. */
+class Batch implements Demand {
+  #rows: Tuple[] = [];
+  #size = 0;
 
-/**
- * The child's next batch with `transform` applied that still has rows, or
- * null when the child has none left: an operator never returns an empty
- * batch.
- */
-export function nextNonEmpty(
-  child: Operator,
-  transform: (batch: readonly Tuple[]) => readonly Tuple[],
-): readonly Tuple[] | null {
-  for (let batch = child.next(); batch !== null; batch = child.next()) {
-    const result = transform(batch);
-    if (result.length > 0) return result;
+  get wanted(): number {
+    return this.#size - this.#rows.length;
   }
-  return null;
-}
 
-/** Up to `size` rows from `rows`, or null if it has none left. */
-function takeBatch(rows: Iterator<Tuple>, size: number): Tuple[] | null {
-  const batch: Tuple[] = [];
-  while (batch.length < size) {
-    const next = rows.next();
-    if (next.done === true) break;
-    batch.push(next.value);
+  /** Up to `size` rows from `rows`, or null if it has none left. */
+  fill(rows: Iterator<Tuple>, size: number): Tuple[] | null {
+    this.#rows = [];
+    this.#size = size;
+    while (this.wanted > 0) {
+      const next = rows.next();
+      if (next.done === true) break;
+      this.#rows.push(next.value);
+    }
+    return this.#rows.length > 0 ? this.#rows : null;
   }
-  return batch.length > 0 ? batch : null;
 }

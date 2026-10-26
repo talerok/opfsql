@@ -7,12 +7,19 @@ import {
 import { physical } from "../../sql/plan/index.js";
 import { rowKey } from "../../values/index.js";
 import { compileConditions, type Context, scopeOf } from "../context.js";
-import { type Operator, rowsOf, WalkOperator } from "../operator.js";
+import {
+  drain,
+  ONE_ROW,
+  type Operator,
+  pull,
+  WalkOperator,
+} from "../operator.js";
 
 // ---------------------------------------------------------------------------
 // Joins (docs/planning.md, Rules 2): a pair is a match only when every
 // condition is TRUE for it, and a LEFT join emits each left row that has no
-// match once, with NULLs for the right side.
+// match once, with NULLs for the right side. The right side is read whole;
+// the left one row at a time, since each may give any number of pairs.
 // ---------------------------------------------------------------------------
 
 /** How a join decides and pads its pairs. */
@@ -52,7 +59,7 @@ export function hashJoin(
   const pairing = compilePairing(plan, plan.residual, context);
   function* joined(): Generator<Tuple> {
     const table = hashTableOf(right, rightKey);
-    for (const row of rowsOf(left)) {
+    for (const row of pull(left, ONE_ROW)) {
       const key = leftKey(row);
       const candidates = key === null ? undefined : table.get(key);
       yield* pairsOf(row, candidates ?? NO_ROWS, pairing);
@@ -61,7 +68,11 @@ export function hashJoin(
   return new WalkOperator(joined, [left, right]);
 }
 
-/** Each left row with every right row, the right side rescanned for each. */
+/**
+ * Each left row with every right row, the right side read once per start:
+ * it cannot change from one left row to the next, as nothing in it reads
+ * the left side.
+ */
 export function nestedLoopJoin(
   plan: physical.NestedLoopJoin,
   left: Operator,
@@ -70,9 +81,9 @@ export function nestedLoopJoin(
 ): Operator {
   const pairing = compilePairing(plan, plan.conditions, context);
   function* joined(): Generator<Tuple> {
-    for (const row of rowsOf(left)) {
-      right.rescan();
-      yield* pairsOf(row, rowsOf(right), pairing);
+    const rightRows = drain(right);
+    for (const row of pull(left, ONE_ROW)) {
+      yield* pairsOf(row, rightRows, pairing);
     }
   }
   return new WalkOperator(joined, [left, right]);
@@ -126,7 +137,7 @@ function hashTableOf(
   key: HashKey,
 ): ReadonlyMap<string, readonly Tuple[]> {
   const table = new Map<string, Tuple[]>();
-  for (const row of rowsOf(right)) {
+  for (const row of drain(right)) {
     const hash = key(row);
     if (hash === null) continue;
     const bucket = table.get(hash);

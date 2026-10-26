@@ -2,7 +2,7 @@ import type { physical } from "../../sql/plan/index.js";
 import type { KeyBound, TableRow, TableRows } from "../../table/index.js";
 import { compareValues, type Value } from "../../values/index.js";
 import type { Context } from "../context.js";
-import { type Operator, WalkOperator } from "../operator.js";
+import { leafOperator, type Operator } from "../operator.js";
 import { compileEqual, compileRange } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
 
@@ -32,7 +32,10 @@ export function rowidLookup(
 ): Operator {
   const { rows, matching } = tableAccess(plan, context);
   const selection = compileRowidSet(plan.rowids, context);
-  return new WalkOperator(() => matching(rowsSelected(selection(), rows)), []);
+  return leafOperator(
+    () => matching(rowsSelected(selection(), rows)),
+    context.query.run,
+  );
 }
 
 /** The set's rowids, evaluated each time its scan starts. */

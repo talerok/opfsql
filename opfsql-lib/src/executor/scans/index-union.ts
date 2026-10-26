@@ -2,7 +2,7 @@ import { CorruptError } from "../../errors.js";
 import type { physical } from "../../sql/plan/index.js";
 import type { TableRow, TableRows } from "../../table/index.js";
 import type { Context } from "../context.js";
-import { type Operator, WalkOperator } from "../operator.js";
+import { leafOperator, type Operator } from "../operator.js";
 import { compileRowidSet, rowsSelected } from "./rowids.js";
 import { compileKeySeek } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
@@ -28,7 +28,10 @@ export function indexUnion(
   const branches = plan.branches.map((branch) =>
     compileBranch(branch, rows, context),
   );
-  return new WalkOperator(() => matching(foundRows(branches, rows)), []);
+  return leafOperator(
+    () => matching(foundRows(branches, rows)),
+    context.query.run,
+  );
 }
 
 function compileBranch(

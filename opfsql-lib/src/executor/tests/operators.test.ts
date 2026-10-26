@@ -224,13 +224,12 @@ describe("nested loop join", () => {
     ]);
   });
 
-  it("starts its right side over for each left row", () => {
+  it("reads its right side once, however many left rows there are", () => {
     const counting = new Counting();
     const right = project(8, column50(1, 2), counting.of(constant(0)));
-    expect(query(nestedLoopJoin(column50("a", "b", "c"), right))).toHaveLength(
-      6,
-    );
-    expect(counting.calls).toBe(6);
+    const pairs = query(nestedLoopJoin(column50("a", "b", "c"), right));
+    expect(pairs).toHaveLength(6);
+    expect(counting.calls).toBe(2);
     expect(counting.compiles).toBe(1);
   });
 });

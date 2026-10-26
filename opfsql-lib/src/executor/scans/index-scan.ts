@@ -1,6 +1,6 @@
 import type { physical } from "../../sql/plan/index.js";
 import type { Context } from "../context.js";
-import { type Operator, WalkOperator } from "../operator.js";
+import { leafOperator, type Operator } from "../operator.js";
 import { compileKeySeek } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
 
@@ -12,8 +12,8 @@ export function indexScan(
   const { matching } = tableAccess(plan, context);
   const index = context.tables.index(plan.index);
   const seek = compileKeySeek(plan.keys, context);
-  return new WalkOperator(
+  return leafOperator(
     () => matching(index.rows(seek(), plan.direction)),
-    [],
+    context.query.run,
   );
 }

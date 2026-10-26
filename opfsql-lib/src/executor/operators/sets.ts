@@ -1,11 +1,18 @@
 import type { Tuple } from "../../expressions/index.js";
 import type { physical } from "../../sql/plan/index.js";
 import { rowKey } from "../../values/index.js";
-import { drain, type Operator, rowsOf, WalkOperator } from "../operator.js";
+import {
+  type Demand,
+  drain,
+  type Operator,
+  pull,
+  WalkOperator,
+} from "../operator.js";
 
 // UNION, UNION ALL, INTERSECT and EXCEPT, by hashing rows with rowKey: two
 // rows are one when ORDER BY would call every pair of their values equal,
-// NULLs included. All but UNION ALL return each row once.
+// NULLs included. All but UNION ALL return each row once. INTERSECT and
+// EXCEPT read their right side whole; the rest pull by what they are asked.
 
 export function setOperation(
   plan: physical.SetOperation,
@@ -13,46 +20,64 @@ export function setOperation(
   right: Operator,
 ): Operator {
   const { operator } = plan;
-  return new WalkOperator(() => setRows(operator, left, right), [left, right]);
+  return new WalkOperator(
+    (demand) => setRows(operator, [left, right], demand),
+    [left, right],
+  );
 }
 
 function setRows(
   operator: physical.SetOperation["operator"],
-  left: Operator,
-  right: Operator,
+  [left, right]: readonly [Operator, Operator],
+  demand: Demand,
 ): Iterator<Tuple> {
   switch (operator) {
     case "UNION ALL": {
-      return bothSides(left, right);
+      return bothSides(left, right, demand);
     }
     case "UNION": {
-      return keptOnce(bothSides(left, right), () => true);
+      return keptOnce(bothSides(left, right, demand), () => true);
     }
     case "INTERSECT": {
-      return rowsOfLeft(left, right, true);
+      return intersection(left, right, demand);
     }
     case "EXCEPT": {
-      return rowsOfLeft(left, right, false);
+      return difference(left, right, demand);
     }
   }
 }
 
-function* bothSides(left: Operator, right: Operator): Generator<Tuple> {
-  yield* rowsOf(left);
-  yield* rowsOf(right);
-}
-
-/** The left side's rows that are (INTERSECT) or are not (EXCEPT) on the right. */
-function rowsOfLeft(
+function* bothSides(
   left: Operator,
   right: Operator,
-  isOnRight: boolean,
-): Iterator<Tuple> {
-  let rightKeys: ReadonlySet<string> | null = null;
-  return keptOnce(rowsOf(left), (key) => {
-    rightKeys ??= new Set(drain(right).map((row) => rowKey(row)));
-    return rightKeys.has(key) === isOnRight;
-  });
+  demand: Demand,
+): Generator<Tuple> {
+  yield* pull(left, demand);
+  yield* pull(right, demand);
+}
+
+/** The left side's rows that are also on the right. */
+function* intersection(
+  left: Operator,
+  right: Operator,
+  demand: Demand,
+): Generator<Tuple> {
+  const onRight = keysOf(right);
+  yield* keptOnce(pull(left, demand), (key) => onRight.has(key));
+}
+
+/** The left side's rows that are not on the right. */
+function* difference(
+  left: Operator,
+  right: Operator,
+  demand: Demand,
+): Generator<Tuple> {
+  const onRight = keysOf(right);
+  yield* keptOnce(pull(left, demand), (key) => !onRight.has(key));
+}
+
+function keysOf(operator: Operator): ReadonlySet<string> {
+  return new Set(drain(operator).map((row) => rowKey(row)));
 }
 
 /** The first of each set of equal rows that `isKept` keeps, decided by key. */
