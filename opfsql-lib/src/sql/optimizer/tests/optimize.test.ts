@@ -214,7 +214,7 @@ describe("subqueries", () => {
         "  project#6 o.user_id",
         "    table-scan orders#2",
         "subquery 2:",
-        "  table-scan orders#2 residual: o.user_id = u.id",
+        "  index-scan orders#2 using orders_user (user_id = u.id)",
       ),
     );
   });

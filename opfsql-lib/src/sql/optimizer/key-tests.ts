@@ -1,5 +1,6 @@
 import type {
   Between,
+  ColumnReference,
   Comparison,
   ComparisonOperator,
   Constant,
@@ -12,8 +13,11 @@ import { sameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
 // Conditions an access path can seek with: a conjunct that compares one
-// operand, its subject, with seek values — constants and parameters, each
-// fixed for one scan (docs/planning.md, Physical plans).
+// operand, its subject, with seek values — constants, parameters and
+// columns of enclosing queries, each fixed for one scan (docs/planning.md,
+// Physical plans), so a correlated subquery seeks on its outer row. A
+// column of the scan's own query changes from row to row: never a seek
+// value.
 //
 //   subject = v                        equal
 //   subject IN (v, …)                  in
@@ -29,8 +33,8 @@ import { sameExpression } from "./same-expression.js";
 
 type Expression = physical.Expression;
 
-/** A seek value: the same for every row of a run. */
-export type SeekValue = Constant | Parameter;
+/** A seek value: the same for every row of one scan. */
+export type SeekValue = Constant | Parameter | ColumnReference;
 
 export interface SeekBound {
   readonly value: SeekValue;
@@ -64,6 +68,7 @@ export function keyTestOf(condition: Expression): KeyTest | null {
 }
 
 function isSeekValue(expression: Expression): expression is SeekValue {
+  if (expression.kind === "column") return expression.depth > 0;
   return expression.kind === "constant" || expression.kind === "parameter";
 }
 

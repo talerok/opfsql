@@ -7,12 +7,15 @@ import {
   column,
   compare,
   constant,
+  exists,
   filter,
   get,
   inList,
+  lines,
   NULL,
   or,
   parameter,
+  orders,
   planOf,
   users,
 } from "./builders.js";
@@ -194,6 +197,56 @@ describe("index unions", () => {
     expect(planOf(plan)).toBe(
       "table-scan users#1 residual: id = 1 OR age <> 3",
     );
+  });
+});
+
+describe("seek values from enclosing queries", () => {
+  const o = { tableIndex: 2, table: orders, alias: "o" };
+  const p = { tableIndex: 3, table: users, alias: "p" };
+  /** The outer users, as a subquery names them. */
+  const outer = { ...u, alias: "u" };
+
+  it("seeks a correlated subquery's index on its outer row", () => {
+    const inner = filter(
+      get(o),
+      compare(column(o, "user_id"), "=", column(outer, "id", 1)),
+    );
+    const plan = where(exists(inner, true));
+    expect(planOf(plan)).toBe(
+      lines(
+        "table-scan users#1 residual: EXISTS (correlated subquery 1)",
+        "subquery 1:",
+        "  index-scan orders#2 using orders_user (user_id = u.id)",
+      ),
+    );
+    expectSameRows(plan);
+  });
+
+  it("seeks on a row two queries out", () => {
+    const innermost = filter(
+      get(p),
+      compare(column(p, "age"), "=", column(outer, "age", 2)),
+    );
+    const inner = filter(get(o), exists(innermost, true));
+    const plan = where(exists(inner, true));
+    expect(planOf(plan)).toBe(
+      lines(
+        "table-scan users#1 residual: EXISTS (correlated subquery 1)",
+        "subquery 1:",
+        "  table-scan orders#2 residual: EXISTS (correlated subquery 2)",
+        "subquery 2:",
+        "  index-scan users#3 using users_age (age = u.age)",
+      ),
+    );
+    expectSameRows(plan);
+  });
+
+  it("never seeks with a column of the scan's own query", () => {
+    const plan = filter(
+      get(o),
+      compare(column(o, "user_id"), "=", column(o, "id")),
+    );
+    expect(planOf(plan)).toBe("table-scan orders#2 residual: o.user_id = o.id");
   });
 });
 
