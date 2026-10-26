@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { lines, plan, query, semanticError } from "./helpers.js";
 
+/** The refusal of a LIMIT or OFFSET that is not an integer. */
+function message(clause: string): string {
+  return `${clause} must be an integer constant or a parameter`;
+}
+
 describe("ORDER BY", () => {
   it("reads an integer literal as a 1-based output position", () => {
     expect(plan("SELECT name, age FROM users ORDER BY 2, 1 DESC")).toBe(
@@ -193,8 +198,6 @@ describe("LIMIT and OFFSET", () => {
   });
 
   it("refuse anything else", () => {
-    const message = (clause: string): string =>
-      `${clause} must be an integer constant or a parameter`;
     expect(semanticError("SELECT 1 LIMIT 1.5")).toBe(message("LIMIT"));
     expect(semanticError("SELECT 1 LIMIT '5'")).toBe(message("LIMIT"));
     expect(semanticError("SELECT 1 LIMIT NULL")).toBe(message("LIMIT"));

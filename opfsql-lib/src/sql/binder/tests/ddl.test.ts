@@ -17,6 +17,20 @@ function createIndex(sql: string): Extract<Bound, { kind: "create-index" }> {
   return bound;
 }
 
+/** A CREATE TABLE's constraint indexes, each as `name: origin columns`. */
+function shapes(sql: string): string[] {
+  return createTable(sql).constraints.map((index) => {
+    const keys = index.keys.map((key) =>
+      key.kind === "column" ? String(key.column) : key.sql,
+    );
+    return `${index.name}: ${index.origin} ${keys.join(",")}`;
+  });
+}
+
+function refusal(column: string, table: string, why: string): string {
+  return `cannot drop column ${column} of ${table}: ${why}`;
+}
+
 describe("CREATE TABLE", () => {
   it("types columns, converts defaults to them and makes a sole INTEGER key the rowid", () => {
     const { table, constraints } = createTable(
@@ -59,11 +73,6 @@ describe("CREATE TABLE", () => {
   });
 
   it("names constraint indexes per column, PRIMARY KEY before UNIQUE, then a table key", () => {
-    const shapes = (sql: string): string[] =>
-      createTable(sql).constraints.map(
-        (index) =>
-          `${index.name}: ${index.origin} ${index.keys.map((key) => (key.kind === "column" ? String(key.column) : key.sql)).join(",")}`,
-      );
     expect(
       shapes(
         "CREATE TABLE t (a TEXT, b INT, PRIMARY KEY (b, a), c TEXT UNIQUE)",
@@ -296,8 +305,6 @@ describe("ALTER TABLE", () => {
   });
 
   it("refuses to drop the rowid, an indexed column or the last one", () => {
-    const refusal = (column: string, table: string, why: string): string =>
-      `cannot drop column ${column} of ${table}: ${why}`;
     expect(semanticError("ALTER TABLE users DROP COLUMN id")).toBe(
       refusal("id", "users", "it is the table's INTEGER PRIMARY KEY"),
     );

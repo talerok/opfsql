@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { lines, notSupported, plan, query, semanticError } from "./helpers.js";
 
+/** A recursive query r(n) with anchor `SELECT 1` and `step`, then `after`. */
+function recursive(step: string, after = ""): string {
+  return `WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL ${step}${after}) SELECT * FROM r`;
+}
+
 describe("set operations", () => {
   it("bind left to right, each under a table index of its own", () => {
     expect(
@@ -120,8 +125,6 @@ describe("WITH RECURSIVE", () => {
   });
 
   it("refuses other shapes", () => {
-    const recursive = (step: string): string =>
-      `WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL ${step}) SELECT * FROM r`;
     expect(semanticError(recursive("SELECT n FROM r, r AS r2"))).toBe(
       "the step of recursive WITH query r must name r exactly once",
     );
@@ -159,8 +162,6 @@ describe("WITH RECURSIVE", () => {
   });
 
   it("does not support ORDER BY, LIMIT, aggregates or DISTINCT in it", () => {
-    const recursive = (step: string, after = ""): string =>
-      `WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL ${step}${after}) SELECT * FROM r`;
     expect(notSupported(recursive("SELECT n + 1 FROM r", " ORDER BY 1"))).toBe(
       "ORDER BY in a recursive WITH query",
     );

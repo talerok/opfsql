@@ -6,6 +6,10 @@ function types(sql: string): string[] {
   return query(sql).columns.map((column) => column.type);
 }
 
+function mismatch(left: string, right: string): string {
+  return `type mismatch: cannot compare ${left} with ${right}`;
+}
+
 describe("static types", () => {
   it("of arithmetic: INTEGER for two INTEGERs, REAL with a REAL, ANY when a row decides", () => {
     expect(
@@ -58,8 +62,6 @@ describe("static types", () => {
 
 describe("type errors", () => {
   it("refuse comparing typed values of different kinds", () => {
-    const mismatch = (left: string, right: string): string =>
-      `type mismatch: cannot compare ${left} with ${right}`;
     expect(semanticError("SELECT name > 18 FROM users")).toBe(
       mismatch("TEXT", "INTEGER"),
     );

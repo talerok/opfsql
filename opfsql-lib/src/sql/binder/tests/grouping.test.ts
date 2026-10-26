@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { lines, notSupported, plan, query, semanticError } from "./helpers.js";
 
+/** The refusal of a column neither grouped nor aggregated. */
+function message(column: string): string {
+  return `column ${column} must appear in the GROUP BY clause or be used in an aggregate function`;
+}
+
 describe("the aggregate node", () => {
   it("binds groups to its group index and calls to its aggregate index", () => {
     expect(
@@ -98,8 +103,6 @@ describe("expressions above the aggregate", () => {
   });
 
   it("refuse a column neither grouped nor aggregated, as PostgreSQL does", () => {
-    const message = (column: string): string =>
-      `column ${column} must appear in the GROUP BY clause or be used in an aggregate function`;
     expect(semanticError("SELECT name, count(*) FROM users")).toBe(
       message("name"),
     );
