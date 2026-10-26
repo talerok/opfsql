@@ -35,6 +35,11 @@ export interface Conflict {
   readonly rowid: number;
   readonly constraint: ConflictConstraint;
   readonly error: ConstraintError;
+  /**
+   * The row refused, as it would have been stored: converted to the column
+   * types, its rowid filled in — ON CONFLICT DO UPDATE's `excluded` row.
+   */
+  readonly refused: readonly Value[];
 }
 
 interface IndexEditor {
@@ -290,7 +295,7 @@ export class TableEditor extends TableRows {
   ): Conflict | null {
     for (const constraint of this.constraintsFrom(first)) {
       const holder = this.holderOf(constraint, state, replacing);
-      if (holder !== null) return this.conflict(constraint, holder);
+      if (holder !== null) return this.conflict(constraint, holder, state);
     }
     return null;
   }
@@ -331,8 +336,13 @@ export class TableEditor extends TableRows {
     return isTaken ? state.rowid : null;
   }
 
-  private conflict(constraint: ConflictConstraint, rowid: number): Conflict {
-    return { rowid, constraint, error: this.violation(constraint) };
+  private conflict(
+    constraint: ConflictConstraint,
+    rowid: number,
+    refused: RowState,
+  ): Conflict {
+    const error = this.violation(constraint);
+    return { rowid, constraint, error, refused: refused.row };
   }
 
   private violation(constraint: ConflictConstraint): ConstraintError {
