@@ -185,9 +185,27 @@ interface Shape {
 /** The project, DISTINCT, ORDER BY, and the project that drops sort-only columns. */
 function finish(plan: Plan, shape: Shape, scope: Scope): BoundQuery {
   const { outputs, ordering } = shape;
+  const projected = projectOutputs(plan, shape, scope);
+  const distinct = withDistinct(projected.plan, shape.isDistinct);
+  const ordered = order(distinct, ordering.keys, projected.columns);
+  const shown = projected.columns.slice(0, outputs.length);
+  const columns = outputs.map((output) => ({
+    name: output.name,
+    type: output.expression.type,
+  }));
+  if (ordering.extras.length === 0) return { plan: ordered, columns };
+  return { plan: keepOnly(ordered, shown, scope), columns };
+}
+
+/** The select list as a project, the columns only ORDER BY needs after it. */
+function projectOutputs(
+  plan: Plan,
+  shape: Shape,
+  scope: Scope,
+): { readonly plan: Plan; readonly columns: readonly ColumnReference[] } {
   const expressions = [
-    ...outputs.map((output) => output.expression),
-    ...ordering.extras,
+    ...shape.outputs.map((output) => output.expression),
+    ...shape.ordering.extras,
   ];
   const tableIndex = scope.context.newIndex();
   const projected: Plan = {
@@ -196,27 +214,24 @@ function finish(plan: Plan, shape: Shape, scope: Scope): BoundQuery {
     child: plan,
     expressions,
   };
-  const distinct = withDistinct(projected, shape.isDistinct);
-  const columns = outputs.map((output) => ({
-    name: output.name,
-    type: output.expression.type,
-  }));
-  const projectColumns = readColumns(
+  const columns = readColumns(
     projected,
     expressions.map((expression, position) => ({
       name: nameOf(expression, `column${String(position + 1)}`),
       type: expression.type,
     })),
   );
-  const ordered = order(distinct, ordering.keys, projectColumns);
-  if (ordering.extras.length === 0) return { plan: ordered, columns };
-  const trimmed: Plan = {
-    kind: "project",
-    tableIndex: scope.context.newIndex(),
-    child: ordered,
-    expressions: projectColumns.slice(0, outputs.length),
-  };
-  return { plan: trimmed, columns };
+  return { plan: projected, columns };
+}
+
+/** A project of `columns` alone, dropping what was only sorted by. */
+function keepOnly(
+  plan: Plan,
+  columns: readonly ColumnReference[],
+  scope: Scope,
+): Plan {
+  const tableIndex = scope.context.newIndex();
+  return { kind: "project", tableIndex, child: plan, expressions: columns };
 }
 
 function withDistinct(plan: Plan, isDistinct: boolean): Plan {
