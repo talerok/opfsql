@@ -17,14 +17,15 @@ cannot open databases written by 0.0.x: opening one fails with
 
 ## How it is verified
 
-124,762 checks run against the code in this repository:
+195,989 checks run against the code in this repository:
 
-| Checks                                                                                                                        | Count   | Reproduce                                                                               |
-| ----------------------------------------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------- |
-| records from a subset of SQLite's [sqllogictest](https://www.sqlite.org/sqllogictest/) corpus, compared with SQLite's results | 122,118 | `npx vitest run test/sqllogictest`; counts: `npx vite-node test/sqllogictest/triage.ts` |
-| opfsql's own tests: the 2,031 of `npx vitest run`, less the 30 that run the corpus and the 2 interleaving tests               | 1,999   | `npx vitest run`                                                                        |
-| runs of the multi-tab interleaving test: 300 seeds, with and without torn writes                                              | 600     | `INTERLEAVING_SEEDS=300 npx vitest run src/storage/pager/tests/interleaving.test.ts`    |
-| end-to-end tests in Chromium, Firefox and WebKit                                                                              | 45      | `npm run test:e2e`                                                                      |
+| Checks                                                                                                                                   | Count   | Reproduce                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| records from a subset of SQLite's [sqllogictest](https://www.sqlite.org/sqllogictest/) corpus, compared with SQLite's results            | 122,118 | `npx vitest run test/sqllogictest`; counts: `npx vite-node test/sqllogictest/triage.ts`           |
+| opfsql's own tests: the 2,047 of `npx vitest run`, less the 30 that run the corpus, the 2 interleaving tests and the 8 metamorphic tests | 2,007   | `npx vitest run`                                                                                  |
+| runs of the multi-tab interleaving test: 300 seeds, with and without torn writes                                                         | 600     | `INTERLEAVING_SEEDS=300 npx vitest run src/storage/pager/tests/interleaving.test.ts`              |
+| metamorphic checks of queries on 400 random databases                                                                                    | 71,219  | `METAMORPHIC_SEED=5000 METAMORPHIC_SEEDS=400 npx vitest run test/metamorphic/metamorphic.test.ts` |
+| end-to-end tests in Chromium, Firefox and WebKit                                                                                         | 45      | `npm run test:e2e`                                                                                |
 
 All of them pass. The commands run from `opfsql-lib`.
 
@@ -54,6 +55,19 @@ All of them pass. The commands run from `opfsql-lib`.
   checks every read against a model of what each commit wrote, and checks
   that a snapshot a tab holds never changes under it. Every `npx vitest run`
   runs 8 seeds of each kind; the figure above is a run of 300.
+- **The metamorphic tests** generate random databases and random
+  well-typed queries, and check each query against other forms of it that
+  must return the same rows: the query split by its condition into the
+  rows where it is true, false and NULL; a count against a sum; LIMIT and
+  OFFSET against a slice of the full order; constants against parameters;
+  and a copy of the database with random indexes against one without.
+  Besides those checks, random UPDATE, DELETE and INSERT statements must
+  leave both copies the same and pass the integrity check. They need no
+  reference database, so they reach what the sqllogictest subset cannot:
+  JSON, BOOLEAN, parameters and the edges of the safe integer range. The
+  run above made 72,000 checks and skipped 781 whose forms overflowed the
+  safe integer range, which the generator provokes on purpose. Every
+  `npx vitest run` runs 4 databases, 720 checks.
 - **The end-to-end tests** run in Playwright's Chromium 147, Firefox 148 and
   WebKit 26.4, several tabs included. They cover crashes with open
   transactions, recovery from the WAL, the write lock across tabs, and
