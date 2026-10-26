@@ -1,6 +1,6 @@
 {
   "name": "opfsql",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "An embedded SQL database for the browser, in TypeScript with no dependencies. Runs in a worker over OPFS.",
   "type": "module",
   "main": "dist/index.js",
@@ -32,7 +32,7 @@
     "bench:bundle": "esbuild bench/node.ts bench/profile.ts --bundle --platform=node --format=esm --minify --sourcemap --packages=external --outdir=bench/dist --log-level=warning",
     "bench:browser": "vite-node bench/browser.ts --",
     "bench:profile": "npm run bench:bundle --silent && node --expose-gc bench/dist/profile.js",
-    "build": "cp ../README.md ./README.md && cp ../LICENSE ./LICENSE && esbuild index=src/index.ts worker=src/worker-entry.ts --bundle --splitting --format=esm --outdir=dist --minify && tsc --emitDeclarationOnly --outDir dist"
+    "build": "rm -rf dist && cp ../README.md ./README.md && cp ../LICENSE ./LICENSE && esbuild index=src/index.ts worker=src/worker-entry.ts --bundle --splitting --format=esm --outdir=dist --minify && tsc --emitDeclarationOnly --outDir dist"
   },
   "keywords": [
     "sql",
