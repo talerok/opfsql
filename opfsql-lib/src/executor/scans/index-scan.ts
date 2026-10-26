@@ -9,11 +9,11 @@ export function indexScan(
   plan: physical.IndexScan,
   context: Context,
 ): Operator {
-  const { matching } = tableAccess(plan, context);
+  const { reader, matching } = tableAccess(plan, context);
   const index = context.tables.index(plan.index);
   const seek = compileKeySeek(plan.keys, context);
   return leafOperator(
-    () => matching(index.rows(seek(), plan.direction)),
+    () => matching(index.rows(seek(), plan.direction, reader)),
     context.query.run,
   );
 }

@@ -1,9 +1,11 @@
 export type { Column, Index, IndexKey, IndexOrigin, Table } from "./model.js";
+export { ROWID_COLUMN } from "./model.js";
 export {
   isReservedName,
   isSameName,
   nameKey,
   RESERVED_PREFIX,
+  SEQUENCE_TABLE_NAME,
 } from "./names.js";
 export { Schema } from "./schema.js";
 export {

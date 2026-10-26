@@ -12,6 +12,6 @@ export {
   type KeySeek,
 } from "./index-rows.js";
 export { entryOf, keyedIndex, uniqueViolation } from "./keys.js";
-export { TableRow, TableRows } from "./rows.js";
-export { lastIssued, SEQUENCE_TABLE_NAME, Sequences } from "./sequences.js";
+export { ColumnReader, TableRow, TableRows } from "./rows.js";
+export { lastIssued, Sequences } from "./sequences.js";
 export { IndexKeys, Tables, WritableTables } from "./tables.js";

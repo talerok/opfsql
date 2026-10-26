@@ -79,16 +79,14 @@ export function leafOperator(rows: () => Iterator<Tuple>, run: Run): Operator {
 
 /** The operator's rows, pulled in batches of what `demand` wants. */
 export function* pull(operator: Operator, demand: Demand): Generator<Tuple> {
-  let batch = operator.next(demand.wanted);
-  while (batch !== null) {
-    yield* batch;
-    batch = operator.next(demand.wanted);
-  }
+  for (const batch of batchesOf(operator, demand)) yield* batch;
 }
 
 /** Every row the operator has left. */
 export function drain(operator: Operator): Tuple[] {
-  return [...pull(operator, EVERY_ROW)];
+  const rows: Tuple[] = [];
+  for (const batch of batchesOf(operator, EVERY_ROW)) rows.push(...batch);
+  return rows;
 }
 
 /** At most `count` of the operator's rows, evaluating no more than those. */
@@ -101,6 +99,18 @@ export function take(operator: Operator, count: number): Tuple[] {
     if (rows.length === count) break;
   }
   return rows;
+}
+
+/** The operator's batches, each asked for by what `demand` wants then. */
+function* batchesOf(
+  operator: Operator,
+  demand: Demand,
+): Generator<readonly Tuple[]> {
+  let batch = operator.next(demand.wanted);
+  while (batch !== null) {
+    yield batch;
+    batch = operator.next(demand.wanted);
+  }
 }
 
 /** A demand for what `rows` lack of `count`. */

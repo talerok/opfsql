@@ -8,8 +8,14 @@ import type { PageReader } from "../../btree/page-store.js";
 import { MemoryPages } from "../../btree/tests/memory-pages.js";
 import { encodeKey, keyRowid, prefixEnd } from "../../format/key.js";
 import { IndexWriter } from "../index-store.js";
-import type { StoredRow } from "../table-store.js";
-import { TableReader, TableWriter } from "../table-store.js";
+import {
+  ROWID_FIELD,
+  type RowOrder,
+  type StoredRow,
+  TableReader,
+  TableWriter,
+  tupleLayout,
+} from "../table-store.js";
 
 const PAGE_SIZE = 4096;
 
@@ -131,21 +137,54 @@ describe("table rows", () => {
     expect(table.lastRowid()).toBe(7);
     expect([...table.scan(0)].map((row) => row.rowid)).toEqual([7]);
   });
+});
 
-  it("scans backward from the last row, or from below a rowid, across leaves", () => {
+/** Rows 0, 2, …, 998 of (label, number), across many leaves. */
+function filled(): TableWriter {
+  const { pages, table } = setup();
+  for (let rowid = 0; rowid < 1000; rowid += 2) {
+    table.insert(rowid, [`row ${String(rowid)}`, rowid * 10]);
+  }
+  pages.commit();
+  return table;
+}
+
+describe("table tuples", () => {
+  /** (number, rowid, label, a field no record has: "new"). */
+  const layout = tupleLayout([1, ROWID_FIELD, 0, 2], [null, null, null, "new"]);
+
+  it("read rows in rowid order or its reverse, the values a layout asks for", () => {
+    const table = filled();
+    const up = [...table.tuples(layout, [-Infinity, Infinity], "ascending")];
+    expect(up).toHaveLength(500);
+    expect(up[0]).toEqual([0, 0, "row 0", "new"]);
+    expect(up.at(-1)).toEqual([9980, 998, "row 998", "new"]);
+    const down = [...table.tuples(layout, [-Infinity, Infinity], "descending")];
+    expect(down).toEqual(up.toReversed());
+  });
+
+  it("read the rows of a rowid range either way, both ends included", () => {
+    const table = filled();
+    const rowids = (range: [number, number], order: RowOrder) =>
+      [...table.tuples(layout, range, order)].map(([, rowid]) => rowid);
+    expect(rowids([3, 9], "ascending")).toEqual([4, 6, 8]);
+    expect(rowids([4, 8], "descending")).toEqual([8, 6, 4]);
+    expect(rowids([3.5, 8.5], "descending")).toEqual([8, 6, 4]);
+    expect(rowids([-Infinity, 2], "descending")).toEqual([2, 0]);
+    expect(rowids([996, Infinity], "ascending")).toEqual([996, 998]);
+    expect(rowids([9, 3], "ascending")).toEqual([]);
+    expect(rowids([Infinity, Infinity], "descending")).toEqual([]);
+  });
+
+  it("read one row by rowid, values from overflow pages included", () => {
     const { table } = setup();
-    expect([...table.scanBackward()]).toEqual([]);
-    const rowids = Array.from({ length: 500 }, (_, index) => index * 2);
-    for (const rowid of rowids) table.insert(rowid, ["x".repeat(40)]);
-
-    const backward = [...table.scanBackward()].map((row) => row.rowid);
-    expect(backward).toEqual(rowids.toReversed());
-    const below = [...table.scanBackward(7)].map((row) => row.rowid);
-    expect(below).toEqual([6, 4, 2, 0]);
-    expect([...table.scanBackward(0)]).toEqual([]);
-    expect(values([...table.scanBackward()][0] ?? null)).toEqual([
-      "x".repeat(40),
+    const big = "x".repeat(10_000);
+    table.insert(5, ["small", big]);
+    expect(table.tupleAt(5, tupleLayout([1, 0], [null, null]))).toEqual([
+      big,
+      "small",
     ]);
+    expect(table.tupleAt(6, layout)).toBeNull();
   });
 });
 

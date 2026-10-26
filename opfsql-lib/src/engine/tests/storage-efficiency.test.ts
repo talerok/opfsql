@@ -39,11 +39,10 @@ async function pagesWrittenBy(work: () => Promise<unknown>): Promise<number> {
   let written = 0;
   vi.spyOn(Pager.prototype, "append").mockImplementation(function counted(
     this: Pager,
-    pages,
-    pageCount,
+    ...appended: Parameters<Pager["append"]>
   ) {
-    written += pages.size;
-    return append.call(this, pages, pageCount);
+    written += appended[0].size;
+    return append.apply(this, appended);
   });
   await work();
   return written;

@@ -190,6 +190,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     for (const inner of released) handOver(inner, outer);
   }
 
+  /** True while it holds a page or page count it has not committed. */
   override hasChanges(): boolean {
     return (
       this.dirty.size > 0 || this.currentPageCount !== this.initialPageCount
@@ -206,9 +207,9 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   commit(): void {
     this.ensureOpen();
     try {
-      this.ensureNoOtherCommit();
-      if (this.hasChanges())
-        this.pager.append(this.dirty, this.currentPageCount);
+      if (this.hasChanges()) {
+        this.pager.append(this.dirty, this.currentPageCount, this.snapshot);
+      }
     } finally {
       this.discard();
     }
@@ -248,15 +249,6 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     const depth = this.savepoints.indexOf(savepoint);
     if (depth === -1) throw new MisuseError("the savepoint is not open");
     return depth;
-  }
-
-  /** Writers are serialized by a lock: another commit means a bug, not a race. */
-  private ensureNoOtherCommit(): void {
-    if (this.pager.latestCommit() !== this.snapshot) {
-      throw new InternalError(
-        "another writer committed during this transaction",
-      );
-    }
   }
 
   /** Adds a page at the end of the file. */

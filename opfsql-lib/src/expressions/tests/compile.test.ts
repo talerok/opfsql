@@ -97,6 +97,15 @@ describe("columns, constants and parameters", () => {
     ).toThrow(InternalError);
   });
 
+  it("fails for a row narrower than its layout, rather than read NULL", () => {
+    expect(() => evaluate(c3, { row: [10, "hello"] })).toThrow(
+      new InternalError(
+        "column t0.c3 (0.3) is past the end of a row of 2 values",
+      ),
+    );
+    expect(evaluate(c2, { row: [10, "hello", null] })).toBeNull();
+  });
+
   it("gives a fresh copy of a JSON constant each time, so no caller changes it", () => {
     const compiled = compileExpression(json({ a: [1] }), scopeOf());
     const first = compiled([]);

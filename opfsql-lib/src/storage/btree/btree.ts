@@ -46,17 +46,38 @@ export class BTree {
 
   /** Leaf cells in key order, from the first whose key is at least `from`. */
   *ascending(from?: TreeKey): Generator<Position> {
-    const cursor = this.cursorFrom(from);
-    do {
-      yield* cellsUpFrom(cursor.page, cursor.index);
-    } while (cursor.moveToLeaf("next"));
+    for (const leaf of this.leavesFrom(from)) {
+      yield* cellsUpFrom(leaf.page, leaf.index);
+    }
   }
 
   /** Leaf cells in reverse key order, from the last whose key is below `before`. */
   *descending(before?: TreeKey): Generator<Position> {
+    for (const leaf of this.leavesBefore(before)) {
+      yield* cellsDownFrom(leaf.page, leaf.index);
+    }
+  }
+
+  /**
+   * The leaves in key order, each with the cell to start at: the first whose
+   * key is at least `from` in the first leaf, the first cell in the others.
+   */
+  *leavesFrom(from?: TreeKey): Generator<Position> {
+    const cursor = this.cursorFrom(from);
+    do {
+      yield { page: cursor.page, index: cursor.index };
+    } while (cursor.moveToLeaf("next"));
+  }
+
+  /**
+   * The leaves in reverse key order, each with the cell to start at: the
+   * last whose key is below `before` in the first leaf, the last in the
+   * others.
+   */
+  *leavesBefore(before?: TreeKey): Generator<Position> {
     const cursor = this.cursorBefore(before);
     do {
-      yield* cellsDownFrom(cursor.page, cursor.index);
+      yield { page: cursor.page, index: cursor.index };
     } while (cursor.moveToLeaf("previous"));
   }
 

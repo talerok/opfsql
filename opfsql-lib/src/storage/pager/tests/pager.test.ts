@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CorruptError,
   InternalError,
   IoError,
   MisuseError,
@@ -218,6 +219,59 @@ describe("Pager", () => {
     }).toThrow(/unknown state/);
   });
 
+  it("fails every later append with an error of its own, caused by the first", async () => {
+    const files = newFiles();
+    const pager = await open(files);
+    files.wal.write = () => {
+      throw new Error("disk full");
+    };
+    files.wal.truncate = () => {
+      throw new Error("still failing");
+    };
+    const failureOf = (): unknown => {
+      try {
+        write(pager, (transaction) => allocateMarked(transaction, 1));
+      } catch (error) {
+        return error;
+      }
+      return null;
+    };
+
+    failureOf();
+    const second = failureOf();
+    const third = failureOf();
+
+    expect(second).toBeInstanceOf(IoError);
+    expect(third).toBeInstanceOf(IoError);
+    expect(third).not.toBe(second);
+    expect((third as IoError).cause).toBe((second as IoError).cause);
+  });
+
+  it("calls a page freed twice damage: the map and the trees disagree", async () => {
+    const pager = await open(newFiles());
+    const transaction = pager.beginWrite();
+    const pageNo = transaction.allocate();
+    transaction.free(pageNo);
+    expect(() => {
+      transaction.free(pageNo);
+    }).toThrow(CorruptError);
+    transaction.rollback();
+  });
+
+  it("keeps a committed page apart from the buffer it was written in", async () => {
+    const pager = await open(newFiles());
+    const transaction = pager.beginWrite();
+    const pageNo = transaction.allocate();
+    const page = transaction.write(pageNo);
+    page.set([1]);
+    transaction.commit();
+
+    // A buffer kept past the commit changes nothing committed.
+    page.set([99]);
+
+    expect(firstByte(pager, pageNo)).toBe(1);
+  });
+
   it("reports a write the browser refuses for want of space as STORAGE_FULL", async () => {
     const files = newFiles();
     const pager = await open(files);
@@ -381,6 +435,25 @@ describe("Pager across tabs", () => {
 
     expect(second.resetStaleIntent()).toBe(false);
     expect(beginRead(second).snapshot).toBe(2);
+  });
+
+  it("refuses to commit over another tab's commit, as without the write lock", async () => {
+    const { first, second } = await twoTabs();
+    let pageNo = 0;
+    write(first, (transaction) => {
+      pageNo = allocateMarked(transaction, 1);
+    });
+    const writing = second.beginWrite();
+    write(first, (transaction) => {
+      transaction.write(pageNo).set([2]);
+    });
+    writing.write(pageNo).set([3]);
+
+    expect(() => {
+      writing.commit();
+    }).toThrow(InternalError);
+    expect(firstByte(first, pageNo)).toBe(2);
+    expect(firstByte(second, pageNo)).toBe(2);
   });
 
   it("never lowers the intent, even for a mark below what the file holds", async () => {

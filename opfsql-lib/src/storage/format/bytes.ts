@@ -195,35 +195,32 @@ export function writeInteger(
   }
 }
 
+/** The safe integer in `width` bytes of big-endian two's complement at `offset`. */
 export function readInteger(
-  view: DataView,
+  bytes: Uint8Array,
   offset: number,
   width: IntegerWidth,
 ): number {
-  switch (width) {
-    case 1: {
-      return view.getInt8(offset);
-    }
-    case 2: {
-      return view.getInt16(offset);
-    }
-    case 3: {
-      return view.getInt8(offset) * 0x1_00_00 + view.getUint16(offset + 1);
-    }
-    case 4: {
-      return view.getInt32(offset);
-    }
-    case 6: {
-      return view.getInt16(offset) * TWO_32 + view.getUint32(offset + 2);
-    }
-    case 8: {
-      const value = view.getInt32(offset) * TWO_32 + view.getUint32(offset + 4);
-      if (!Number.isSafeInteger(value)) {
-        throw new CorruptError(`integer at byte ${String(offset)} is not safe`);
-      }
-      return value;
-    }
+  // The first byte carries the sign; each next one is a base-256 digit.
+  let value = ((bytes[offset] ?? 0) << 24) >> 24;
+  for (let index = 1; index < width; index++) {
+    value = value * 0x1_00 + (bytes[offset + index] ?? 0);
   }
+  if (!Number.isSafeInteger(value)) {
+    throw new CorruptError(`integer at byte ${String(offset)} is not safe`);
+  }
+  return value;
+}
+
+/** One double, read through these bytes. */
+const doubleView = new DataView(new ArrayBuffer(8));
+
+/** The big-endian double at `offset`. */
+export function readFloat64(bytes: Uint8Array, offset: number): number {
+  for (let index = 0; index < 8; index++) {
+    doubleView.setUint8(index, bytes[offset + index] ?? 0);
+  }
+  return doubleView.getFloat64(0);
 }
 
 /** The signed upper part of a wide integer, above its low 32 bits. */

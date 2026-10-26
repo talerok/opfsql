@@ -1,6 +1,10 @@
 import { CorruptError } from "../errors.js";
 import type { TableShape } from "../schema/index.js";
-import { createTableSql, nameKey } from "../schema/index.js";
+import {
+  createTableSql,
+  nameKey,
+  SEQUENCE_TABLE_NAME,
+} from "../schema/index.js";
 import type {
   PageReader,
   PageWriter,
@@ -18,8 +22,6 @@ import {
 // has one row per table, (name, seq), seq being the largest rowid the table
 // ever issued, so a deleted row's rowid is never issued again.
 // ---------------------------------------------------------------------------
-
-export const SEQUENCE_TABLE_NAME = "opfsql_sequence";
 
 const SEQUENCE_TABLE: TableShape = {
   name: SEQUENCE_TABLE_NAME,

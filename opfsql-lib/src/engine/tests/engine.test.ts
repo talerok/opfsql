@@ -643,6 +643,26 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     ]);
   });
 
+  it("existing rows each get their own copy of a JSON DEFAULT", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    await session.execute("INSERT INTO t VALUES (1)");
+    await session.execute("INSERT INTO t VALUES (2)");
+    await session.execute(
+      `ALTER TABLE t ADD COLUMN tags JSON DEFAULT '["new"]'`,
+    );
+
+    const select = "SELECT tags FROM t ORDER BY id";
+    const [result] = await session.execute(select);
+    const [first, second] = result.rows.map(([tags]) => tags);
+    if (Array.isArray(first)) first.push("changed");
+    expect(first).toEqual(["new", "changed"]);
+    expect(second).toEqual(["new"]);
+
+    const [later] = await session.execute(select);
+    expect(later.rows).toEqual([[["new"]], [["new"]]]);
+  });
+
   it("UPDATE works on rows with default-filled column", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");

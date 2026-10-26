@@ -1,12 +1,12 @@
 import { InternalError } from "../errors.js";
 import type { Index, Schema, Table } from "../schema/index.js";
-import { nameKey } from "../schema/index.js";
+import { nameKey, SEQUENCE_TABLE_NAME } from "../schema/index.js";
 import type { PageReader, PageWriter } from "../storage/index.js";
 import { TableEditor } from "./editor.js";
 import { IndexRows } from "./index-rows.js";
 import { type CompileExpression, type KeyedIndex, keyedIndex } from "./keys.js";
 import { TableRows } from "./rows.js";
-import { SEQUENCE_TABLE_NAME, Sequences } from "./sequences.js";
+import { Sequences } from "./sequences.js";
 
 // ---------------------------------------------------------------------------
 // The tables of one transaction as a statement reads and writes them: a
@@ -53,15 +53,9 @@ export class Tables {
     return new TableRows(this.pages, table);
   }
 
-  /** The rows of `index`'s table, through the index. */
+  /** A table's rows through one of its indexes. */
   index(index: Index): IndexRows {
-    const table = this.schema.table(index.table);
-    if (table === null) {
-      throw new InternalError(
-        `index ${index.name} is on a missing table ${index.table}`,
-      );
-    }
-    return new IndexRows(this.pages, index, this.rows(table));
+    return new IndexRows(this.pages, index);
   }
 }
 

@@ -4,11 +4,12 @@ import type { IntegerWidth } from "./bytes.js";
 import {
   ByteWriter,
   integerWidth,
+  readFloat64,
   readInteger,
+  readUint32,
   readVarint,
   skipVarint,
   varintSize,
-  viewOf,
 } from "./bytes.js";
 
 // ---------------------------------------------------------------------------
@@ -16,9 +17,9 @@ import {
 // behind a header of serial types, so one column decodes without the others.
 //
 // A serial type is a number standing for a field's shape: what it holds and
-// how many bytes. shapeOfSerialType() and serialTypeOf() are the only places that know
-// the numbers, and bodySize() the only one that knows the sizes; everything
-// else works with shapes.
+// how many bytes. Writing works with shapes, which serialTypeOf() turns into
+// numbers; reading works on the numbers, through the functions of the
+// "Serial types" section, which read them back.
 // ---------------------------------------------------------------------------
 
 export type ByteKind = "text" | "blob" | "json";
@@ -78,6 +79,9 @@ export const OVERFLOW_REFERENCE_SIZE = 8;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+/** Text up to this many bytes is read by hand when it is ASCII. */
+const SHORT_TEXT = 32;
+const FIRST_NON_ASCII = 0x80;
 
 // --- Writing -------------------------------------------------------------------
 
@@ -169,83 +173,100 @@ function writeBody(record: ByteWriter, field: PreparedField): void {
 
 // --- Reading -------------------------------------------------------------------
 
-interface FieldEntry {
-  readonly shape: Shape;
-  /** Where the field's body starts in the record. */
-  readonly offset: number;
+/** Where each field of a record goes, by field number; undefined to skip it. */
+export type FieldPlaces = readonly (number | undefined)[];
+
+/** Every field of a record, in field order. */
+export function decodeRecord(record: Uint8Array): RecordField[] {
+  const fields: RecordField[] = [];
+  decodeInto(record, null, fields);
+  return fields;
 }
 
-/** Reads a record's fields one at a time, decoding only what is asked. */
-export class RecordReader {
-  private readonly entries: FieldEntry[] = [];
-  private readonly view: DataView;
-
-  constructor(private readonly bytes: Uint8Array) {
-    this.view = viewOf(bytes);
-    const headerSize = readVarint(bytes, 0);
-    let position = skipVarint(bytes, 0);
-    let offset = headerSize;
-    while (position < headerSize) {
-      const shape = shapeOfSerialType(readVarint(bytes, position));
-      this.entries.push({ shape, offset });
-      offset += bodySize(shape);
-      position = skipVarint(bytes, position);
+/**
+ * Decodes a record into `target`, in one pass over its serial types and
+ * their bodies: field i to position `places[i]`, or i without places; a
+ * field without a place has its body skipped. A field in overflow pages
+ * goes as the OverflowValue that says where its bytes are, and then the
+ * result is true: such a value is still to read.
+ */
+export function decodeInto(
+  record: Uint8Array,
+  places: FieldPlaces | null,
+  target: RecordField[],
+): boolean {
+  const headerSize = readVarint(record, 0);
+  let position = skipVarint(record, 0);
+  let offset = headerSize;
+  let field = 0;
+  let hasOverflow = false;
+  while (position < headerSize) {
+    const serialType = readVarint(record, position);
+    // Sized before it is read, so that a reserved type fails as itself.
+    const size = bodySizeOf(serialType);
+    const place = places === null ? field : places[field];
+    if (place !== undefined) {
+      target[place] = fieldAt(record, serialType, offset);
+      hasOverflow ||= isOverflowType(serialType);
     }
-    if (offset !== bytes.length) {
-      throw new CorruptError("record body does not match its header");
+    offset += size;
+    position = skipVarint(record, position);
+    field++;
+  }
+  if (offset !== record.length) {
+    throw new CorruptError("record body does not match its header");
+  }
+  return hasOverflow;
+}
+
+/** The field of `serialType` whose body starts at `offset`. */
+function fieldAt(
+  record: Uint8Array,
+  serialType: number,
+  offset: number,
+): RecordField {
+  if (serialType < FIRST_INTEGER) return CONSTANTS[serialType] ?? null;
+  if (serialType < FLOAT) {
+    return readInteger(record, offset, integerWidthOf(serialType));
+  }
+  if (serialType === FLOAT) return readFloat64(record, offset);
+  if (serialType < FIRST_INLINE) return overflowAt(record, serialType, offset);
+  const end = offset + inlineLengthOf(serialType);
+  const kind = inlineKindOf(serialType);
+  if (kind === "text") return textAt(record, offset, end);
+  return decodeBytes(kind, record.subarray(offset, end));
+}
+
+/**
+ * The text from `start` to `end`. Short ASCII text, as most column values
+ * are, is read by hand, with no view of its bytes and no call into
+ * TextDecoder; anything else goes to TextDecoder.
+ */
+function textAt(record: Uint8Array, start: number, end: number): string {
+  if (end - start > SHORT_TEXT) {
+    return decoder.decode(record.subarray(start, end));
+  }
+  let text = "";
+  for (let index = start; index < end; index++) {
+    const byte = record[index] ?? 0;
+    if (byte >= FIRST_NON_ASCII) {
+      return decoder.decode(record.subarray(start, end));
     }
+    text += String.fromCodePoint(byte);
   }
+  return text;
+}
 
-  /** Number of fields stored; columns added later are not among them. */
-  get length(): number {
-    return this.entries.length;
-  }
-
-  isOverflow(index: number): boolean {
-    return this.entry(index).shape.kind === "overflow";
-  }
-
-  /** The value of field `index`, which must not be in overflow pages. */
-  value(index: number): Value {
-    const { shape, offset } = this.entry(index);
-    switch (shape.kind) {
-      case "constant": {
-        return shape.value;
-      }
-      case "integer": {
-        return readInteger(this.view, offset, shape.width);
-      }
-      case "float": {
-        return this.view.getFloat64(offset);
-      }
-      case "bytes": {
-        const bytes = this.bytes.subarray(offset, offset + shape.length);
-        return decodeBytes(shape.holds, bytes);
-      }
-      case "overflow": {
-        throw new CorruptError(`field ${String(index)} is in overflow pages`);
-      }
-    }
-  }
-
-  /** Where the bytes of field `index` live, when it is in overflow pages. */
-  overflow(index: number): OverflowValue {
-    const { shape, offset } = this.entry(index);
-    if (shape.kind !== "overflow") {
-      throw new CorruptError(`field ${String(index)} is not in overflow pages`);
-    }
-    const length = this.view.getUint32(offset);
-    const firstPage = this.view.getUint32(offset + 4);
-    return new OverflowValue(shape.holds, length, firstPage);
-  }
-
-  private entry(index: number): FieldEntry {
-    const entry = this.entries[index];
-    if (entry === undefined) {
-      throw new CorruptError(`record has no field ${String(index)}`);
-    }
-    return entry;
-  }
+/** Where the bytes of an overflow field are, as its reference says. */
+function overflowAt(
+  record: Uint8Array,
+  serialType: number,
+  offset: number,
+): OverflowValue {
+  const holds = byteKind(serialType - FIRST_OVERFLOW);
+  const length = readUint32(record, offset);
+  const firstPage = readUint32(record, offset + 4);
+  return new OverflowValue(holds, length, firstPage);
 }
 
 /** The value a TEXT, BLOB or JSON field's bytes hold, inline or read back from overflow pages. */
@@ -286,25 +307,32 @@ function serialTypeOf(shape: Shape): number {
   }
 }
 
-function shapeOfSerialType(serialType: number): Shape {
-  if (serialType < FIRST_INTEGER) {
-    return { kind: "constant", value: CONSTANTS[serialType] ?? null };
-  }
-  if (serialType < FLOAT) {
-    const width = INTEGER_WIDTHS[serialType - FIRST_INTEGER] ?? 8;
-    return { kind: "integer", width };
-  }
-  if (serialType === FLOAT) return { kind: "float" };
-  if (serialType < RESERVED) {
-    return { kind: "overflow", holds: byteKind(serialType - FIRST_OVERFLOW) };
-  }
+/** Bytes the body of a field of `serialType` takes. */
+function bodySizeOf(serialType: number): number {
+  if (serialType < FIRST_INTEGER) return 0;
+  if (serialType < FLOAT) return integerWidthOf(serialType);
+  if (serialType === FLOAT) return FLOAT_SIZE;
+  if (serialType < RESERVED) return OVERFLOW_REFERENCE_SIZE;
   if (serialType === RESERVED) {
     throw new CorruptError(`serial type ${String(RESERVED)} is reserved`);
   }
-  const inline = serialType - FIRST_INLINE;
-  const length = Math.floor(inline / BYTE_KINDS.length);
-  const holds = byteKind(inline % BYTE_KINDS.length);
-  return { kind: "bytes", holds, length };
+  return inlineLengthOf(serialType);
+}
+
+function isOverflowType(serialType: number): boolean {
+  return serialType >= FIRST_OVERFLOW && serialType < RESERVED;
+}
+
+function integerWidthOf(serialType: number): IntegerWidth {
+  return INTEGER_WIDTHS[serialType - FIRST_INTEGER] ?? 8;
+}
+
+function inlineLengthOf(serialType: number): number {
+  return Math.floor((serialType - FIRST_INLINE) / BYTE_KINDS.length);
+}
+
+function inlineKindOf(serialType: number): ByteKind {
+  return byteKind((serialType - FIRST_INLINE) % BYTE_KINDS.length);
 }
 
 function bodySize(shape: Shape): number {

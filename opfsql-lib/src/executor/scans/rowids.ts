@@ -1,10 +1,6 @@
 import type { OrderDirection, physical } from "../../sql/plan/index.js";
-import type {
-  KeyBound,
-  KeyRange,
-  TableRow,
-  TableRows,
-} from "../../table/index.js";
+import type { Tuple } from "../../expressions/index.js";
+import type { ColumnReader, KeyBound, KeyRange } from "../../table/index.js";
 import { compareValues, type Value } from "../../values/index.js";
 import type { Context } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
@@ -38,11 +34,11 @@ export function rowidLookup(
   plan: physical.RowidLookup,
   context: Context,
 ): Operator {
-  const { rows, matching } = tableAccess(plan, context);
+  const { reader, matching } = tableAccess(plan, context);
   const selection = compileRowidSet(plan.rowids, context);
   const { direction } = plan;
   return leafOperator(
-    () => matching(rowsSelected(selection(), rows, direction)),
+    () => matching(rowsSelected(selection(), reader, direction)),
     context.query.run,
   );
 }
@@ -64,20 +60,20 @@ export function compileRowidSet(
   }
 }
 
-/** The rows the selection finds, in rowid order or its reverse. */
+/** The rows the selection finds, as `reader` reads them, in rowid order or its reverse. */
 export function* rowsSelected(
   selection: RowidSelection,
-  rows: TableRows,
+  reader: ColumnReader,
   direction: OrderDirection,
-): Generator<TableRow> {
+): Generator<Tuple> {
   if (selection.kind === "range") {
-    yield* rows.rowsBetween(selection.first, selection.last, direction);
+    yield* reader.between(selection.first, selection.last, direction);
     return;
   }
   const { rowids } = selection;
   const ordered = direction === "ascending" ? rowids : rowids.toReversed();
   for (const rowid of ordered) {
-    const row = rows.get(rowid);
+    const row = reader.at(rowid);
     if (row !== null) yield row;
   }
 }

@@ -3,7 +3,7 @@ import {
   compileExpression,
   type Tuple,
 } from "../../expressions/index.js";
-import { physical } from "../../sql/plan/index.js";
+import { isSameColumn, physical } from "../../sql/plan/index.js";
 import { firstSighting } from "../../values/index.js";
 import { compileConditions, type Context, scopeOf } from "../context.js";
 import { type Operator, pull, WalkOperator } from "../operator.js";
@@ -26,12 +26,16 @@ export function filter(
   );
 }
 
-/** One row of the expressions' values per row of the child. */
+/**
+ * One row of the expressions' values per row of the child; the child itself
+ * when they are its columns as they are, as for SELECT *.
+ */
 export function project(
   plan: physical.Project,
   child: Operator,
   context: Context,
 ): Operator {
+  if (keepsChildRows(plan)) return child;
   const scope = scopeOf(context, physical.layoutOf(plan.child));
   const expressions = plan.expressions.map((expression) =>
     compileExpression(expression, scope),
@@ -72,4 +76,19 @@ function* distinctRows(rows: Iterable<Tuple>): Generator<Tuple> {
   for (const row of rows) {
     if (isFirst(row)) yield row;
   }
+}
+
+/** True if the projection's expressions are the child's columns, in its order. */
+function keepsChildRows(plan: physical.Project): boolean {
+  const layout = physical.layoutOf(plan.child);
+  if (plan.expressions.length !== layout.length) return false;
+  return plan.expressions.every((expression, position) => {
+    const binding = layout[position];
+    const isOwnColumn = expression.kind === "column" && expression.depth === 0;
+    return (
+      isOwnColumn &&
+      binding !== undefined &&
+      isSameColumn(expression.binding, binding)
+    );
+  });
 }
