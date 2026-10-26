@@ -15,16 +15,19 @@ import { columnType, positions } from "./logical.js";
 // conditions checked on each row it returns: an access path only narrows
 // what is read, it never stands in for a condition.
 //
-// Seek values and hash keys are converted as `=` would convert them: the
-// executor applies comparisonConversion (src/expressions) from the key part's
-// type and the value's static type, so `id = '5'` and `id = $1` with '5'
-// find id 5 through an index exactly as a scan would.
+// Seek values and hash keys are matched exactly as `=` matches them: as they
+// are, a parameter's affinity being part of the parameter (expression.ts).
 // ---------------------------------------------------------------------------
 
 export type Expression = GenericExpression<Plan>;
 export type OrderKey = GenericOrderKey<Plan>;
 
-/** One end of a range: a constant or parameter, and whether it is included. */
+/**
+ * One end of a range, and whether it is included. Its value — like every
+ * seek value — is fixed for one scan: a constant, a parameter, or a column of
+ * an enclosing query (depth ≥ 1), evaluated again each time the scan starts;
+ * never a column of the scan's own query. A NULL seek value matches nothing.
+ */
 export interface Bound {
   readonly value: Expression;
   readonly isInclusive: boolean;
@@ -51,6 +54,7 @@ interface TableAccess {
   readonly table: Table;
   /** As in a logical `get`; ROWID_COLUMN is the rowid. */
   readonly columns: readonly number[];
+  /** Conditions on each row, bound to `columns` under `tableIndex`. */
   readonly residual: readonly Expression[];
 }
 
@@ -60,12 +64,16 @@ export interface TableScan extends TableAccess {
   readonly direction: OrderDirection;
 }
 
-/** Rowids listed, or a range of them. */
+/**
+ * Rowids listed, or a range of them. A value or bound may be any value,
+ * compared with the integer rowids in the total order: `rowid = 1.5` finds
+ * nothing, `rowid < 2.5` finds 2, and `rowid < 'a'` finds every row.
+ */
 export type RowidSet =
   | { readonly kind: "list"; readonly values: readonly Expression[] }
   | { readonly kind: "range"; readonly range: Range };
 
-/** Rows by rowid, each once even when the list names it twice. */
+/** Rows by rowid in rowid order, each once even when the list names it twice. */
 export interface RowidLookup extends TableAccess {
   readonly kind: "rowid-lookup";
   readonly rowids: RowidSet;
@@ -98,7 +106,9 @@ export interface IndexUnion extends TableAccess {
  * MIN or MAX of an index's next key part after `equal`, read from one end of
  * the index, NULLs skipped: the one row of an aggregate with that one call.
  * It has no residual, so it is chosen only when `equal` is exact and no
- * other condition applies; otherwise the aggregate runs over a scan.
+ * other condition applies; otherwise the aggregate runs over a scan. Its
+ * value is the decoded key, so a JSON part is never read this way: its key
+ * holds canonical text, which loses the stored object's key order.
  */
 export interface IndexExtreme {
   readonly kind: "index-extreme";
@@ -164,6 +174,7 @@ export interface Sort {
 }
 
 /** A sort and the limit above it: the first `limit` rows after `offset`. */
+/** `limit` and `offset` as LIMIT and OFFSET take them (docs/semantics.md). */
 export interface TopN {
   readonly kind: "top-n";
   readonly child: Plan;

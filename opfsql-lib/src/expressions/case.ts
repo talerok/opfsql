@@ -1,6 +1,6 @@
 import type { Case, CaseBranch, physical } from "../sql/plan/index.js";
 import { truthOf, type Value } from "../values/index.js";
-import { compareTyped } from "./comparison.js";
+import { comparison } from "./comparison.js";
 import type { CompiledExpression, Compiler, Tuple } from "./scope.js";
 
 /** A WHEN … THEN …: whether it holds for a row, and what it gives then. */
@@ -10,6 +10,9 @@ interface CompiledBranch {
 }
 
 const alwaysNull: CompiledExpression = () => null;
+
+/** `CASE x WHEN v` compares as `x = v`. */
+const equals = comparison("EQUAL");
 
 /**
  * CASE: the first WHEN that holds picks its THEN, else ELSE, else NULL.
@@ -46,7 +49,5 @@ function compileBranch(
   if (operand === null) {
     return { holds: (row) => truthOf(when(row)) === true, result };
   }
-  // `CASE x WHEN v` compares as `x = v`, affinity included.
-  const equals = compareTyped("EQUAL", operand.type, branch.when.type);
   return { holds: (row, value) => equals(value, when(row)) === true, result };
 }

@@ -82,7 +82,13 @@ export interface Update<Plan> {
   readonly parameterCount: number;
 }
 
-/** `source` produces the rowids to delete: ROWID_COLUMN alone, bound to `tableIndex`. */
+/**
+ * `source` produces the rows to delete, ROWID_COLUMN among their columns,
+ * bound to `tableIndex`: the delete reads that one. A logical source is
+ * every column then the rowid, as for Update, under the WHERE that reads
+ * them; once the WHERE is in a scan's residual, the optimizer may narrow a
+ * physical source to the rowid alone.
+ */
 export interface Delete<Plan> {
   readonly kind: "delete";
   readonly table: Table;

@@ -1,5 +1,5 @@
+import { column } from "../../../test/support/schema.js";
 import type {
-  Column,
   Index,
   IndexShape,
   Table,
@@ -29,20 +29,14 @@ import {
   TableRows,
 } from "../index.js";
 
+export { column } from "../../../test/support/schema.js";
+
 // A database for table-layer tests, its schema kept by hand as the engine
 // would reload it, and a users table to work on.
 
 export const noExpressions: CompileExpression = () => {
   throw new Error("these tests have no expression keys");
 };
-
-export function column(
-  name: string,
-  type: Column["type"],
-  extra: Partial<Column> = {},
-): Column {
-  return { name, type, isNotNull: false, defaultValue: null, ...extra };
-}
 
 // users (id INTEGER PRIMARY KEY, nick TEXT, email TEXT UNIQUE)
 export const usersShape: TableShape = {
@@ -70,10 +64,19 @@ export class Database {
 
   indexes: Index[] = [];
 
-  private constructor(readonly pager: Pager) {}
+  private constructor(
+    readonly pager: Pager,
+    private readonly compile: CompileExpression,
+  ) {}
 
-  static async open(): Promise<Database> {
-    return new Database(await openPager(memoryFiles(), { name: "catalog" }));
+  /** `compile` builds expression keys; the default refuses them. */
+  static async open(
+    compile: CompileExpression = noExpressions,
+  ): Promise<Database> {
+    return new Database(
+      await openPager(memoryFiles(), { name: "catalog" }),
+      compile,
+    );
   }
 
   get schema(): Schema {
@@ -82,23 +85,29 @@ export class Database {
 
   change<T>(work: (catalog: Catalog, transaction: WriteTransaction) => T): T {
     return write(this.pager, (transaction) =>
-      work(new Catalog(transaction, this.schema, noExpressions), transaction),
+      work(new Catalog(transaction, this.schema, this.compile), transaction),
     );
   }
 
   insert(table: Table, rows: Value[][]): void {
     write(this.pager, (transaction) => {
-      const indexes = this.schema
-        .indexesOf(table.name)
-        .map((index) => keyedIndex(index, table, noExpressions));
-      const editor = new TableEditor(
-        transaction,
-        table,
-        indexes,
-        this.sequencesIn(transaction),
-      );
+      const editor = this.editorIn(transaction, table);
       for (const row of rows) editor.insert(row);
     });
+  }
+
+  /** An editor of `table` within `transaction`, with all its indexes. */
+  editorIn(transaction: WriteTransaction, table: Table): TableEditor {
+    const indexes = this.schema
+      .indexesOf(table.name)
+      .map((index) => keyedIndex(index, table, this.compile));
+    const sequences = this.sequencesIn(transaction);
+    return new TableEditor(transaction, table, indexes, sequences);
+  }
+
+  /** checkTables within `transaction`, its uncommitted changes included. */
+  problemsIn(transaction: WriteTransaction): string[] {
+    return checkTables(transaction, this.schema, this.compile);
   }
 
   rows(table: Table): Value[][] {
@@ -113,7 +122,7 @@ export class Database {
 
   tableProblems(): string[] {
     return read(this.pager, (transaction) =>
-      checkTables(transaction, this.schema, noExpressions),
+      checkTables(transaction, this.schema, this.compile),
     );
   }
 
@@ -151,10 +160,11 @@ export class Database {
 /** A database with an empty users table and its unique email index. */
 export async function withUsers(
   shape: TableShape = usersShape,
+  constraints: readonly IndexShape[] = [uniqueEmail],
 ): Promise<{ database: Database; users: Table }> {
   const database = await Database.open();
   const { table, indexes } = database.change((catalog) =>
-    catalog.createTable(shape, shape === usersShape ? [uniqueEmail] : []),
+    catalog.createTable(shape, constraints),
   );
   database.tables.push(table);
   database.indexes.push(...indexes);

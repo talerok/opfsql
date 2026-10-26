@@ -1,4 +1,3 @@
-import { comparisonConversion } from "../../expressions/index.js";
 import type {
   Between,
   Comparison,
@@ -216,7 +215,6 @@ export function isExact(keyTest: KeyTest, part: KeyPart): boolean {
 export function seeksRowids(test: Test): boolean {
   return valuesOf(test).every((value) => {
     if (value.kind === "parameter") return true;
-    const converted = comparisonConversion(value.type, "INTEGER")(value.value);
-    return typeof converted === "number";
+    return typeof value.value === "number";
   });
 }

@@ -61,7 +61,12 @@ function constant(value: number | string | null): Constant {
   return { kind: "constant", value, type };
 }
 
-const parameter: Parameter = { kind: "parameter", index: 0, type: "ANY" };
+const parameter: Parameter = {
+  kind: "parameter",
+  index: 0,
+  affinity: null,
+  type: "ANY",
+};
 
 function compare(
   left: physical.Expression,

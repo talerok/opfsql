@@ -11,7 +11,7 @@ import {
   Schema,
   type Table,
 } from "../../../schema/index.js";
-import type { SqlType, Value } from "../../../values/index.js";
+import type { Affinity, SqlType, Value } from "../../../values/index.js";
 import {
   type AggregateCall,
   type ColumnReference,
@@ -181,12 +181,13 @@ export const TRUE = constant(true);
 export const FALSE = constant(false);
 export const NULL = constant(null);
 
-/** `$index + 1`, of the type its context expects. */
+/** `$index + 1`, of the type its context expects, converted by `affinity`. */
 export function parameter(
   position: number,
   type: StaticType = "ANY",
+  affinity: Affinity | null = null,
 ): Parameter {
-  return { kind: "parameter", index: position, type };
+  return { kind: "parameter", index: position, affinity, type };
 }
 
 const COMPARISONS = {
@@ -283,7 +284,6 @@ export function inSubquery(
   plan: Plan,
   isCorrelated = false,
 ): Node {
-  const [columnType = "ANY"] = logical.typesOf(plan);
   return {
     kind: "quantified-comparison",
     plan,
@@ -291,7 +291,6 @@ export function inSubquery(
     needle,
     operator: "EQUAL",
     quantifier: "ANY",
-    columnType,
     type: "BOOLEAN",
   };
 }
