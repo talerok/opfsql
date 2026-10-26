@@ -27,6 +27,26 @@ export interface ColumnBinding {
 /** The column index that stands for a table's rowid in a `get` or a scan. */
 export const ROWID_COLUMN = -1;
 
+/** True if two bindings name the same column of the same relation. */
+export function isSameColumn(
+  binding: ColumnBinding,
+  other: ColumnBinding,
+): boolean {
+  return (
+    binding.tableIndex === other.tableIndex &&
+    binding.columnIndex === other.columnIndex
+  );
+}
+
+/** Where `binding` is in a layout; null if it is not there. */
+export function positionIn(
+  layout: readonly ColumnBinding[],
+  binding: ColumnBinding,
+): number | null {
+  const position = layout.findIndex((item) => isSameColumn(item, binding));
+  return position === -1 ? null : position;
+}
+
 export type ComparisonOperator =
   "EQUAL" | "NOT_EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
 

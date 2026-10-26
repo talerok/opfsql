@@ -81,6 +81,13 @@ export class TableReader {
     }
   }
 
+  /** Rows in reverse rowid order, from the last below `before` (or the last). */
+  *scanBackward(before?: number): Generator<StoredRow> {
+    for (const { page, index } of this.tree.descending(before)) {
+      yield new StoredRow(this.pages, page.rowid(index), page.record(index));
+    }
+  }
+
   /** The largest rowid in use, or null if the table is empty. */
   lastRowid(): number | null {
     const last = this.tree.last();

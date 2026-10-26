@@ -1,8 +1,9 @@
 import { ConstraintError } from "../errors.js";
 import type { Index, IndexKey, Table } from "../schema/index.js";
 import type { IndexReader } from "../storage/index.js";
-import { encodeKey, keyRowid } from "../storage/index.js";
+import { encodeKey } from "../storage/index.js";
 import type { Value } from "../values/index.js";
+import { rowidsIn } from "./index-rows.js";
 
 // ---------------------------------------------------------------------------
 // Index keys of rows. A key part is a column or an expression; expressions
@@ -61,13 +62,11 @@ function keyPart(
  * The rowids of the entries with exactly `key`. A key with a NULL has none:
  * NULLs are distinct, so it never conflicts, as in SQLite.
  */
-export function* rowidsWithKey(
+export function rowidsWithKey(
   entries: IndexReader,
   key: readonly Value[],
 ): Generator<number> {
-  if (key.includes(null)) return;
-  const matching = entries.keysWithPrefix(encodeKey(key));
-  for (const entry of matching) yield keyRowid(entry);
+  return rowidsIn(entries, { equal: key, range: null }, "ascending");
 }
 
 /** The error for a row whose key in a unique index another row already has. */

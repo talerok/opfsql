@@ -1,10 +1,10 @@
 import { InternalError } from "../errors.js";
 import { followPath, type PathStep } from "../functions/index.js";
-import type {
-  ColumnBinding,
-  ColumnReference,
-  JsonAccess,
-  JsonPathStep,
+import {
+  type ColumnReference,
+  type JsonAccess,
+  type JsonPathStep,
+  positionIn,
 } from "../sql/plan/index.js";
 import type { CompiledExpression, Layout, Scope } from "./scope.js";
 
@@ -18,10 +18,10 @@ export function compileColumn(
 ): CompiledExpression {
   const { depth } = reference;
   if (depth === 0) {
-    const position = positionIn(scope.layout, reference);
+    const position = positionOf(scope.layout, reference);
     return (row) => row[position] ?? null;
   }
-  const position = positionIn(outerLayout(scope, reference), reference);
+  const position = positionOf(outerLayout(scope, reference), reference);
   const { outer } = scope.run;
   return () => outer.at(depth)[position] ?? null;
 }
@@ -41,11 +41,9 @@ export function compileJsonAccess(
   };
 }
 
-function positionIn(layout: Layout, reference: ColumnReference): number {
-  const position = layout.findIndex((binding) =>
-    isSameColumn(binding, reference.binding),
-  );
-  if (position === -1) {
+function positionOf(layout: Layout, reference: ColumnReference): number {
+  const position = positionIn(layout, reference.binding);
+  if (position === null) {
     throw new InternalError(`column ${describe(reference)} is not in the row`);
   }
   return position;
@@ -59,13 +57,6 @@ function outerLayout(scope: Scope, reference: ColumnReference): Layout {
     );
   }
   return layout;
-}
-
-function isSameColumn(binding: ColumnBinding, other: ColumnBinding): boolean {
-  return (
-    binding.tableIndex === other.tableIndex &&
-    binding.columnIndex === other.columnIndex
-  );
 }
 
 function describe({ name, binding }: ColumnReference): string {

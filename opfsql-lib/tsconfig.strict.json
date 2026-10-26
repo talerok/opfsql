@@ -21,6 +21,7 @@
     "src/sql/binder",
     "src/sql/plan",
     "src/expressions",
+    "src/executor",
     "src/legacy/executor/evaluate",
     "src/engine/api",
     "src/worker",

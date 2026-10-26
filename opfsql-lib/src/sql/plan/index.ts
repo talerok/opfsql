@@ -19,6 +19,7 @@ export {
   type Expression,
   type FunctionCall,
   type InList,
+  isSameColumn,
   type IsNull,
   type JsonAccess,
   type JsonPathStep,
@@ -27,11 +28,13 @@ export {
   type OrderDirection,
   type OrderKey,
   type Parameter,
+  positionIn,
   type QuantifiedComparison,
   ROWID_COLUMN,
   type ScalarSubquery,
 } from "./expression.js";
 export { formatPlan } from "./format-logical.js";
+export { columnType, positions } from "./logical.js";
 export * as logical from "./logical.js";
 export * as physical from "./physical.js";
 export type * from "./statement.js";
