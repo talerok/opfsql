@@ -84,6 +84,14 @@ describe("a parameter's affinity", () => {
     ).toEqual(["$1 numeric", "$2 text", "$3 none", "$4 numeric"]);
   });
 
+  it("is none for a parameter inside an operand: an expression or a subquery", () => {
+    expect(
+      parameters(
+        "SELECT 1 FROM t WHERE i IN (SELECT $1) AND $2 + 0 = i AND s = ANY (SELECT $3) AND (SELECT $4) = r",
+      ),
+    ).toEqual(["$1 none", "$2 none", "$3 none", "$4 none"]);
+  });
+
   it("is none anywhere else", () => {
     expect(
       parameters(
