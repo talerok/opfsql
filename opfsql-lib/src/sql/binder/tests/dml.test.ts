@@ -264,10 +264,19 @@ describe("UPDATE", () => {
     ]);
   });
 
-  it("assigns columns that exist, each once", () => {
-    expect(semanticError("UPDATE users SET age = 1, AGE = 2")).toBe(
-      "column AGE is assigned more than once",
+  it("assigns a column assigned twice its rightmost value, as SQLite does", () => {
+    const bound = update("UPDATE users SET age = 1, name = 'a', AGE = 2");
+    expect(bound.assignments).toMatchObject([
+      { column: 1, value: { kind: "constant", value: "a" } },
+      { column: 2, value: { kind: "constant", value: 2 } },
+    ]);
+    // The value left out is still bound: a mistake in it fails.
+    expect(semanticError("UPDATE users SET age = nope, age = 2")).toBe(
+      "no such column: nope",
     );
+  });
+
+  it("assigns columns that exist, without aggregates", () => {
     expect(semanticError("UPDATE users SET nope = 1")).toBe(
       "table users has no column named nope",
     );
