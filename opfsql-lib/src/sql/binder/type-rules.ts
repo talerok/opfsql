@@ -6,8 +6,8 @@ import { typeFromName, type SqlType } from "../../values/index.js";
 // Static types of what is not a function call (functions type their calls
 // in the registry). One rule each, and they agree with the expression
 // compiler: typed operands of different kinds are a bind error; a side whose
-// type is known only at run time (ANY, a JSON value) takes the other side's
-// affinity there (docs/semantics.md, Comparisons).
+// type is known only at run time (ANY) takes the other side's affinity
+// there, and a JSON value compares as it is (docs/semantics.md, Comparisons).
 // ---------------------------------------------------------------------------
 
 /** Types that say nothing about the value: it may be anything. */

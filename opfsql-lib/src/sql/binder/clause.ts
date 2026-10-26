@@ -62,19 +62,23 @@ export class AggregateCollector {
 
   /** The column of the aggregate node that holds `call`'s result. */
   add(call: AggregateCall<logical.Plan>, name: string): ColumnReference {
-    let position = this.calls.findIndex((other) =>
-      isSameAggregate(other, call),
-    );
-    if (position === -1) {
-      position = this.calls.length;
-      this.calls.push(call);
-    }
     return {
       kind: "column",
-      binding: { tableIndex: this.aggregateIndex, columnIndex: position },
+      binding: {
+        tableIndex: this.aggregateIndex,
+        columnIndex: this.positionOf(call),
+      },
       depth: 0,
       name,
       type: call.type,
     };
+  }
+
+  /** Where the aggregate node computes `call`: where it computes the same call already, or next. */
+  private positionOf(call: AggregateCall<logical.Plan>): number {
+    const found = this.calls.findIndex((other) => isSameAggregate(other, call));
+    if (found !== -1) return found;
+    this.calls.push(call);
+    return this.calls.length - 1;
   }
 }

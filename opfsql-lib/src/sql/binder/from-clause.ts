@@ -15,7 +15,12 @@ import {
 import { bindCondition, conjunctsOf, refuse } from "./clause.js";
 import { clauseOf } from "./expression.js";
 import { columnOf, unqualifiedColumn } from "./names.js";
-import { relation, type Relation, type Scope } from "./scope.js";
+import {
+  relation,
+  type CteDefinition,
+  type Relation,
+  type Scope,
+} from "./scope.js";
 import { checkComparable } from "./type-rules.js";
 
 // ---------------------------------------------------------------------------
@@ -53,14 +58,8 @@ function bindNamedTable(reference: BaseTableReference, scope: Scope): Plan {
   const name = reference.alias ?? reference.table;
   const tableIndex = scope.context.newIndex();
   const cte = scope.cte(reference.table);
-  if (cte !== null) {
-    // The CTE is materialized again for each row of the level it reaches.
-    if (cte.reach !== null && cte.reach < scope.level)
-      scope.noteReach(cte.reach);
-    scope.add(relation(name, tableIndex, cte.columns));
-    const types = cte.columns.map((column) => column.type);
-    return { kind: "cte-scan", cteIndex: cte.cteIndex, tableIndex, types };
-  }
+  if (cte !== null)
+    return bindCteScan(cte, relation(name, tableIndex, cte.columns), scope);
   const table = scope.context.schema.table(reference.table);
   if (table === null) {
     throw new SemanticError(`no such table: ${reference.table}`);
@@ -68,6 +67,18 @@ function bindNamedTable(reference: BaseTableReference, scope: Scope): Plan {
   scope.add(relation(name, tableIndex, table.columns));
   const columns = table.columns.map((_, position) => position);
   return { kind: "get", tableIndex, table, columns };
+}
+
+/**
+ * A CTE read as `item`. It is materialized again for each row of the
+ * outermost query its definition reads, so reading it reads that query.
+ */
+function bindCteScan(cte: CteDefinition, item: Relation, scope: Scope): Plan {
+  if (cte.reach !== null) scope.noteReach(cte.reach);
+  scope.add(item);
+  const types = cte.columns.map((column) => column.type);
+  const { tableIndex } = item;
+  return { kind: "cte-scan", cteIndex: cte.cteIndex, tableIndex, types };
 }
 
 /** `(SELECT …) AS s`: bound beside this query, which it cannot see. */
