@@ -72,17 +72,27 @@ function parseCte(cursor: Cursor): CTENode {
 
 // --- Compound queries ------------------------------------------------------------
 
+/**
+ * SELECTs joined by compound operators. A compound is a sequence, not
+ * nesting, as in SQLite: its links do not count toward MAX_DEPTH, and the
+ * binder limits it to 500 SELECTs (docs/semantics.md, Limits).
+ */
 function parseCompound(cursor: Cursor): SelectNode | SetOperationNode {
-  return cursor.chain<SelectNode | SetOperationNode, SetOperationType>(
-    parseSelectCore(cursor),
-    () => parseSetOperator(cursor),
-    (left, operator) => ({
+  let body: SelectNode | SetOperationNode = parseSelectCore(cursor);
+  for (
+    let operator = parseSetOperator(cursor);
+    operator !== undefined;
+    operator = parseSetOperator(cursor)
+  ) {
+    const right = parseSelectCore(cursor);
+    body = {
       type: "SET_OPERATION_NODE",
       setOperationType: operator,
-      left,
-      right: parseSelectCore(cursor),
-    }),
-  );
+      left: body,
+      right,
+    };
+  }
+  return body;
 }
 
 /** UNION [ALL], INTERSECT or EXCEPT; the last two without ALL. */

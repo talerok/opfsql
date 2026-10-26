@@ -9,6 +9,7 @@
 
 import { InternalError } from "../../errors.js";
 import { realLiteral, sqlLiteral } from "../../values/index.js";
+import { compoundMembers } from "./compound.js";
 import { keywordOf } from "./keywords.js";
 import { above, power } from "./precedence.js";
 import { comparisonPower, OPERATOR_POWER, powerOf } from "./printed-power.js";
@@ -323,9 +324,12 @@ const SET_OPERATOR_TEXT: Readonly<Record<SetOperationType, string>> = {
 };
 
 function formatBody(body: SelectNode | SetOperationNode): string {
-  if (body.type === "SELECT_NODE") return formatSelect(body);
-  const operator = SET_OPERATOR_TEXT[body.setOperationType];
-  return `${formatBody(body.left)} ${operator} ${formatSelect(body.right)}`;
+  const { first, links } = compoundMembers(body);
+  const joined = links.map(
+    (link) =>
+      `${SET_OPERATOR_TEXT[link.operator]} ${formatSelect(link.select)}`,
+  );
+  return [formatSelect(first), ...joined].join(" ");
 }
 
 function formatSelect(node: SelectNode): string {

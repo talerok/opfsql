@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_DEPTH, parse } from "../index.js";
+import { compoundMembers, MAX_DEPTH, parse } from "../index.js";
 import { StatementType } from "../types.js";
 import {
   expression,
@@ -350,11 +350,16 @@ describe("nesting limit", () => {
       `SELECT ${Array.from({ length: 5000 }, () => "1").join(" + ")}`,
     ],
     ["joins", `SELECT * FROM t${" JOIN t".repeat(5000)}`],
-    [
-      "compounds",
-      Array.from({ length: 5000 }, () => "SELECT 1").join(" UNION "),
-    ],
   ])("stops %s with a syntax error, not a stack overflow", (_name, sql) => {
     expect(syntaxError(sql).message).toMatch(/nests more than/);
+  });
+
+  it("does not count a compound's SELECTs: they are a sequence", () => {
+    const sql = Array.from({ length: 5000 }, (_, n) => `SELECT ${String(n)}`);
+    const [statement] = parse(sql.join(" UNION ALL "));
+    if (statement?.type !== StatementType.SELECT_STATEMENT) {
+      throw new TypeError("not a query");
+    }
+    expect(compoundMembers(statement.body).links).toHaveLength(4999);
   });
 });

@@ -5,6 +5,11 @@ import { parse } from "./statement.js";
 import type { Statement } from "./types.js";
 
 export { childExpressions } from "./children.js";
+export {
+  compoundMembers,
+  type CompoundLink,
+  type CompoundMembers,
+} from "./compound.js";
 export { MAX_DEPTH } from "./cursor.js";
 export { formatExpression, formatName, formatQuery } from "./format.js";
 export { tokenize } from "./lexer.js";
