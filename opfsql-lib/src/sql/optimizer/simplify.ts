@@ -3,9 +3,9 @@ import type { AggregateCall, logical } from "../plan/index.js";
 import {
   conjunctsOf,
   disjunctsOf,
+  hasNeverTrue,
   isAlwaysFalse,
   isAlwaysTrue,
-  hasNeverTrue,
   rebuildChildren,
   truth,
 } from "./expression-tree.js";
