@@ -1,6 +1,9 @@
 // Benchmarks in a real browser: a worker opens each database with Engine.open
 // on the browser's OPFS, so the timings include real disk I/O.
 import { chromium, firefox, webkit } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { parseCli, report, type CliOptions } from "./cli.js";
@@ -23,9 +26,14 @@ async function runInBrowser(options: CliOptions): Promise<ScenarioResult[]> {
     },
   });
   await server.listen();
-  const browser = await { chromium, firefox, webkit }[options.browser].launch();
+  // A persistent profile, as a user's. An ephemeral context is private
+  // browsing, where Chromium's OPFS takes about 100 µs a file operation
+  // instead of about 1, and WebKit has no OPFS at all.
+  const profile = await mkdtemp(path.join(tmpdir(), "opfsql-bench-"));
+  const browserType = { chromium, firefox, webkit }[options.browser];
+  const context = await browserType.launchPersistentContext(profile);
   try {
-    const page = await browser.newPage();
+    const page = await context.newPage();
     await page.goto(server.resolvedUrls!.local[0]);
     return await page.evaluate(
       async (benchOptions) => globalThis.runBenchmarks(benchOptions),
@@ -36,8 +44,9 @@ async function runInBrowser(options: CliOptions): Promise<ScenarioResult[]> {
       },
     );
   } finally {
-    await browser.close();
+    await context.close();
     await server.close();
+    await rm(profile, { recursive: true, force: true });
   }
 }
 
