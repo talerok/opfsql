@@ -157,7 +157,10 @@ which a swap below it never reaches. The side with the more selective
 access path — a rowid, a unique key or an equality with a constant or a
 parameter — leads, and the other is looked up by its key when it has an
 index or a rowid on it; two sides that both need a full read meet in a hash
-join, which hashes the side estimated smaller.
+join, which hashes the side estimated smaller. Estimates have no statistics
+yet: every table counts as 10 000 rows, so they rank access paths well — a
+rowid or a unique key over an equality over a range over a full read — but
+cannot tell a small table from a large one.
 
 A scan reads only the columns some node above it uses, and the rowid only
 when one does: the binder may list more, and the optimizer prunes them, as
