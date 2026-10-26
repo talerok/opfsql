@@ -132,10 +132,15 @@ describe("WITH RECURSIVE", () => {
       semanticError(
         recursive("SELECT 1 FROM users WHERE id IN (SELECT n FROM r)"),
       ),
-    ).toBe("the step of recursive WITH query r names it inside a subquery");
+    ).toBe("recursive reference in a subquery: r");
     expect(semanticError(recursive("SELECT 1 FROM (SELECT n FROM r) s"))).toBe(
-      "the step of recursive WITH query r names it inside a subquery",
+      "recursive reference in a subquery: r",
     );
+    expect(
+      semanticError(
+        recursive("SELECT n + 1 FROM r WHERE n < (SELECT max(n) FROM r)"),
+      ),
+    ).toBe("recursive reference in a subquery: r");
     expect(
       semanticError(
         recursive("SELECT r.n FROM users LEFT JOIN r ON r.n = users.id"),

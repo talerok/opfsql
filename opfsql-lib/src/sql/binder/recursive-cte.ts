@@ -186,10 +186,9 @@ function* referencesIn(
   }
 }
 
+/** The step reads only the working set its FROM names: a subquery would keep the first. */
 function inSubquery(name: string): SemanticError {
-  return new SemanticError(
-    `the step of recursive WITH query ${name} names it inside a subquery`,
-  );
+  return new SemanticError(`recursive reference in a subquery: ${name}`);
 }
 
 /** A compound's member as a query of its own. */
