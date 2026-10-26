@@ -93,6 +93,32 @@ export function nestedLoopJoin(
 }
 
 /**
+ * Each left row with the rows its right scan finds for it: the scan starts
+ * again for each left row, its seek values read from that row, and its rows
+ * are read through the table layer as the join walks (docs/planning.md,
+ * Physical plans). Rows come in the left side's order.
+ */
+export function lookupJoin(
+  plan: physical.LookupJoin,
+  left: Operator,
+  lookup: (row: Tuple) => Iterable<Tuple>,
+  context: Context,
+): Operator {
+  const pairing = compilePairing(plan, plan.residual, context);
+  function* joined(demand: Demand): Generator<Tuple> {
+    const leftRows = pull(left, leftDemand(demand));
+    for (const row of leftRows) {
+      yield* pairsOf(row, lookup(row), pairing);
+    }
+  }
+  // The right side is read here, not by a leaf: each batch is a checkpoint.
+  const { run } = context.query;
+  return new WalkOperator(joined, [left], () => {
+    run.checkpoint();
+  });
+}
+
+/**
  * What a join pulls its left side by: every row when its caller takes every
  * row; otherwise one at a time, as any one may give all the pairs wanted.
  */
@@ -121,7 +147,7 @@ function* pairsOf(
 }
 
 function compilePairing(
-  plan: physical.HashJoin | physical.NestedLoopJoin,
+  plan: physical.HashJoin | physical.NestedLoopJoin | physical.LookupJoin,
   conditions: readonly physical.Expression[],
   context: Context,
 ): Pairing {

@@ -20,7 +20,8 @@ import type {
 // ---------------------------------------------------------------------------
 // A physical plan as text, for EXPLAIN and tests: one line per node, its
 // children indented under it. A scan shows its access path, key range and
-// residual; a join its keys. `#n` is a table index. A column prints by its
+// residual; a join its keys, or a lookup join the residual on its pairs,
+// its right scan showing the seek on left columns. `#n` is a table index. A column prints by its
 // name as written; a subquery inside an expression as `(subquery n)`, its
 // plan following the main plan under that heading.
 // ---------------------------------------------------------------------------
@@ -82,6 +83,7 @@ function childPlans(plan: Plan): readonly Plan[] {
     }
     case "hash-join":
     case "nested-loop-join":
+    case "lookup-join":
     case "set-operation": {
       return [plan.left, plan.right];
     }
@@ -108,7 +110,8 @@ class NodeDescriber {
         return this.access(plan);
       }
       case "hash-join":
-      case "nested-loop-join": {
+      case "nested-loop-join":
+      case "lookup-join": {
         return this.join(plan);
       }
       case "filter": {
@@ -238,21 +241,37 @@ class NodeDescriber {
   }
 
   private join(
-    plan: Extract<Plan, { readonly kind: "hash-join" | "nested-loop-join" }>,
+    plan: Extract<
+      Plan,
+      { readonly kind: "hash-join" | "nested-loop-join" | "lookup-join" }
+    >,
   ): string {
-    if (plan.kind === "nested-loop-join") {
-      const head = `nested-loop-join ${plan.joinType}`;
-      if (plan.conditions.length === 0) return head;
-      return `${head} on ${this.conditions(plan.conditions)}`;
+    switch (plan.kind) {
+      case "nested-loop-join": {
+        const head = `nested-loop-join ${plan.joinType}`;
+        if (plan.conditions.length === 0) return head;
+        return `${head} on ${this.conditions(plan.conditions)}`;
+      }
+      case "lookup-join": {
+        // The seek shows on the right scan, which prints below.
+        return this.scan(`lookup-join ${plan.joinType}`, plan.residual);
+      }
+      case "hash-join": {
+        return this.hashJoin(plan);
+      }
     }
+  }
+
+  private hashJoin(
+    plan: Extract<Plan, { readonly kind: "hash-join" }>,
+  ): string {
     const keys = plan.leftKeys.map((left, position) => {
       const right = plan.rightKeys[position];
       const rightText = right === undefined ? "?" : this.expression(right);
       return `${this.expression(left)} = ${rightText}`;
     });
     const head = `hash-join ${plan.joinType} on ${keys.join(", ")}`;
-    if (plan.residual.length === 0) return head;
-    return `${head} residual: ${this.conditions(plan.residual)}`;
+    return this.scan(head, plan.residual);
   }
 
   private aggregate(

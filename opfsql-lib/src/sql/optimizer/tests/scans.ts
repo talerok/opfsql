@@ -24,6 +24,12 @@ export interface StoredRow {
 /** Each table's rows, by table name. */
 export type Tables = ReadonlyMap<string, readonly StoredRow[]>;
 
+/** The row a scan's seek values may read: a lookup join's left row. */
+export interface SeekRow {
+  readonly layout: Layout;
+  readonly row: Tuple;
+}
+
 /** What running a plan needs: the rows, the run, the enclosing queries. */
 export interface Context {
   readonly tables: Tables;
@@ -31,6 +37,8 @@ export interface Context {
   readonly outerLayouts: readonly Layout[];
   readonly ctes: Map<number, readonly Tuple[]>;
   readonly bindKey: KeyBinder;
+  /** For the right scan of a lookup join, the left row; otherwise none. */
+  readonly seek?: SeekRow;
 }
 
 export type Scan =
@@ -49,12 +57,16 @@ export function compiled(
   return compileExpression(expression, { layout, outerLayouts, run });
 }
 
-/** A seek value or a limit: the same for the whole scan. */
+/**
+ * A seek value or a limit: the same for the whole scan, though a lookup
+ * join's right scan has one for each left row.
+ */
 export function fixed(
   expression: physical.Expression,
   context: Context,
 ): Value {
-  return compiled(expression, [], context)([]);
+  const { layout, row } = context.seek ?? { layout: [], row: [] };
+  return compiled(expression, layout, context)(row);
 }
 
 /** The rows a scan returns, its residual checked. */

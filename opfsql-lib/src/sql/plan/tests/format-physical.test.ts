@@ -157,6 +157,47 @@ describe("formatPhysicalPlan", () => {
     );
   });
 
+  it("prints a lookup join's residual, and its right scan seeking on left columns", () => {
+    const left: physical.TableScan = {
+      ...access,
+      kind: "table-scan",
+      direction: "ascending",
+      residual: [],
+    };
+    const right: physical.IndexScan = {
+      ...access,
+      tableIndex: 2,
+      kind: "index-scan",
+      index: byNameAge,
+      keys: {
+        equal: [column("a.name", 1, 1, "TEXT")],
+        range: {
+          lower: { value: column("a.age", 2), isInclusive: false },
+          upper: null,
+        },
+      },
+      direction: "ascending",
+      residual: [compare(column("b.id", 0, 2), "GREATER", constant(0))],
+    };
+    const join: physical.LookupJoin = {
+      kind: "lookup-join",
+      joinType: "left",
+      left,
+      right,
+      residual: [compare(column("a.id", 0), "GREATER", column("b.id", 0, 2))],
+    };
+    expect(formatPhysicalPlan(join)).toBe(
+      [
+        "lookup-join left residual: a.id > b.id",
+        "  table-scan users#1",
+        "  index-scan users#2 using users_name_age (name = a.name, age > a.age) residual: b.id > 0",
+      ].join("\n"),
+    );
+    expect(
+      formatPhysicalPlan({ ...join, joinType: "inner", residual: [] }),
+    ).toMatch(/^lookup-join inner\n/u);
+  });
+
   it("prints index unions, expression keys and empty values", () => {
     const lowerName: physical.Expression = {
       kind: "function",

@@ -102,7 +102,8 @@ function evaluate(plan: physical.Plan, context: Context): readonly Tuple[] {
       return [[extremeOf(plan, context)]];
     }
     case "hash-join":
-    case "nested-loop-join": {
+    case "nested-loop-join":
+    case "lookup-join": {
       return joined(plan, context);
     }
     case "filter":
@@ -208,10 +209,9 @@ function aggregated(
   ]);
 }
 
-function joined(
-  plan: physical.HashJoin | physical.NestedLoopJoin,
-  context: Context,
-): readonly Tuple[] {
+type Join = physical.HashJoin | physical.NestedLoopJoin | physical.LookupJoin;
+
+function joined(plan: Join, context: Context): readonly Tuple[] {
   const { outerLayouts, run } = context;
   const layout = [
     ...physical.layoutOf(plan.left),
@@ -221,11 +221,11 @@ function joined(
   const tests = conditions.map((condition) =>
     compilePredicate(condition, { layout, outerLayouts, run }),
   );
-  const rights = evaluate(plan.right, context);
+  const rightsOf = rightRowsOf(plan, context);
   const nulls = physical.layoutOf(plan.right).map((): Value => null);
   const rows: Tuple[] = [];
   for (const left of evaluate(plan.left, context)) {
-    const pairs = rights
+    const pairs = rightsOf(left)
       .map((right) => [...left, ...right])
       .filter((pair) => tests.every((test) => test(pair)));
     rows.push(...pairs);
@@ -236,12 +236,38 @@ function joined(
   return rows;
 }
 
-/** What a pair must pass: a hash join's keys as `=`, then its residual. */
-function conditionsOf(
-  plan: physical.HashJoin | physical.NestedLoopJoin,
-): readonly physical.Expression[] {
-  if (plan.kind === "nested-loop-join") return plan.conditions;
-  return [...keyEqualities(plan), ...plan.residual];
+/**
+ * The right rows a left row meets: every one, or for a lookup join those
+ * its scan finds with seek values read from that left row.
+ */
+function rightRowsOf(
+  plan: Join,
+  context: Context,
+): (left: Tuple) => readonly Tuple[] {
+  if (plan.kind !== "lookup-join") {
+    const rights = evaluate(plan.right, context);
+    return () => rights;
+  }
+  const layout = physical.layoutOf(plan.left);
+  return (row) => scanned(plan.right, { ...context, seek: { layout, row } });
+}
+
+/**
+ * What a pair must pass: a hash join's keys as `=`, then its residual; a
+ * lookup join's seek has found its pairs, which pass its residual.
+ */
+function conditionsOf(plan: Join): readonly physical.Expression[] {
+  switch (plan.kind) {
+    case "nested-loop-join": {
+      return plan.conditions;
+    }
+    case "lookup-join": {
+      return plan.residual;
+    }
+    case "hash-join": {
+      return [...keyEqualities(plan), ...plan.residual];
+    }
+  }
 }
 
 /** A hash join's keys as the `=` they stand for: values as they are, NULL never matching. */
