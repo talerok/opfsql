@@ -17,7 +17,7 @@ import type {
   Pager,
   WriteTransaction,
 } from "../../storage/index.js";
-import { beginWrite, read, write } from "../../storage/tests/pager-support.js";
+import { beginWrite, read } from "../../storage/tests/pager-support.js";
 import type { CompileExpression } from "../../table/index.js";
 import { Database } from "../../table/tests/database.js";
 import type { Value } from "../../values/index.js";
@@ -93,11 +93,6 @@ export class TestDatabase {
     return read(this.database.pager, (pages) =>
       this.rowsOf(plan, pages, parameters),
     );
-  }
-
-  /** Runs a query plan in a write transaction, as a statement in one would. */
-  queryWriting(plan: physical.Plan): Value[][] {
-    return write(this.database.pager, (pages) => this.rowsOf(plan, pages, []));
   }
 
   /** Runs a write in a write transaction: committed if it succeeds, rolled back if not. */
