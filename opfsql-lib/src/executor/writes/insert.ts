@@ -23,7 +23,7 @@ import {
 import type { Value } from "../../values/index.js";
 import { compilePlan } from "../compile.js";
 import { type Context, scopeOf } from "../context.js";
-import { drain } from "../operator.js";
+import { drain, EVERY_ROW, pull } from "../operator.js";
 import { compileAssignments } from "./assignments.js";
 import type { WriteOutcome } from "./outcome.js";
 
@@ -60,19 +60,28 @@ export function runInsert(
   context: Context,
 ): WriteOutcome {
   const { table, onConflict } = statement;
-  // All of the source first: it may read the table it inserts into.
-  const rows = drain(compilePlan(statement.source, context));
+  const source = compilePlan(statement.source, context);
   const newRow = compileNewRow(table, statement.columns);
   const editor = tables.editor(table);
   const insertRow = compileRowInsert(onConflict, editor, context);
-  return tally(rows.map((row) => insertRow(newRow(row))));
+  // A source that reads the target table is read whole first, so that it
+  // never meets the rows it inserts; any other is written as it comes.
+  const rows = statement.readsTarget ? drain(source) : pull(source, EVERY_ROW);
+  return insertEach(rows, (row) => insertRow(newRow(row)));
 }
 
-/** Rows inserted or updated count as changes; the last inserted gives its rowid. */
-function tally(outcomes: readonly RowOutcome[]): WriteOutcome {
+/**
+ * Inserts each row; rows inserted or updated count as changes, and the last
+ * inserted gives its rowid.
+ */
+function insertEach(
+  rows: Iterable<Tuple>,
+  insertRow: (row: Tuple) => RowOutcome,
+): WriteOutcome {
   let changes = 0;
   let lastInsertRowid: number | null = null;
-  for (const outcome of outcomes) {
+  for (const row of rows) {
+    const outcome = insertRow(row);
     if (outcome.kind === "skipped") continue;
     changes++;
     if (outcome.kind === "inserted") lastInsertRowid = outcome.rowid;

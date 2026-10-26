@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ConstraintError } from "../../errors.js";
 import type {
   Index,
+  IndexKey,
   IndexShape,
   Table,
   TableShape,
@@ -13,8 +14,10 @@ import type {
   physical,
 } from "../../sql/plan/index.js";
 import { ROWID_COLUMN } from "../../sql/plan/index.js";
+import type { CompileExpression } from "../../table/index.js";
 import { column as columnOf } from "../../table/tests/database.js";
 import type { Value } from "../../values/index.js";
+import { BATCH_SIZE } from "../operator.js";
 import { TestDatabase } from "./database.js";
 import {
   aggregateCall,
@@ -23,6 +26,7 @@ import {
   column,
   compare,
   constant,
+  Counting,
   deleteFrom,
   filter,
   hashAggregate,
@@ -32,6 +36,7 @@ import {
   keys,
   NULL,
   outer,
+  project,
   scalarSubquery,
   type Source,
   source,
@@ -131,7 +136,8 @@ function upsert(
   target: OnConflict<physical.Plan>["target"],
   action: ConflictAction<physical.Plan>,
 ): ReturnType<typeof insert> {
-  return insert(items, EVERY_COLUMN, rows(...literal), { target, action });
+  const onConflict = { target, action };
+  return insert(items, EVERY_COLUMN, rows(...literal), { onConflict });
 }
 
 /** DO UPDATE SET qty = items.qty + excluded.qty [WHERE excluded.qty > 0]. */
@@ -176,7 +182,8 @@ describe("INSERT", () => {
 
   it("reads all of its source before inserting into the table it reads", () => {
     const copies = tableScan(source(items, ITEMS, [1, 2]));
-    const outcome = database.run(insert(items, [1, 2], copies));
+    const doubling = insert(items, [1, 2], copies, { readsTarget: true });
+    const outcome = database.run(doubling);
     expect(outcome).toEqual({ changes: 2, lastInsertRowid: 4 });
     expect(database.rows(items)).toEqual([
       [1, "a", 1, "A"],
@@ -200,6 +207,83 @@ describe("INSERT", () => {
     const all = source(tickets, TICKETS, [ROWID_COLUMN]);
     expect(fresh.run(deleteFrom(all, tableScan(all))).changes).toBe(2);
     expect(fresh.run(add).lastInsertRowid).toBe(3);
+  });
+});
+
+/** Table indexes of a copy's source table and of its select list. */
+const COPIED = 5;
+const COPYING = 6;
+const COPIED_ROWS = 600;
+
+/** A table (id INTEGER PRIMARY KEY, label TEXT) to copy from or to. */
+function labelledShape(tableName: string): TableShape {
+  return {
+    name: tableName,
+    columns: [columnOf("id", "INTEGER"), columnOf("label", "TEXT")],
+    rowidColumn: 0,
+    isAutoincrement: false,
+  };
+}
+
+/**
+ * An index key on label that, computed for the first row written, notes how
+ * many rows the source had computed by then.
+ */
+class FirstWrite {
+  computed: number | null = null;
+
+  readonly compile: CompileExpression = () => (row) => this.keyOf(row);
+
+  constructor(private readonly counting: Counting) {}
+
+  private keyOf(row: readonly Value[]): Value {
+    this.computed ??= this.counting.calls;
+    return row[1] ?? null;
+  }
+}
+
+/**
+ * INSERT INTO dst SELECT … FROM src, src holding 600 rows, its source read
+ * as `reading` says: how many source rows had been computed when dst's first
+ * row was written.
+ */
+async function computedAtFirstWrite(
+  reading: "as it comes" | "whole first",
+): Promise<number | null> {
+  const counting = new Counting();
+  const firstWrite = new FirstWrite(counting);
+  const fresh = await TestDatabase.open(firstWrite.compile);
+  const from = fresh.createTable(labelledShape("src"));
+  const to = fresh.createTable(labelledShape("dst"));
+  const label: IndexKey = { kind: "expression", sql: "label", type: "TEXT" };
+  const byLabel = { name: "dst_label", table: "dst", keys: [label] } as const;
+  fresh.createIndex({ ...byLabel, isUnique: false, origin: "statement" }, to);
+  const labelled = Array.from({ length: COPIED_ROWS }, (_, index) => [
+    index + 1,
+    `row ${String(index + 1)}`,
+  ]);
+  fresh.insert(from, labelled);
+  const copied = project(
+    COPYING,
+    tableScan(source(from, COPIED, [0, 1])),
+    counting.of(column(COPIED, 0, "INTEGER")),
+    column(COPIED, 1, "TEXT"),
+  );
+  fresh.run(
+    insert(to, [0, 1], copied, { readsTarget: reading === "whole first" }),
+  );
+  expect(fresh.rows(to)).toEqual(labelled);
+  return firstWrite.computed;
+}
+
+describe("INSERT … SELECT", () => {
+  it("writes rows as its source produces them, when the source does not read the target", async () => {
+    // One batch computed before the first write, not the whole source.
+    expect(await computedAtFirstWrite("as it comes")).toBe(BATCH_SIZE);
+  });
+
+  it("reads its whole source first when the source reads the target", async () => {
+    expect(await computedAtFirstWrite("whole first")).toBe(COPIED_ROWS);
   });
 });
 

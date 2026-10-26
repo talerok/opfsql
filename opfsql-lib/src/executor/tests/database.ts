@@ -37,10 +37,16 @@ function lowerName(row: readonly Value[]): Value {
 }
 
 export class TestDatabase {
-  private constructor(private readonly database: Database) {}
+  private constructor(
+    private readonly database: Database,
+    private readonly compile: CompileExpression,
+  ) {}
 
-  static async open(): Promise<TestDatabase> {
-    return new TestDatabase(await Database.open(compileLower));
+  /** `compile` compiles index key expressions; lower(name) by default. */
+  static async open(
+    compile: CompileExpression = compileLower,
+  ): Promise<TestDatabase> {
+    return new TestDatabase(await Database.open(compile), compile);
   }
 
   /** Creates a table, its constraint indexes, and opfsql_sequence if it needs one. */
@@ -107,7 +113,7 @@ export class TestDatabase {
     statement: WriteStatement,
     parameters: readonly Value[] = [],
   ): WriteOutcome {
-    const keys = new IndexKeys(this.database.schema, compileLower);
+    const keys = new IndexKeys(this.database.schema, this.compile);
     return this.database.writing((pages) =>
       runWrite(statement, new WritableTables(pages, keys), parameters),
     );

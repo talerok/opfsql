@@ -352,18 +352,25 @@ export class Counting {
   }
 }
 
+/** What an INSERT does besides filling columns from a source. */
+interface InsertOptions {
+  /** True when the source reads the target table, as the binder says. */
+  readonly readsTarget?: boolean;
+  readonly onConflict?: OnConflict<Plan> | null;
+}
+
 export function insert(
   table: Table,
   columns: number[],
   from: Plan,
-  onConflict: OnConflict<Plan> | null = null,
+  { readsTarget = false, onConflict = null }: InsertOptions = {},
 ): Insert<Plan> {
   return {
     kind: "insert",
     table,
     columns,
     source: from,
-    readsTarget: true,
+    readsTarget,
     onConflict,
     parameterCount: 0,
   };

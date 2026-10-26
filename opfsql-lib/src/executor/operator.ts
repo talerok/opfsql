@@ -21,7 +21,7 @@ export interface Operator {
 }
 
 /** The most rows an operator returns at once. */
-const BATCH_SIZE = 512;
+export const BATCH_SIZE = 512;
 
 /**
  * How many more rows a walk's caller can use — Infinity when it takes every
