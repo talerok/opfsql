@@ -216,6 +216,35 @@ describe("CTEs read in subqueries", () => {
     ).toContain("subquery(2, correlated): project #9 (a#8.0)");
   });
 
+  it("correlate a nested subquery reading a CTE of the subquery around it", () => {
+    const schema = schemaOf(
+      "CREATE TABLE users (id INTEGER PRIMARY KEY)",
+      "CREATE TABLE orders (id INTEGER PRIMARY KEY, user INTEGER, amount REAL)",
+    );
+    expect(
+      plan(
+        "SELECT id, (WITH mine AS (SELECT amount FROM orders WHERE user = u.id) SELECT count(*) FROM mine WHERE amount > (SELECT avg(amount) FROM mine)) FROM users u",
+        schema,
+      ),
+    ).toBe(
+      lines(
+        "project #12 (id#0.0, subquery(1))",
+        "  subquery(1, correlated): cte #3 mine",
+        "    definition: project #2 (amount#1.2)",
+        "      filter (user#1.1 = id#0.0^1)",
+        "        get #1 orders (id, user, amount)",
+        "    body: project #11 (count(*)#10.0)",
+        "      aggregate #9 () #10 (count(*))",
+        "        filter (amount#4.0 > subquery(2))",
+        "          subquery(2, correlated): project #8 (avg(amount)#7.0)",
+        "            aggregate #6 () #7 (avg(amount#5.0))",
+        "              cte-scan #5 of #3",
+        "          cte-scan #4 of #3",
+        "  get #0 users (id)",
+      ),
+    );
+  });
+
   it("leave a subquery uncorrelated when its CTE reads no outer row", () => {
     expect(
       plan(
