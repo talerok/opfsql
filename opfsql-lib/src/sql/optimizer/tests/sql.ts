@@ -4,6 +4,7 @@ import { parse, StatementType } from "../../parser/index.js";
 import {
   formatPhysicalPlan,
   type logical,
+  type physical,
   type Statement,
 } from "../../plan/index.js";
 import { optimize } from "../index.js";
@@ -33,11 +34,16 @@ export function boundPlan(sql: string): logical.Plan {
   return statement.plan;
 }
 
-/** The physical plan the optimizer makes of one SELECT, printed. */
-export function sqlPlanOf(sql: string): string {
+/** The physical plan the optimizer makes of one SELECT. */
+export function sqlPhysicalPlan(sql: string): physical.Plan {
   const statement = optimize(boundQuery(sql), schema, bindIndexKey);
   if (statement.kind !== "query") {
     throw new InternalError(`not a query: ${sql}`);
   }
-  return formatPhysicalPlan(statement.plan);
+  return statement.plan;
+}
+
+/** The physical plan the optimizer makes of one SELECT, printed. */
+export function sqlPlanOf(sql: string): string {
+  return formatPhysicalPlan(sqlPhysicalPlan(sql));
 }

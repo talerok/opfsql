@@ -225,6 +225,33 @@ describe("optimized plans give the naive plans' rows", () => {
     expect(countWith(plans, "lookup-join")).toBeGreaterThan(CASES / 4);
   });
 
+  it("for select lists and aggregates over joins, which read few columns", () => {
+    expectSameRowsFor((random) => {
+      const joined = join(
+        random.pick(["inner", "left"] as const),
+        usersRead(),
+        get(o),
+        keyCondition(random),
+        ...conditions(random, bothSubjects(), 1),
+      );
+      const where = conditions(random, selectiveSubjects(), 1);
+      const read = where.length === 0 ? joined : filter(joined, ...where);
+      if (random.chance(0.5)) {
+        const shown = Array.from({ length: 1 + random.below(3) }, () =>
+          random.pick(bothSubjects()),
+        );
+        return project(5, read, ...shown);
+      }
+      return aggregate(
+        { groupIndex: 3, aggregateIndex: 4 },
+        read,
+        [random.pick(bothSubjects())],
+        aggregateCall("count"),
+        aggregateCall("max", column(o, "total")),
+      );
+    });
+  });
+
   it("for filters over projects, aggregates, set operations and DISTINCT", () => {
     const shapes: Shape[] = [
       overProject,

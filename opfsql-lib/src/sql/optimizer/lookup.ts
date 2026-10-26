@@ -79,12 +79,18 @@ function seeksOnLeftRow(access: RowidAccess | IndexAccess): boolean {
   );
 }
 
-function seekValuesOf(access: RowidAccess | IndexAccess): Expression[] {
-  if (access.kind === "index-scan") {
-    const { equal, range } = access.keys;
+/** A seek: an index scan's key range, or a rowid lookup's rowids. */
+type Seeking =
+  | Pick<physical.IndexScan, "kind" | "keys">
+  | Pick<physical.RowidLookup, "kind" | "rowids">;
+
+/** The values a seek reads, each fixed for one scan. */
+export function seekValuesOf(seek: Seeking): Expression[] {
+  if (seek.kind === "index-scan") {
+    const { equal, range } = seek.keys;
     return [...equal, ...boundValues(range)];
   }
-  const { rowids } = access;
+  const { rowids } = seek;
   if (rowids.kind === "list") return [...rowids.values];
   return boundValues(rowids.range);
 }
