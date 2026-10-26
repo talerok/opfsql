@@ -98,40 +98,62 @@ describe("sorts an index delivers", () => {
     expectSameSequence(plan);
   });
 
-  it("takes rowid order from a rowid range", () => {
-    const plan = order(filter(get(u), compare(id, ">", constant(5))), asc(id));
-    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid > 5)");
-    expectSameSequence(plan);
-  });
-
-  it("takes rowid order from a rowid list, whatever order it lists them in", () => {
-    const listed = inList(
-      id,
-      constant(9),
-      constant(2),
-      constant(5),
-      constant(2),
+  it("takes rowid order from a rowid range, in either direction", () => {
+    const later = filter(get(u), compare(id, ">", constant(5)));
+    const forward = order(later, asc(id));
+    expect(planOf(forward)).toBe("rowid-lookup users#1 (rowid > 5)");
+    expectSameSequence(forward);
+    const backward = order(later, desc(id));
+    expect(planOf(backward)).toBe(
+      "rowid-lookup users#1 (rowid > 5) descending",
     );
-    const plan = order(filter(get(u), listed), asc(id, "last"));
-    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid IN (9, 2, 5, 2))");
-    expectSameSequence(plan);
+    expectSameSequence(backward);
   });
 
-  it("reads the table backward for a descending rowid order under a LIMIT", () => {
-    const range = filter(get(u), compare(id, ">", constant(5)));
-    const plan = limit(order(range, desc(id)), constant(3));
+  it("pages by keyset backward: a descending rowid range under a plain limit", () => {
+    // WHERE id < $1 ORDER BY id DESC LIMIT 20
+    const before = filter(
+      get(u),
+      compare(id, "<", parameter(0, "INTEGER", "numeric")),
+    );
+    const plan = limit(order(before, desc(id)), constant(20));
     expect(planOf(plan)).toBe(
-      lines("limit 3", "  table-scan users#1 descending residual: id > 5"),
+      lines("limit 20", "  rowid-lookup users#1 (rowid < $1) descending"),
     );
-    expectSameSequence(plan);
+    for (const value of [30, "30", 3.5, null])
+      expectSameSequence(plan, [value]);
   });
 
-  it("sorts a rowid range descending without a LIMIT: a lookup reads ascending", () => {
-    const plan = order(filter(get(u), compare(id, ">", constant(5))), desc(id));
-    expect(planOf(plan)).toBe(
-      lines("sort id DESC", "  rowid-lookup users#1 (rowid > 5)"),
+  it("pages by keyset forward: an ascending rowid range under a plain limit", () => {
+    const after = filter(
+      get(u),
+      compare(id, ">", parameter(0, "INTEGER", "numeric")),
     );
-    expectSameSequence(plan);
+    const plan = limit(order(after, asc(id)), constant(20));
+    expect(planOf(plan)).toBe(
+      lines("limit 20", "  rowid-lookup users#1 (rowid > $1)"),
+    );
+    for (const value of [10, "10", null]) expectSameSequence(plan, [value]);
+  });
+
+  it("takes rowid order from a rowid list, in either direction, whatever order it lists", () => {
+    const listed = filter(
+      get(u),
+      inList(id, constant(9), constant(2), constant(5), constant(2)),
+    );
+    const forward = order(listed, asc(id, "last"));
+    expect(planOf(forward)).toBe(
+      "rowid-lookup users#1 (rowid IN (9, 2, 5, 2))",
+    );
+    expectSameSequence(forward);
+    const backward = limit(order(listed, desc(id)), constant(2));
+    expect(planOf(backward)).toBe(
+      lines(
+        "limit 2",
+        "  rowid-lookup users#1 (rowid IN (9, 2, 5, 2)) descending",
+      ),
+    );
+    expectSameSequence(backward);
   });
 
   it("sees the order through projects", () => {

@@ -39,8 +39,8 @@ import type { Planner } from "./planner.js";
 //                  IN whose every item does;
 //   table-scan     every row, forward or backward for an ORDER BY rowid.
 //
-// A rowid lookup returns rowid order, and so does a table scan read
-// forward: either delivers an ORDER BY of the rowid in that direction.
+// A rowid lookup and a table scan read in rowid order or its reverse:
+// either delivers an ORDER BY of the rowid, in its direction.
 //
 // Every candidate's cost is weighed with the order wanted (cost.ts): a
 // path that delivers it saves the sort, and under a LIMIT stops early.
@@ -174,12 +174,12 @@ function buildScan(candidate: Candidate, request: ScanRequest): Scan {
 }
 
 function tableScanCandidate(request: ScanRequest): Candidate {
-  const direction = rowidOrder(request.order, request.get);
+  const read = rowidRead(rowidOrder(request.order, request.get));
   return {
-    access: { kind: "table-scan", direction: direction ?? "ascending" },
+    access: { kind: "table-scan", direction: read.direction },
     enforced: [],
     estimate: tableScanEstimate(),
-    isOrdered: direction !== null,
+    isOrdered: read.isOrdered,
   };
 }
 
@@ -198,8 +198,8 @@ function rowidOrder(
 
 /**
  * The rowids of the first `=` or IN on the rowid, else a range of them. A
- * lookup returns its rows in rowid order, so it delivers an ascending
- * ORDER BY of the rowid.
+ * lookup returns its rows in rowid order, or its reverse: it delivers an
+ * ORDER BY of the rowid in either direction.
  */
 function rowidCandidate(
   get: logical.Get,
@@ -207,42 +207,49 @@ function rowidCandidate(
   order: WantedOrder | null,
 ): Candidate<RowidAccess> | null {
   const fitting = tests.filter((keyTest) => isRowidOf(keyTest.subject, get));
-  const isOrdered = rowidOrder(order, get) === "ascending";
+  const read = rowidRead(rowidOrder(order, get));
   const listed = fitting.find((keyTest) => isListTest(keyTest));
-  if (listed !== undefined) return rowidListCandidate(listed, isOrdered);
-  return rowidRangeCandidate(fitting, isOrdered);
+  if (listed !== undefined) return rowidListCandidate(listed, read);
+  return rowidRangeCandidate(fitting, read);
+}
+
+/** How a read in rowid order goes: in the direction wanted, if one is. */
+interface RowidRead {
+  readonly direction: OrderDirection;
+  readonly isOrdered: boolean;
+}
+
+function rowidRead(wanted: OrderDirection | null): RowidRead {
+  return { direction: wanted ?? "ascending", isOrdered: wanted !== null };
 }
 
 function rowidListCandidate(
   keyTest: ListTest,
-  isOrdered: boolean,
+  read: RowidRead,
 ): Candidate<RowidAccess> {
   const { test } = keyTest;
   const values = test.kind === "equal" ? [test.value] : test.values;
+  const rowids = { kind: "list", values } as const;
   return {
-    access: {
-      kind: "rowid-lookup",
-      rowids: { kind: "list", values },
-      direction: "ascending",
-    },
+    access: { kind: "rowid-lookup", rowids, direction: read.direction },
     enforced: [keyTest.condition],
     estimate: rowidListEstimate(values.length),
-    isOrdered,
+    isOrdered: read.isOrdered,
   };
 }
 
 function rowidRangeCandidate(
   fitting: readonly KeyTest[],
-  isOrdered: boolean,
+  read: RowidRead,
 ): Candidate<RowidAccess> | null {
   const ranged = rangeOn(fitting);
   if (ranged === null) return null;
   const rowids = { kind: "range", range: ranged.range } as const;
   return {
-    access: { kind: "rowid-lookup", rowids, direction: "ascending" },
+    access: { kind: "rowid-lookup", rowids, direction: read.direction },
     enforced: ranged.enforced,
     estimate: rowidRangeEstimate(ranged.range),
-    isOrdered,
+    isOrdered: read.isOrdered,
   };
 }
 

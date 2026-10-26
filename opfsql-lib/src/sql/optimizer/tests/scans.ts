@@ -77,7 +77,8 @@ function rowsOfScan(plan: Scan, context: Context): readonly StoredRow[] {
       return plan.direction === "descending" ? rows.toReversed() : rows;
     }
     case "rowid-lookup": {
-      return rowsById(plan.table, plan.rowids, context);
+      const rows = rowsById(plan.table, plan.rowids, context);
+      return plan.direction === "descending" ? rows.toReversed() : rows;
     }
     case "index-scan": {
       const entries = entriesIn(plan.table, plan.index, plan.keys, context);

@@ -6,6 +6,7 @@ import {
   formatOrderKey,
   type SubqueryLabel,
 } from "./format-expression.js";
+import type { OrderDirection } from "./expression.js";
 import type {
   Bound,
   Expression,
@@ -159,23 +160,17 @@ class NodeDescriber {
   ): string {
     switch (plan.kind) {
       case "table-scan": {
-        const direction = plan.direction === "descending" ? " descending" : "";
-        return this.scan(
-          `table-scan ${tableName(plan)}${direction}`,
-          plan.residual,
-        );
+        const head = `table-scan ${tableName(plan)}${backward(plan)}`;
+        return this.scan(head, plan.residual);
       }
       case "rowid-lookup": {
         const rowids = this.rowids(plan.rowids);
-        return this.scan(
-          `rowid-lookup ${tableName(plan)} (${rowids})`,
-          plan.residual,
-        );
+        const head = `rowid-lookup ${tableName(plan)} (${rowids})${backward(plan)}`;
+        return this.scan(head, plan.residual);
       }
       case "index-scan": {
-        const direction = plan.direction === "descending" ? " descending" : "";
         const using = this.indexRange(plan.table, plan.index, plan.keys);
-        const head = `index-scan ${tableName(plan)} ${using}${direction}`;
+        const head = `index-scan ${tableName(plan)} ${using}${backward(plan)}`;
         return this.scan(head, plan.residual);
       }
       case "index-union": {
@@ -323,6 +318,11 @@ class NodeDescriber {
   private expression(expression: Expression): string {
     return formatExpression(expression, this.label);
   }
+}
+
+/** " descending" for a read from the largest key, else nothing. */
+function backward(plan: { readonly direction: OrderDirection }): string {
+  return plan.direction === "descending" ? " descending" : "";
 }
 
 function tableName(plan: {
