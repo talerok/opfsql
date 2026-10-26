@@ -397,6 +397,19 @@ export default config(
       "@typescript-eslint/explicit-function-return-type": "off",
     },
   },
+  {
+    // Vitest, Playwright and Vite load their configuration as the default
+    // export of a module that builds it when loaded.
+    files: [
+      "vitest.config.ts",
+      "test/e2e/infra/config.ts",
+      "test/e2e/fixture/vite.config.ts",
+    ],
+    rules: {
+      "import-x/no-default-export": "off",
+      "unicorn/no-top-level-side-effects": "off",
+    },
+  },
   prettier,
   {
     files: ["eslint.config.js"],

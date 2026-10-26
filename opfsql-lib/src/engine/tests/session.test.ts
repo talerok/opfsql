@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await engine?.close();
+  await engine.close();
 });
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ describe("session isolation", () => {
     await sC.execute("INSERT INTO t VALUES (1)");
 
     // sB should see empty table (C hasn't committed)
-    const [result] = await sB.execute("SELECT * FROM t");
+    const result = await sB.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(0);
 
     await sC.execute("ROLLBACK");
@@ -58,7 +58,7 @@ describe("session isolation", () => {
     await sA.close();
 
     const sB = engine.connect();
-    const [result] = await sB.execute("SELECT * FROM t");
+    const result = await sB.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1 }]);
     await sB.close();
   });
@@ -71,7 +71,7 @@ describe("session isolation", () => {
 
     const sB = engine.connect();
     await sB.execute("INSERT INTO t VALUES (1, 'hello')");
-    const [result] = await sB.execute("SELECT * FROM t");
+    const result = await sB.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1, name: "hello" }]);
     await sB.close();
   });
@@ -87,7 +87,7 @@ describe("session isolation", () => {
 
     // B was opened before the CREATE TABLE, but should see it now
     await sB.execute("INSERT INTO t VALUES (1)");
-    const [result] = await sB.execute("SELECT * FROM t");
+    const result = await sB.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1 }]);
     await sB.close();
   });
@@ -120,7 +120,7 @@ describe("write lock", () => {
 
     await sA.execute("COMMIT");
     await second;
-    const [result] = await sB.execute("SELECT id FROM t ORDER BY id");
+    const result = await sB.query("SELECT id FROM t ORDER BY id");
     expect(result.rows).toEqual([[1], [2]]);
     await sA.close();
     await sB.close();
@@ -164,7 +164,7 @@ describe("write lock", () => {
     // Now B can write
     await sB.execute("INSERT INTO t VALUES (2)");
 
-    const [result] = await sB.execute("SELECT * FROM t ORDER BY id");
+    const result = await sB.query("SELECT * FROM t ORDER BY id");
     expect(result.objects()).toEqual([{ id: 1 }, { id: 2 }]);
 
     await sA.close();
@@ -186,7 +186,7 @@ describe("write lock", () => {
 
     // B can write after A rolled back
     await sB.execute("INSERT INTO t VALUES (2)");
-    const [result] = await sB.execute("SELECT * FROM t");
+    const result = await sB.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 2 }]);
 
     await sA.close();
@@ -207,7 +207,7 @@ describe("write lock", () => {
     await sA.close(); // close without commit → rollback + release lock
 
     await sB.execute("INSERT INTO t VALUES (2)");
-    const [result] = await sB.execute("SELECT * FROM t");
+    const result = await sB.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 2 }]);
 
     await sB.close();
@@ -228,7 +228,7 @@ describe("write lock", () => {
     // B should be able to write immediately after
     await sB.execute("INSERT INTO t VALUES (2)");
 
-    const [result] = await sB.execute("SELECT * FROM t ORDER BY id");
+    const result = await sB.query("SELECT * FROM t ORDER BY id");
     expect(result.objects()).toEqual([{ id: 1 }, { id: 2 }]);
 
     await sA.close();
@@ -249,7 +249,7 @@ describe("write lock", () => {
     await writer.execute("INSERT INTO t VALUES (2)");
 
     // Reader can still SELECT (sees only committed data)
-    const [result] = await reader.execute("SELECT * FROM t");
+    const result = await reader.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1 }]);
 
     await writer.execute("COMMIT");
@@ -262,18 +262,18 @@ describe("write lock", () => {
 // Failed commit — nothing of the transaction survives
 // ---------------------------------------------------------------------------
 
-describe("failed commit", () => {
-  /** Opens an engine whose next commit fails the way a storage write would. */
-  async function createEngineWithFailingCommit(): Promise<() => void> {
-    const wal = new MemoryFile();
-    engine = await engineOn({ database: new MemoryFile(), wal, marks: null });
-    return () => {
-      vi.spyOn(wal, "write").mockImplementationOnce(() => {
-        throw new Error("injected commit failure");
-      });
-    };
-  }
+/** Opens an engine whose next commit fails the way a storage write would. */
+async function createEngineWithFailingCommit(): Promise<() => void> {
+  const wal = new MemoryFile();
+  engine = await engineOn({ database: new MemoryFile(), wal, marks: null });
+  return () => {
+    vi.spyOn(wal, "write").mockImplementationOnce(() => {
+      throw new Error("injected commit failure");
+    });
+  };
+}
 
+describe("failed commit", () => {
   it("a failed COMMIT rolls back the whole transaction", async () => {
     const failNextCommit = await createEngineWithFailingCommit();
     const s = engine.connect();
@@ -288,11 +288,11 @@ describe("failed commit", () => {
       cause: new Error("injected commit failure"),
     });
 
-    const [empty] = await s.execute("SELECT * FROM t");
+    const empty = await s.query("SELECT * FROM t");
     expect(empty.objects()).toEqual([]);
     // The session is out of the transaction and usable again.
     await s.execute("INSERT INTO t VALUES (3, 'c')");
-    const [result] = await s.execute("SELECT * FROM t");
+    const result = await s.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 3, body: "c" }]);
     expect(await engine.checkIntegrity()).toEqual([]);
     await s.close();
@@ -311,7 +311,7 @@ describe("failed commit", () => {
       code: "STORAGE_FULL",
     });
     await s.execute("INSERT INTO t VALUES (2)");
-    const [result] = await s.execute("SELECT id FROM t");
+    const result = await s.query("SELECT id FROM t");
     expect(result.rows).toEqual([[2]]);
     await s.close();
   });
@@ -381,8 +381,8 @@ describe("a session shared by unrelated callers", () => {
     ).rejects.toMatchObject({ code: "SEMANTIC_ERROR", statementIndex: 2 });
     expect(shared.inTransaction).toBe(false);
     await expectLockFree();
-    const [rows] = await shared.execute("SELECT count(*) FROM t");
-    expect(rows.rows).toEqual([[0]]);
+    const result = await shared.query("SELECT count(*) FROM t");
+    expect(result.rows).toEqual([[0]]);
     await shared.close();
   });
 });
@@ -404,8 +404,8 @@ describe("the write lock", () => {
       cause: { name: "InvalidStateError" },
     });
     await s.query("INSERT INTO t VALUES (2)");
-    const [rows] = await s.execute("SELECT id FROM t");
-    expect(rows.rows).toEqual([[2]]);
+    const result = await s.query("SELECT id FROM t");
+    expect(result.rows).toEqual([[2]]);
     await s.close();
   });
 });

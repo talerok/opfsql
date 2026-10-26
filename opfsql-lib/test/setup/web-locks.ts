@@ -7,90 +7,106 @@
 type Mode = "shared" | "exclusive";
 
 interface Pending {
-  mode: Mode;
+  readonly mode: Mode;
   grant(): void;
 }
 
 interface LockState {
-  held: Mode[];
-  queue: Pending[];
+  readonly held: Mode[];
+  readonly queue: Pending[];
 }
+
+type RequestArguments =
+  [LockGrantedCallback<unknown>] | [LockOptions, LockGrantedCallback<unknown>];
 
 const states = new Map<string, LockState>();
 
 function stateOf(name: string): LockState {
-  let state = states.get(name);
-  if (!state) {
-    state = { held: [], queue: [] };
-    states.set(name, state);
-  }
+  const known = states.get(name);
+  if (known !== undefined) return known;
+  const state: LockState = { held: [], queue: [] };
+  states.set(name, state);
   return state;
 }
 
-function compatible(held: Mode[], mode: Mode): boolean {
+function isCompatible(held: readonly Mode[], mode: Mode): boolean {
   return mode === "shared" ? !held.includes("exclusive") : held.length === 0;
 }
 
+/** Free now, and no earlier request waits: what ifAvailable may take. */
+function isFree(state: LockState, mode: Mode): boolean {
+  return state.queue.length === 0 && isCompatible(state.held, mode);
+}
+
+/** Grants waiting requests in order, for as long as each fits what is held. */
 function pump(state: LockState): void {
-  while (state.queue.length && compatible(state.held, state.queue[0].mode)) {
-    state.queue.shift()!.grant();
+  let next = state.queue[0];
+  while (next !== undefined && isCompatible(state.held, next.mode)) {
+    state.queue.shift();
+    next.grant();
+    next = state.queue[0];
   }
 }
 
-function request(
+function release(state: LockState, mode: Mode): void {
+  state.held.splice(state.held.indexOf(mode), 1);
+  pump(state);
+}
+
+/**
+ * Waits in line for the lock: true once granted, false if the signal
+ * withdrew the request first.
+ */
+async function turnFor(
+  state: LockState,
+  mode: Mode,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  const granted = Promise.withResolvers<boolean>();
+  const pending: Pending = {
+    mode,
+    grant() {
+      signal?.removeEventListener("abort", withdraw);
+      state.held.push(mode);
+      granted.resolve(true);
+    },
+  };
+  function withdraw(): void {
+    const index = state.queue.indexOf(pending);
+    // Already granted: the signal no longer matters.
+    if (index === -1) return;
+    state.queue.splice(index, 1);
+    granted.resolve(false);
+    pump(state);
+  }
+  state.queue.push(pending);
+  signal?.addEventListener("abort", withdraw, { once: true });
+  pump(state);
+  return granted.promise;
+}
+
+async function request(
   name: string,
-  ...args:
-    [LockGrantedCallback<unknown>] | [LockOptions, LockGrantedCallback<unknown>]
+  ...rest: RequestArguments
 ): Promise<unknown> {
-  const [options, callback] = args.length === 1 ? [{}, args[0]] : args;
+  const [options, callback] = rest.length === 1 ? [{}, rest[0]] : rest;
   const mode: Mode = options.mode ?? "exclusive";
   const state = stateOf(name);
-
-  if (
-    options.ifAvailable &&
-    !(state.queue.length === 0 && compatible(state.held, mode))
-  ) {
-    return Promise.resolve().then(() => callback(null));
+  if (options.ifAvailable === true && !isFree(state, mode)) {
+    // As in browsers, the callback runs later even when it gets no lock.
+    await Promise.resolve();
+    return callback(null);
   }
-
-  const signal = options.signal;
-  if (signal?.aborted === true) return Promise.reject(signal.reason as Error);
-
-  return new Promise((resolve, reject) => {
-    const withdraw = () => {
-      const index = state.queue.indexOf(pending);
-      if (index === -1) return; // already granted: the signal no longer matters
-      state.queue.splice(index, 1);
-      reject(signal!.reason as Error);
-      pump(state);
-    };
-    const pending: Pending = {
-      mode,
-      grant() {
-        signal?.removeEventListener("abort", withdraw);
-        state.held.push(mode);
-        const release = () => {
-          state.held.splice(state.held.indexOf(mode), 1);
-          pump(state);
-        };
-        Promise.resolve()
-          .then(() => callback({ name, mode }))
-          .then(
-            (value) => {
-              release();
-              resolve(value);
-            },
-            (err) => {
-              release();
-              reject(err);
-            },
-          );
-      },
-    };
-    state.queue.push(pending);
-    signal?.addEventListener("abort", withdraw, { once: true });
-    pump(state);
-  });
+  const { signal } = options;
+  // The API rejects with the signal's reason, whatever it is.
+  if (signal?.aborted === true) throw signal.reason;
+  const isGranted = await turnFor(state, mode, signal);
+  if (!isGranted) throw signal?.reason;
+  try {
+    return await callback({ name, mode });
+  } finally {
+    release(state, mode);
+  }
 }
 
 Object.defineProperty(navigator, "locks", {

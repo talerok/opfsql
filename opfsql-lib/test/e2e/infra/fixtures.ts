@@ -1,7 +1,7 @@
 import { test as base } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
 export { expect } from "@playwright/test";
 
@@ -12,7 +12,7 @@ export { expect } from "@playwright/test";
  */
 export const test = base.extend({
   context: async ({ playwright, browserName, baseURL }, use) => {
-    const profile = await mkdtemp(join(tmpdir(), "opfsql-e2e-"));
+    const profile = await mkdtemp(path.join(tmpdir(), "opfsql-e2e-"));
     const context = await playwright[browserName].launchPersistentContext(
       profile,
       { baseURL },

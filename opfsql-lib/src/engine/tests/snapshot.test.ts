@@ -3,7 +3,8 @@ import { MemoryFile } from "../../storage/file/sync-file.js";
 import { createEngine } from "../engine.js";
 import type { Session } from "../session.js";
 import { SerializationError } from "../../errors.js";
-import { mulberry32 } from "../../../test/support/random.js";
+import { Model, type Row } from "../../../test/support/model.js";
+import { mulberry32, pick, type Random } from "../../../test/support/random.js";
 
 // Snapshot isolation between sessions of one engine, on memory files, with
 // the checkpoint threshold each test needs.
@@ -25,12 +26,61 @@ async function openDatabase(checkpointThreshold?: number) {
 }
 
 async function rows(session: Session): Promise<unknown[]> {
-  const [r] = await session.execute("SELECT id, v FROM t ORDER BY id");
-  return r.objects();
+  const result = await session.query("SELECT id, v FROM t ORDER BY id");
+  return result.objects();
 }
 
 async function insert(session: Session, id: number, v = 0): Promise<void> {
   await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [id, v]);
+}
+
+/** A session that opens and closes read transactions. */
+class Reader {
+  /** The rows its open transaction saw at BEGIN; null outside one. */
+  private snapshot: Row[] | null = null;
+
+  constructor(readonly session: Session) {}
+
+  get isReading(): boolean {
+    return this.snapshot !== null;
+  }
+
+  /** What its reads must return: its snapshot, or the latest rows. */
+  expected(model: Model): Row[] {
+    return this.snapshot ?? model.rows();
+  }
+
+  async begin(model: Model): Promise<void> {
+    await this.session.execute("BEGIN");
+    this.snapshot = model.rows();
+  }
+
+  async commit(): Promise<void> {
+    await this.session.execute("COMMIT");
+    this.snapshot = null;
+  }
+}
+
+/** An insert, update or delete by `roll`, writing `v`; inserts if t is empty. */
+async function randomWrite(
+  writer: Session,
+  model: Model,
+  random: Random,
+  { roll, v }: { readonly roll: number; readonly v: number },
+): Promise<void> {
+  if (roll < 0.35 || model.isEmpty) {
+    const id = model.newId();
+    await insert(writer, id, v);
+    model.set(id, v);
+  } else if (roll < 0.5) {
+    const id = model.anyId(random);
+    await writer.query("UPDATE t SET v = $1 WHERE id = $2", [v, id]);
+    model.set(id, v);
+  } else {
+    const id = model.anyId(random);
+    await writer.query("DELETE FROM t WHERE id = $1", [id]);
+    model.delete(id);
+  }
 }
 
 describe("snapshot isolation", () => {
@@ -119,51 +169,30 @@ describe("snapshot isolation", () => {
   // checkpoints; each must keep seeing exactly the model as of its BEGIN.
   for (const seed of [1, 2, 3]) {
     it(
-      `readers keep their snapshots under random writes (seed ${seed})`,
+      `readers keep their snapshots under random writes (seed ${String(seed)})`,
       { timeout: 30_000 },
       async () => {
         const random = mulberry32(seed);
         const { engine, writer } = await openDatabase(8);
-        const model = new Map<number, number>();
-        const readers = Array.from({ length: 3 }, () => ({
-          session: engine.connect(),
-          snapshot: null as unknown[] | null,
-        }));
-        const expected = () =>
-          [...model.entries()]
-            .sort(([a], [b]) => a - b)
-            .map(([id, v]) => ({ id, v }));
-        let nextId = 1;
-
+        const model = new Model();
+        const readers = Array.from(
+          { length: 3 },
+          () => new Reader(engine.connect()),
+        );
         for (let step = 0; step < 300; step++) {
-          const r = random();
-          const ids = [...model.keys()];
-          const reader = readers[Math.floor(random() * readers.length)];
-
-          if (r < 0.35 || ids.length === 0) {
-            const id = nextId++;
-            await insert(writer, id, step);
-            model.set(id, step);
-          } else if (r < 0.5) {
-            const id = ids[Math.floor(random() * ids.length)];
-            await writer.query("UPDATE t SET v = $1 WHERE id = $2", [step, id]);
-            model.set(id, step);
-          } else if (r < 0.6) {
-            const id = ids[Math.floor(random() * ids.length)];
-            await writer.query("DELETE FROM t WHERE id = $1", [id]);
-            model.delete(id);
-          } else if (r < 0.75 && reader.snapshot === null) {
-            await reader.session.execute("BEGIN");
-            reader.snapshot = expected();
-          } else if (r < 0.85 && reader.snapshot !== null) {
-            await reader.session.execute("COMMIT");
-            reader.snapshot = null;
-          } else if (r < 0.9) {
+          const roll = random();
+          const reader = pick(random, readers);
+          if (roll < 0.6 || model.isEmpty) {
+            await randomWrite(writer, model, random, { roll, v: step });
+          } else if (roll < 0.75 && !reader.isReading) {
+            await reader.begin(model);
+          } else if (roll < 0.85 && reader.isReading) {
+            await reader.commit();
+          } else if (roll < 0.9) {
             await engine.checkpoint();
           }
-
-          for (const { session, snapshot } of readers) {
-            expect(await rows(session)).toEqual(snapshot ?? expected());
+          for (const each of readers) {
+            expect(await rows(each.session)).toEqual(each.expected(model));
           }
           expect(await engine.checkIntegrity()).toEqual([]);
         }

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BATCH_SIZE } from "../../executor/operator.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
+import type { Value } from "../../values/index.js";
+import { columnValues } from "../../../test/support/results.js";
 import { openTestEngine } from "./test-engine.js";
 
 // The AUTOINCREMENT sequence lives with the table's data, not in the catalog,
@@ -10,13 +12,13 @@ import { openTestEngine } from "./test-engine.js";
 
 let engine: Engine;
 let session: Session;
-let dbName: string;
+let databaseName: string;
 let seq = 0;
 
 beforeEach(async () => {
   resetMockOPFS();
-  dbName = `autoincrement-${seq++}`;
-  engine = await openTestEngine(dbName);
+  databaseName = `autoincrement-${String(seq++)}`;
+  engine = await openTestEngine(databaseName);
   session = engine.connect();
   await session.execute(
     "CREATE TABLE a (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)",
@@ -29,9 +31,10 @@ afterEach(async () => {
   await engine.close();
 });
 
-async function ids(table: string): Promise<unknown[]> {
-  const [r] = await session.execute(`SELECT id FROM ${table} ORDER BY id`);
-  return r.objects().map((row) => row.id);
+/** The ids in table a, in order. */
+async function idsInA(): Promise<Value[]> {
+  const result = await session.query("SELECT id FROM a ORDER BY id");
+  return columnValues(result, "id");
 }
 
 describe("AUTOINCREMENT", () => {
@@ -42,7 +45,7 @@ describe("AUTOINCREMENT", () => {
     for (const name of ["x", "y", "z"]) await insert.query([name]);
     const selected = await select.query([1]);
     expect(selected.rows).toEqual([]);
-    expect(await ids("a")).toEqual([1, 2, 3]);
+    expect(await idsInA()).toEqual([1, 2, 3]);
   });
 
   it("does not change the schema", async () => {
@@ -59,10 +62,10 @@ describe("AUTOINCREMENT", () => {
     await session.close();
     await engine.close();
 
-    engine = await openTestEngine(dbName);
+    engine = await openTestEngine(databaseName);
     session = engine.connect();
     await session.execute("INSERT INTO a (name) VALUES ('z')");
-    expect(await ids("a")).toEqual([1, 3]);
+    expect(await idsInA()).toEqual([1, 3]);
   });
 
   it("reads a source that reads opfsql_sequence whole before it inserts", async () => {
@@ -77,7 +80,7 @@ describe("AUTOINCREMENT", () => {
     await session.execute(
       "INSERT INTO a (name) SELECT name FROM b UNION ALL SELECT name FROM opfsql_sequence",
     );
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT count(*) AS copied, count(CASE WHEN name = 'a' THEN 1 END) AS own FROM a",
     );
     expect(result.objects()).toEqual([{ copied: BATCH_SIZE, own: 0 }]);

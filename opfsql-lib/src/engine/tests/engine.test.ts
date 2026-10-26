@@ -1,11 +1,16 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MisuseError } from "../../errors.js";
-import type { Value } from "../../values/index.js";
+import { compareValues, type Value } from "../../values/index.js";
 import { bindStatement } from "../../sql/binder/index.js";
 import type * as BinderModule from "../../sql/binder/index.js";
 import { Engine, PreparedStatement, type Session } from "../index.js";
 import { openTestEngine } from "./test-engine.js";
+import {
+  cellOf,
+  columnValues,
+  tableOf,
+} from "../../../test/support/results.js";
 
 // Binding is counted: a prepared statement binds again only for a new schema.
 vi.mock("../../sql/binder/index.js", async (importOriginal) => {
@@ -18,7 +23,7 @@ let session: Session;
 let seq = 0;
 
 function newDatabaseName(): string {
-  return `engine-test-${seq++}`;
+  return `engine-test-${String(seq++)}`;
 }
 
 async function createEngine(name?: string): Promise<Engine> {
@@ -33,8 +38,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await session?.close();
-  await engine?.close();
+  await session.close();
+  await engine.close();
 });
 
 // ---------------------------------------------------------------------------
@@ -58,7 +63,7 @@ describe("initialization", () => {
 
     engine = await openTestEngine(name);
     session = engine.connect();
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 42 }]);
   });
 });
@@ -73,7 +78,7 @@ describe("autocommit", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'a')");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
   });
 
@@ -82,7 +87,7 @@ describe("autocommit", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'a')");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1, name: "a" }]);
   });
 
@@ -94,7 +99,7 @@ describe("autocommit", () => {
       session.execute("INSERT INTO nonexistent (id) VALUES (1)"),
     ).rejects.toThrow();
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(0);
   });
 
@@ -108,7 +113,7 @@ describe("autocommit", () => {
 
     engine = await openTestEngine(name);
     session = engine.connect();
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(0);
   });
 });
@@ -126,7 +131,7 @@ describe("explicit transactions", () => {
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'a')");
     await session.execute("COMMIT");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1, name: "a" }]);
   });
 
@@ -138,7 +143,7 @@ describe("explicit transactions", () => {
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'a')");
     await session.execute("ROLLBACK");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(0);
   });
 
@@ -160,20 +165,20 @@ describe("explicit transactions", () => {
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'a')");
     await session.execute("COMMIT");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1, name: "a" }]);
   });
 
   it("COMMIT without BEGIN is a no-op", async () => {
     await createEngine();
-    const [result] = await session.execute("COMMIT");
+    const result = await session.query("COMMIT");
     expect(result.columns).toEqual([]);
     expect(session.inTransaction).toBe(false);
   });
 
   it("ROLLBACK without BEGIN is a no-op", async () => {
     await createEngine();
-    const [result] = await session.execute("ROLLBACK");
+    const result = await session.query("ROLLBACK");
     expect(result.changes).toBe(0);
   });
 
@@ -215,7 +220,7 @@ describe("DROP TABLE", () => {
     await session.execute("DROP TABLE t");
     await session.execute("ROLLBACK");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
   });
 });
@@ -233,7 +238,7 @@ describe("multiple statements", () => {
       "INSERT INTO t (id) VALUES (1); INSERT INTO t (id) VALUES (2); INSERT INTO t (id) VALUES (3)",
     );
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(3);
   });
 
@@ -245,12 +250,9 @@ describe("multiple statements", () => {
       "INSERT INTO t (id, val) VALUES (1, 'first'); INSERT INTO t (id, val) VALUES (2, 'second'); INSERT INTO t (id, val) VALUES (3, 'third')",
     );
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(3);
-    const ids = result
-      .objects()
-      .map((r) => r.id)
-      .sort();
+    const ids = columnValues(result, "id").toSorted(compareValues);
     expect(ids).toEqual([1, 2, 3]);
   });
 });
@@ -265,10 +267,10 @@ describe("column aliases", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
     await session.execute("INSERT INTO t (id, name) VALUES (1, 'alice')");
 
-    const [result] = await session.execute("SELECT name AS username FROM t");
+    const result = await session.query("SELECT name AS username FROM t");
     expect(result.objects()).toHaveLength(1);
     expect(result.objects()[0]).toHaveProperty("username");
-    expect(result.objects()[0].username).toBe("alice");
+    expect(cellOf(result, "username")).toBe("alice");
   });
 
   it("multiple aliases all appear in output", async () => {
@@ -280,7 +282,7 @@ describe("column aliases", () => {
       "INSERT INTO t (id, name, age) VALUES (1, 'alice', 30)",
     );
 
-    const [result] = await session.execute("SELECT name AS n, age AS a FROM t");
+    const result = await session.query("SELECT name AS n, age AS a FROM t");
     expect(result.objects()[0]).toEqual({ n: "alice", a: 30 });
   });
 
@@ -291,11 +293,9 @@ describe("column aliases", () => {
     );
     await session.execute("INSERT INTO t (id, price, qty) VALUES (1, 10.5, 3)");
 
-    const [result] = await session.execute(
-      "SELECT price * qty AS total FROM t",
-    );
+    const result = await session.query("SELECT price * qty AS total FROM t");
     expect(result.objects()[0]).toHaveProperty("total");
-    expect(result.objects()[0].total).toBeCloseTo(31.5);
+    expect(cellOf(result, "total")).toBeCloseTo(31.5);
   });
 });
 
@@ -319,12 +319,9 @@ describe("WHERE + column pruning", () => {
       "INSERT INTO t (id, name, age) VALUES (3, 'Charlie', 35)",
     );
 
-    const [result] = await session.execute("SELECT name FROM t WHERE age > 28");
+    const result = await session.query("SELECT name FROM t WHERE age > 28");
     expect(result.objects()).toHaveLength(2);
-    const names = result
-      .objects()
-      .map((r) => r.name)
-      .sort();
+    const names = columnValues(result, "name").toSorted(compareValues);
     expect(names).toEqual(["Alice", "Charlie"]);
   });
 });
@@ -347,8 +344,8 @@ describe("DML without WHERE", () => {
     );
 
     await session.execute("UPDATE t SET age = 99");
-    const [result] = await session.execute("SELECT * FROM t");
-    expect(result.objects().every((r: any) => r.age === 99)).toBe(true);
+    const result = await session.query("SELECT * FROM t");
+    expect(columnValues(result, "age").every((age) => age === 99)).toBe(true);
   });
 
   it("DELETE all rows without WHERE", async () => {
@@ -358,7 +355,7 @@ describe("DML without WHERE", () => {
     await session.execute("INSERT INTO t (id, name) VALUES (2, 'b')");
 
     await session.execute("DELETE FROM t");
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(0);
   });
 
@@ -370,17 +367,12 @@ describe("DML without WHERE", () => {
     await session.execute("INSERT INTO t (id, age) VALUES (1, 10)");
     await session.execute("INSERT INTO t (id, age) VALUES (2, 20)");
 
-    const [updateResult] = await session.execute("UPDATE t SET age = 99");
-    const [after] = await session.execute("SELECT * FROM t");
+    const updateResult = await session.query("UPDATE t SET age = 99");
+    const after = await session.query("SELECT * FROM t");
 
     expect(updateResult.changes).toBe(2);
     expect(after.objects()).toHaveLength(2);
-    expect(
-      after
-        .objects()
-        .map((r: any) => r.age)
-        .sort(),
-    ).toEqual([99, 99]);
+    expect(columnValues(after, "age")).toEqual([99, 99]);
   });
 
   it("UPDATE with WHERE on non-updated column", async () => {
@@ -396,11 +388,11 @@ describe("DML without WHERE", () => {
     );
 
     await session.execute("UPDATE t SET name = 'X' WHERE age > 28");
-    const [result] = await session.execute("SELECT * FROM t");
-    const alice = result.objects().find((r: any) => r.id === 1);
-    expect(alice!.name).toBe("X");
-    const bob = result.objects().find((r: any) => r.id === 2);
-    expect(bob!.name).toBe("Bob");
+    const result = await session.query("SELECT * FROM t");
+    const alice = result.objects().find((row) => row["id"] === 1);
+    expect(alice?.["name"]).toBe("X");
+    const bob = result.objects().find((row) => row["id"] === 2);
+    expect(bob?.["name"]).toBe("Bob");
   });
 });
 
@@ -411,10 +403,10 @@ describe("DML without WHERE", () => {
 describe("recursive CTE", () => {
   it("generates a number sequence", async () => {
     await createEngine();
-    const [result] = await session.execute(
+    const result = await session.query(
       "WITH RECURSIVE nums(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums",
     );
-    expect(result.objects().map((r: any) => r.n)).toEqual([1, 2, 3, 4, 5]);
+    expect(columnValues(result, "n")).toEqual([1, 2, 3, 4, 5]);
   });
 });
 
@@ -438,7 +430,7 @@ describe("error handling", () => {
     await session.execute("COMMIT");
     expect(session.inTransaction).toBe(false);
 
-    const [result] = await session.execute("SELECT id FROM t ORDER BY id");
+    const result = await session.query("SELECT id FROM t ORDER BY id");
     expect(result.rows).toEqual([[1], [3]]);
   });
 
@@ -456,7 +448,7 @@ describe("error handling", () => {
     await session.query("INSERT INTO users (email) VALUES ('b@x')");
     await session.execute("COMMIT");
 
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT email FROM users ORDER BY email",
     );
     expect(result.rows).toEqual([["a@x"], ["b@x"]]);
@@ -473,7 +465,7 @@ describe("error handling", () => {
     ).rejects.toMatchObject({ code: "CONSTRAINT_VIOLATION" });
     await session.execute("COMMIT");
 
-    const [result] = await session.execute("SELECT id, v FROM t");
+    const result = await session.query("SELECT id, v FROM t");
     expect(result.rows).toEqual([[10, "kept"]]);
   });
 
@@ -492,7 +484,7 @@ describe("error handling", () => {
 
     const schema = await session.schema();
     expect(schema.tables.map((table) => table.name)).toEqual(["t", "a", "b"]);
-    expect(schema.tables[0].indexes).toEqual([]);
+    expect(tableOf(schema, "t").indexes).toEqual([]);
   });
 
   it("ROLLBACK after a failed statement discards the rest", async () => {
@@ -508,9 +500,9 @@ describe("error handling", () => {
     await session.execute("ROLLBACK");
 
     await session.execute("INSERT INTO t (id) VALUES (10)");
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
-    expect(result.objects()[0].id).toBe(10);
+    expect(cellOf(result, "id")).toBe(10);
   });
 
   it("error in autocommit rolls back only that statement", async () => {
@@ -522,9 +514,9 @@ describe("error handling", () => {
       session.execute("INSERT INTO nonexistent (id) VALUES (2)"),
     ).rejects.toThrow();
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
-    expect(result.objects()[0].id).toBe(1);
+    expect(cellOf(result, "id")).toBe(1);
   });
 });
 
@@ -540,9 +532,9 @@ describe("auto PK index", () => {
     await session.execute("INSERT INTO t VALUES (2, 'b')");
     await session.execute("INSERT INTO t VALUES (3, 'c')");
 
-    const [result] = await session.execute("SELECT name FROM t WHERE id = 2");
+    const result = await session.query("SELECT name FROM t WHERE id = 2");
     expect(result.objects()).toHaveLength(1);
-    expect(result.objects()[0].name).toBe("b");
+    expect(cellOf(result, "name")).toBe("b");
   });
 
   it("PK index enforces uniqueness", async () => {
@@ -563,8 +555,8 @@ describe("auto PK index", () => {
 
     await session.execute("DELETE FROM t WHERE id = 1");
     await session.execute("INSERT INTO t VALUES (1, 'reused')");
-    const [result] = await session.execute("SELECT name FROM t WHERE id = 1");
-    expect(result.objects()[0].name).toBe("reused");
+    const result = await session.query("SELECT name FROM t WHERE id = 1");
+    expect(cellOf(result, "name")).toBe("reused");
   });
 
   it("PK index survives transaction rollback", async () => {
@@ -576,11 +568,11 @@ describe("auto PK index", () => {
     await session.execute("INSERT INTO t VALUES (2)");
     await session.execute("ROLLBACK");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
 
     await session.execute("INSERT INTO t VALUES (2)");
-    const [result2] = await session.execute("SELECT * FROM t WHERE id = 2");
+    const result2 = await session.query("SELECT * FROM t WHERE id = 2");
     expect(result2.objects()).toHaveLength(1);
   });
 
@@ -592,7 +584,7 @@ describe("auto PK index", () => {
 
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await session.execute("INSERT INTO t VALUES (1)");
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
   });
 });
@@ -610,7 +602,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
 
     await session.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
 
-    const [result] = await session.execute("SELECT id, val FROM t ORDER BY id");
+    const result = await session.query("SELECT id, val FROM t ORDER BY id");
     expect(result.objects()).toEqual([
       { id: 1, val: 99 },
       { id: 2, val: 99 },
@@ -624,7 +616,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
 
     await session.execute("ALTER TABLE t ADD COLUMN val TEXT");
 
-    const [result] = await session.execute("SELECT id, val FROM t");
+    const result = await session.query("SELECT id, val FROM t");
     expect(result.objects()).toEqual([{ id: 1, val: null }]);
   });
 
@@ -636,7 +628,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
     await session.execute("INSERT INTO t (id, val) VALUES (2, 42)");
 
-    const [result] = await session.execute("SELECT id, val FROM t ORDER BY id");
+    const result = await session.query("SELECT id, val FROM t ORDER BY id");
     expect(result.objects()).toEqual([
       { id: 1, val: 99 },
       { id: 2, val: 42 },
@@ -653,13 +645,13 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     );
 
     const select = "SELECT tags FROM t ORDER BY id";
-    const [result] = await session.execute(select);
+    const result = await session.query(select);
     const [first, second] = result.rows.map(([tags]) => tags);
     if (Array.isArray(first)) first.push("changed");
     expect(first).toEqual(["new", "changed"]);
     expect(second).toEqual(["new"]);
 
-    const [later] = await session.execute(select);
+    const later = await session.query(select);
     expect(later.rows).toEqual([[["new"]], [["new"]]]);
   });
 
@@ -671,8 +663,8 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
     await session.execute("UPDATE t SET val = 50 WHERE id = 1");
 
-    const [result] = await session.execute("SELECT val FROM t");
-    expect(result.objects()[0].val).toBe(50);
+    const result = await session.query("SELECT val FROM t");
+    expect(cellOf(result, "val")).toBe(50);
   });
 
   it("DELETE works on rows with default-filled column", async () => {
@@ -684,7 +676,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
     await session.execute("ALTER TABLE t ADD COLUMN val INTEGER DEFAULT 99");
     await session.execute("DELETE FROM t WHERE val = 99");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(0);
   });
 
@@ -700,7 +692,7 @@ describe("ALTER TABLE ADD COLUMN defaults", () => {
 
     engine = await openTestEngine(name);
     session = engine.connect();
-    const [result] = await session.execute("SELECT id, val FROM t");
+    const result = await session.query("SELECT id, val FROM t");
     expect(result.objects()).toEqual([{ id: 1, val: 99 }]);
   });
 });
@@ -716,7 +708,7 @@ describe("CREATE INDEX — reserved names", () => {
     await session.execute("CREATE INDEX __pk_t ON t (name)");
 
     const schema = await session.schema();
-    expect(schema.tables[0].indexes.map((index) => index.name)).toEqual([
+    expect(tableOf(schema, "t").indexes.map((index) => index.name)).toEqual([
       "__pk_t",
     ]);
   });
@@ -757,7 +749,7 @@ describe("ALTER TABLE DROP COLUMN — index reference", () => {
     await session.execute("DROP INDEX idx_name");
     await session.execute("ALTER TABLE t DROP COLUMN name");
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(0);
   });
 });
@@ -772,11 +764,11 @@ describe("SUBSTR — negative start", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, s TEXT)");
     await session.execute("INSERT INTO t VALUES (1, 'hello')");
 
-    const [r1] = await session.execute("SELECT SUBSTR(s, -1) AS v FROM t");
-    expect(r1.objects()[0].v).toBe("o");
+    const r1 = await session.query("SELECT SUBSTR(s, -1) AS v FROM t");
+    expect(cellOf(r1, "v")).toBe("o");
 
-    const [r2] = await session.execute("SELECT SUBSTR(s, -2, 2) AS v FROM t");
-    expect(r2.objects()[0].v).toBe("lo");
+    const r2 = await session.query("SELECT SUBSTR(s, -2, 2) AS v FROM t");
+    expect(cellOf(r2, "v")).toBe("lo");
   });
 });
 
@@ -798,15 +790,19 @@ describe("GROUP BY + aggregates", () => {
     );
     await session.execute("INSERT INTO products VALUES (3, 'C', 30.0, 'Toys')");
 
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT category, COUNT(*) AS cnt FROM products GROUP BY category",
     );
     expect(result.objects()).toHaveLength(2);
-    const sorted = result
+    const byCategory = result
       .objects()
-      .sort((a: any, b: any) => a.category.localeCompare(b.category));
-    expect(sorted[0]).toEqual({ category: "Books", cnt: 2 });
-    expect(sorted[1]).toEqual({ category: "Toys", cnt: 1 });
+      .toSorted((a, b) =>
+        compareValues(a["category"] ?? null, b["category"] ?? null),
+      );
+    expect(byCategory).toEqual([
+      { category: "Books", cnt: 2 },
+      { category: "Toys", cnt: 1 },
+    ]);
   });
 
   it("aggregate without GROUP BY", async () => {
@@ -818,11 +814,10 @@ describe("GROUP BY + aggregates", () => {
     await session.execute("INSERT INTO t VALUES (2, 20)");
     await session.execute("INSERT INTO t VALUES (3, 30)");
 
-    const [result] = await session.execute(
-      "SELECT COUNT(*) AS cnt, SUM(val) AS total, AVG(val) AS avg_val FROM t",
+    const result = await session.query(
+      "SELECT COUNT(*) AS cnt, SUM(val) AS total, AVG(val) AS average FROM t",
     );
-    expect(result.objects()).toHaveLength(1);
-    expect(result.objects()[0]).toEqual({ cnt: 3, total: 60, avg_val: 20 });
+    expect(result.objects()).toEqual([{ cnt: 3, total: 60, average: 20 }]);
   });
 
   it("ORDER BY + LIMIT returns correct top-K rows", async () => {
@@ -834,10 +829,10 @@ describe("GROUP BY + aggregates", () => {
     await session.execute("INSERT INTO scores VALUES (4, 80)");
     await session.execute("INSERT INTO scores VALUES (5, 70)");
 
-    const [desc] = await session.execute(
+    const desc = await session.query(
       "SELECT * FROM scores ORDER BY val DESC LIMIT 3",
     );
-    expect(desc.objects().map((r: any) => r.val)).toEqual([90, 80, 70]);
+    expect(columnValues(desc, "val")).toEqual([90, 80, 70]);
   });
 });
 
@@ -854,7 +849,7 @@ describe("parameterized queries", () => {
       "alice",
     ]);
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 1, name: "alice" }]);
   });
 
@@ -882,7 +877,7 @@ describe("parameterized queries", () => {
     await statement.query([2, "bob"]);
     await statement.query([3, "charlie"]);
 
-    const [result] = await session.execute("SELECT * FROM t ORDER BY id");
+    const result = await session.query("SELECT * FROM t ORDER BY id");
     expect(result.objects()).toHaveLength(3);
     expect(result.objects()[0]).toEqual({ id: 1, name: "alice" });
     expect(result.objects()[1]).toEqual({ id: 2, name: "bob" });
@@ -901,10 +896,10 @@ describe("parameterized queries", () => {
     const statement = await session.prepare("SELECT val FROM t WHERE id = $1");
     const r1 = await statement.query([2]);
     expect(r1.objects()).toHaveLength(1);
-    expect(r1.objects()[0].val).toBe(200);
+    expect(cellOf(r1, "val")).toBe(200);
 
     const r3 = await statement.query([3]);
-    expect(r3.objects()[0].val).toBe(300);
+    expect(cellOf(r3, "val")).toBe(300);
   });
 
   it("prepare() requires exactly one statement", async () => {
@@ -921,8 +916,8 @@ describe("parameterized queries", () => {
 
     await session.query("UPDATE t SET name = $1 WHERE id = $2", ["new", 1]);
 
-    const [result] = await session.execute("SELECT name FROM t WHERE id = 1");
-    expect(result.objects()[0].name).toBe("new");
+    const result = await session.query("SELECT name FROM t WHERE id = 1");
+    expect(cellOf(result, "name")).toBe("new");
   });
 
   it("DELETE with parameterized WHERE", async () => {
@@ -933,9 +928,9 @@ describe("parameterized queries", () => {
 
     await session.query("DELETE FROM t WHERE id = $1", [1]);
 
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
-    expect(result.objects()[0].id).toBe(2);
+    expect(cellOf(result, "id")).toBe(2);
   });
 });
 
@@ -992,9 +987,7 @@ describe("parameters: count and conversion", () => {
         code: "MISUSE",
       });
     }
-    const [count] = await session.execute(
-      "SELECT count(*) FROM t WHERE id >= 50",
-    );
+    const count = await session.query("SELECT count(*) FROM t WHERE id >= 50");
     expect(count.rows).toEqual([[0]]);
   });
 
@@ -1009,7 +1002,7 @@ describe("parameters: count and conversion", () => {
     blob.fill(0);
     await session.commit();
     await insert;
-    const [stored] = await session.execute("SELECT data FROM b");
+    const stored = await session.query("SELECT data FROM b");
     expect(stored.rows).toEqual([[new Uint8Array([1, 2, 3])]]);
     await other.close();
   });
@@ -1080,9 +1073,7 @@ describe("JSON type", () => {
       `INSERT INTO t (id, data) VALUES (1, '{"name": "Alice", "age": 30}')`,
     );
 
-    const [result] = await session.execute(
-      "SELECT id, data.name, data.age FROM t",
-    );
+    const result = await session.query("SELECT id, data.name, data.age FROM t");
     expect(result.objects()).toHaveLength(1);
     expect(result.objects()[0]).toMatchObject({ id: 1 });
   });
@@ -1093,10 +1084,10 @@ describe("JSON type", () => {
     await session.execute(`INSERT INTO t (id, data) VALUES (1, '{"age": 30}')`);
     await session.execute(`INSERT INTO t (id, data) VALUES (2, '{"age": 25}')`);
 
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT id FROM t WHERE data.age > 20 AND data.age < 30",
     );
-    expect(result.objects().map((r) => r.id)).toEqual([2]);
+    expect(columnValues(result, "id")).toEqual([2]);
   });
 
   it("WHERE with single JSON path less-than", async () => {
@@ -1105,16 +1096,11 @@ describe("JSON type", () => {
     await session.execute(`INSERT INTO t (id, data) VALUES (1, '{"age": 30}')`);
     await session.execute(`INSERT INTO t (id, data) VALUES (2, '{"age": 25}')`);
 
-    const [r1] = await session.execute("SELECT id FROM t WHERE data.age < 30");
-    expect(r1.objects().map((r) => r.id)).toEqual([2]);
+    const r1 = await session.query("SELECT id FROM t WHERE data.age < 30");
+    expect(columnValues(r1, "id")).toEqual([2]);
 
-    const [r2] = await session.execute("SELECT id FROM t WHERE data.age > 20");
-    expect(
-      r2
-        .objects()
-        .map((r) => r.id)
-        .sort(),
-    ).toEqual([1, 2]);
+    const r2 = await session.query("SELECT id FROM t WHERE data.age > 20");
+    expect(columnValues(r2, "id").toSorted(compareValues)).toEqual([1, 2]);
   });
 
   it("DELETE with multi-expression filter on JSON path", async () => {
@@ -1128,8 +1114,8 @@ describe("JSON type", () => {
       "DELETE FROM t WHERE data.age > 20 AND data.age < 30",
     );
 
-    const [result] = await session.execute("SELECT id FROM t ORDER BY id");
-    expect(result.objects().map((r) => r.id)).toEqual([1, 3]);
+    const result = await session.query("SELECT id FROM t ORDER BY id");
+    expect(columnValues(result, "id")).toEqual([1, 3]);
   });
 
   it("UPDATE with multi-expression filter on JSON path", async () => {
@@ -1142,7 +1128,7 @@ describe("JSON type", () => {
       `UPDATE t SET data = '{"age": 99}' WHERE data.age > 20 AND data.age < 30`,
     );
 
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT id, data.age FROM t ORDER BY id",
     );
     expect(result.objects()[0]).toMatchObject({ id: 1 });
@@ -1156,19 +1142,19 @@ describe("JSON type", () => {
       `INSERT INTO t (id, data) VALUES (1, '{"name": "Alice"}')`,
     );
 
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT data.name || '!' AS greeting FROM t",
     );
-    expect(result.objects()[0].greeting).toBe("Alice!");
+    expect(cellOf(result, "greeting")).toBe("Alice!");
   });
 
   it("CAST number/boolean to JSON preserves value", async () => {
     await createEngine();
-    const [r1] = await session.execute("SELECT CAST(42 AS JSON) AS v");
-    expect(r1.objects()[0].v).toBe(42);
+    const r1 = await session.query("SELECT CAST(42 AS JSON) AS v");
+    expect(cellOf(r1, "v")).toBe(42);
 
-    const [r2] = await session.execute("SELECT CAST(TRUE AS JSON) AS v");
-    expect(r2.objects()[0].v).toBe(true);
+    const r2 = await session.query("SELECT CAST(TRUE AS JSON) AS v");
+    expect(cellOf(r2, "v")).toBe(true);
   });
 });
 
@@ -1182,10 +1168,10 @@ describe("BLOB type", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
     await session.execute("INSERT INTO t (id, data) VALUES (1, x'DEADBEEF')");
 
-    const [result] = await session.execute("SELECT id, data FROM t");
+    const result = await session.query("SELECT id, data FROM t");
     expect(result.objects()).toHaveLength(1);
-    expect(result.objects()[0].data).toBeInstanceOf(Uint8Array);
-    expect(result.objects()[0].data).toEqual(
+    expect(cellOf(result, "data")).toBeInstanceOf(Uint8Array);
+    expect(cellOf(result, "data")).toEqual(
       new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
     );
   });
@@ -1195,17 +1181,17 @@ describe("BLOB type", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
     await session.execute("INSERT INTO t VALUES (1, x'CAFE')");
 
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT CAST(data AS TEXT) AS hex FROM t",
     );
-    expect(result.objects()[0].hex).toBe("cafe");
+    expect(cellOf(result, "hex")).toBe("cafe");
   });
 
   it("CAST text to BLOB", async () => {
     await createEngine();
-    const [result] = await session.execute("SELECT CAST('FF00' AS BLOB) AS v");
-    expect(result.objects()[0].v).toBeInstanceOf(Uint8Array);
-    expect(result.objects()[0].v).toEqual(new Uint8Array([0xff, 0x00]));
+    const result = await session.query("SELECT CAST('FF00' AS BLOB) AS v");
+    expect(cellOf(result, "v")).toBeInstanceOf(Uint8Array);
+    expect(cellOf(result, "v")).toEqual(new Uint8Array([0xff, 0x00]));
   });
 
   it("blob parameter support", async () => {
@@ -1215,8 +1201,8 @@ describe("BLOB type", () => {
       new Uint8Array([0xaa, 0xbb]),
     ]);
 
-    const [result] = await session.execute("SELECT data FROM t");
-    expect(result.objects()[0].data).toEqual(new Uint8Array([0xaa, 0xbb]));
+    const result = await session.query("SELECT data FROM t");
+    expect(cellOf(result, "data")).toEqual(new Uint8Array([0xaa, 0xbb]));
   });
 
   it("blob comparison in WHERE", async () => {
@@ -1225,10 +1211,8 @@ describe("BLOB type", () => {
     await session.execute("INSERT INTO t VALUES (1, x'AA')");
     await session.execute("INSERT INTO t VALUES (2, x'BB')");
 
-    const [result] = await session.execute(
-      "SELECT id FROM t WHERE data = x'BB'",
-    );
-    expect(result.objects().map((r) => r.id)).toEqual([2]);
+    const result = await session.query("SELECT id FROM t WHERE data = x'BB'");
+    expect(columnValues(result, "id")).toEqual([2]);
   });
 
   it("ORDER BY blob column", async () => {
@@ -1238,8 +1222,8 @@ describe("BLOB type", () => {
     await session.execute("INSERT INTO t VALUES (2, x'00')");
     await session.execute("INSERT INTO t VALUES (3, x'AA')");
 
-    const [result] = await session.execute("SELECT id FROM t ORDER BY data");
-    expect(result.objects().map((r) => r.id)).toEqual([2, 3, 1]);
+    const result = await session.query("SELECT id FROM t ORDER BY data");
+    expect(columnValues(result, "id")).toEqual([2, 3, 1]);
   });
 
   it("UPDATE blob column", async () => {
@@ -1248,8 +1232,8 @@ describe("BLOB type", () => {
     await session.execute("INSERT INTO t VALUES (1, x'AA')");
     await session.execute("UPDATE t SET data = x'BB' WHERE id = 1");
 
-    const [result] = await session.execute("SELECT data FROM t");
-    expect(result.objects()[0].data).toEqual(new Uint8Array([0xbb]));
+    const result = await session.query("SELECT data FROM t");
+    expect(cellOf(result, "data")).toEqual(new Uint8Array([0xbb]));
   });
 
   it("NULL blob", async () => {
@@ -1257,8 +1241,8 @@ describe("BLOB type", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB)");
     await session.execute("INSERT INTO t VALUES (1, NULL)");
 
-    const [result] = await session.execute("SELECT data FROM t WHERE id = 1");
-    expect(result.objects()[0].data).toBeNull();
+    const result = await session.query("SELECT data FROM t WHERE id = 1");
+    expect(cellOf(result, "data")).toBeNull();
   });
 });
 
@@ -1284,7 +1268,7 @@ describe("schema changes", () => {
     session = engine.connect();
     const schema = await session.schema();
     expect(schema.tables.map((table) => table.name)).toEqual(["t", "a", "b"]);
-    expect(schema.tables[0].indexes.map((index) => index.name)).toEqual([
+    expect(tableOf(schema, "t").indexes.map((index) => index.name)).toEqual([
       "idx",
     ]);
   });
@@ -1309,17 +1293,17 @@ describe("schema()", () => {
     await session.execute(
       `CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB DEFAULT x'0102', tags JSON DEFAULT '["a"]')`,
     );
-    const first = await session.schema();
-    const [, data, tags] = first.tables[0].columns;
-    (data.defaultValue as Uint8Array).fill(0);
-    (tags.defaultValue as string[]).push("changed");
+    const defaultsOf = async () => {
+      const schema = await session.schema();
+      return tableOf(schema, "t").columns.map((column) => column.defaultValue);
+    };
+    const [, data, tags] = await defaultsOf();
+    (data as Uint8Array).fill(0);
+    (tags as string[]).push("changed");
 
-    const second = await session.schema();
-    expect(
-      second.tables[0].columns.map((column) => column.defaultValue),
-    ).toEqual([null, new Uint8Array([1, 2]), ["a"]]);
+    expect(await defaultsOf()).toEqual([null, new Uint8Array([1, 2]), ["a"]]);
     await session.execute("INSERT INTO t (id) VALUES (1)");
-    const [row] = await session.execute("SELECT data, tags FROM t");
+    const row = await session.query("SELECT data, tags FROM t");
     expect(row.rows).toEqual([[new Uint8Array([1, 2]), ["a"]]]);
   });
 
@@ -1331,7 +1315,7 @@ describe("schema()", () => {
     `);
     const schema = await session.schema();
     expect(schema.tables.map((table) => table.name)).toEqual(["a", "b"]);
-    expect(schema.tables[0].columns).toEqual([
+    expect(tableOf(schema, "a").columns).toEqual([
       {
         name: "id",
         type: "INTEGER",
@@ -1351,16 +1335,19 @@ describe("schema()", () => {
         defaultValue: "x",
       },
     ]);
-    expect(schema.tables[1].columns.map((column) => column.primaryKey)).toEqual(
-      [true, false, false],
-    );
-    expect(schema.tables[1].columns.map((column) => column.unique)).toEqual([
+    const b = tableOf(schema, "b");
+    expect(b.columns.map((column) => column.primaryKey)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect(b.columns.map((column) => column.unique)).toEqual([
       false,
       true,
       false,
     ]);
     // The columns show the constraints' indexes.
-    expect(schema.tables[1].indexes).toEqual([]);
+    expect(b.indexes).toEqual([]);
   });
 
   it("shows a primary key over several columns on each of them, and lists CREATE INDEX's indexes", async () => {
@@ -1368,8 +1355,7 @@ describe("schema()", () => {
     await session.execute(
       "CREATE TABLE t (a INTEGER, b TEXT, c TEXT, PRIMARY KEY (a, b)); CREATE UNIQUE INDEX t_c ON t (lower(c), a)",
     );
-    const { tables } = await session.schema();
-    const [table] = tables;
+    const table = tableOf(await session.schema(), "t");
     expect(table.columns.map((column) => column.primaryKey)).toEqual([
       true,
       true,

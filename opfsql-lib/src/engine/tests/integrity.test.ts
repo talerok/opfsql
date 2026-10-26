@@ -88,6 +88,7 @@ describe("checkIntegrity", () => {
     await damage((transaction) => {
       const { rootPage } = entryNamed(transaction, "t_tag");
       const [first] = new IndexReader(transaction, rootPage).keysFrom();
+      if (first === undefined) throw new Error("t_tag is empty");
       new IndexWriter(transaction, rootPage, "t_tag").delete(first);
     });
     expect(await check()).toEqual([

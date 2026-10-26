@@ -1,4 +1,10 @@
-import type { Result, ResultRow, Schema } from "../../src/engine/api/index.js";
+import type {
+  Result,
+  ResultRow,
+  Schema,
+  TableInfo,
+} from "../../src/engine/api/index.js";
+import type { Value } from "../../src/values/index.js";
 
 // Shorthands for what a test reads off a result it awaits.
 
@@ -33,4 +39,25 @@ export async function lastRowidOf(
 export async function tableNamesOf(work: Promise<Schema>): Promise<string[]> {
   const schema = await work;
   return schema.tables.map((table) => table.name);
+}
+
+/** The value of `column` in row `row` of a result; undefined past its rows. */
+export function cellOf(
+  result: Result,
+  column: string,
+  row = 0,
+): Value | undefined {
+  return result.objects()[row]?.[column];
+}
+
+/** The values of `column`, one per row, in row order. */
+export function columnValues(result: Result, column: string): Value[] {
+  return result.objects().map((row) => row[column] ?? null);
+}
+
+/** The table `name` of a schema description; fails the test without one. */
+export function tableOf(schema: Schema, name: string): TableInfo {
+  const table = schema.tables.find((candidate) => candidate.name === name);
+  if (table === undefined) throw new Error(`no table ${name} in the schema`);
+  return table;
 }
