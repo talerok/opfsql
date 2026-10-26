@@ -179,7 +179,10 @@ compiled expressions and the table layer. An operator:
 
 ```ts
 interface Operator {
-  /** The next batch of at most `max` rows, or null when there are no more. */
+  /**
+   * The next batch of at most `max` rows, or null when there are no more.
+   * `max` is what the caller can still use: Infinity when it takes every row.
+   */
   next(max: number): Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
   rescan(): void;
@@ -207,7 +210,9 @@ UPDATE and DELETE read every target row from their source, and UPDATE
 computes every new row, before changing any — each change made by the table layer, which keeps indexes and
 constraints with the row — so a change never moves a row into or out of the
 scan that is still finding rows. An INSERT whose source reads the target
-table reads all of it first, for the same reason.
+table reads all of it first, for the same reason; the binder, which resolved
+every table the source names, says so on the statement. Any other INSERT
+writes each row as its source produces it.
 
 An UPDATE's source produces every column of the table, then the rowid; no
 pass prunes them. A DELETE's source produces the rows to delete, the rowid

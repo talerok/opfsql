@@ -269,8 +269,8 @@ that of [Order and equality](#order-and-equality).
 LIMIT and OFFSET take integers, converted as an INTEGER column converts
 them: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
 OFFSET skips nothing. Any other value — NULL, `2.5`, `'five'` — fails with
-`DATATYPE_MISMATCH`. Both are evaluated each time their query starts,
-before it reads a row.
+`DATATYPE_MISMATCH`: a constant when the statement is prepared, anything
+else (a parameter, say) each time the query starts, before it reads a row.
 
 ## Limits
 
