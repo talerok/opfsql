@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { ConstraintError, InternalError } from "../../errors.js";
+import { ConstraintError, InternalError, SemanticError } from "../../errors.js";
 import { type IndexShape, SEQUENCE_TABLE_NAME } from "../../schema/index.js";
-import type { Catalog } from "../index.js";
+import type { Catalog, CompileExpression } from "../index.js";
 import { column, Database, usersShape, withUsers } from "./database.js";
+
+/** `lower(column)`, compiled as the engine would: by name, failing for a column the table lacks. */
+const compileLower: CompileExpression = (sql, table) => {
+  const name = sql.startsWith("lower(") ? sql.slice(6, -1) : sql;
+  const position = table.columns.findIndex((each) => each.name === name);
+  if (position === -1) throw new SemanticError(`no such column in ${sql}`);
+  return (row) => {
+    const value = row[position];
+    return typeof value === "string" ? value.toLowerCase() : null;
+  };
+};
 
 describe("Catalog", () => {
   it("creates a table and its constraint's index, with statements from the model", async () => {
@@ -81,6 +92,38 @@ describe("Catalog", () => {
       'CREATE TABLE "users" ("id" INTEGER PRIMARY KEY, "email" TEXT UNIQUE)',
     );
     expect(database.problems()).toEqual([]);
+  });
+
+  it("refuses to drop a column an expression key reads, whatever the binder checked", async () => {
+    const database = await Database.open(compileLower);
+    const { table: users } = database.change((catalog) =>
+      catalog.createTable(usersShape, []),
+    );
+    database.tables.push(users);
+    const byNick = database.change((catalog) =>
+      catalog.createIndex(
+        {
+          name: "users_lower_nick",
+          table: "users",
+          keys: [{ kind: "expression", sql: "lower(nick)", type: "TEXT" }],
+          isUnique: false,
+          origin: "statement",
+        },
+        users,
+      ),
+    );
+    database.indexes.push(byNick);
+
+    expect(() =>
+      database.change((catalog) => catalog.dropColumn(users, 1)),
+    ).toThrow(
+      new InternalError(
+        "column 1 of users is in use by index users_lower_nick",
+      ),
+    );
+    // lower(nick) still compiles without email.
+    const changed = database.change((catalog) => catalog.dropColumn(users, 2));
+    expect(changed.columns.map(({ name }) => name)).toEqual(["id", "nick"]);
   });
 
   it("creates opfsql_sequence for the first AUTOINCREMENT table only", async () => {
