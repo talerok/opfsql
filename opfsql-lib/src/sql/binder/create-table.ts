@@ -104,25 +104,36 @@ function checkColumnNames(
   }
 }
 
-/** The primary key's columns, however it is written; one at most. */
+/**
+ * The primary key's columns, written with a column or after them; a table
+ * has one at most, as SQLite says.
+ */
 function primaryKey(
   statement: CreateTableStatement,
   declared: readonly DeclaredColumn[],
 ): number[] {
-  const columns = declared.map(({ column }) => column);
-  const columnKeys = declared.flatMap((column, position) =>
-    Array.from({ length: column.primaryKeys }, () => [position]),
+  const columnKeys = declared.reduce(
+    (count, column) => count + column.primaryKeys,
+    0,
   );
-  const tableKeys = statement.primaryKeys.map((names) =>
-    names.map((name) => columnIn(columns, name, statement.table)),
-  );
-  const keys = [...columnKeys, ...tableKeys];
-  if (keys.length > 1) {
+  if (columnKeys + statement.primaryKeys.length > 1) {
     throw new SemanticError(
       `table "${statement.table}" has more than one primary key`,
     );
   }
-  const [key = []] = keys;
+  const keyColumn = declared.findIndex((column) => column.primaryKeys > 0);
+  if (keyColumn !== -1) return [keyColumn];
+  return tableKey(statement, declared);
+}
+
+/** A table-level PRIMARY KEY's columns, each named once; none without one. */
+function tableKey(
+  statement: CreateTableStatement,
+  declared: readonly DeclaredColumn[],
+): number[] {
+  const [names = []] = statement.primaryKeys;
+  const columns = declared.map(({ column }) => column);
+  const key = names.map((name) => columnIn(columns, name, statement.table));
   if (firstRepeated(key) !== -1) {
     throw new SemanticError(
       `a column is named twice in the primary key of ${statement.table}`,
@@ -155,6 +166,12 @@ function checkAutoincrement(
   }
 }
 
+/** A constraint before it has its index's name. */
+interface Constraint {
+  readonly origin: IndexOrigin;
+  readonly columns: readonly number[];
+}
+
 /** The constraint indexes, in the order the table's statement writes them. */
 function constraintIndexes(
   table: string,
@@ -162,23 +179,47 @@ function constraintIndexes(
   key: readonly number[],
   rowidColumn: number | null,
 ): IndexShape[] {
-  const columnKey = rowidColumn === null && key.length === 1 ? key[0] : null;
-  const perColumn = declared.flatMap((column, position) => {
-    const origins: IndexOrigin[] = [];
-    if (columnKey === position) origins.push("primary-key");
-    if (column.isUnique) origins.push("unique");
-    return origins.map((origin) => ({ origin, keys: [position] }));
-  });
-  const composite =
-    key.length > 1 ? [{ origin: "primary-key" as const, keys: key }] : [];
-  return [...perColumn, ...composite].map((constraint, position) => ({
-    name: constraintIndexName(table, position + 1),
+  const [keyColumn] = key;
+  const isColumnKey = rowidColumn === null && key.length === 1;
+  const columnKey = isColumnKey ? keyColumn : undefined;
+  const constraints = [
+    ...declared.flatMap((column, position) =>
+      columnConstraints(column, position, columnKey),
+    ),
+    ...(key.length > 1 ? [primaryKeyOn(key)] : []),
+  ];
+  return constraints.map((constraint, position) =>
+    constraintIndex(table, constraint, position + 1),
+  );
+}
+
+/** A column's own constraints: PRIMARY KEY before UNIQUE. */
+function columnConstraints(
+  column: DeclaredColumn,
+  position: number,
+  keyColumn: number | undefined,
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  if (keyColumn === position) constraints.push(primaryKeyOn([position]));
+  if (column.isUnique)
+    constraints.push({ origin: "unique", columns: [position] });
+  return constraints;
+}
+
+function primaryKeyOn(columns: readonly number[]): Constraint {
+  return { origin: "primary-key", columns };
+}
+
+function constraintIndex(
+  table: string,
+  constraint: Constraint,
+  ordinal: number,
+): IndexShape {
+  return {
+    name: constraintIndexName(table, ordinal),
     table,
-    keys: constraint.keys.map((column) => ({
-      kind: "column" as const,
-      column,
-    })),
+    keys: constraint.columns.map((column) => ({ kind: "column", column })),
     isUnique: true,
     origin: constraint.origin,
-  }));
+  };
 }
