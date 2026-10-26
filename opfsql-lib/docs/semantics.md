@@ -19,7 +19,7 @@ A value is one of:
 | NUMBER  | `number`              | never `NaN`; `-0` is stored and returned as `0` |
 | TEXT    | `string`              | well-formed UTF-16 (no lone surrogates)         |
 | BLOB    | `Uint8Array`          | values returned to callers are copies           |
-| JSON    | plain object or array | only in JSON-typed columns and expressions      |
+| JSON    | plain object or array | in JSON and ANY columns, and JSON expressions   |
 
 `NaN` coming in (a parameter, or a function result) becomes NULL, as in
 SQLite. A string with a lone surrogate is rejected: it cannot be stored as
@@ -116,14 +116,17 @@ applies affinity:
 
 Compared with several operands at once — the items of `IN`, the bounds of
 `BETWEEN`, the `WHEN` values of `CASE x` — it is converted only when they
-all agree on the type. Nothing else is converted: an ANY column's values
-compare as they were stored, so `x = 1` does not find `'1'`. Values of
+all agree on the type. Only a parameter that is itself an operand is
+converted, not one inside an expression or a subquery (`$1 + 0`,
+`(SELECT $1)`). Nothing else is converted: an ANY column's values compare as
+they were stored, so `x = 1` does not find `'1'`. Values of
 different kinds then compare by the total order, so `1 < 'a'` is true.
 
 ## Logic
 
 WHERE, HAVING, ON, CASE WHEN, AND, OR and NOT take BOOLEAN operands; any
-other type is a bind error. NULL is "unknown":
+other type is a bind error, and a value whose type only a row tells (a
+parameter, a JSON value) must be a boolean when it runs. NULL is "unknown":
 
 | AND       | true  | false | NULL  |     | OR        | true | false | NULL |
 | --------- | ----- | ----- | ----- | --- | --------- | ---- | ----- | ---- |
@@ -139,6 +142,24 @@ other type is a bind error. NULL is "unknown":
   false whatever `x` is, and `NOT IN` of it is true.
 - `x IS y` / `x IS NOT y` compare like `=` / `<>` but treat two NULLs as
   equal and never return NULL.
+
+## Queries
+
+- A query with GROUP BY, HAVING or an aggregate call computes one row per
+  group; without GROUP BY, all rows are one group, even when there are none
+  (`SELECT count(*) FROM empty` is one row, 0). Above the grouping — the
+  select list, HAVING, ORDER BY — an expression may read the GROUP BY
+  expressions (matched as written, after binding) and aggregates; any other
+  column of the query is an error, as in PostgreSQL.
+- Aggregates are not allowed in WHERE, ON, GROUP BY or inside another
+  aggregate.
+- In ORDER BY, an integer literal is a 1-based position in the select list,
+  and a bare name that is an alias (`AS`) of the select list means that
+  column; anything else is an expression. After DISTINCT or a compound
+  operator (UNION, INTERSECT, EXCEPT), ORDER BY can only name result columns.
+  GROUP BY takes positions too, and an alias that no column of the FROM has.
+- LIMIT and OFFSET are integer constants or parameters. A negative LIMIT
+  means no limit, and a negative OFFSET skips none, as in SQLite.
 
 ## Arithmetic
 
@@ -245,11 +266,12 @@ that of [Order and equality](#order-and-equality).
 
 ## LIMIT and OFFSET
 
-LIMIT and OFFSET take integers, converted as an INTEGER column converts
-them: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
+LIMIT and OFFSET take a constant or a parameter (not an expression, as
+SQLite allows), holding an integer, converted as an INTEGER column converts
+it: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
 OFFSET skips nothing. Any other value — NULL, `2.5`, `'five'` — fails with
-`DATATYPE_MISMATCH`. Both are evaluated each time their query starts,
-before it reads a row.
+`DATATYPE_MISMATCH`: a constant when the statement is prepared, anything
+else (a parameter, say) each time the query starts, before it reads a row.
 
 ## Limits
 
@@ -277,3 +299,4 @@ compile with a `SYNTAX_ERROR` or a `SEMANTIC_ERROR`, before it runs.
 | `id = '5'` for an INTEGER `id` is a bind error                                       | the text is converted to a number        | catches mistakes at bind time; a parameter is still converted                                 |
 | an ANY column compared with a typed column compares values as stored                 | the ANY side takes the other's affinity  | only parameters are converted, so an index seek or a hash join always finds what a scan finds |
 | UPDATE computes every row's new values from the table as it was before the statement | each row sees the rows updated before it | the result does not depend on the order rows are found in, as in PostgreSQL                   |
+| a column neither grouped nor aggregated is an error                                  | a "bare column" of some row              | as in PostgreSQL; a guessed value hides a bug                                                 |

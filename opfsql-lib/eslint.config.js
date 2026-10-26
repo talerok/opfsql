@@ -90,6 +90,14 @@ export default config(
         "error",
         { accessibility: "no-public" },
       ],
+      // One way to hide a member: TypeScript's `private`, not `#name`.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "PrivateIdentifier",
+          message: "Use TypeScript's `private` modifier, not a `#` field.",
+        },
+      ],
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/consistent-type-exports": "error",
       "@typescript-eslint/switch-exhaustiveness-check": [
@@ -232,6 +240,21 @@ export default config(
               ],
               message:
                 "sql/optimizer depends on nothing but sql/plan, expressions, schema, values and errors.",
+            },
+            {
+              target: "./src/sql/binder",
+              from: "./src",
+              except: [
+                "./sql/binder",
+                "./sql/parser",
+                "./sql/plan",
+                "./schema",
+                "./functions",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "sql/binder depends on nothing but sql/parser, sql/plan, schema, functions, values and errors.",
             },
             {
               target: "./src/sql/parser",

@@ -227,7 +227,11 @@ function rowidListCandidate(
   const { test } = keyTest;
   const values = test.kind === "equal" ? [test.value] : test.values;
   return {
-    access: { kind: "rowid-lookup", rowids: { kind: "list", values } },
+    access: {
+      kind: "rowid-lookup",
+      rowids: { kind: "list", values },
+      direction: "ascending",
+    },
     enforced: [keyTest.condition],
     estimate: rowidListEstimate(values.length),
     isOrdered,
@@ -243,7 +247,7 @@ function rowidRangeCandidate(
   if (ranged === null) return null;
   const rowids = { kind: "range", range: ranged.range } as const;
   return {
-    access: { kind: "rowid-lookup", rowids },
+    access: { kind: "rowid-lookup", rowids, direction: "ascending" },
     enforced: ranged.enforced,
     estimate: rowidRangeEstimate(ranged.range),
     isOrdered,

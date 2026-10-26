@@ -10,16 +10,16 @@ const MULTIPLIER = 1_103_515_245;
 const INCREMENT = 12_345;
 
 export class Random {
-  #state: number;
+  private state: number;
 
   constructor(seed: number) {
-    this.#state = seed;
+    this.state = seed;
   }
 
   /** A number in [0, 1). */
   next(): number {
-    this.#state = (this.#state * MULTIPLIER + INCREMENT) % MODULUS;
-    return this.#state / MODULUS;
+    this.state = (this.state * MULTIPLIER + INCREMENT) % MODULUS;
+    return this.state / MODULUS;
   }
 
   /** A whole number in [0, count). */

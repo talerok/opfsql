@@ -33,7 +33,11 @@ export interface Bound {
   readonly isInclusive: boolean;
 }
 
-/** Null at an end: unbounded there. */
+/**
+ * Values between two bounds; null at an end leaves it open. A range holds
+ * only values its comparisons hold for, so never NULL: an upper bound alone
+ * skips the NULLs that sort first.
+ */
 export interface Range {
   readonly lower: Bound | null;
   readonly upper: Bound | null;
@@ -73,10 +77,12 @@ export type RowidSet =
   | { readonly kind: "list"; readonly values: readonly Expression[] }
   | { readonly kind: "range"; readonly range: Range };
 
-/** Rows by rowid in rowid order, each once even when the list names it twice. */
+/** Rows by rowid, each once even when the list names it twice. */
 export interface RowidLookup extends TableAccess {
   readonly kind: "rowid-lookup";
   readonly rowids: RowidSet;
+  /** Rowid order; descending returns the largest rowid first. */
+  readonly direction: OrderDirection;
 }
 
 export interface IndexScan extends TableAccess {
@@ -107,8 +113,9 @@ export interface IndexUnion extends TableAccess {
  * the index, NULLs skipped: the one row of an aggregate with that one call.
  * It has no residual, so it is chosen only when `equal` is exact and no
  * other condition applies; otherwise the aggregate runs over a scan. Its
- * value is the decoded key, so a JSON part is never read this way: its key
- * holds canonical text, which loses the stored object's key order.
+ * value is the decoded key, so a part that may hold a JSON object or array
+ * (a JSON or ANY part) is never read this way: its key holds canonical
+ * text, which loses the stored object's key order.
  */
 export interface IndexExtreme {
   readonly kind: "index-extreme";

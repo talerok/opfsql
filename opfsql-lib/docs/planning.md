@@ -108,7 +108,7 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 | Node                               | Algorithm                                                                         |
 | ---------------------------------- | --------------------------------------------------------------------------------- |
 | `table-scan`                       | every row in rowid order, or reverse                                              |
-| `rowid-lookup`                     | rows by rowid: listed rowids, or one rowid range                                  |
+| `rowid-lookup`                     | rows by rowid: listed rowids, or one rowid range, in rowid order or reverse       |
 | `index-scan`                       | entries of one index within a key range, in key order or reverse, then their rows |
 | `index-union`                      | the rows of several index scans, each row once (an OR of indexable conditions)    |
 | `index-extreme`                    | MIN or MAX of an indexed expression from one end of the index                     |
@@ -127,7 +127,7 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 INSERT, UPDATE and DELETE are statements holding a physical source plan, not
 plan nodes. Every scan carries `residual`: conditions checked on every row
 it returns. A rowid lookup and an index union return each row once; a rowid
-lookup returns them in rowid order.
+lookup returns them in rowid order or its reverse.
 
 A seek value — an equal value or a range bound — is fixed for one scan: a
 constant, a parameter, or a column of an enclosing query, evaluated again
@@ -162,7 +162,7 @@ expression keys match nothing.
 3. **Order comes from one place.** A `sort` is removed only when its child
    already delivers exactly that order: an index scan whose key order,
    direction and NULL placement match every key, or a table scan or rowid
-   lookup whose rowid order matches an ORDER BY of the rowid. `top-n` replaces a `sort`
+   lookup whose rowid order and direction match an ORDER BY of the rowid. `top-n` replaces a `sort`
    and the `limit` above it; it never coexists with that `limit`.
 4. **Rewrites follow `values`.** A rewrite that folds or simplifies an
    expression evaluates it with the expression compiler, never with its own
@@ -185,7 +185,10 @@ compiled expressions and the table layer. An operator:
 
 ```ts
 interface Operator {
-  /** The next batch of at most `max` rows, or null when there are no more. */
+  /**
+   * The next batch of at most `max` rows, or null when there are no more.
+   * `max` is what the caller can still use: Infinity when it takes every row.
+   */
   next(max: number): Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
   rescan(): void;
@@ -213,7 +216,9 @@ UPDATE and DELETE read every target row from their source, and UPDATE
 computes every new row, before changing any — each change made by the table layer, which keeps indexes and
 constraints with the row — so a change never moves a row into or out of the
 scan that is still finding rows. An INSERT whose source reads the target
-table reads all of it first, for the same reason.
+table reads all of it first, for the same reason; the binder, which resolved
+every table the source names, says so on the statement. Any other INSERT
+writes each row as its source produces it.
 
 An UPDATE's source produces every column of the table, then the rowid; no
 pass prunes them. A DELETE's source produces the rows to delete, the rowid

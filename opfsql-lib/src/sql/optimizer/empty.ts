@@ -15,7 +15,12 @@ export function emptyPlan(plan: logical.Plan): physical.Plan {
       const { tableIndex, table, columns } = plan;
       const rowids = { kind: "list", values: [] } as const;
       const access = { tableIndex, table, columns, residual: [] };
-      return { kind: "rowid-lookup", ...access, rowids };
+      return {
+        kind: "rowid-lookup",
+        ...access,
+        rowids,
+        direction: "ascending",
+      };
     }
     case "values":
     case "project":

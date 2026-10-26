@@ -48,7 +48,10 @@ export interface IndexKeys {
  * expression key parses its SQL.
  */
 export class IndexCatalog {
-  readonly #parts = new Map<Index, Map<number, readonly KeyPart[] | null>>();
+  private readonly parts = new Map<
+    Index,
+    Map<number, readonly KeyPart[] | null>
+  >();
 
   constructor(
     private readonly schema: Schema,
@@ -67,8 +70,8 @@ export class IndexCatalog {
 
   private partsOf(index: Index, get: logical.Get): readonly KeyPart[] | null {
     const byRelation =
-      this.#parts.get(index) ?? new Map<number, readonly KeyPart[] | null>();
-    this.#parts.set(index, byRelation);
+      this.parts.get(index) ?? new Map<number, readonly KeyPart[] | null>();
+    this.parts.set(index, byRelation);
     const known = byRelation.get(get.tableIndex);
     if (known !== undefined) return known;
     const parts = this.bindParts(index, get);

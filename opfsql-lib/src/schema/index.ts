@@ -12,7 +12,6 @@ export {
   createTableSql,
   defaultSql,
   type IndexShape,
-  literalSql,
   quoteName,
   type TableShape,
 } from "./sql.js";

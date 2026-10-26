@@ -20,7 +20,8 @@ import type { ParsedExpression, SelectStatement } from "./types.js";
 /**
  * How deeply expressions and queries may nest, counting each parenthesis,
  * subquery and prefix operator, and each link of a chain (`1 + 2 + 3`, a
- * join, a compound query, a CTE list). SQLite allows 1000; a worker's stack
+ * join, a CTE list). A compound query is a sequence, not nesting, and does
+ * not count (query.ts). SQLite allows 1000; a worker's stack
  * is smaller than the main thread's, and the binder and executor walk the
  * tree recursively too, so opfsql stops at 200 with a syntax error instead
  * of a stack overflow. The whole pipeline runs at this depth in 180 KB of

@@ -168,6 +168,7 @@ describe("DML", () => {
       table: orders,
       columns: [1],
       source,
+      readsTarget: true,
       onConflict: {
         target: "rowid",
         action: {

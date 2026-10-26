@@ -54,16 +54,19 @@ export interface OnConflict<Plan> {
   readonly action: ConflictAction<Plan>;
 }
 
-/**
- * When `source` reads the target table, the executor reads all of it before
- * inserting, so `INSERT INTO t SELECT … FROM t` never reads its own rows.
- */
 export interface Insert<Plan> {
   readonly kind: "insert";
   readonly table: Table;
   /** The columns the source fills, in its column order; others get defaults. */
   readonly columns: readonly number[];
   readonly source: Plan;
+  /**
+   * True when `source`, or a subquery anywhere in it, reads the target
+   * table. The executor then reads all of it before inserting, so
+   * `INSERT INTO t SELECT … FROM t` never reads its own rows; otherwise it
+   * inserts each row as the source produces it.
+   */
+  readonly readsTarget: boolean;
   readonly onConflict: OnConflict<Plan> | null;
   readonly parameterCount: number;
 }

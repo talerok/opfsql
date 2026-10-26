@@ -33,6 +33,7 @@ export {
   ROWID_COLUMN,
   type ScalarSubquery,
 } from "./expression.js";
+export { formatPlan } from "./format-logical.js";
 export * as logical from "./logical.js";
 export { childrenOf, nodesOf } from "./walk.js";
 export * as physical from "./physical.js";

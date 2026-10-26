@@ -1,6 +1,6 @@
 import { InternalError } from "../errors.js";
 import type { SqlType, Value } from "../values/index.js";
-import { bytesToHex, canonicalJson } from "../values/index.js";
+import { canonicalJson, sqlLiteral, textLiteral } from "../values/index.js";
 import type { Column, Index, IndexKey, Table } from "./model.js";
 
 // ---------------------------------------------------------------------------
@@ -61,24 +61,14 @@ export function quoteName(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-/** A value as a SQL literal that reads back as the same value. */
-export function literalSql(value: Value): string {
-  if (value === null) return "NULL";
-  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-  if (typeof value === "number") return numberSql(value);
-  if (typeof value === "string") return textSql(value);
-  if (value instanceof Uint8Array) return `X'${bytesToHex(value)}'`;
-  throw new InternalError("a JSON value has no SQL literal outside JSON text");
-}
-
 /** A column default: a JSON column's value is written as JSON text. */
 export function defaultSql(value: Value, type: SqlType): string {
   const isJson = type === "JSON";
   if (!isJson || value === null || value instanceof Uint8Array) {
-    return literalSql(value);
+    return sqlLiteral(value);
   }
   // A JSON column reads text as JSON text, so its values are written so.
-  return textSql(canonicalJson(value));
+  return textLiteral(canonicalJson(value));
 }
 
 /** A table's constraints as its statement writes them. */
@@ -185,15 +175,4 @@ function keySql(table: TableShape, key: IndexKey): string {
     );
   }
   return quoteName(column.name);
-}
-
-/** SQL has no literal for infinity; 9e999 overflows to it, as in SQLite. */
-function numberSql(value: number): string {
-  if (value === Infinity) return "9e999";
-  if (value === -Infinity) return "-9e999";
-  return String(value);
-}
-
-function textSql(text: string): string {
-  return `'${text.replaceAll("'", "''")}'`;
 }

@@ -122,6 +122,7 @@ describe("formatPhysicalPlan", () => {
       tableIndex: 2,
       kind: "rowid-lookup",
       rowids: { kind: "list", values: [constant(1), constant(2)] },
+      direction: "ascending",
       residual: [],
     };
     const join: physical.HashJoin = {
