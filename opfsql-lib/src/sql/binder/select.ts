@@ -167,7 +167,7 @@ function aggregate(
     aggregateIndex: collector.aggregateIndex,
     child: source,
     groups: grouping.groups,
-    aggregates: collector.aggregates,
+    aggregates: [...collector.aggregates],
   };
   if (having === null) return node;
   return { kind: "filter", child: node, conditions: conjunctsOf(having) };
