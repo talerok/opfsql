@@ -36,6 +36,8 @@ export interface Writer {
 
 export class Database {
   private readonly lock: WriteLock;
+  /** Work still running after the call that started it: close() waits for it. */
+  private readonly background = new Set<Promise<void>>();
 
   constructor(
     private readonly pager: Pager,
@@ -117,7 +119,12 @@ export class Database {
     }
   }
 
-  close(): void {
+  /**
+   * Closes the files once background work has finished: a release of dead
+   * tabs' read marks still running writes the read-mark file.
+   */
+  async close(): Promise<void> {
+    await Promise.all(this.background);
     this.pager.close();
   }
 
@@ -162,7 +169,14 @@ export class Database {
 
   /** In the background: the commit that got here has succeeded. */
   private releaseAbandonedSnapshots(): void {
-    void this.reportFailure(this.pager.releaseAbandonedSnapshots());
+    const release = this.reportFailure(this.pager.releaseAbandonedSnapshots());
+    this.background.add(release);
+    void this.forgetWhenDone(release);
+  }
+
+  private async forgetWhenDone(work: Promise<void>): Promise<void> {
+    await work;
+    this.background.delete(work);
   }
 
   private async reportFailure(work: Promise<void>): Promise<void> {

@@ -135,5 +135,3 @@ fix lands; the labels stay as they were.
 - **G8. BLOB defaults and BLOB constants are shared**, and so are defaults an
   INSERT fills in or the schema description hands out; results copy BLOBs per
   row instead. (A row read from a record already copies a JSON default.)
-- **G18. `close()` does not wait** for the background release of abandoned read
-  marks.

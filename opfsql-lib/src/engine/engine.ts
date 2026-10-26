@@ -143,7 +143,7 @@ export class Engine implements AsyncDisposable {
     );
     this.lifetime.abort(new AbortError("the database was closed"));
     await this.tasks.idle();
-    this.database.close();
+    await this.database.close();
     this.state = "closed";
     const failure = closed.find((outcome) => outcome.status === "rejected");
     if (failure !== undefined) throw toOpfsqlError(failure.reason);
