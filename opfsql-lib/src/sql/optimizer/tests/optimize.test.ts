@@ -135,9 +135,9 @@ describe("DML", () => {
   });
 
   it("keeps the columns a DELETE's residual still reads", () => {
-    const statement = deleteWhere(compare(age, "<", constant(18)));
+    const statement = deleteWhere(compare(age, "<>", constant(18)));
     expect(sourceOf(statement)).toBe(
-      "index-scan users#1 using users_age (age < 18) residual: u.age < 18",
+      "table-scan users#1 residual: u.age <> 18",
     );
     expect(columnsRead(statement)).toEqual([2, ROWID_COLUMN]);
   });
@@ -352,7 +352,7 @@ describe("the rules every optimization keeps", () => {
       compare(column(u, "name"), "<>", constant("x")),
     );
     expect(planOf(plan)).toBe(
-      "index-scan users#1 using users_age (age < $1) residual: u.age < $1 AND u.name <> 'x'",
+      "index-scan users#1 using users_age (age < $1) residual: u.name <> 'x'",
     );
   });
 

@@ -101,19 +101,17 @@ function columnPart(position: number, get: logical.Get): KeyPart | null {
   const column = get.table.columns[position];
   if (column === undefined) return null;
   const isRowid = position === get.table.rowidColumn;
+  const expression: ColumnReference = {
+    kind: "column",
+    binding: { tableIndex: get.tableIndex, columnIndex: position },
+    depth: 0,
+    name: column.name,
+    type: column.type,
+  };
   return {
-    expression: columnOf(get, position),
+    expression,
     type: column.type,
     isNeverNull: column.isNotNull || isRowid,
-  };
-}
-
-/** The rowid as a key part: never NULL, and INTEGER. */
-export function rowidPart(get: logical.Get): KeyPart {
-  return {
-    expression: columnOf(get, ROWID_COLUMN),
-    type: "INTEGER",
-    isNeverNull: true,
   };
 }
 
@@ -127,16 +125,4 @@ export function isRowidOf<Plan>(
   const isRowidColumn =
     columnIndex === ROWID_COLUMN || columnIndex === get.table.rowidColumn;
   return tableIndex === get.tableIndex && isRowidColumn;
-}
-
-function columnOf(get: logical.Get, columnIndex: number): ColumnReference {
-  const isRowid = columnIndex === ROWID_COLUMN;
-  const column = isRowid ? undefined : get.table.columns[columnIndex];
-  return {
-    kind: "column",
-    binding: { tableIndex: get.tableIndex, columnIndex },
-    depth: 0,
-    name: column?.name ?? "rowid",
-    type: column?.type ?? "INTEGER",
-  };
 }

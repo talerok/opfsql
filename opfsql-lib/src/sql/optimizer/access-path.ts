@@ -10,16 +10,10 @@ import {
   unionEstimate,
 } from "./cost.js";
 import { conjunctsOf, disjunctsOf } from "./expression-tree.js";
-import {
-  type IndexKeys,
-  isRowidOf,
-  type KeyPart,
-  rowidPart,
-} from "./key-parts.js";
+import { type IndexKeys, isRowidOf, type KeyPart } from "./key-parts.js";
 import {
   equalTestOn,
   fitsPart,
-  isExactRange,
   isListTest,
   isRangeTest,
   type KeyTest,
@@ -53,10 +47,9 @@ import type { Planner } from "./planner.js";
 //
 // Residual = every condition (docs/planning.md, rule 1), except the ones a
 // path enforces exactly. A seek finds exactly the entries `=` or `<` holds
-// for (key-tests.ts), so a test the path seeks with is left out — unless it
-// is part of a range open below on a part that may hold NULL, which starts
-// at the NULL entries (isExactRange). An index union keeps its OR or IN; a
-// condition used only to choose a path, or not used, stays.
+// for (key-tests.ts), so a test the path seeks with is left out — a range
+// test only when the range uses every bound it has. An index union keeps
+// its OR or IN; a condition used only to choose a path, or not used, stays.
 // ---------------------------------------------------------------------------
 
 type Expression = physical.Expression;
@@ -217,7 +210,7 @@ function rowidCandidate(
   const isOrdered = rowidOrder(order, get) === "ascending";
   const listed = fitting.find((keyTest) => isListTest(keyTest));
   if (listed !== undefined) return rowidListCandidate(listed, isOrdered);
-  return rowidRangeCandidate(rowidPart(get), fitting, isOrdered);
+  return rowidRangeCandidate(fitting, isOrdered);
 }
 
 function rowidListCandidate(
@@ -239,11 +232,10 @@ function rowidListCandidate(
 }
 
 function rowidRangeCandidate(
-  part: KeyPart,
   fitting: readonly KeyTest[],
   isOrdered: boolean,
 ): Candidate<RowidAccess> | null {
-  const ranged = rangeOn(part, fitting);
+  const ranged = rangeOn(fitting);
   if (ranged === null) return null;
   const rowids = { kind: "range", range: ranged.range } as const;
   return {
@@ -321,18 +313,15 @@ function rangeAfter(
 ): RangeSeek | null {
   const next = parts[prefix.values.length];
   if (next === undefined) return null;
-  return rangeOn(
-    next,
-    tests.filter((keyTest) => fitsPart(keyTest, next)),
-  );
+  return rangeOn(tests.filter((keyTest) => fitsPart(keyTest, next)));
 }
 
-/** The range `fitting`, the tests that fit `part`, set on it; null if they set none. */
-function rangeOn(part: KeyPart, fitting: readonly KeyTest[]): RangeSeek | null {
+/** The range `fitting`, the tests that fit one part, set on it; null if they set none. */
+function rangeOn(fitting: readonly KeyTest[]): RangeSeek | null {
   const ranges = fitting.filter((keyTest) => isRangeTest(keyTest));
   const bounds = boundsOf(ranges);
   if (bounds === null) return null;
-  return { range: bounds.range, enforced: enforcedBy(bounds, ranges, part) };
+  return { range: bounds.range, enforced: enforcedBy(bounds, ranges) };
 }
 
 /** A range, and the tests its lower and upper bounds came from. */
@@ -352,16 +341,11 @@ function boundsOf(ranges: readonly RangeTest[]): Bounds | null {
   return { range: { lower, upper }, lowerFrom, upperFrom };
 }
 
-/**
- * The conditions an exact range enforces (isExactRange): those of the
- * tests whose every bound it uses.
- */
+/** The conditions a range enforces: those of the tests whose every bound it uses. */
 function enforcedBy(
   bounds: Bounds,
   ranges: readonly RangeTest[],
-  part: KeyPart,
 ): Expression[] {
-  if (!isExactRange(bounds.range, part)) return [];
   const isUsed = (keyTest: RangeTest): boolean => {
     const { lower, upper } = keyTest.test.range;
     const isLowerUsed = lower === null || keyTest === bounds.lowerFrom;

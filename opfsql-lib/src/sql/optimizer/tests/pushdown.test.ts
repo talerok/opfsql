@@ -222,7 +222,7 @@ describe("into set operations", () => {
         "  filter x < 2",
         "    values#6 (1), (2)",
         "  project#7 u.age",
-        "    index-scan users#1 using users_age (age < 2) residual: u.age < 2",
+        "    index-scan users#1 using users_age (age < 2)",
       ),
     );
     expectSameRows(plan);

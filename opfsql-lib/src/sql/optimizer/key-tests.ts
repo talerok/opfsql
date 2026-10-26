@@ -26,9 +26,11 @@ import { sameExpression } from "./same-expression.js";
 // A test fits a key part when the subject is what the part holds. `=` and
 // `<` compare values as they are (a parameter's affinity is part of the
 // parameter), and an index orders its entries by the same total order, so
-// a seek finds exactly the entries the comparison holds for — a NULL seek
-// value none, as `=` with NULL never holds. Nothing here looks at a
-// parameter's value (rule 5).
+// a seek finds exactly the entries the comparison holds for: a NULL seek
+// value none, as `=` with NULL never holds, and a range no NULL entry, as
+// `<` with NULL never holds (physical.ts, Range). So the residual may leave
+// out every test a seek uses (docs/planning.md, rule 1). Nothing here looks
+// at a parameter's value (rule 5).
 // ---------------------------------------------------------------------------
 
 type Expression = physical.Expression;
@@ -201,15 +203,4 @@ function inListTest(condition: InList<physical.Plan>): KeyTest | null {
 /** True if the test can seek on `part`: its subject is what the part holds. */
 export function fitsPart(keyTest: KeyTest, part: KeyPart): boolean {
   return sameExpression(keyTest.subject, part.expression);
-}
-
-/**
- * True if a range finds exactly the entries its bounds hold for, so the
- * residual may leave out the tests it came from (docs/planning.md, rule 1).
- * NULL sorts before every value, so a range open below starts at the NULL
- * entries, where `<` never holds: exact only on a part that holds no NULL.
- * An `=` or IN seek is always exact.
- */
-export function isExactRange(range: SeekRange, part: KeyPart): boolean {
-  return range.lower !== null || part.isNeverNull;
 }

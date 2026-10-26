@@ -13,8 +13,8 @@ import { naive } from "./naive.js";
 
 // The reference interpreter's scans, from the contract alone: a table in
 // rowid order; rowids and index entries found by comparing values in the
-// total order (NULL first), a NULL seek value matching nothing; index
-// entries ordered by their parts, then the rowid.
+// total order (NULL first), a NULL seek value matching nothing and a range
+// never holding NULL; index entries ordered by their parts, then the rowid.
 
 export interface StoredRow {
   readonly rowid: number;
@@ -140,9 +140,14 @@ function fixedRange(range: physical.Range, context: Context): FixedRange {
   return { lower: bound(range.lower), upper: bound(range.upper) };
 }
 
-/** True if `value` lies in the range in the total order; a NULL bound holds nothing. */
+/**
+ * True if `value` lies in the range in the total order. A range holds only
+ * values its comparisons hold for (physical.ts, Range): never NULL, and
+ * nothing at all with a NULL bound.
+ */
 function isWithin(value: Value, range: FixedRange): boolean {
   const { lower, upper } = range;
+  if (value === null) return false;
   if (lower !== null && !isBeyond(value, lower, 1)) return false;
   return upper === null || isBeyond(value, upper, -1);
 }

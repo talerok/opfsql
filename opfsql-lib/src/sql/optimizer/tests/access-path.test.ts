@@ -129,12 +129,21 @@ describe("index scans", () => {
     expectSameRows(plan);
   });
 
-  it("keeps a range open below on a column that may hold NULL, which sorts first", () => {
+  it("drops a range open below on a column that holds NULL: a range never holds NULL", () => {
     const plan = where(compare(age, "<", constant(18)));
-    expect(planOf(plan)).toBe(
-      "index-scan users#1 using users_age (age < 18) residual: age < 18",
-    );
+    expect(planOf(plan)).toBe("index-scan users#1 using users_age (age < 18)");
     expectSameRows(plan);
+    const bounded = where(compare(age, "<=", numeric));
+    expect(planOf(bounded)).toBe(
+      "index-scan users#1 using users_age (age <= $1)",
+    );
+    for (const value of [18, "18", "abc", null])
+      expectSameRows(bounded, [value]);
+    const keyed = where(compare(call("lower", name), "<", constant("c")));
+    expect(planOf(keyed)).toBe(
+      "index-scan users#1 using users_lower_name (lower(name) < 'c')",
+    );
+    expectSameRows(keyed);
   });
 
   it("drops a range open below on a NOT NULL column", () => {
