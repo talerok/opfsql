@@ -131,24 +131,18 @@ fix lands; the labels stay as they were.
 
 - **G3. No change count per tree.** Open cursors and lazily read overflow values
   are not checked against writes and rollbacks in the same transaction.
-- **G4. INSERT streams when its source reads `opfsql_sequence`** while it
-  writes it through AUTOINCREMENT.
 - **G5. Parameters are not checked.** Typed arrays other than `Uint8Array`,
   `ArrayBuffer`, `Date`, `Map`, BigInt and `undefined` slip through or fail
   as INTERNAL.
 - **G6. A planned statement does not carry its schema**; only its one caller
   pairs them.
 - **G7. The schema cache accepts a write transaction's snapshot.**
-- **G8. Defaults are handed out by reference**, and BLOB constants are not
-  copied; results copy BLOBs per row instead.
+- **G8. BLOB defaults and BLOB constants are shared**, and so are defaults an
+  INSERT fills in or the schema description hands out; results copy BLOBs per
+  row instead. (A row read from a record already copies a JSON default.)
 - **G9. Call order on a connection relies on no `await`** before the queue.
 - **G10. A failing call on the shared connection** can leave its transaction
   open.
-- **G11. The editor ignores** whether an index entry it inserts or deletes was
-  already there.
-- **G12. The catalog's dropped-column check** misses expression keys.
-- **G13. Uncorrelated subqueries run with the outer rows open**, and a row
-  narrower than its layout reads NULL.
 - **G15. Errors are translated in two places** that disagree on a DOMException;
   INTERNAL also covers a crashed worker and a failed lock request.
 - **G18. `close()` does not wait** for the background release of abandoned read

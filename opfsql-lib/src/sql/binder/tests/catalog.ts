@@ -4,12 +4,25 @@
 import {
   nameKey,
   Schema,
+  SEQUENCE_TABLE_NAME,
   type Index,
   type Table,
 } from "../../../schema/index.js";
 import type { logical, Statement } from "../../plan/index.js";
 
 const NO_PAGE = 0;
+
+/** opfsql_sequence, which the first table with AUTOINCREMENT brings. */
+const SEQUENCE_TABLE: Table = {
+  name: SEQUENCE_TABLE_NAME,
+  columns: [
+    { name: "name", type: "TEXT", isNotNull: false, defaultValue: null },
+    { name: "seq", type: "INTEGER", isNotNull: false, defaultValue: null },
+  ],
+  rootPage: NO_PAGE,
+  rowidColumn: null,
+  isAutoincrement: false,
+};
 
 /** The schema after `statement`; statements other than DDL leave it as it is. */
 export function applyStatement(
@@ -26,7 +39,7 @@ export function applyStatement(
       }));
       return changed(
         schema,
-        [...schema.tables, table],
+        [...schema.tables, ...countersFor(schema, table), table],
         [...schema.indexes, ...constraints],
       );
     }
@@ -102,6 +115,12 @@ function replaced(
     nameKey(other.name) === key ? table : other,
   );
   return changed(schema, tables, indexes);
+}
+
+/** opfsql_sequence, if `table` needs it and the schema has none yet. */
+function countersFor(schema: Schema, table: Table): Table[] {
+  const hasCounters = schema.table(SEQUENCE_TABLE_NAME) !== null;
+  return !hasCounters && table.isAutoincrement ? [SEQUENCE_TABLE] : [];
 }
 
 function changed(

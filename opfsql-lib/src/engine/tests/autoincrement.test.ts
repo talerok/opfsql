@@ -1,5 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BATCH_SIZE } from "../../executor/operator.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { openTestEngine } from "./test-engine.js";
@@ -62,5 +63,23 @@ describe("AUTOINCREMENT", () => {
     session = engine.connect();
     await session.execute("INSERT INTO a (name) VALUES ('z')");
     expect(await ids("a")).toEqual([1, 3]);
+  });
+
+  it("reads a source that reads opfsql_sequence whole before it inserts", async () => {
+    // A batch of rows of b, then opfsql_sequence: streamed, the source would
+    // read opfsql_sequence after the first batch was inserted into a, and
+    // meet a's own counter there.
+    const names = Array.from(
+      { length: BATCH_SIZE },
+      (_, index) => `('b${String(index)}')`,
+    );
+    await session.execute(`INSERT INTO b (name) VALUES ${names.join(", ")}`);
+    await session.execute(
+      "INSERT INTO a (name) SELECT name FROM b UNION ALL SELECT name FROM opfsql_sequence",
+    );
+    const [result] = await session.execute(
+      "SELECT count(*) AS copied, count(CASE WHEN name = 'a' THEN 1 END) AS own FROM a",
+    );
+    expect(result.objects()).toEqual([{ copied: BATCH_SIZE, own: 0 }]);
   });
 });

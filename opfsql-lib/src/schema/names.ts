@@ -7,6 +7,12 @@
 /** Names starting with this are reserved for opfsql's own tables and indexes. */
 export const RESERVED_PREFIX = "opfsql_";
 
+/**
+ * The AUTOINCREMENT counters' table (docs/file-format.md, System tables),
+ * which an insert into a table with AUTOINCREMENT writes.
+ */
+export const SEQUENCE_TABLE_NAME = "opfsql_sequence";
+
 /** The form two names share exactly when they are the same name. */
 export function nameKey(name: string): string {
   return name.replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase());

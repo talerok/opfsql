@@ -4,8 +4,10 @@ import {
   bind,
   boundAs,
   lines,
+  schemaOf,
   semanticError,
   shop,
+  SHOP,
   type BoundOf,
 } from "./helpers.js";
 
@@ -80,6 +82,30 @@ describe("INSERT", () => {
     expect(
       isTargetRead(
         "INSERT INTO orders (id) VALUES (1) ON CONFLICT DO UPDATE SET total = (SELECT max(total) FROM orders)",
+      ),
+    ).toBe(false);
+  });
+
+  it("counts opfsql_sequence as written when the target has AUTOINCREMENT", () => {
+    const schema = schemaOf(
+      ...SHOP,
+      "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT)",
+    );
+    const isWrittenTableRead = (sql: string): boolean =>
+      boundAs(sql, "insert", schema).readsTarget;
+    expect(
+      isWrittenTableRead(
+        "INSERT INTO logs (note) SELECT name FROM opfsql_sequence",
+      ),
+    ).toBe(true);
+    expect(
+      isWrittenTableRead(
+        "INSERT INTO logs (note) VALUES ((SELECT max(name) FROM opfsql_sequence))",
+      ),
+    ).toBe(true);
+    expect(
+      isWrittenTableRead(
+        "INSERT INTO orders (status) SELECT name FROM opfsql_sequence",
       ),
     ).toBe(false);
   });

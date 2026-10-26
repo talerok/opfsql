@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { column } from "../../../test/support/schema.js";
-import { ConstraintError, DatatypeMismatchError } from "../../errors.js";
+import {
+  ConstraintError,
+  CorruptError,
+  DatatypeMismatchError,
+} from "../../errors.js";
 import type { Index, Table } from "../../schema/index.js";
 import { Schema } from "../../schema/index.js";
 import type { Pager, WriteTransaction } from "../../storage/index.js";
-import { IndexWriter, openPager, TableWriter } from "../../storage/index.js";
+import {
+  encodeKey,
+  IndexWriter,
+  openPager,
+  TableWriter,
+} from "../../storage/index.js";
 import { memoryFiles, read, write } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
 import type { CompileExpression } from "../index.js";
@@ -84,6 +93,45 @@ function edit<T>(users: Users, change: (editor: TableEditor) => T): T {
 
 function rowsOf(users: Users): Value[][] {
   return edit(users, (editor) => [...editor.scan()].map((row) => row.values()));
+}
+
+/** The error `change` fails with, its transaction rolled back; null if none. */
+function failureOf(
+  users: Users,
+  change: (editor: TableEditor) => unknown,
+): unknown {
+  const transaction = users.pager.beginWrite();
+  try {
+    change(editorIn(transaction, users));
+    return null;
+  } catch (error) {
+    return error;
+  } finally {
+    transaction.rollback();
+  }
+}
+
+/** Deletes or inserts an entry of the lower(name) index past the editor: damage. */
+function damageNames(
+  users: Users,
+  change: "delete" | "insert",
+  entry: Uint8Array,
+): void {
+  const [, names] = users.indexes;
+  if (names === undefined) throw new TypeError("users has no name index");
+  write(users.pager, (transaction) => {
+    const entries = new IndexWriter(transaction, names.rootPage, names.name);
+    const isChanged =
+      change === "delete" ? entries.delete(entry) : entries.insert(entry);
+    expect(isChanged).toBe(true);
+  });
+}
+
+/** What the editor fails with when the lower(name) index disagrees with users. */
+function disagreement(problem: string): CorruptError {
+  return new CorruptError(
+    `index users_lower_name disagrees with its table: ${problem}`,
+  );
 }
 
 /** The table and its indexes agree: checkTables finds nothing wrong. */
@@ -219,5 +267,26 @@ describe("TableEditor", () => {
       ]);
     });
     expect(rowsOf(users)).toEqual([[7, "a@x", "Ann", 0]]);
+  });
+});
+
+describe("TableEditor over a damaged index", () => {
+  it("is CORRUPT when a row's entry it deletes or moves is missing", async () => {
+    const users = await usersTable();
+    edit(users, (editor) => editor.insert([1, "a@x", "Ann", 1]));
+    damageNames(users, "delete", encodeKey(["ann", 1]));
+    const missing = disagreement("it has no entry for row 1");
+    expect(failureOf(users, (editor) => editor.delete(1))).toEqual(missing);
+    expect(
+      failureOf(users, (editor) => editor.update(1, [1, "a@x", "Bob", 1])),
+    ).toEqual(missing);
+  });
+
+  it("is CORRUPT when a new row's entry is already there", async () => {
+    const users = await usersTable();
+    damageNames(users, "insert", encodeKey(["cid", 5]));
+    expect(
+      failureOf(users, (editor) => editor.insert([5, null, "Cid", 0])),
+    ).toEqual(disagreement("it already has the entry for row 5"));
   });
 });

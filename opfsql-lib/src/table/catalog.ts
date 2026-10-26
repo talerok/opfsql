@@ -1,14 +1,18 @@
-import { InternalError } from "../errors.js";
+import { InternalError, OpfsqlError } from "../errors.js";
 import type {
   Column,
   Index,
-  IndexKey,
   IndexShape,
   Schema,
   Table,
   TableShape,
 } from "../schema/index.js";
-import { createIndexSql, createTableSql, nameKey } from "../schema/index.js";
+import {
+  createIndexSql,
+  createTableSql,
+  nameKey,
+  SEQUENCE_TABLE_NAME,
+} from "../schema/index.js";
 import type {
   IndexReader,
   SchemaEntry,
@@ -25,7 +29,7 @@ import { isStoredAs } from "../values/index.js";
 import type { CompileExpression } from "./keys.js";
 import { entryOf, keyedIndex, rowidsWithKey, uniqueViolation } from "./keys.js";
 import { TableRows } from "./rows.js";
-import { SEQUENCE_TABLE_NAME, Sequences } from "./sequences.js";
+import { Sequences } from "./sequences.js";
 
 // ---------------------------------------------------------------------------
 // Schema changes on storage: the trees of tables and indexes, their rows in
@@ -98,10 +102,10 @@ export class Catalog {
     return changed;
   }
 
-  /** Drops a column that is not the rowid and no index uses, from every row too. */
+  /** Drops a column that is not the rowid and no index's key reads, from every row too. */
   dropColumn(table: Table, column: number): Table {
-    this.checkUnused(table, column);
     const changed = withoutColumn(table, column);
+    this.checkUnused(table, column, changed);
     const constraints = this.constraintsOf(table).map((index) =>
       withKeysAfter(index, column),
     );
@@ -110,16 +114,41 @@ export class Catalog {
     return changed;
   }
 
-  /** A dropped column must be neither the rowid nor any index's key. */
-  private checkUnused(table: Table, column: number): void {
-    const isKey = this.schema
-      .indexesOf(table.name)
-      .some((index) => index.keys.some((key) => isColumnKey(key, column)));
+  /**
+   * A dropped column must be neither the rowid nor read by an index's key,
+   * whatever the binder checked: once the schema is written without it, no
+   * load of the schema could bind that key again.
+   */
+  private checkUnused(table: Table, column: number, changed: Table): void {
     const isRowid = column === table.rowidColumn;
-    if (isKey || isRowid) {
-      throw new InternalError(
-        `column ${String(column)} of ${table.name} is in use`,
-      );
+    const reader = this.schema
+      .indexesOf(table.name)
+      .find((index) => this.readsColumn(index, column, changed));
+    if (!isRowid && reader === undefined) return;
+    const user = reader === undefined ? "the rowid" : `index ${reader.name}`;
+    throw new InternalError(
+      `column ${String(column)} of ${table.name} is in use by ${user}`,
+    );
+  }
+
+  /**
+   * True if a key of `index` is `column`, or an expression that reads it:
+   * one that does not compile over `changed`, the table without it.
+   */
+  private readsColumn(index: Index, column: number, changed: Table): boolean {
+    return index.keys.some((key) => {
+      if (key.kind === "column") return key.column === column;
+      return !this.compiles(key.sql, changed);
+    });
+  }
+
+  private compiles(sql: string, table: Table): boolean {
+    try {
+      this.compile(sql, table);
+      return true;
+    } catch (error) {
+      if (error instanceof OpfsqlError) return false;
+      throw error;
     }
   }
 
@@ -230,10 +259,6 @@ function tableEntry(
 /** True if the index has an entry with `key`; a key with a NULL never matches. */
 function hasKey(entries: IndexReader, key: readonly Value[]): boolean {
   return rowidsWithKey(entries, key).next().done !== true;
-}
-
-function isColumnKey(key: IndexKey, column: number): boolean {
-  return key.kind === "column" && key.column === column;
 }
 
 /** A default is stored as its column's type, and a NOT NULL column has one. */
