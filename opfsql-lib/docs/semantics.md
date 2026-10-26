@@ -30,9 +30,9 @@ UTF-8 without changing it.
 Names of tables, columns and indexes are kept as written and compared
 without regard to the case of ASCII letters, as in SQLite: `Users` and
 `USERS` are the same table, while `Été` and `été` are two. Tables and indexes
-share one namespace. Names starting with `opfsql_` are reserved: the
-tables opfsql keeps under them can be read, never written, created or dropped
-by a statement.
+share one namespace. Names starting with `opfsql_` are reserved for opfsql:
+no statement creates a table or an index under one, or writes or drops one
+of opfsql's own tables.
 
 ## Column types
 
