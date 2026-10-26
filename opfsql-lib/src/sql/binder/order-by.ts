@@ -147,7 +147,11 @@ function aliasPosition(
   const chosen = outputs[first]?.expression;
   const isAmbiguous = matches.some((position) => {
     const other = outputs[position]?.expression;
-    return chosen === undefined || other === undefined || !isSameExpression(chosen, other);
+    return (
+      chosen === undefined ||
+      other === undefined ||
+      !isSameExpression(chosen, other)
+    );
   });
   if (isAmbiguous) throw new SemanticError(`ORDER BY ${name} is ambiguous`);
   return first;

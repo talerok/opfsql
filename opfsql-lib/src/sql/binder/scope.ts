@@ -20,7 +20,10 @@ export interface BoundQuery {
 }
 
 /** Binds a query: query.ts, reached through the context so that the files meeting subqueries need not import it. */
-export type QueryBinder = (statement: SelectStatement, scope: Scope) => BoundQuery;
+export type QueryBinder = (
+  statement: SelectStatement,
+  scope: Scope,
+) => BoundQuery;
 
 /** What every scope of one statement shares. */
 export class BindContext {
@@ -67,7 +70,13 @@ export function relation(
   tableIndex: number,
   columns: readonly OutputColumn[],
 ): Relation {
-  return { name, tableIndex, columns, hidden: new Set(), isQualifiedOnly: false };
+  return {
+    name,
+    tableIndex,
+    columns,
+    hidden: new Set(),
+    isQualifiedOnly: false,
+  };
 }
 
 /** A WITH query as the queries in its scope read it. */
@@ -109,7 +118,13 @@ export class Scope {
 
   /** A query in FROM or WITH, or a compound's member: the same level, without this FROM. */
   sibling(): Scope {
-    return new Scope(this.context, this.outer, this.level, this.ctes, this.root());
+    return new Scope(
+      this.context,
+      this.outer,
+      this.level,
+      this.ctes,
+      this.root(),
+    );
   }
 
   /** This query, seeing one more CTE name; it has no relations yet. */

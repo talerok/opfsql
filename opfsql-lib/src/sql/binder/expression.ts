@@ -43,7 +43,11 @@ function bindNode(expression: ParsedExpression, clause: Clause): Expression {
       return bindColumn(expression, clause.scope);
     }
     case ExpressionClass.CONSTANT: {
-      return { kind: "constant", value: expression.value, type: expression.type };
+      return {
+        kind: "constant",
+        value: expression.value,
+        type: expression.type,
+      };
     }
     case ExpressionClass.PARAMETER: {
       clause.scope.context.noteParameter(expression.index);

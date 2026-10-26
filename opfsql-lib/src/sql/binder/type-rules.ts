@@ -40,7 +40,9 @@ export function checkComparable(left: StaticType, right: StaticType): void {
     left === "JSON" ||
     right === "JSON";
   if (!isCompatible) {
-    throw new SemanticError(`type mismatch: cannot compare ${left} with ${right}`);
+    throw new SemanticError(
+      `type mismatch: cannot compare ${left} with ${right}`,
+    );
   }
 }
 

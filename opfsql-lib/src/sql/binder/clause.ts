@@ -37,8 +37,11 @@ export function bindCondition(
 }
 
 /** The conjuncts of a condition: `a AND b` is two. */
-export function conjunctsOf(condition: logical.Expression): readonly logical.Expression[] {
-  const isAnd = condition.kind === "conjunction" && condition.operator === "AND";
+export function conjunctsOf(
+  condition: logical.Expression,
+): readonly logical.Expression[] {
+  const isAnd =
+    condition.kind === "conjunction" && condition.operator === "AND";
   return isAnd ? condition.operands : [condition];
 }
 

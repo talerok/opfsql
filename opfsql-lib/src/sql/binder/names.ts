@@ -5,7 +5,11 @@ import type {
   JsonPathSegment,
   StarExpression,
 } from "../parser/index.js";
-import type { ColumnReference, JsonAccess, JsonPathStep } from "../plan/index.js";
+import type {
+  ColumnReference,
+  JsonAccess,
+  JsonPathStep,
+} from "../plan/index.js";
 import type { Relation, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------

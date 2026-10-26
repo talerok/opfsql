@@ -155,7 +155,12 @@ function finish(
     ...ordering.extras,
   ];
   const tableIndex = scope.context.newIndex();
-  const projected: Plan = { kind: "project", tableIndex, child: plan, expressions };
+  const projected: Plan = {
+    kind: "project",
+    tableIndex,
+    child: plan,
+    expressions,
+  };
   const distinct: Plan = isDistinct
     ? { kind: "distinct", child: projected }
     : projected;
@@ -163,7 +168,11 @@ function finish(
     name: output.name,
     type: output.expression.type,
   }));
-  const ordered = order(distinct, ordering.keys, columnsOf(tableIndex, expressions));
+  const ordered = order(
+    distinct,
+    ordering.keys,
+    columnsOf(tableIndex, expressions),
+  );
   if (ordering.extras.length === 0) return { plan: ordered, columns };
   const trimmed: Plan = {
     kind: "project",
@@ -198,7 +207,10 @@ function columnsOf(
     kind: "column",
     binding: { tableIndex, columnIndex },
     depth: 0,
-    name: expression.kind === "column" ? expression.name : `column${String(columnIndex + 1)}`,
+    name:
+      expression.kind === "column"
+        ? expression.name
+        : `column${String(columnIndex + 1)}`,
     type: expression.type,
   }));
 }

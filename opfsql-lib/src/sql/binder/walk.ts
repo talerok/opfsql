@@ -131,12 +131,10 @@ export function mapPlan(plan: Plan, map: Map): Plan {
 }
 
 function mapAggregate(plan: logical.Aggregate, map: Map): Plan {
-  const aggregates = plan.aggregates.map(
-    (call): AggregateCall<Plan> => ({
-      ...call,
-      arguments: call.arguments.map(map),
-    }),
-  );
+  const aggregates = plan.aggregates.map((call): AggregateCall<Plan> => ({
+    ...call,
+    arguments: call.arguments.map(map),
+  }));
   return {
     ...plan,
     child: mapPlan(plan.child, map),
@@ -163,7 +161,9 @@ function mapLimit(plan: logical.Limit, map: Map): Plan {
  * The direct sub-expressions in a fixed order, with the gaps a CASE may
  * have; a subquery's plan is not among them.
  */
-export function partsOf(expression: Expression): readonly (Expression | null)[] {
+export function partsOf(
+  expression: Expression,
+): readonly (Expression | null)[] {
   switch (expression.kind) {
     case "column":
     case "constant":

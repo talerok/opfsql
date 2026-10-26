@@ -1,3 +1,4 @@
+import { InternalError } from "../../errors.js";
 import { resolveCall, scalarFunction } from "../../functions/index.js";
 import {
   ExpressionType,
@@ -16,11 +17,11 @@ import type {
 import { bindCondition, type Clause } from "./clause.js";
 import {
   arithmeticType,
+  checkCondition,
   checkComparable,
   concatenationType,
   negationType,
 } from "./type-rules.js";
-import { InternalError } from "../../errors.js";
 
 // ---------------------------------------------------------------------------
 // Comparisons, logic and arithmetic. Negation is always a `not` node: NOT

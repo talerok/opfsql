@@ -7,7 +7,11 @@ import {
   type SubqueryReference,
   type TableReference,
 } from "../parser/index.js";
-import { logical, type ColumnReference, type OutputColumn } from "../plan/index.js";
+import {
+  logical,
+  type ColumnReference,
+  type OutputColumn,
+} from "../plan/index.js";
 import { bindCondition, conjunctsOf, refuse } from "./clause.js";
 import { clauseOf } from "./expression.js";
 import { columnOf, unqualifiedColumn } from "./names.js";
@@ -102,7 +106,13 @@ function bindJoin(reference: JoinReference, scope: Scope): Plan {
       return { kind: "join", joinType: "left", left, right, conditions };
     }
     case JoinType.RIGHT: {
-      return { kind: "join", joinType: "left", left: right, right: left, conditions };
+      return {
+        kind: "join",
+        joinType: "left",
+        left: right,
+        right: left,
+        conditions,
+      };
     }
   }
 }
@@ -142,10 +152,19 @@ function usingEquality(
   const hidden = isRight ? left : right;
   scope.hide(hidden.binding.tableIndex, hidden.binding.columnIndex);
   checkComparable(left.type, right.type);
-  return { kind: "comparison", operator: "EQUAL", left, right, type: "BOOLEAN" };
+  return {
+    kind: "comparison",
+    operator: "EQUAL",
+    left,
+    right,
+    type: "BOOLEAN",
+  };
 }
 
-function usingColumn(name: string, items: readonly Relation[]): ColumnReference {
+function usingColumn(
+  name: string,
+  items: readonly Relation[],
+): ColumnReference {
   const found = items.flatMap((item) => {
     const column = unqualifiedColumn(item, name);
     return column === null ? [] : [columnOf(item, column, 0)];

@@ -38,7 +38,10 @@ export function bindSubquery(
     case "ANY":
     case "ALL": {
       const needle = clause.bind(expression.child);
-      const column = onlyColumn(query, `a subquery compared with ${expression.subqueryType}`);
+      const column = onlyColumn(
+        query,
+        `a subquery compared with ${expression.subqueryType}`,
+      );
       checkComparable(needle.type, column.type);
       return {
         kind: "quantified-comparison",

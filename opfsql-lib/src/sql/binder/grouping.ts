@@ -39,11 +39,14 @@ export function isAggregating(
 }
 
 /** True if `expression` calls an aggregate at its own level, not in a subquery. */
-function hasAggregateCall(expression: ParsedExpression): boolean {
+export function hasAggregateCall(expression: ParsedExpression): boolean {
   const isCall =
     expression.expressionClass === ExpressionClass.FUNCTION &&
     isAggregateFunction(expression.functionName);
-  return isCall || childExpressions(expression).some((child) => hasAggregateCall(child));
+  return (
+    isCall ||
+    childExpressions(expression).some((child) => hasAggregateCall(child))
+  );
 }
 
 export class Grouping {
@@ -114,7 +117,9 @@ export class Grouping {
     depth: number,
   ): ColumnReference {
     const name =
-      expression.kind === "column" ? expression.name : `group${String(group + 1)}`;
+      expression.kind === "column"
+        ? expression.name
+        : `group${String(group + 1)}`;
     return {
       kind: "column",
       binding: { tableIndex: this.groupIndex, columnIndex: group },
