@@ -25,20 +25,24 @@ export function constraintIndexName(table: string, ordinal: number): string {
 
 /**
  * CREATE TABLE for `table`, with `constraints`, the indexes of its PRIMARY
- * KEY and UNIQUE constraints.
+ * KEY and UNIQUE constraints. Anything a CREATE TABLE cannot say — an
+ * index that is no constraint's, a UNIQUE over several columns, AUTOINCREMENT
+ * without a rowid column — is refused rather than lost.
  */
 export function createTableSql(
   table: TableShape,
   constraints: readonly IndexShape[],
 ): string {
-  const columns = table.columns.map((column, position) =>
-    columnSql(table, constraints, column, position),
+  if (table.isAutoincrement && table.rowidColumn === null) {
+    throw new InternalError(
+      `${table.name} has AUTOINCREMENT but no rowid column`,
+    );
+  }
+  const { byColumn, compositeKey } = orderConstraints(table, constraints);
+  const parts = table.columns.map((column, position) =>
+    columnSql(table, column, position, byColumn[position] ?? []),
   );
-  const parts = [...columns];
-  const compositeKey = constraints.find(
-    (index) => index.origin === "primary-key" && index.keys.length > 1,
-  );
-  if (compositeKey !== undefined) {
+  if (compositeKey !== null) {
     parts.push(`PRIMARY KEY (${keyList(table, compositeKey.keys)})`);
   }
   return `CREATE TABLE ${quoteName(table.name)} (${parts.join(", ")})`;
@@ -77,17 +81,73 @@ export function defaultSql(value: Value, type: SqlType): string {
   return textSql(canonicalJson(value));
 }
 
-function columnSql(
+/** A table's constraints as its statement writes them. */
+interface OrderedConstraints {
+  /** Per column, the constraints written with it: PRIMARY KEY before UNIQUE. */
+  readonly byColumn: readonly (readonly IndexShape[])[];
+  /** A PRIMARY KEY over several columns, written after them. */
+  readonly compositeKey: IndexShape | null;
+}
+
+/**
+ * The constraints in the order the statement writes them: each column's in
+ * column order, then a table PRIMARY KEY. They must be named in that order
+ * (constraintIndexName), since loading the statement matches them by name.
+ */
+function orderConstraints(
   table: TableShape,
   constraints: readonly IndexShape[],
+): OrderedConstraints {
+  const byColumn = table.columns.map((_, position) =>
+    constraintsOn(constraints, position),
+  );
+  const composite = constraints.filter(
+    (index) => index.origin === "primary-key" && index.keys.length > 1,
+  );
+  const ordered = [...byColumn.flat(), ...composite];
+  if (ordered.length !== constraints.length || composite.length > 1) {
+    throw new InternalError(
+      `${table.name} has a constraint CREATE TABLE cannot write`,
+    );
+  }
+  for (const [position, index] of ordered.entries()) {
+    checkName(table, index, position + 1);
+  }
+  return { byColumn, compositeKey: composite[0] ?? null };
+}
+
+/** The constraints on column `position` alone: PRIMARY KEY, then UNIQUE. */
+function constraintsOn(
+  constraints: readonly IndexShape[],
+  position: number,
+): IndexShape[] {
+  const onColumn = constraints.filter((index) => isOnColumn(index, position));
+  return [
+    ...onColumn.filter((index) => index.origin === "primary-key"),
+    ...onColumn.filter((index) => index.origin === "unique"),
+  ];
+}
+
+function checkName(
+  table: TableShape,
+  index: IndexShape,
+  ordinal: number,
+): void {
+  const expected = constraintIndexName(table.name, ordinal);
+  if (index.name !== expected) {
+    throw new InternalError(`${index.name} should be named ${expected}`);
+  }
+}
+
+function columnSql(
+  table: TableShape,
   column: Column,
   position: number,
+  constraints: readonly IndexShape[],
 ): string {
   const parts = [quoteName(column.name), column.type];
   if (position === table.rowidColumn) parts.push(rowidKeySql(table));
-  const origin = singleColumnConstraint(constraints, position);
-  if (origin !== null)
-    parts.push(origin === "unique" ? "UNIQUE" : "PRIMARY KEY");
+  for (const { origin } of constraints) parts.push(CONSTRAINT_SQL[origin]);
   if (column.isNotNull) parts.push("NOT NULL");
   if (column.defaultValue !== null) {
     parts.push(`DEFAULT ${defaultSql(column.defaultValue, column.type)}`);
@@ -95,17 +155,15 @@ function columnSql(
   return parts.join(" ");
 }
 
+/** What a constraint index is written as; a statement's index never is. */
+const CONSTRAINT_SQL: Record<Index["origin"], string> = {
+  "primary-key": "PRIMARY KEY",
+  unique: "UNIQUE",
+  statement: "",
+};
+
 function rowidKeySql(table: TableShape): string {
   return table.isAutoincrement ? "PRIMARY KEY AUTOINCREMENT" : "PRIMARY KEY";
-}
-
-/** The constraint on column `position` alone, if any: written with the column. */
-function singleColumnConstraint(
-  constraints: readonly IndexShape[],
-  position: number,
-): Index["origin"] | null {
-  const constraint = constraints.find((index) => isOnColumn(index, position));
-  return constraint?.origin ?? null;
 }
 
 function isOnColumn(index: IndexShape, position: number): boolean {

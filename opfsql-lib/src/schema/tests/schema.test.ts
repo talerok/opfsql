@@ -58,6 +58,8 @@ describe("Schema", () => {
         users,
         table("t", [column("a"), column("A")]),
         table("u", [column("a")], 0),
+        { ...table("v", [column("n", "INTEGER")]), isAutoincrement: true },
+        table("w", [{ ...column("n", "INTEGER"), defaultValue: "42" }]),
       ],
       [
         index("USERS", "users", 0),
@@ -68,7 +70,9 @@ describe("Schema", () => {
     expect(broken.problems()).toEqual([
       "the name USERS is used twice",
       "table t: the name A is used twice",
-      "table u has no INTEGER rowid column 0",
+      "table u: no INTEGER rowid column 0",
+      "table v: AUTOINCREMENT without a rowid column",
+      "table w: the default of n is not a INTEGER",
       "index i is on a missing table nowhere",
       "index j keys missing column 5",
     ]);

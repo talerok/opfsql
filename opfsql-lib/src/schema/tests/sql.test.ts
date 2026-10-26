@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { InternalError } from "../../errors.js";
 import type { Column, IndexShape, TableShape } from "../index.js";
 import {
   constraintIndexName,
@@ -100,4 +101,54 @@ describe("schema statements", () => {
     expect(defaultSql("abc", "JSON")).toBe(`'"abc"'`);
     expect(defaultSql("abc", "TEXT")).toBe("'abc'");
   });
+
+  it("write PRIMARY KEY and UNIQUE on one column, each with its index", () => {
+    const codes: TableShape = {
+      name: "codes",
+      columns: [column("code", "TEXT", { isNotNull: true })],
+      rowidColumn: null,
+      isAutoincrement: false,
+    };
+    const key = { ...codeConstraint(1), origin: "primary-key" as const };
+    const unique = codeConstraint(2);
+    expect(createTableSql(codes, [key, unique])).toBe(
+      'CREATE TABLE "codes" ("code" TEXT PRIMARY KEY UNIQUE NOT NULL)',
+    );
+  });
+
+  it.each<[string, TableShape, IndexShape[]]>([
+    ["a constraint named out of order", users, [{ ...uniqueEmail, name: "x" }]],
+    [
+      "an index no constraint made",
+      users,
+      [{ ...uniqueEmail, origin: "statement" }],
+    ],
+    [
+      "a UNIQUE over two columns",
+      users,
+      [
+        {
+          ...uniqueEmail,
+          keys: [
+            { kind: "column", column: 1 },
+            { kind: "column", column: 2 },
+          ],
+        },
+      ],
+    ],
+    ["AUTOINCREMENT without a rowid", { ...users, rowidColumn: null }, []],
+  ])("refuse to write %s instead of losing it", (_, table, constraints) => {
+    expect(() => createTableSql(table, constraints)).toThrow(InternalError);
+  });
 });
+
+/** A UNIQUE constraint on codes.code, named for the `ordinal`-th constraint. */
+function codeConstraint(ordinal: number): IndexShape {
+  return {
+    name: constraintIndexName("codes", ordinal),
+    table: "codes",
+    keys: [{ kind: "column", column: 0 }],
+    isUnique: true,
+    origin: "unique",
+  };
+}
