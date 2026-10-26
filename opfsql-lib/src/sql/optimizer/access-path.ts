@@ -87,6 +87,7 @@ export function isScan(plan: physical.Plan): plan is Scan {
     case "project":
     case "hash-join":
     case "nested-loop-join":
+    case "lookup-join":
     case "hash-aggregate":
     case "sort":
     case "top-n":

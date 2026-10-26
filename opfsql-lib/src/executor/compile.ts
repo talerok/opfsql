@@ -43,7 +43,10 @@ type ScanPlan = Extract<
   }
 >;
 type OneChildPlan = Extract<physical.Plan, { readonly child: physical.Plan }>;
-type TwoSidedPlan = Extract<physical.Plan, { readonly left: physical.Plan }>;
+type TwoSidedPlan = Extract<
+  physical.Plan,
+  { readonly kind: "hash-join" | "nested-loop-join" | "set-operation" }
+>;
 
 /**
  * The context of a statement's own query level, for a run with `parameters`
@@ -81,6 +84,9 @@ export function compilePlan(plan: physical.Plan, context: Context): Operator {
     case "nested-loop-join":
     case "set-operation": {
       return compileTwoSided(plan, context);
+    }
+    case "lookup-join": {
+      throw new InternalError("the executor does not run a lookup join yet");
     }
     case "cte": {
       return compileCte(plan, context);

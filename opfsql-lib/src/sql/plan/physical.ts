@@ -24,9 +24,11 @@ export type OrderKey = GenericOrderKey<Plan>;
 
 /**
  * One end of a range, and whether it is included. Its value — like every
- * seek value — is fixed for one scan: a constant, a parameter, or a column of
- * an enclosing query (depth ≥ 1), evaluated again each time the scan starts;
- * never a column of the scan's own query. A NULL seek value matches nothing.
+ * seek value — is fixed for one scan: a constant, a parameter, a column of
+ * an enclosing query (depth ≥ 1), or for the right scan of a lookup join a
+ * column of the left row (depth 0, bound to the left side's layout),
+ * evaluated again each time the scan starts; never a column of the scan's
+ * own row. A NULL seek value matches nothing.
  */
 export interface Bound {
   readonly value: Expression;
@@ -165,6 +167,26 @@ export interface NestedLoopJoin {
   readonly conditions: readonly Expression[];
 }
 
+/**
+ * For each left row, `right` scanned again, its seek values — KeyRange
+ * `equal` and Bound values, RowidSet values — evaluated on that row: they
+ * may read columns of `left`'s layout at depth 0, besides constants,
+ * parameters and enclosing queries' columns. Nothing else of `right` may
+ * read the left row: its `residual` reads its own columns (and outer ones).
+ * The join's `residual` holds every condition of the join the seek does not
+ * enforce exactly (docs/planning.md, rules 1 and 2), checked on each pair;
+ * a pair is a match when every one is TRUE, and a LEFT join pads a left row
+ * with NULLs when none is. A NULL seek value matches nothing. Rows come in
+ * the left side's order, each left row's matches in the scan's order.
+ */
+export interface LookupJoin {
+  readonly kind: "lookup-join";
+  readonly joinType: "inner" | "left";
+  readonly left: Plan;
+  readonly right: RowidLookup | IndexScan;
+  readonly residual: readonly Expression[];
+}
+
 export interface HashAggregate {
   readonly kind: "hash-aggregate";
   readonly groupIndex: number;
@@ -254,6 +276,7 @@ export type Plan =
   | Project
   | HashJoin
   | NestedLoopJoin
+  | LookupJoin
   | HashAggregate
   | Sort
   | TopN
@@ -284,7 +307,8 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
       return positions(plan.tableIndex, plan.expressions.length);
     }
     case "hash-join":
-    case "nested-loop-join": {
+    case "nested-loop-join":
+    case "lookup-join": {
       return [...layoutOf(plan.left), ...layoutOf(plan.right)];
     }
     case "hash-aggregate": {
@@ -332,7 +356,8 @@ export function typesOf(plan: Plan): StaticType[] {
       return plan.expressions.map((expression) => expression.type);
     }
     case "hash-join":
-    case "nested-loop-join": {
+    case "nested-loop-join":
+    case "lookup-join": {
       return [...typesOf(plan.left), ...typesOf(plan.right)];
     }
     case "hash-aggregate": {

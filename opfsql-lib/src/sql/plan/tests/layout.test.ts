@@ -83,4 +83,46 @@ describe("layoutOf", () => {
     };
     expect(physical.layoutOf(join)).toEqual(bindings([1, 0], [4, 0], [4, 1]));
   });
+
+  it("gives a lookup join the left side's columns, then its right scan's", () => {
+    const scan: physical.TableScan = {
+      kind: "table-scan",
+      tableIndex: 1,
+      table: users,
+      columns: [1, 0],
+      residual: [],
+      direction: "ascending",
+    };
+    const leftId = {
+      kind: "column",
+      binding: { tableIndex: 1, columnIndex: 0 },
+      depth: 0,
+      name: "id",
+      type: "INTEGER",
+    } as const;
+    const join: physical.Plan = {
+      kind: "lookup-join",
+      joinType: "inner",
+      left: scan,
+      right: {
+        kind: "rowid-lookup",
+        tableIndex: 4,
+        table: users,
+        columns: [ROWID_COLUMN, 1],
+        residual: [],
+        rowids: { kind: "list", values: [leftId] },
+        direction: "ascending",
+      },
+      residual: [],
+    };
+    expect(physical.layoutOf(join)).toEqual(
+      bindings([1, 1], [1, 0], [4, ROWID_COLUMN], [4, 1]),
+    );
+    expect(physical.typesOf(join)).toEqual([
+      "TEXT",
+      "INTEGER",
+      "INTEGER",
+      "TEXT",
+    ]);
+  });
 });
