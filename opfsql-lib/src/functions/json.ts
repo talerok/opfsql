@@ -20,16 +20,17 @@ import type { CallSite, Implementation, ScalarFunction } from "./types.js";
 // its static type is JSON, and JSON text otherwise.
 // ---------------------------------------------------------------------------
 
-export type PathStep =
-  | { readonly type: "key"; readonly key: string }
-  | {
-      readonly type: "index";
-      readonly index: number;
-      readonly fromEnd: boolean;
-    };
+/** A step into a JSON value: a key of an object, or an index of an array. */
+export type JsonPathStep =
+  | { readonly kind: "key"; readonly key: string }
+  | { readonly kind: "index"; readonly index: number };
+
+/** A step of a function's path, which may also count from the end: `[#-n]`. */
+type PathStep =
+  JsonPathStep | { readonly kind: "index-from-end"; readonly index: number };
 
 /** A parsed JSON path: the steps after `$`. */
-export type Path = readonly PathStep[];
+type Path = readonly PathStep[];
 
 /** `$`: the whole document. */
 const ROOT: Path = [];
@@ -37,7 +38,7 @@ const ROOT: Path = [];
 const STEP = /^(?:\.(?:"((?:[^"\\]|\\.)*)"|([^.[]+))|\[(#-)?(\d+)\])/u;
 
 /** Parses a JSON path such as `$.items[0]."a key"`. */
-export function parsePath(path: string): Path {
+function parsePath(path: string): Path {
   if (!path.startsWith("$")) throw badPath(path);
   const steps: PathStep[] = [];
   let rest = path.slice(1);
@@ -53,15 +54,12 @@ export function parsePath(path: string): Path {
 function pathStep(match: RegExpExecArray): PathStep {
   const [, quoted, bare, fromEnd, index] = match;
   if (index !== undefined) {
-    return {
-      type: "index",
-      index: Number(index),
-      fromEnd: fromEnd !== undefined,
-    };
+    const kind = fromEnd === undefined ? "index" : "index-from-end";
+    return { kind, index: Number(index) };
   }
   const key =
     quoted === undefined ? bare : (JSON.parse(`"${quoted}"`) as string);
-  return { type: "key", key: key ?? "" };
+  return { kind: "key", key: key ?? "" };
 }
 
 function badPath(path: string): SemanticError {
@@ -82,12 +80,13 @@ export function followPath(
 }
 
 function followStep(value: JsonValue, step: PathStep): JsonValue | undefined {
-  if (step.type === "key") {
+  if (step.kind === "key") {
     const hasKey = isObject(value) && Object.hasOwn(value, step.key);
     return hasKey ? value[step.key] : undefined;
   }
   if (!Array.isArray(value)) return undefined;
-  return value[step.fromEnd ? value.length - step.index : step.index];
+  const isFromEnd = step.kind === "index-from-end";
+  return value[isFromEnd ? value.length - step.index : step.index];
 }
 
 function isObject(value: JsonValue): value is Record<string, JsonValue> {

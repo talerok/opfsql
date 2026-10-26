@@ -1,6 +1,5 @@
 import type {
   Arithmetic,
-  ArithmeticOperator,
   Concatenate,
   Negate,
   physical,
@@ -10,7 +9,6 @@ import {
   concatenate,
   negate,
   type NumericMode,
-  type ArithmeticOperator as ValueOperator,
   type StaticType,
 } from "../values/index.js";
 import type { CompiledExpression, Compiler } from "./scope.js";
@@ -48,10 +46,7 @@ function compileArithmetic(
   compiler: Compiler,
 ): CompiledExpression {
   const { left, right } = expression;
-  const apply = arithmetic(
-    valueOperator(expression.operator),
-    numericMode(expression.type),
-  );
+  const apply = arithmetic(expression.operator, numericMode(expression.type));
   const leftValue = compiler.compile(left);
   const rightValue = compiler.compile(right);
   return (row) => apply(leftValue(row), rightValue(row));
@@ -81,24 +76,4 @@ function compileConcatenate(
 function numericMode(type: StaticType): NumericMode {
   if (type === "INTEGER") return "integer";
   return type === "REAL" ? "real" : "dynamic";
-}
-
-function valueOperator(operator: ArithmeticOperator): ValueOperator {
-  switch (operator) {
-    case "ADD": {
-      return "add";
-    }
-    case "SUBTRACT": {
-      return "subtract";
-    }
-    case "MULTIPLY": {
-      return "multiply";
-    }
-    case "DIVIDE": {
-      return "divide";
-    }
-    case "MOD": {
-      return "remainder";
-    }
-  }
 }

@@ -1,6 +1,6 @@
 export { startAggregate } from "./aggregate.js";
 export { commonType } from "./arguments.js";
-export { followPath, type Path, type PathStep } from "./json.js";
+export { followPath, type JsonPathStep } from "./json.js";
 export {
   aggregateFunction,
   isAggregateFunction,

@@ -1,12 +1,14 @@
 import type {
   AggregateFunction,
+  JsonPathStep,
   ScalarFunction,
 } from "../../functions/index.js";
 import type {
   Affinity,
+  ArithmeticOperator,
   SqlType,
-  Value,
   StaticType,
+  Value,
 } from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
@@ -53,9 +55,6 @@ export function positionIn(
 
 export type ComparisonOperator =
   "EQUAL" | "NOT_EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
-
-export type ArithmeticOperator =
-  "ADD" | "SUBTRACT" | "MULTIPLY" | "DIVIDE" | "MOD";
 
 export interface ColumnReference {
   readonly kind: "column";
@@ -193,10 +192,6 @@ export interface Cast<Plan> {
   readonly operand: Expression<Plan>;
   readonly type: SqlType;
 }
-
-export type JsonPathStep =
-  | { readonly kind: "key"; readonly key: string }
-  | { readonly kind: "index"; readonly index: number };
 
 /** `column.key[0]…`: a value inside a JSON column. */
 export interface JsonAccess {

@@ -1,11 +1,11 @@
 // The contract between binder, optimizer and executor (docs/planning.md).
 
-export type { StaticType } from "../../values/index.js";
+export type { JsonPathStep } from "../../functions/index.js";
+export type { ArithmeticOperator, StaticType } from "../../values/index.js";
 
 export {
   type AggregateCall,
   type Arithmetic,
-  type ArithmeticOperator,
   type Between,
   type Case,
   type CaseBranch,
@@ -24,7 +24,6 @@ export {
   isSameColumn,
   type IsNull,
   type JsonAccess,
-  type JsonPathStep,
   type Negate,
   type Not,
   type OrderDirection,

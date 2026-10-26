@@ -1,3 +1,4 @@
+import type { JsonPathStep } from "../../functions/index.js";
 import {
   canonicalJson,
   type JsonComposite,
@@ -5,16 +6,15 @@ import {
   sqlLiteral,
   type Value,
   type StaticType,
+  type ArithmeticOperator,
 } from "../../values/index.js";
 import { above, power } from "../precedence.js";
 import type {
   AggregateCall,
-  ArithmeticOperator,
   Case,
   ColumnReference,
   ComparisonOperator,
   Expression,
-  JsonPathStep,
 } from "./expression.js";
 import { comparisonPower, powerOf } from "./printed-power.js";
 
