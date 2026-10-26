@@ -190,6 +190,13 @@ An UPDATE's source produces every column of the table, then the rowid; no
 pass prunes them. A DELETE's source produces the rowid alone. ON CONFLICT's
 existing and refused rows are each every column of the table, in order.
 
+Each statement of a transaction runs inside a savepoint of its write
+transaction. A statement that fails is rolled back to it and the
+transaction goes on, as in SQLite: a caller can catch a UNIQUE violation
+and carry on. Only a failure that cannot be rolled back — the commit
+itself failing — ends the transaction. Savepoints live in one transaction's
+memory; nothing of them reaches the WAL or other tabs.
+
 A recursive CTE is a `cte` whose definition is a `recursive-cte`. The
 `recursive-cte`'s own index names its working set, the rows the last step
 added, which its step reads; the `cte`'s index names the full result, which
