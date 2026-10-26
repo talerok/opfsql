@@ -16,7 +16,7 @@ import {
   bindAssignments,
   columnNamed,
   insertSource,
-  tableNamed,
+  writableTable,
 } from "./dml.js";
 import { clauseOf } from "./expression.js";
 import { relation, Scope, type BindContext } from "./scope.js";
@@ -35,7 +35,7 @@ export function bindInsert(
   statement: InsertStatement,
   context: BindContext,
 ): Insert<Plan> {
-  const table = tableNamed(statement.table, context);
+  const table = writableTable(statement.table, context);
   const columns = targetColumns(statement.columns, table);
   const source = insertSource(statement.source, columns.length, context);
   const onConflict =

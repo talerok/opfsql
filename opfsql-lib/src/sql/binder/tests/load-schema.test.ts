@@ -18,7 +18,7 @@ import {
   loadSchema,
   type SchemaRow,
 } from "../index.js";
-import { lines, only, semanticError } from "./helpers.js";
+import { bind, lines, only, semanticError } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // The schema table's statements are generated from the model; loading them
@@ -346,6 +346,18 @@ describe("loadSchema", () => {
     expect(
       semanticError("CREATE INDEX i ON opfsql_sequence (seq)", loaded),
     ).toBe("table opfsql_sequence may not be indexed");
+    for (const sql of [
+      "INSERT INTO opfsql_sequence VALUES ('t', 0)",
+      "UPDATE opfsql_sequence SET seq = 0",
+      "DELETE FROM opfsql_sequence",
+    ]) {
+      expect(semanticError(sql, loaded)).toBe(
+        "table opfsql_sequence may not be modified",
+      );
+    }
+    expect(bind("SELECT name, seq FROM opfsql_sequence", loaded).kind).toBe(
+      "query",
+    );
   });
 });
 

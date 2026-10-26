@@ -1,6 +1,6 @@
 import { SemanticError } from "../../errors.js";
 import { commonType } from "../../functions/index.js";
-import { nameKey, type Table } from "../../schema/index.js";
+import { isReservedName, nameKey, type Table } from "../../schema/index.js";
 import type {
   Assignment as AssignmentNode,
   DeleteStatement,
@@ -63,10 +63,22 @@ export function bindDelete(
   };
 }
 
-/** The table a statement writes, which must exist. */
+/** The table a statement names, which must exist. */
 export function tableNamed(name: string, context: BindContext): Table {
   const table = context.schema.table(name);
   if (table === null) throw new SemanticError(`no such table: ${name}`);
+  return table;
+}
+
+/**
+ * The table INSERT, UPDATE or DELETE writes: not one of opfsql's own, which
+ * a statement may read but never write (docs/semantics.md, Names).
+ */
+export function writableTable(name: string, context: BindContext): Table {
+  const table = tableNamed(name, context);
+  if (isReservedName(table.name)) {
+    throw new SemanticError(`table ${table.name} may not be modified`);
+  }
   return table;
 }
 
@@ -142,7 +154,7 @@ function targetOf(
   where: ParsedExpression | null,
   context: BindContext,
 ): Target {
-  const table = tableNamed(name, context);
+  const table = writableTable(name, context);
   const tableIndex = context.newIndex();
   const scope = Scope.root(context);
   scope.add(relation(table.name, tableIndex, table.columns));
