@@ -187,7 +187,10 @@ scan that is still finding rows. An INSERT whose source reads the target
 table reads all of it first, for the same reason.
 
 An UPDATE's source produces every column of the table, then the rowid; no
-pass prunes them. A DELETE's source produces the rowid alone. ON CONFLICT's
+pass prunes them. A DELETE's source produces the rows to delete, the rowid
+among their columns: the binder reads every column, as for UPDATE, under the
+WHERE that reads them, and the optimizer may narrow it to the rowid alone
+once the WHERE is in a scan's residual. ON CONFLICT's
 existing and refused rows are each every column of the table, in order.
 
 A recursive CTE is a `cte` whose definition is a `recursive-cte`. The
