@@ -77,18 +77,28 @@ function loadIndex(
   if (owner === undefined) {
     throw corrupt(row, `its table ${row.tableName} has no row`);
   }
-  if (row.sql === null) {
-    const constraint = owner.constraints.find(
-      (index) => nameKey(index.name) === nameKey(row.name),
+  // A constraint's index has no statement: its table's statement names it.
+  const isConstraint = row.sql === null;
+  if (isConstraint) return loadConstraintIndex(row, owner);
+  return loadStatementIndex(row, owner);
+}
+
+/** A constraint index: its table's statement describes it, the row gives its pages. */
+function loadConstraintIndex(row: SchemaRow, owner: LoadedTable): Index {
+  const constraint = owner.constraints.find(
+    (index) => nameKey(index.name) === nameKey(row.name),
+  );
+  if (constraint === undefined) {
+    throw corrupt(
+      row,
+      `it has no statement and no constraint of ${owner.table.name} is named so`,
     );
-    if (constraint === undefined) {
-      throw corrupt(
-        row,
-        `it has no statement and no constraint of ${owner.table.name} is named so`,
-      );
-    }
-    return { ...constraint, rootPage: row.rootPage };
   }
+  return { ...constraint, rootPage: row.rootPage };
+}
+
+/** An index a CREATE INDEX made, bound again over its table. */
+function loadStatementIndex(row: SchemaRow, owner: LoadedTable): Index {
   const statement = storedStatement(row, StatementType.CREATE_INDEX_STATEMENT);
   const context = new BindContext(Schema.empty, bindQuery);
   const index = loading(row, () =>
