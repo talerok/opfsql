@@ -1,34 +1,18 @@
-import { OpfsqlError } from "../../src/errors.js";
-import type { Rows } from "./compare.js";
-import { closeCopies, type Copies, type Copy, openCopies } from "./database.js";
-import { type Check, copyDifference } from "./check.js";
+import { closeCopies, type Copies, openCopies } from "./database.js";
 import { checksOf } from "./oracles.js";
-import { generateCase } from "./query.js";
+import { generateCase, type QueryCase } from "./query.js";
 import { caseSeed, Random } from "./random.js";
-import {
-  createIndexSql,
-  createTableSql,
-  type DatabaseSpec,
-  generateDatabase,
-} from "./schema.js";
+import { reduceFailure } from "./reduce.js";
+import { describeFailure } from "./report.js";
+import { type Outcome, runCheck } from "./run-check.js";
+import { type DatabaseSpec, generateDatabase } from "./schema.js";
+import type { Check } from "./check.js";
 
 // ---------------------------------------------------------------------------
-// Running the oracles over one random database. Errors are not results
-// (docs/planning.md, rule 4): a check where any form fails at run time is
-// skipped and counted. Any other error — one binding should have caught,
-// or an internal one — is a failure, as a disagreement is.
+// Running the oracles over one random database, case after case. The first
+// failure of a database is reduced before it is reported; any later one is
+// reported as generated.
 // ---------------------------------------------------------------------------
-
-/** What generated SQL may fail with at run time, whatever the plan. */
-const RUNTIME_ERRORS: ReadonlySet<string> = new Set([
-  "DATATYPE_MISMATCH",
-  "INTEGER_OVERFLOW",
-]);
-
-export type Outcome =
-  | { readonly kind: "agreed" }
-  | { readonly kind: "skipped"; readonly code: string }
-  | { readonly kind: "failed"; readonly reason: string };
 
 export interface SeedReport {
   readonly checks: number;
@@ -68,14 +52,41 @@ async function runCase(site: CaseSite, tally: Tally): Promise<void> {
   const queryCase = generateCase(random, site.spec);
   for (const check of checksOf(queryCase)) {
     const outcome = await runCheck(check, site.copies);
-    tally.add(outcome, () =>
-      describeFailure({ ...site, check, reason: reasonOf(outcome) }),
-    );
+    tally.count(outcome);
+    if (outcome.kind !== "failed") continue;
+    const shouldReduce = tally.failureCount() === 0;
+    const failing = { site, queryCase, check, reason: outcome.reason };
+    tally.fail(await describe(failing, shouldReduce));
   }
 }
 
-function reasonOf(outcome: Outcome): string {
-  return outcome.kind === "failed" ? outcome.reason : "";
+interface Failing {
+  readonly site: CaseSite;
+  readonly queryCase: QueryCase;
+  readonly check: Check;
+  readonly reason: string;
+}
+
+async function describe(
+  failing: Failing,
+  shouldReduce: boolean,
+): Promise<string> {
+  const { site, check, reason } = failing;
+  const { seed, index, spec, copies } = site;
+  const generated = {
+    seed,
+    index,
+    spec,
+    rows: copies.rows,
+    pageSize: copies.pageSize,
+  };
+  const reduction = shouldReduce
+    ? await reduceFailure(spec, copies, failing.queryCase, check.oracle)
+    : null;
+  if (reduction === null) {
+    return describeFailure({ ...generated, check, reason, isReduced: false });
+  }
+  return describeFailure({ ...generated, ...reduction, isReduced: true });
 }
 
 class Tally {
@@ -83,105 +94,23 @@ class Tally {
   private readonly skipped = new Map<string, number>();
   private readonly failures: string[] = [];
 
-  /** Counts `outcome`; `describe` says what failed, when it did. */
-  add(outcome: Outcome, describe: () => string): void {
+  count(outcome: Outcome): void {
     this.checks++;
-    switch (outcome.kind) {
-      case "agreed": {
-        return;
-      }
-      case "skipped": {
-        const count = this.skipped.get(outcome.code) ?? 0;
-        this.skipped.set(outcome.code, count + 1);
-        return;
-      }
-      case "failed": {
-        this.failures.push(describe());
-      }
-    }
+    if (outcome.kind !== "skipped") return;
+    const count = this.skipped.get(outcome.code) ?? 0;
+    this.skipped.set(outcome.code, count + 1);
+  }
+
+  fail(description: string): void {
+    this.failures.push(description);
+  }
+
+  failureCount(): number {
+    return this.failures.length;
   }
 
   report(): SeedReport {
     const { checks, skipped, failures } = this;
     return { checks, skipped, failures };
   }
-}
-
-/** Runs every form on both copies, and holds them to the check and to each other. */
-export async function runCheck(check: Check, copies: Copies): Promise<Outcome> {
-  const plain = await runForms(check, copies.plain);
-  const indexed = await runForms(check, copies.indexed);
-  if (!Array.isArray(plain)) return plain;
-  if (!Array.isArray(indexed)) return indexed;
-  const reasons = [
-    labelled("plain copy", check.verdict(plain)),
-    labelled("indexed copy", check.verdict(indexed)),
-    ...check.forms.map((form, index) =>
-      labelled(
-        `form ${String(index + 1)} on the two copies`,
-        copyDifference(form, plain[index] ?? [], indexed[index] ?? []),
-      ),
-    ),
-  ].filter((reason) => reason !== null);
-  return reasons.length === 0
-    ? { kind: "agreed" }
-    : { kind: "failed", reason: reasons.join("\n") };
-}
-
-function labelled(label: string, difference: string | null): string | null {
-  return difference === null ? null : `${label}: ${difference}`;
-}
-
-/** Every form's rows, or how a form failed. */
-async function runForms(check: Check, copy: Copy): Promise<Rows[] | Outcome> {
-  const results: Rows[] = [];
-  for (const form of check.forms) {
-    try {
-      const result = await copy.session.query(form.sql, form.parameters);
-      results.push(result.rows);
-    } catch (error) {
-      return outcomeOfError(error, form.sql);
-    }
-  }
-  return results;
-}
-
-function outcomeOfError(error: unknown, sql: string): Outcome {
-  const isRuntime =
-    error instanceof OpfsqlError && RUNTIME_ERRORS.has(error.code);
-  if (isRuntime) return { kind: "skipped", code: error.code };
-  const code = error instanceof OpfsqlError ? error.code : "not an OpfsqlError";
-  return { kind: "failed", reason: `${code}: ${String(error)}\n  in: ${sql}` };
-}
-
-interface FailureContext {
-  readonly seed: number;
-  readonly index: number;
-  readonly spec: DatabaseSpec;
-  readonly copies: Copies;
-  readonly check: Check;
-  readonly reason: string;
-}
-
-/** Everything needed to see the failure again, by hand or by its seed. */
-export function describeFailure(context: FailureContext): string {
-  const { spec, copies, check } = context;
-  const sizes = spec.tables.map(
-    (table) =>
-      `${table.name}: ${String(copies.rows.get(table.name)?.length ?? 0)} rows`,
-  );
-  return [
-    `seed ${String(context.seed)}, case ${String(context.index)}: ${check.oracle} disagrees`,
-    context.reason,
-    "schema:",
-    ...spec.tables.map((table) => `  ${createTableSql(table)};`),
-    "indexed copy only:",
-    ...spec.indexes.map(
-      (index) =>
-        `  ${createIndexSql(index)};${index.isEarly ? " -- before the rows" : ""}`,
-    ),
-    `data: ${sizes.join(", ")}; page size ${String(copies.pageSize)}`,
-    "forms:",
-    ...check.forms.map((form) => `  ${form.sql};`),
-  ].join("\n");
 }
