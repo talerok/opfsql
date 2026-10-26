@@ -6,11 +6,13 @@ import {
   type JsonPathStep,
   positionIn,
 } from "../sql/plan/index.js";
-import type { CompiledExpression, Layout, Scope } from "./scope.js";
+import type { CompiledExpression, Layout, Scope, Tuple } from "./scope.js";
 
 /**
  * A column, its position found once: in the row, or for depth d in the
- * row d query levels out, which is the same for every row here.
+ * row d query levels out, which is the same for every row here. A row
+ * without a value there is narrower than its layout: an InternalError, not
+ * a NULL.
  */
 export function compileColumn(
   reference: ColumnReference,
@@ -19,11 +21,26 @@ export function compileColumn(
   const { depth } = reference;
   if (depth === 0) {
     const position = positionOf(scope.layout, reference);
-    return (row) => row[position] ?? null;
+    return (row) => {
+      const value = row[position];
+      if (value === undefined) throw narrowRow(reference, row);
+      return value;
+    };
   }
   const position = positionOf(outerLayout(scope, reference), reference);
   const { outer } = scope.run;
-  return () => outer.at(depth)[position] ?? null;
+  return () => {
+    const row = outer.at(depth);
+    const value = row[position];
+    if (value === undefined) throw narrowRow(reference, row);
+    return value;
+  };
+}
+
+function narrowRow(reference: ColumnReference, row: Tuple): InternalError {
+  return new InternalError(
+    `column ${describe(reference)} is past the end of a row of ${String(row.length)} values`,
+  );
 }
 
 /** `column.key[0]…`: the JSON value there, or NULL if there is none. */

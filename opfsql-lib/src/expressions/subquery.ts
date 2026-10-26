@@ -16,6 +16,7 @@ import type {
   CompiledExpression,
   CompiledSubquery,
   Compiler,
+  OuterRows,
   QueryContext,
   Scope,
   Tuple,
@@ -25,13 +26,17 @@ import type {
 // Subqueries in expressions (docs/planning.md, Execution). The executor
 // compiles each subquery's plan once, with the expression; a correlated one
 // runs again for each row, with that row on the outer stack, and any other
-// runs the first time it is needed and keeps its rows.
+// runs the first time it is needed and keeps its rows — with every outer row
+// set aside, since its rows serve all of them.
 // ---------------------------------------------------------------------------
 
 export type Subquery = Extract<
   physical.Expression,
   { readonly kind: "scalar-subquery" | "exists" | "quantified-comparison" }
 >;
+
+/** The statement's own query level, which reads no outer row. */
+const STATEMENT_LEVEL = 0;
 
 /** A subquery's rows for the row its expression is evaluated on. */
 type CompiledRows = (row: Tuple) => readonly Tuple[];
@@ -109,8 +114,11 @@ function compileHashedIn(
 ): CompiledExpression {
   const needle = compiler.compile(expression.needle);
   const subquery = compilePlan(expression, compiler.scope);
+  const { outer } = compiler.scope.run;
   const contains = once(() =>
-    membership(subquery.rows().map(([item = null]) => item)),
+    membership(
+      sealed(outer, () => subquery.rows()).map(([item = null]) => item),
+    ),
   );
   return (row) => contains()(needle(row));
 }
@@ -126,9 +134,21 @@ function compileRows(
   limit?: number,
 ): CompiledRows {
   const subquery = compilePlan(expression, scope);
-  if (!expression.isCorrelated) return once(() => subquery.rows(limit));
   const { outer } = scope.run;
+  if (!expression.isCorrelated) {
+    return once(() => sealed(outer, () => subquery.rows(limit)));
+  }
   return (row) => outer.within(row, () => subquery.rows(limit));
+}
+
+/**
+ * What an uncorrelated subquery's `run` returns, run with no outer row on
+ * the stack: its rows serve every outer row, so it may read none. One
+ * marked uncorrelated that reads one fails with an InternalError, instead
+ * of reading the row of another query level.
+ */
+function sealed<T>(outer: OuterRows, run: () => T): T {
+  return outer.atLevel(STATEMENT_LEVEL, run);
 }
 
 /**

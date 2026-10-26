@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SemanticError } from "../../errors.js";
+import { InternalError, SemanticError } from "../../errors.js";
 import {
   arithmetic,
   caseWhen,
@@ -161,6 +161,23 @@ describe("outer references", () => {
     const t1 = values(1, [constant(10), constant(1)]);
     const middle = scalarSubquery(project(3, t1, innermost), "correlated");
     expect(evaluateEach(middle, [[100], [200]])).toEqual([99, 199]);
+  });
+
+  it("fail for an outer row narrower than its layout", () => {
+    const fourth = scalarSubquery(values(1, [outer(1, 0, 3)]), "correlated");
+    expect(() => evaluateEach(fourth, [[1]])).toThrow(InternalError);
+  });
+
+  it("are not open to a subquery marked uncorrelated, which runs once for all", () => {
+    // SELECT (SELECT (SELECT t1.a) FROM (VALUES (10)) AS t1 (a)) FROM t0,
+    // the innermost wrongly marked uncorrelated: with t1's row not pushed,
+    // it would read t0's row in its place.
+    const misread = scalarSubquery(values(2, [outer(1, 1, 0)]));
+    const t1 = values(1, [constant(10)]);
+    const middle = scalarSubquery(project(3, t1, misread), "correlated");
+    expect(() => evaluateEach(middle, [[100]])).toThrow(
+      new InternalError("no outer row 1 levels out (0 deep)"),
+    );
   });
 
   it("read the right row again once a nested subquery has run", () => {
