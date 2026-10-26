@@ -34,8 +34,9 @@ import { projectedBy } from "./plan-tree.js";
 //
 // A conjunct that calls a volatile function or holds a correlated subquery
 // (isPinned) never moves: it stays directly above the node it was above,
-// where it runs exactly as often as before. A filter that is never TRUE is
-// left alone: it reads nothing however deep the others go.
+// where it runs exactly as often as before — after the conjuncts that stay
+// there with it, so a cheap test spares it rows. A filter that is never
+// TRUE is left alone: it reads nothing however deep the others go.
 // ---------------------------------------------------------------------------
 
 type Expression = logical.Expression;
