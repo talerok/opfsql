@@ -29,7 +29,8 @@
     "src/async",
     "src/engine",
     "src/worker",
-    "test/support"
+    "test/support",
+    "test/metamorphic"
   ],
   "exclude": ["src/engine/tests", "src/worker/tests"]
 }
