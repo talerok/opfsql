@@ -268,11 +268,13 @@ describe("three-valued logic", () => {
     expect(evaluate(inList(c0, constant(1), constant(2)))).toBe(false);
     expect(evaluate(inList(NULL, constant(1)))).toBeNull();
     expect(evaluate(inList(c0))).toBe(false);
+    expect(evaluate(inList(NULL))).toBe(false);
   });
 
   it("NOT IN is NOT of IN", () => {
     expect(evaluate(notInList(c0, constant(1), NULL))).toBeNull();
     expect(evaluate(notInList(c0, constant(1)))).toBe(true);
+    expect(evaluate(notInList(NULL))).toBe(true);
     expect(evaluate(notInList(c0, c0))).toBe(false);
   });
 });

@@ -23,6 +23,7 @@ import { withChildren } from "./plan-tree.js";
 //   TRUE AND x → x     FALSE AND x → FALSE
 //   FALSE OR x → x     TRUE OR x → TRUE
 //   NOT NOT x → x
+//   x IN () → FALSE    (an empty list holds nothing x equals, NULL or not)
 // where the x left standing alone is a condition (a comparison, AND, OR,
 // NOT, IS NULL, IN, BETWEEN, EXISTS or a quantified comparison), which
 // gives only TRUE, FALSE or NULL: an operand of AND or NOT is checked to be
@@ -125,6 +126,10 @@ function folded(expression: logical.Expression): logical.Expression | null {
 }
 
 function withIdentities(expression: logical.Expression): logical.Expression {
+  // x IN () holds for no x, NULL included (docs/semantics.md, Logic).
+  if (expression.kind === "in-list" && expression.list.length === 0) {
+    return truth(false);
+  }
   if (expression.kind === "conjunction") {
     if (expression.operator === "AND") return simplifyAnd(expression);
     return simplifyOr(expression);

@@ -13,17 +13,12 @@ reason sum-avg-text semantics.md, Aggregates: sum and avg take numbers only; ove
 # Features opfsql does not have.
 reason desc-index not supported: ASC or DESC on an index key
 reason in-table not supported: IN with a table name, x IN t1
-reason in-empty not supported: an empty IN list, x IN ()
 reason from-parentheses not supported: parentheses around FROM items
 reason indexed-by not supported: INDEXED BY and NOT INDEXED
 reason total not supported: the total() aggregate
 reason group-concat not supported: the group_concat() aggregate
 reason shift not supported: the << operator, and the sums over the rows it would have inserted
 
-test/evidence/in1.test:23 in-empty
-test/evidence/in1.test:39 in-empty
-test/evidence/in1.test:55 in-empty
-test/evidence/in1.test:61 in-empty
 test/evidence/in1.test:70 in-table
 test/evidence/in1.test:81 in-table
 test/evidence/in1.test:92 in-table
@@ -36,18 +31,12 @@ test/evidence/in1.test:164 in-table
 test/evidence/in1.test:175 in-table
 test/evidence/in1.test:186 in-table
 test/evidence/in1.test:197 in-table
-test/evidence/in1.test:228 in-empty
-test/evidence/in1.test:234 in-empty
 test/evidence/in1.test:240 in-table
 test/evidence/in1.test:251 in-table
-test/evidence/in1.test:262 in-empty
-test/evidence/in1.test:268 in-empty
 test/evidence/in1.test:274 in-table
 test/evidence/in1.test:279 compare-types
 test/evidence/in1.test:285 in-table
 test/evidence/in1.test:290 compare-types
-test/evidence/in1.test:296 in-empty
-test/evidence/in1.test:302 in-empty
 test/evidence/in1.test:308 in-table
 test/evidence/in1.test:313 compare-types
 test/evidence/in1.test:319 in-table
@@ -106,14 +95,6 @@ test/evidence/in1.test:1114 in-table
 test/evidence/in1.test:1125 in-table
 test/evidence/in1.test:1136 in-table
 test/evidence/in1.test:1147 in-table
-test/evidence/in2.test:81 in-empty
-test/evidence/in2.test:88 in-empty
-test/evidence/in2.test:95 in-empty
-test/evidence/in2.test:102 in-empty
-test/evidence/in2.test:109 in-empty
-test/evidence/in2.test:119 in-empty
-test/evidence/in2.test:129 in-empty
-test/evidence/in2.test:139 in-empty
 test/evidence/slt_lang_aggfunc.test:43 total
 test/evidence/slt_lang_aggfunc.test:58 indexed-by
 test/evidence/slt_lang_aggfunc.test:100 sum-avg-text

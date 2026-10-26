@@ -240,6 +240,25 @@ describe("WITH RECURSIVE", () => {
   });
 });
 
+describe("IN lists", () => {
+  it("bind an empty list, IN () and NOT IN ()", () => {
+    expect(plan("SELECT id FROM users WHERE age IN ()")).toBe(
+      lines(
+        "project #1 (id#0.0)",
+        "  filter age#0.2 IN ()",
+        "    get #0 users (id, name, age, email, data)",
+      ),
+    );
+    expect(plan("SELECT id FROM users WHERE age NOT IN ()")).toBe(
+      lines(
+        "project #1 (id#0.0)",
+        "  filter age#0.2 NOT IN ()",
+        "    get #0 users (id, name, age, email, data)",
+      ),
+    );
+  });
+});
+
 describe("subqueries", () => {
   it("bind as values, tests and quantified comparisons", () => {
     const bound = query(
