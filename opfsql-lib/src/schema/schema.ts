@@ -1,4 +1,6 @@
-import type { Index, Table } from "./model.js";
+import type { SqlType, Value } from "../values/index.js";
+import { areEqual, assignValue } from "../values/index.js";
+import type { Column, Index, Table } from "./model.js";
 import { nameKey } from "./names.js";
 
 /** The tables and indexes of one snapshot, found by name. */
@@ -78,16 +80,34 @@ function duplicateNames(items: readonly { readonly name: string }[]): string[] {
 }
 
 function tableProblems(table: Table): string[] {
-  const problems = duplicateNames(table.columns).map(
-    (problem) => `table ${table.name}: ${problem}`,
-  );
-  const { rowidColumn } = table;
-  if (rowidColumn === null) return problems;
-  const column = table.columns[rowidColumn];
-  if (column?.type !== "INTEGER") {
-    problems.push(
-      `table ${table.name} has no INTEGER rowid column ${String(rowidColumn)}`,
-    );
+  const named = (problem: string): string => `table ${table.name}: ${problem}`;
+  return [
+    ...duplicateNames(table.columns),
+    ...rowidProblems(table),
+    ...table.columns.flatMap((column) => defaultProblems(column)),
+  ].map((problem) => named(problem));
+}
+
+function rowidProblems(table: Table): string[] {
+  const { rowidColumn, isAutoincrement } = table;
+  if (rowidColumn === null) {
+    return isAutoincrement ? ["AUTOINCREMENT without a rowid column"] : [];
   }
-  return problems;
+  const isInteger = table.columns[rowidColumn]?.type === "INTEGER";
+  return isInteger ? [] : [`no INTEGER rowid column ${String(rowidColumn)}`];
+}
+
+/** A default is stored as its column's type: rows written before the column read it as it is. */
+function defaultProblems(column: Column): string[] {
+  const { defaultValue, type, name } = column;
+  if (isOfType(defaultValue, type)) return [];
+  return [`the default of ${name} is not a ${type}`];
+}
+
+function isOfType(value: Value, type: SqlType): boolean {
+  try {
+    return areEqual(assignValue(value, type), value);
+  } catch {
+    return false;
+  }
 }

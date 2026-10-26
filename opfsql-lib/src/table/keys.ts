@@ -1,6 +1,7 @@
 import { ConstraintError } from "../errors.js";
 import type { Index, IndexKey, Table } from "../schema/index.js";
-import { encodeKey } from "../storage/index.js";
+import type { IndexReader } from "../storage/index.js";
+import { encodeKey, keyRowid } from "../storage/index.js";
 import type { Value } from "../values/index.js";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,19 @@ function keyPart(
   }
 }
 
+/**
+ * The rowids of the entries with exactly `key`. A key with a NULL has none:
+ * NULLs are distinct, so it never conflicts, as in SQLite.
+ */
+export function* rowidsWithKey(
+  entries: IndexReader,
+  key: readonly Value[],
+): Generator<number> {
+  if (key.includes(null)) return;
+  const matching = entries.keysWithPrefix(encodeKey(key));
+  for (const entry of matching) yield keyRowid(entry);
+}
+
 /** The error for a row whose key in a unique index another row already has. */
 export function uniqueViolation(table: Table, index: Index): ConstraintError {
   const kind = index.origin === "primary-key" ? "primary-key" : "unique";
@@ -67,8 +81,8 @@ export function uniqueViolation(table: Table, index: Index): ConstraintError {
 function keyColumnNames(table: Table, index: Index): string[] {
   const names: string[] = [];
   for (const key of index.keys) {
-    const column =
-      key.kind === "column" ? table.columns[key.column] : undefined;
+    if (key.kind === "expression") return [];
+    const column = table.columns[key.column];
     if (column === undefined) return [];
     names.push(column.name);
   }
