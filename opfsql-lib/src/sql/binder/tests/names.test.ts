@@ -173,6 +173,73 @@ describe("outer references", () => {
   });
 });
 
+describe("CTEs read in subqueries", () => {
+  it("correlate a subquery whose CTE reads the outer row", () => {
+    expect(
+      plan(
+        "SELECT (WITH c AS (SELECT u.age AS a) SELECT a FROM c) FROM users u",
+      ),
+    ).toBe(
+      lines(
+        "project #6 (subquery(1))",
+        "  subquery(1, correlated): cte #3 c",
+        "    definition: project #2 (age#0.2^1)",
+        "      values #1 ()",
+        "    body: project #5 (a#4.0)",
+        "      cte-scan #4 of #3",
+        "  get #0 users (id, name, age, email, data)",
+      ),
+    );
+  });
+
+  it("correlate every subquery that reads such a CTE, also through another CTE", () => {
+    const nested = lines(
+      "project #8 (subquery(1))",
+      "  subquery(1, correlated): cte #3 c",
+      "    definition: project #2 (age#0.2^1)",
+      "      values #1 ()",
+      "    body: project #7 (subquery(2))",
+      "      subquery(2, correlated): project #6 (a#5.0)",
+      "        cte-scan #5 of #3",
+      "      get #4 orders (id, user_id, total, status)",
+      "  get #0 users (id, name, age, email, data)",
+    );
+    expect(
+      plan(
+        "SELECT (WITH c AS (SELECT u.age AS a) SELECT (SELECT a FROM c) FROM orders) FROM users u",
+      ),
+    ).toBe(nested);
+    expect(
+      plan(
+        "SELECT (WITH c AS (SELECT u.age AS a), d AS (SELECT a FROM c) SELECT (SELECT a FROM d)) FROM users u",
+      ),
+    ).toContain("subquery(2, correlated): project #9 (a#8.0)");
+  });
+
+  it("leave a subquery uncorrelated when its CTE reads no outer row", () => {
+    expect(
+      plan(
+        "SELECT (WITH c AS (SELECT 1 AS a) SELECT (SELECT a FROM c)) FROM users u",
+      ),
+    ).toBe(
+      lines(
+        "project #8 (subquery(1))",
+        "  subquery(1): cte #3 c",
+        "    definition: project #2 (1)",
+        "      values #1 ()",
+        "    body: project #7 (subquery(2))",
+        "      subquery(2): project #6 (a#5.0)",
+        "        cte-scan #5 of #3",
+        "      values #4 ()",
+        "  get #0 users (id, name, age, email, data)",
+      ),
+    );
+    expect(
+      plan("WITH c AS (SELECT 1 AS a) SELECT (SELECT a FROM c) FROM users"),
+    ).toContain("subquery(1): project #5 (a#4.0)");
+  });
+});
+
 describe("FROM", () => {
   it("put a subquery's plan under a project of its own", () => {
     expect(

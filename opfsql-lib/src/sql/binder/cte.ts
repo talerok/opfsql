@@ -60,11 +60,13 @@ function bindRecursive(cte: CTENode, scope: Scope): BoundCte[] {
 }
 
 function bindCte(cte: CTENode, scope: Scope): BoundCte {
-  const query = scope.context.bindQuery(cte.query, scope.sibling());
+  const definitionScope = scope.sibling();
+  const query = scope.context.bindQuery(cte.query, definitionScope);
   const definition = {
     name: cte.name,
     cteIndex: scope.context.newIndex(),
     columns: cteColumns(cte, query.columns),
+    reach: definitionScope.reach,
   };
   return { definition, plan: query.plan };
 }

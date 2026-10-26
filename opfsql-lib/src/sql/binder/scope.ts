@@ -83,6 +83,11 @@ export interface CteDefinition {
   readonly name: string;
   readonly cteIndex: number;
   readonly columns: readonly OutputColumn[];
+  /**
+   * The outermost query level its definition reads a column of, or null:
+   * a query that reads it reads that level too, and is correlated to it.
+   */
+  readonly reach: number | null;
 }
 
 /** The CTE names a query sees, innermost first. */
@@ -98,13 +103,13 @@ interface Place {
   /** Subqueries in expressions between this query and the statement's. */
   readonly level: number;
   readonly ctes: CteNames | null;
-  /** The scope that stands for this level: a subquery's, or the statement's. */
-  readonly levelScope: Scope | null;
+  /** The scope this one was made from: where it is written. */
+  readonly parent: Scope | null;
 }
 
 export class Scope {
   private readonly items: Relation[] = [];
-  private correlated = false;
+  private outermost: number | null = null;
 
   private constructor(
     readonly context: BindContext,
@@ -112,7 +117,7 @@ export class Scope {
   ) {}
 
   static root(context: BindContext): Scope {
-    const place = { outer: null, level: 0, ctes: null, levelScope: null };
+    const place = { outer: null, level: 0, ctes: null, parent: null };
     return new Scope(context, place);
   }
 
@@ -130,28 +135,35 @@ export class Scope {
   subquery(): Scope {
     const { ctes } = this.place;
     const level = this.level + 1;
-    const place = { outer: this, level, ctes, levelScope: null };
-    return new Scope(this.context, place);
+    return new Scope(this.context, { outer: this, level, ctes, parent: this });
   }
 
   /** A query in FROM or WITH, or a compound's member: the same level, without this FROM. */
   sibling(): Scope {
-    return new Scope(this.context, { ...this.place, levelScope: this.root() });
+    return new Scope(this.context, { ...this.place, parent: this });
   }
 
   /** This query, seeing one more CTE name; it has no relations yet. */
   withCte(definition: CteDefinition): Scope {
     const ctes = { definition, outer: this.place.ctes };
-    const levelScope = this.root();
-    return new Scope(this.context, { ...this.place, ctes, levelScope });
+    return new Scope(this.context, { ...this.place, ctes, parent: this });
+  }
+
+  /**
+   * The outermost level a name written in this scope — in a scope made
+   * from it too — read a column of, when that is outside this level.
+   */
+  get reach(): number | null {
+    return this.outermost;
   }
 
   /**
    * True when a name in this level — in a nested subquery too — read a
-   * column of an enclosing query. Read on the scope `subquery()` returned.
+   * column of an enclosing query, so it runs again for each of its rows.
+   * Read on the scope `subquery()` returned.
    */
   get isCorrelated(): boolean {
-    return this.correlated;
+    return this.outermost !== null;
   }
 
   get relations(): readonly Relation[] {
@@ -193,18 +205,13 @@ export class Scope {
   }
 
   /**
-   * Notes that a name here read a column of `found`, an enclosing query:
-   * every level in between runs again for each row of it.
+   * Notes that something written here reads query level `level`, an
+   * enclosing one: each scope it is written in, out to that level, depends
+   * on that level's row — a subquery among them runs again for each.
    */
-  noteOuterReference(found: Scope): void {
-    let current: Scope | null = this.root();
-    while (current !== null && current.level > found.level) {
-      current.correlated = true;
-      current = current.outer?.root() ?? null;
-    }
-  }
-
-  private root(): Scope {
-    return this.place.levelScope ?? this;
+  noteReach(level: number): void {
+    if (this.level <= level) return;
+    this.outermost = Math.min(this.outermost ?? level, level);
+    this.place.parent?.noteReach(level);
   }
 }

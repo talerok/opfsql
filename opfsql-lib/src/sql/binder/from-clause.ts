@@ -54,6 +54,9 @@ function bindNamedTable(reference: BaseTableReference, scope: Scope): Plan {
   const tableIndex = scope.context.newIndex();
   const cte = scope.cte(reference.table);
   if (cte !== null) {
+    // The CTE is materialized again for each row of the level it reaches.
+    if (cte.reach !== null && cte.reach < scope.level)
+      scope.noteReach(cte.reach);
     scope.add(relation(name, tableIndex, cte.columns));
     const types = cte.columns.map((column) => column.type);
     return { kind: "cte-scan", cteIndex: cte.cteIndex, tableIndex, types };

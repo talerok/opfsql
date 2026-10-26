@@ -38,7 +38,7 @@ export function bindColumn(
     const found = findIn(level, reference.columnNames);
     if (found === null) continue;
     const depth = scope.level - level.level;
-    if (depth > 0) scope.noteOuterReference(level);
+    if (depth > 0) scope.noteReach(level.level);
     return referenceTo(found, depth, reference);
   }
   throw new SemanticError(`no such column: ${reference.columnNames.join(".")}`);

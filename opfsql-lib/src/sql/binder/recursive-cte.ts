@@ -38,9 +38,11 @@ export function bindRecursiveCte(cte: CTENode, scope: Scope): BoundCte {
   const body = recursiveBody(cte);
   checkStep(body.right, cte.name);
   const { context } = scope;
-  const anchor = context.bindQuery(asQuery(body.left), scope.sibling());
+  const definitionScope = scope.sibling();
+  const anchorScope = definitionScope.sibling();
+  const anchor = context.bindQuery(asQuery(body.left), anchorScope);
   const columns = cteColumns(cte, anchor.columns);
-  const step = bindStep(body.right, cte, scope, columns);
+  const step = bindStep(body.right, cte, definitionScope, columns);
   const recursive = {
     kind: "recursive-cte" as const,
     cteIndex: step.working.cteIndex,
@@ -55,6 +57,7 @@ export function bindRecursiveCte(cte: CTENode, scope: Scope): BoundCte {
     name: cte.name,
     cteIndex: context.newIndex(),
     columns: step.working.columns,
+    reach: definitionScope.reach,
   };
   return { definition, plan: recursive };
 }
@@ -98,7 +101,13 @@ function bindStep(
   columns: readonly OutputColumn[],
 ): Step {
   const { context } = scope;
-  const working = { name: cte.name, cteIndex: context.newIndex(), columns };
+  // The working set is read only by the step, never by a subquery in it.
+  const working = {
+    name: cte.name,
+    cteIndex: context.newIndex(),
+    columns,
+    reach: null,
+  };
   const stepScope = scope.sibling().withCte(working);
   const query = context.bindQuery(asQuery(node), stepScope);
   if (query.columns.length !== columns.length) {
