@@ -162,6 +162,40 @@ describe("subqueries", () => {
     ]);
   });
 
+  it("run again a subquery that reads a CTE of a correlated level, marked correlated", () => {
+    // SELECT id, (WITH mine AS (SELECT amount FROM orders WHERE user = u.id)
+    //   SELECT count(*) FROM mine WHERE amount > (SELECT avg(amount) FROM mine))
+    // FROM users u: the innermost subquery reads no outer column, but mine
+    // changes with u, so the binder marks it correlated.
+    data.database.insert(data.orders, [[15, 2, 1, null]]);
+    const theirs = filter(
+      ordersScan(),
+      compare(orderUser, "=", outer(1, USERS, 0)),
+    );
+    const mine = project(40, theirs, amount);
+    const average = hashAggregate(
+      [45, 46],
+      cteScan(1, 44, ["REAL"]),
+      [],
+      [aggregateCall("avg", [column(44, 0, "REAL")])],
+    );
+    const mineAmount = column(41, 0, "REAL");
+    const above = filter(
+      cteScan(1, 41, ["REAL"]),
+      compare(mineAmount, ">", scalarSubquery(average, "correlated")),
+    );
+    const counted = countOf(above, 42);
+    const plan = perUser(scalarSubquery(cte(1, mine, counted), "correlated"));
+    // User 1's orders are 9.5 and 20, user 2's 7 and 1: one above each average.
+    expect(data.database.query(plan)).toEqual([
+      [1, 1],
+      [2, 1],
+      [3, 0],
+      [4, 0],
+      [5, 0],
+    ]);
+  });
+
   it("start a recursive CTE over for each outer row", () => {
     // (WITH RECURSIVE r(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM r
     //  WHERE x < u.id) SELECT count(*) FROM r)
