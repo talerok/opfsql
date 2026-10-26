@@ -73,6 +73,15 @@ describe("INSERT", () => {
     );
   });
 
+  it("binds VALUES of any number of rows", () => {
+    const rows = Array.from(
+      { length: 200_000 },
+      (_, row) => `(${String(row)})`,
+    );
+    const bound = insert(`INSERT INTO orders (id) VALUES ${rows.join(", ")}`);
+    expect(bound.source).toMatchObject({ kind: "values", types: ["INTEGER"] });
+  });
+
   it("refuses columns and aggregates in VALUES", () => {
     expect(semanticError("INSERT INTO users (name) VALUES (name)")).toBe(
       "no such column: name",

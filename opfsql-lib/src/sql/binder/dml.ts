@@ -110,18 +110,21 @@ export function insertSource(
   width: number,
   context: BindContext,
 ): BoundQuery {
-  const query =
-    source.type === "VALUES"
-      ? bindValues(source.rows, context)
-      : context.bindQuery(source.query, Scope.root(context));
-  for (const count of rowWidths(source, query)) {
-    if (count !== width) {
-      throw new SemanticError(
-        `${String(count)} values for ${String(width)} columns`,
-      );
-    }
+  if (source.type === "VALUES") {
+    for (const row of source.rows) checkWidth(row.length, width);
+    return bindValues(source.rows, width, context);
   }
+  const query = context.bindQuery(source.query, Scope.root(context));
+  checkWidth(query.columns.length, width);
   return query;
+}
+
+function checkWidth(count: number, width: number): void {
+  if (count !== width) {
+    throw new SemanticError(
+      `${String(count)} values for ${String(width)} columns`,
+    );
+  }
 }
 
 // --- The target table ----------------------------------------------------------
@@ -164,11 +167,11 @@ function targetOf(
 /** VALUES rows: constants and expressions without columns, typed per column. */
 function bindValues(
   rows: readonly (readonly ParsedExpression[])[],
+  width: number,
   context: BindContext,
 ): BoundQuery {
   const clause = clauseOf(Scope.root(context), refuse("VALUES"));
   const bound = rows.map((row) => row.map((value) => clause.bind(value)));
-  const width = Math.max(0, ...bound.map((row) => row.length));
   const types = Array.from({ length: width }, (_, position) =>
     commonType(bound.map((row) => row[position]?.type ?? "NULL")),
   );
@@ -179,9 +182,4 @@ function bindValues(
     type,
   }));
   return { plan, columns };
-}
-
-function rowWidths(source: InsertSource, query: BoundQuery): number[] {
-  if (source.type === "VALUES") return source.rows.map((row) => row.length);
-  return [query.columns.length];
 }
