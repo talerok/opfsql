@@ -1,3 +1,4 @@
+import { InternalError } from "../../errors.js";
 import type {
   OrderByNode,
   ParsedExpression,
@@ -219,10 +220,14 @@ export function order(
   columns: readonly ColumnReference[],
 ): Plan {
   if (keys.length === 0) return plan;
-  const orderKeys = keys.flatMap((key): OrderKey<Plan>[] => {
+  const orderKeys = keys.map((key): OrderKey<Plan> => {
     const column = columns[key.position];
-    if (column === undefined) return [];
-    return [{ expression: column, direction: key.direction, nulls: key.nulls }];
+    if (column === undefined) {
+      throw new InternalError(
+        `an ORDER BY key sorts by column ${String(key.position + 1)} of ${String(columns.length)}`,
+      );
+    }
+    return { expression: column, direction: key.direction, nulls: key.nulls };
   });
   return { kind: "order", child: plan, keys: orderKeys };
 }
