@@ -25,15 +25,28 @@ export function bindWith(clause: WithClause | null, scope: Scope): BoundWith {
   let current = scope;
   for (const [position, cte] of clause.ctes.entries()) {
     checkNameUnused(cte.name, clause.ctes.slice(0, position));
-    const isRecursive = clause.isRecursive && mentions(cte.query, cte.name);
-    const bound = isRecursive
-      ? bindRecursive(cte, current)
-      : [bindCte(cte, current)];
-    ctes.push(...bound);
-    const last = bound.at(-1);
-    if (last !== undefined) current = current.withCte(last.definition);
+    const { nested, bound } = bindWithQuery(cte, clause.isRecursive, current);
+    ctes.push(...nested, bound);
+    current = current.withCte(bound.definition);
   }
   return { scope: current, ctes };
+}
+
+/** A WITH query, and the WITH queries of its own WITH that wrap it from outside. */
+interface WithQuery {
+  readonly nested: readonly BoundCte[];
+  readonly bound: BoundCte;
+}
+
+function bindWithQuery(
+  cte: CTENode,
+  isRecursiveClause: boolean,
+  scope: Scope,
+): WithQuery {
+  const isRecursive = isRecursiveClause && mentions(cte.query, cte.name);
+  if (!isRecursive) return { nested: [], bound: bindCte(cte, scope) };
+  const { nested, recursive } = bindRecursive(cte, scope);
+  return { nested, bound: recursive };
 }
 
 /** The query's plan inside a `cte` node for each WITH query, the first outermost. */
@@ -52,11 +65,15 @@ export function wrapCtes(
 /**
  * A recursive WITH query, after the WITH queries of its own WITH clause,
  * which its anchor and step see. Those cannot read the recursive query, so
- * their plans can wrap it from outside: it is the last of the list.
+ * their plans can wrap it from outside.
  */
-function bindRecursive(cte: CTENode, scope: Scope): BoundCte[] {
+function bindRecursive(
+  cte: CTENode,
+  scope: Scope,
+): { readonly nested: readonly BoundCte[]; readonly recursive: BoundCte } {
   const nested = bindWith(cte.query.with, scope.sibling());
-  return [...nested.ctes, bindRecursiveCte(cte, nested.scope)];
+  const recursive = bindRecursiveCte(cte, nested.scope);
+  return { nested: nested.ctes, recursive };
 }
 
 function bindCte(cte: CTENode, scope: Scope): BoundCte {
