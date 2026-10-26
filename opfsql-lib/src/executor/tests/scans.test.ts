@@ -113,8 +113,13 @@ describe("rowid lookup", () => {
     expect(ids(rowidList(users(), listed))).toEqual([1, 3]);
   });
 
-  it("converts a listed value as `rowid = value` would; no other value matches", () => {
-    const listed = [parameter(0), constant(2.5), NULL, constant("x")];
+  it("seeks a listed value as it is, a parameter by its affinity; no other value matches", () => {
+    const listed = [
+      parameter(0, "numeric"),
+      constant(2.5),
+      NULL,
+      constant("x"),
+    ];
     expect(ids(rowidList(users(), listed), ["2"])).toEqual([2]);
   });
 
@@ -129,8 +134,11 @@ describe("rowid lookup", () => {
     expect(idsInRange(excluding(low), excluding(high))).toEqual([2, 3]);
   });
 
-  it("bounds a range by parameters, compared as `rowid > value` would", () => {
-    const bounds = between(excluding(parameter(0)), including(parameter(1)));
+  it("bounds a range by parameters converted by their affinity, by the total order", () => {
+    const bounds = between(
+      excluding(parameter(0, "numeric")),
+      including(parameter(1, "numeric")),
+    );
     const plan = rowidRange(users(), bounds);
     expect(ids(plan, ["1", "3"])).toEqual([2, 3]);
     // Every number sorts after booleans and before text.
@@ -180,18 +188,22 @@ describe("index scan", () => {
     expect(ids(plan)).toEqual([4]);
   });
 
-  it("converts parameters as `=` would, from the key part's type", () => {
-    const equal = ageIndexScan(keys([parameter(0)]));
+  it("seeks a parameter as its affinity converts it", () => {
+    const equal = ageIndexScan(keys([parameter(0, "numeric")]));
     expect(ids(equal, ["30"])).toEqual([1, 4]);
     expect(ids(equal, ["thirty"])).toEqual([]);
     expect(ids(equal, [null])).toEqual([]);
-    const from = keys([], between(including(parameter(0)), null));
+    const from = keys([], between(including(parameter(0, "numeric")), null));
     expect(ids(ageIndexScan(from), ["30.5"])).toEqual([5]);
   });
 
-  it("converts to an expression key's own type", () => {
+  it("seeks an expression key with a text-affinity parameter", () => {
     data.database.insert(data.users, [[6, "5", 50, null]]);
-    const plan = indexScan(users(), data.byLowerName, keys([parameter(0)]));
+    const plan = indexScan(
+      users(),
+      data.byLowerName,
+      keys([parameter(0, "text")]),
+    );
     expect(ids(plan, [5])).toEqual([6]);
     expect(ids(plan, ["ann"])).toEqual([1]);
   });

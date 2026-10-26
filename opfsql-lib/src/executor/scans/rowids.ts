@@ -37,14 +37,12 @@ export function compileRowidSet(
 ): () => RowidSelection {
   switch (set.kind) {
     case "list": {
-      const values = set.values.map((value) =>
-        compileSeek(value, "INTEGER", context),
-      );
+      const values = set.values.map((value) => compileSeek(value, context));
       return () => listOf(values.map((value) => value()));
     }
     case "range": {
-      const lower = compileBound(set.range.lower, "INTEGER", context);
-      const upper = compileBound(set.range.upper, "INTEGER", context);
+      const lower = compileBound(set.range.lower, context);
+      const upper = compileBound(set.range.upper, context);
       return () => rangeOf(firstRowid(lower()), lastRowid(upper()));
     }
   }

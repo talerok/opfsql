@@ -11,12 +11,7 @@ export function indexExtreme(
   context: Context,
 ): Operator {
   const entries = new IndexReader(context.pages, plan.index.rootPage);
-  const bounds = compileNonNullRange(
-    plan.equal,
-    plan.index,
-    plan.table,
-    context,
-  );
+  const bounds = compileNonNullRange(plan.equal, context);
   const direction = plan.extreme === "MIN" ? "ascending" : "descending";
   const position = plan.equal.length;
   const extreme = (): Value => {

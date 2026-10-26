@@ -7,7 +7,7 @@ import type {
   physical,
 } from "../sql/plan/index.js";
 import { and, foldTruth, not, type Truth, truthOf } from "../values/index.js";
-import { compareTyped } from "./comparison.js";
+import { comparison } from "./comparison.js";
 import { compileInList } from "./in-list.js";
 import type { CompiledExpression, Compiler, Tuple } from "./scope.js";
 
@@ -56,10 +56,9 @@ function compileComparison(
   expression: Comparison<physical.Plan>,
   compiler: Compiler,
 ): CompiledExpression {
-  const { left, right } = expression;
-  const test = compareTyped(expression.operator, left.type, right.type);
-  const leftValue = compiler.compile(left);
-  const rightValue = compiler.compile(right);
+  const test = comparison(expression.operator);
+  const leftValue = compiler.compile(expression.left);
+  const rightValue = compiler.compile(expression.right);
   return (row) => test(leftValue(row), rightValue(row));
 }
 
@@ -101,12 +100,11 @@ function compileBetween(
   expression: Between<physical.Plan>,
   compiler: Compiler,
 ): CompiledExpression {
-  const { input, lower, upper } = expression;
-  const atLeast = compareTyped("GREATER_EQUAL", input.type, lower.type);
-  const atMost = compareTyped("LESS_EQUAL", input.type, upper.type);
-  const inputValue = compiler.compile(input);
-  const lowerValue = compiler.compile(lower);
-  const upperValue = compiler.compile(upper);
+  const atLeast = comparison("GREATER_EQUAL");
+  const atMost = comparison("LESS_EQUAL");
+  const inputValue = compiler.compile(expression.input);
+  const lowerValue = compiler.compile(expression.lower);
+  const upperValue = compiler.compile(expression.upper);
   return (row) => {
     const value = inputValue(row);
     return and(atLeast(value, lowerValue(row)), atMost(value, upperValue(row)));

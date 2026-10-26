@@ -1,6 +1,5 @@
 import { InternalError } from "../../errors.js";
 import {
-  comparisonConversion,
   compileExpression,
   type Scope,
   type Tuple,
@@ -24,7 +23,7 @@ interface Pairing {
   readonly nulls: Tuple;
 }
 
-/** A row's hash key: its key values converted as `=` converts them; null if one is NULL. */
+/** A row's hash key: its key values as they are; null if one is NULL. */
 type HashKey = (row: Tuple) => string | null;
 
 const NO_ROWS: readonly Tuple[] = [];
@@ -39,14 +38,15 @@ export function hashJoin(
   right: Operator,
   context: Context,
 ): Operator {
+  if (plan.leftKeys.length !== plan.rightKeys.length) {
+    throw new InternalError("a hash join's two sides have different keys");
+  }
   const leftKey = compileHashKey(
     plan.leftKeys,
-    plan.rightKeys,
     scopeOf(context, physical.layoutOf(plan.left)),
   );
   const rightKey = compileHashKey(
     plan.rightKeys,
-    plan.leftKeys,
     scopeOf(context, physical.layoutOf(plan.right)),
   );
   const pairing = compilePairing(plan, plan.residual, context);
@@ -108,25 +108,12 @@ function compilePairing(
   };
 }
 
-/**
- * The hash key of `keys`, each converted for comparison with the key of the
- * other side at its position, so that two keys are equal exactly when `=`
- * would call their values equal.
- */
+/** The hash key of `keys`: their values as they are, as `=` compares them. */
 function compileHashKey(
   keys: readonly physical.Expression[],
-  others: readonly physical.Expression[],
   scope: Scope,
 ): HashKey {
-  if (keys.length !== others.length) {
-    throw new InternalError("a hash join's two sides have different keys");
-  }
-  const parts = keys.map((key, position) => {
-    const value = compileExpression(key, scope);
-    const other = others[position]?.type ?? key.type;
-    const convert = comparisonConversion(key.type, other);
-    return (row: Tuple) => convert(value(row));
-  });
+  const parts = keys.map((key) => compileExpression(key, scope));
   return (row) => {
     const values = parts.map((part) => part(row));
     return values.includes(null) ? null : rowKey(values);

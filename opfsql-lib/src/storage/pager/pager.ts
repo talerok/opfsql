@@ -84,6 +84,23 @@ export class Pager {
     this.release(snapshot);
   }
 
+  /**
+   * Lowers a checkpoint intent no commit backs: one left in the read-mark
+   * file by an earlier database of the same name, whose files were removed
+   * and the read marks kept. Such an intent is ahead of every commit, so
+   * beginRead would refuse every snapshot. The caller holds the write lock
+   * — no checkpoint runs — and has caught up, so the latest commit is the
+   * database's; true if the intent was lowered.
+   */
+  resetStaleIntent(): boolean {
+    const marks = this.options.marks;
+    if (marks === null) return false;
+    const latest = this.latestCommit();
+    if (marks.checkpointIntent() <= latest) return false;
+    marks.setCheckpointIntent(latest);
+    return true;
+  }
+
   /** Reads what other tabs committed. True if anything changed. */
   catchUp(): boolean {
     const hasChanged = this.wal.catchUp();

@@ -4,7 +4,6 @@
 // compiler for subquery plans; the optimizer folds constants with it.
 
 export { compileAggregate, type CompiledAggregate } from "./aggregate.js";
-export { type Conversion, comparisonConversion } from "./comparison.js";
 export {
   type CompiledPredicate,
   compileExpression,

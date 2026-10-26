@@ -21,12 +21,10 @@ describe("checkTables", () => {
       [2, "bob", "b@x"],
     ]);
     const [uniqueEmail] = database.indexes;
+    if (uniqueEmail === undefined)
+      throw new Error("users has its unique index");
     write(database.pager, (transaction) => {
-      const entries = new IndexWriter(
-        transaction,
-        uniqueEmail?.rootPage ?? 0,
-        "i",
-      );
+      const entries = new IndexWriter(transaction, uniqueEmail.rootPage, "i");
       entries.delete(encodeKey(["b@x", 2]));
       entries.insert(encodeKey(["a@x", 9]));
     });
@@ -53,10 +51,13 @@ describe("checkTables", () => {
   });
 
   it("reports an AUTOINCREMENT counter below the largest rowid", async () => {
-    const { database, users } = await withUsers({
-      ...usersShape,
-      isAutoincrement: true,
-    });
+    const { database, users } = await withUsers(
+      {
+        ...usersShape,
+        isAutoincrement: true,
+      },
+      [],
+    );
     database.insert(users, [[null, "ann", null]]);
     write(database.pager, (transaction) => {
       // A row the counter never saw.

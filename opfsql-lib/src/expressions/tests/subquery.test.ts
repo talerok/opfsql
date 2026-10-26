@@ -88,17 +88,13 @@ describe("subquery results", () => {
     expect(evaluate(compareAny(c0, "<", oneNull))).toBeNull();
   });
 
-  it("compare with comparison affinity, hashed or not", () => {
+  it("compare with a parameter's affinity, hashed or not", () => {
     const parameters = ["2"];
-    expect(evaluate(inSubquery(parameter(0), oneTwo), { parameters })).toBe(
-      true,
-    );
-    expect(
-      evaluate(compareAny(parameter(0), "=", oneTwo, "correlated"), {
-        parameters,
-      }),
-    ).toBe(true);
-    const textual = values(1, [parameter(0)]);
+    const numeric = parameter(0, "numeric");
+    expect(evaluate(inSubquery(numeric, oneTwo), { parameters })).toBe(true);
+    const correlated = compareAny(numeric, "=", oneTwo, "correlated");
+    expect(evaluate(correlated, { parameters })).toBe(true);
+    const textual = values(1, [numeric]);
     expect(evaluate(inSubquery(c0, textual), { parameters: ["10"] })).toBe(
       true,
     );

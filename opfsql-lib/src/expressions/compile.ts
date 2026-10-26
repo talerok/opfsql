@@ -62,7 +62,7 @@ function compileNode(
       return () => value;
     }
     case "parameter": {
-      const value = parameterValue(compiler.scope.run, expression.index);
+      const value = parameterValue(compiler.scope.run, expression);
       return () => value;
     }
     case "comparison":

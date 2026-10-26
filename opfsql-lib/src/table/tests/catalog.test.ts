@@ -37,10 +37,14 @@ describe("Catalog", () => {
     );
     expect(database.problems()).toEqual([]);
 
+    const before = database.entries();
     const uniqueNick = { ...byNick, name: "users_nick_unique", isUnique: true };
     expect(() =>
       database.change((catalog) => catalog.createIndex(uniqueNick, users)),
     ).toThrow(ConstraintError);
+    // The refused statement left nothing: no entry, no page.
+    expect(database.entries()).toEqual(before);
+    expect(database.problems()).toEqual([]);
   });
 
   it("drops a table with its indexes and leaves no page behind", async () => {

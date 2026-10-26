@@ -11,7 +11,7 @@ import {
   type Truth,
   type Value,
 } from "../values/index.js";
-import { compareTyped, comparisonConversion } from "./comparison.js";
+import { comparison } from "./comparison.js";
 import type {
   CompiledExpression,
   CompiledSubquery,
@@ -88,11 +88,7 @@ function compileQuantified(
   if (isHashable) return compileHashedIn(expression, compiler);
   const needle = compiler.compile(expression.needle);
   const rows = compileRows(expression, compiler.scope);
-  const test = compareTyped(
-    expression.operator,
-    expression.needle.type,
-    expression.columnType,
-  );
+  const test = comparison(expression.operator);
   const kind = expression.quantifier === "ALL" ? "and" : "or";
   function* comparisons(
     value: Value,
@@ -105,24 +101,18 @@ function compileQuantified(
 
 /**
  * `x IN (subquery)` for a subquery that runs once: its values hashed once,
- * converted as `=` converts them, so each row costs one lookup.
+ * so each row costs one lookup.
  */
 function compileHashedIn(
   expression: QuantifiedComparison<physical.Plan>,
   compiler: Compiler,
 ): CompiledExpression {
-  const { needle, columnType } = expression;
-  const needleValue = compiler.compile(needle);
-  const convertNeedle = comparisonConversion(needle.type, columnType);
-  const convertItem = comparisonConversion(columnType, needle.type);
+  const needle = compiler.compile(expression.needle);
   const subquery = compilePlan(expression, compiler.scope);
   const contains = once(() =>
-    membership(subquery.rows().map(([item = null]) => convertItem(item))),
+    membership(subquery.rows().map(([item = null]) => item)),
   );
-  return (row) => {
-    const value = convertNeedle(needleValue(row));
-    return contains()(value);
-  };
+  return (row) => contains()(needle(row));
 }
 
 /**

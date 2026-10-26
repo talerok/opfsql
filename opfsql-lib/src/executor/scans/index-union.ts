@@ -1,4 +1,3 @@
-import type { Table } from "../../schema/index.js";
 import type { physical } from "../../sql/plan/index.js";
 import type { TableRow, TableRows } from "../../table/index.js";
 import { IndexReader, keyRowid } from "../../storage/index.js";
@@ -26,7 +25,7 @@ export function indexUnion(
 ): Operator {
   const { rows, matching } = tableAccess(plan, context);
   const branches = plan.branches.map((branch) =>
-    compileBranch(branch, plan.table, rows, context),
+    compileBranch(branch, rows, context),
   );
   return new WalkOperator(
     () => matching(rowsWithRowids(unionOf(branches), rows)),
@@ -36,14 +35,13 @@ export function indexUnion(
 
 function compileBranch(
   branch: physical.IndexBranch,
-  table: Table,
   rows: TableRows,
   context: Context,
 ): Branch {
   switch (branch.kind) {
     case "index": {
       const entries = new IndexReader(context.pages, branch.index.rootPage);
-      const bounds = compileKeyRange(branch.keys, branch.index, table, context);
+      const bounds = compileKeyRange(branch.keys, context);
       return () => rowidsOfEntries(entries, bounds());
     }
     case "rowids": {

@@ -99,7 +99,7 @@ export class TableEditor extends TableRows {
     this.refuseConflict(state, rowid);
     this.moveRow(rowid, state);
     this.moveEntries(old, state);
-    this.recordIssued(state.rowid);
+    if (state.rowid !== rowid) this.recordIssued(state.rowid);
     return state.rowid;
   }
 

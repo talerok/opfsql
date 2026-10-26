@@ -15,7 +15,7 @@ export function indexScan(
 ): Operator {
   const { rows, matching } = tableAccess(plan, context);
   const entries = new IndexReader(context.pages, plan.index.rootPage);
-  const bounds = compileKeyRange(plan.keys, plan.index, plan.table, context);
+  const bounds = compileKeyRange(plan.keys, context);
   const read = (range: KeyBounds | null): Iterable<TableRow> =>
     indexedRows({ entries, rows, index: plan.index }, range, plan.direction);
   return new WalkOperator(() => matching(read(bounds())), []);

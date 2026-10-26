@@ -1,11 +1,4 @@
-import { InternalError } from "../../errors.js";
-import type { StaticType } from "../../functions/index.js";
-import type { Index, Table } from "../../schema/index.js";
-import {
-  logical,
-  type OrderDirection,
-  type physical,
-} from "../../sql/plan/index.js";
+import type { OrderDirection, physical } from "../../sql/plan/index.js";
 import type { IndexReader } from "../../storage/index.js";
 import { encodeKey, prefixEnd } from "../../storage/index.js";
 import { compareBytes, type Value } from "../../values/index.js";
@@ -41,14 +34,10 @@ interface SeekRange {
  */
 export function compileKeyRange(
   keys: physical.KeyRange,
-  index: Index,
-  table: Table,
   context: Context,
 ): () => KeyBounds | null {
-  const equal = keys.equal.map((value, position) =>
-    compileSeek(value, keyPartType(index, table, position), context),
-  );
-  const range = compileRange(keys, index, table, context);
+  const equal = keys.equal.map((value) => compileSeek(value, context));
+  const range = compileRange(keys, context);
   return () =>
     boundsOf({ equal: equal.map((value) => value()), range: range() });
 }
@@ -59,13 +48,9 @@ export function compileKeyRange(
  */
 export function compileNonNullRange(
   equalValues: readonly physical.Expression[],
-  index: Index,
-  table: Table,
   context: Context,
 ): () => KeyBounds | null {
-  const equal = equalValues.map((value, position) =>
-    compileSeek(value, keyPartType(index, table, position), context),
-  );
+  const equal = equalValues.map((value) => compileSeek(value, context));
   return () => {
     const values = equal.map((value) => value());
     if (values.includes(null)) return null;
@@ -92,29 +77,14 @@ export function* keysIn(
   }
 }
 
-/** The type of key part `position`: its column's, or its expression's. */
-function keyPartType(index: Index, table: Table, position: number): StaticType {
-  const key = index.keys[position];
-  if (key === undefined) {
-    throw new InternalError(
-      `index ${index.name} has no key part ${String(position)}`,
-    );
-  }
-  if (key.kind === "expression") return key.type;
-  return logical.columnType(table, key.column);
-}
-
 function compileRange(
   keys: physical.KeyRange,
-  index: Index,
-  table: Table,
   context: Context,
 ): () => SeekRange["range"] {
   const { range } = keys;
   if (range === null) return () => null;
-  const type = keyPartType(index, table, keys.equal.length);
-  const lower = compileBound(range.lower, type, context);
-  const upper = compileBound(range.upper, type, context);
+  const lower = compileBound(range.lower, context);
+  const upper = compileBound(range.upper, context);
   return () => ({ lower: lower(), upper: upper() });
 }
 

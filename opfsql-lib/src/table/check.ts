@@ -6,7 +6,8 @@ import {
   keyRowid,
   TableReader,
 } from "../storage/index.js";
-import { compareBytes, rowKey } from "../values/index.js";
+import type { Value } from "../values/index.js";
+import { rowKey } from "../values/index.js";
 import type { CompileExpression } from "./keys.js";
 import { entryOf, keyedIndex } from "./keys.js";
 import { TableRows } from "./rows.js";
@@ -29,15 +30,25 @@ export function checkTables(
   schema: Schema,
   compile: CompileExpression,
 ): string[] {
+  const tables = schema.tables.flatMap((table) =>
+    tableProblems(pages, schema, table, compile),
+  );
+  return [...schema.problems(), ...tables];
+}
+
+function tableProblems(
+  pages: PageReader,
+  schema: Schema,
+  table: Table,
+  compile: CompileExpression,
+): string[] {
+  const indexes = schema
+    .indexesOf(table.name)
+    .flatMap((index) => indexProblems(pages, table, index, compile));
   return [
-    ...schema.problems(),
-    ...schema.tables.flatMap((table) => [
-      ...recordProblems(pages, table),
-      ...sequenceProblems(pages, schema, table),
-      ...schema
-        .indexesOf(table.name)
-        .flatMap((index) => indexProblems(pages, table, index, compile)),
-    ]),
+    ...recordProblems(pages, table),
+    ...sequenceProblems(pages, schema, table),
+    ...indexes,
   ];
 }
 
@@ -83,9 +94,7 @@ function indexProblems(
 ): string[] {
   const keyed = keyedIndex(index, table, compile);
   const rows = [...new TableRows(pages, table).scan()];
-  const expected = rows
-    .map((row) => entryOf(keyed, row.values(), row.rowid))
-    .toSorted(compareBytes);
+  const expected = rows.map((row) => entryOf(keyed, row.values(), row.rowid));
   const stored = [...new IndexReader(pages, index.rootPage).keysFrom()];
   const duplicates = index.isUnique ? duplicateKeys(stored) : [];
   return [...differences(expected, stored), ...duplicates]
@@ -93,7 +102,7 @@ function indexProblems(
     .map((problem) => `index ${index.name}: ${problem}`);
 }
 
-/** Entries one sorted list has and the other lacks. */
+/** Entries one list has and the other lacks. */
 function differences(
   expected: readonly Uint8Array[],
   stored: readonly Uint8Array[],
@@ -112,23 +121,29 @@ function differences(
   return [...missing, ...extra];
 }
 
-/** Keys without NULLs that more than one row has, in a unique index. */
+/**
+ * Keys without NULLs that more than one row has, in a unique index. Entries
+ * are in key order, so a repeated key is held by neighbours.
+ */
 function duplicateKeys(stored: readonly Uint8Array[]): string[] {
-  const seen = new Set<string>();
-  const problems: string[] = [];
-  for (const entry of stored) {
-    const key = decodeKey(entry).slice(0, -1);
-    // NULLs are distinct: a key with one never repeats another.
-    const hasNull = key.includes(null);
-    const keyText = rowKey(key);
-    if (!hasNull && seen.has(keyText)) {
-      problems.push(
-        `unique key held twice, again by row ${String(keyRowid(entry))}`,
-      );
-    }
-    seen.add(keyText);
-  }
-  return problems;
+  const repeats = stored.filter((entry, position) => {
+    const previous = stored[position - 1];
+    return previous !== undefined && isSameUniqueKey(previous, entry);
+  });
+  return repeats.map(
+    (entry) => `unique key held twice, again by row ${String(keyRowid(entry))}`,
+  );
+}
+
+/** NULLs are distinct: a key with one never repeats another. */
+function isSameUniqueKey(a: Uint8Array, b: Uint8Array): boolean {
+  const key = keyOf(b);
+  return !key.includes(null) && rowKey(keyOf(a)) === rowKey(key);
+}
+
+/** An entry's key values, without the rowid it ends with. */
+function keyOf(entry: Uint8Array): Value[] {
+  return decodeKey(entry).slice(0, -1);
 }
 
 function entryKey(entry: Uint8Array): string {

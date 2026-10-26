@@ -18,6 +18,7 @@ import {
   aggregateCall,
   arithmetic,
   ascending,
+  column,
   compare,
   constant,
   Counting,
@@ -173,9 +174,18 @@ describe("hash join", () => {
     expect(pairs).toHaveLength(7);
   });
 
-  it("converts keys as `=` would: text in an ANY column meets an INTEGER", () => {
-    const plan = hashJoin([ordersScan([0, 3]), usersScan([0])], [[note], [id]]);
-    expect(query(plan)).toEqual([[12, "1", 1]]);
+  it("matches keys as they are: text in an ANY column meets text, not a number", () => {
+    const asNumber = hashJoin(
+      [ordersScan([0, 3]), usersScan([0])],
+      [[note], [id]],
+    );
+    expect(query(asNumber)).toEqual([]);
+    const text = column(50, 0, "TEXT");
+    const asText = hashJoin(
+      [ordersScan([0, 3]), column50("1")],
+      [[note], [text]],
+    );
+    expect(query(asText)).toEqual([[12, "1", "1"]]);
   });
 });
 
