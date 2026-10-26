@@ -265,6 +265,45 @@ describe("CREATE INDEX", () => {
   });
 });
 
+describe("an expression key's canonical text", () => {
+  const keyed = schemaOf(
+    `CREATE TABLE t (a INTEGER, b TEXT, "select" JSON, "Été x" REAL, d ANY, "a""b" TEXT)`,
+  );
+  const keyOf = (expression: string): unknown =>
+    boundAs(`CREATE INDEX i ON t (${expression})`, "create-index", keyed).index
+      .keys[0];
+
+  it.each([
+    "a - -1",
+    "-(-a)",
+    "- -1 + a",
+    "a * -1.5",
+    "NOT NOT (a > 1)",
+    "(a = 1) = (a = 2)",
+    "b || 'x' || b",
+    "CAST(a AS varchar(10))",
+    `"select"."a b"[0]`,
+    `"select".select`,
+    `"select"[0].x`,
+    `"Été x" / 3`,
+    "a BETWEEN -1 AND 1 + 2",
+    "a NOT IN (1)",
+    "CASE WHEN a > 1 THEN 1.0 ELSE 2.5 END",
+    "coalesce(d, 1e300)",
+    "b NOT LIKE 'x%'",
+    "(a IS NULL) IS NULL",
+    `T."select".k`,
+    "length(x'00ff')",
+    "(a > 1 OR a < 0) AND b = 'x'",
+  ])("binds %s again as the same key", (expression) => {
+    const key = keyOf(expression);
+    if (typeof key !== "object" || key === null || !("sql" in key)) {
+      throw new TypeError(`not an expression key: ${expression}`);
+    }
+    expect(keyOf(String(key.sql))).toEqual(key);
+  });
+});
+
 describe("ALTER TABLE", () => {
   it("adds a column with its default converted", () => {
     expect(

@@ -268,6 +268,12 @@ describe("loadSchema", () => {
       "CREATE TABLE b (p TEXT UNIQUE, q BIGINT, r BLOB DEFAULT x'beef', PRIMARY KEY (q, p))",
       "CREATE TABLE c (k TEXT UNIQUE PRIMARY KEY, j JSON DEFAULT '[1, {\"z\": 2}]', f REAL DEFAULT 1)",
       "CREATE TABLE d (u INTEGER UNIQUE, v INTEGER, PRIMARY KEY (v))",
+      "CREATE TABLE e (a TEXT PRIMARY KEY UNIQUE UNIQUE)",
+      "CREATE TABLE f (a PRIMARY KEY, b ANY UNIQUE)",
+      "CREATE TABLE g (id INTEGER UNIQUE AUTOINCREMENT, PRIMARY KEY (id))",
+      `CREATE TABLE "select" ("from" INTEGER DEFAULT -0.0, "order" REAL DEFAULT 9e999, j JSON DEFAULT 'null', k JSON DEFAULT '"x"', b BOOLEAN DEFAULT 0)`,
+      "CREATE TABLE h (a TEXT, b TEXT UNIQUE, c INT, PRIMARY KEY (c, a), d TEXT UNIQUE NOT NULL NULL)",
+      "CREATE TABLE i (x INT NOT NULL PRIMARY KEY DEFAULT 3)",
     ];
     const bound = sql.map((statement, position) => {
       const result = bindStatement(only(statement), Schema.empty);

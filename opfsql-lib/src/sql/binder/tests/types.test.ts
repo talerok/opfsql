@@ -204,6 +204,16 @@ describe("operators", () => {
     );
   });
 
+  it("bind an AND of thousands of operands without recursing on them", () => {
+    const conditions = Array.from({ length: 30_000 }, () => "age > 1");
+    const bound = query(
+      `SELECT 1 FROM users WHERE ${conditions.join(" AND ")}`,
+    );
+    expect(bound.plan).toMatchObject({
+      child: { kind: "filter", conditions: { length: 30_000 } },
+    });
+  });
+
   it("need one column of a subquery used as a value or compared", () => {
     expect(semanticError("SELECT (SELECT 1, 2)")).toBe(
       "a scalar subquery must return one column, not 2",

@@ -278,6 +278,28 @@ describe("CTEs read in subqueries", () => {
   });
 });
 
+describe("recursive CTEs read in subqueries", () => {
+  it("correlate a subquery whose recursive CTE reads the outer row", () => {
+    for (const recursive of [
+      "WITH RECURSIVE r(n) AS (SELECT u.age UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT max(n) FROM r",
+      "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < u.age) SELECT max(n) FROM r",
+      "WITH RECURSIVE r(n) AS (WITH c AS (SELECT u.age AS a) SELECT a FROM c UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT max(n) FROM r",
+    ]) {
+      expect(subqueries(`SELECT (${recursive}) FROM users u`)).toEqual([
+        "subquery(1, correlated)",
+      ]);
+    }
+  });
+
+  it("correlate a compound subquery one of whose members reads the outer row", () => {
+    expect(
+      subqueries(
+        "SELECT (SELECT id FROM orders o WHERE o.user_id = 1 UNION SELECT u.age) FROM users u",
+      ),
+    ).toEqual(["subquery(1, correlated)"]);
+  });
+});
+
 describe("FROM", () => {
   it("put a subquery's plan under a project of its own", () => {
     expect(
