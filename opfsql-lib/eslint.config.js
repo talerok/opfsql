@@ -90,6 +90,14 @@ export default config(
         "error",
         { accessibility: "no-public" },
       ],
+      // One way to hide a member: TypeScript's `private`, not `#name`.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "PrivateIdentifier",
+          message: "Use TypeScript's `private` modifier, not a `#` field.",
+        },
+      ],
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/consistent-type-exports": "error",
       "@typescript-eslint/switch-exhaustiveness-check": [

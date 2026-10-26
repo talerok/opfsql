@@ -163,8 +163,23 @@ holds the lock until this promise settles".
 | `sql/parser`       | rebuilt and reviewed for readability: Pratt expressions, one name rule, unions for every state                          |
 | `functions`        | built: one registry for the binder and the compiler                                                                     |
 | `expressions`      | built on `sql/plan`; the old compiler stays in `src/legacy/executor/evaluate` until the switch                          |
-| `sql/plan`         | contract written; binder, optimizer and executor move to it                                                             |
-| `sql/binder`       | to build on `sql/plan`: grouping model, scopes, DDL to the schema model; the old one is in `src/legacy`                 |
-| `sql/optimizer`    | to build on `sql/plan`: pure passes, access paths with residuals, physical plan; the old one is in `src/legacy`         |
-| `executor`         | built on `sql/plan` and `table`: operators with rescan, subqueries compiled once; the old one stays in `src/legacy`     |
+| `sql/plan`         | contract written and reviewed against three implementations                                                             |
+| `sql/binder`       | built on its branch, reviewed, fixes under way; the old one is in `src/legacy`                                          |
+| `sql/optimizer`    | built on its branch, reviewed, fixes under way; the old one is in `src/legacy`                                          |
+| `executor`         | built on its branch, reviewed, fixes under way; the old one is in `src/legacy`                                          |
 | `engine`, `worker` | rebuilt: snapshots, one write lock, queues, states, the worker API (docs/api.md); still on the old storage, `src/store` |
+
+The switch, once the three branches are merged, moves the engine onto them:
+
+- open format-5 files; pin a snapshot per transaction, catch up and lower a
+  stale checkpoint intent under the write lock; checkpoint as before;
+- run each statement in a savepoint of its write transaction; only a failed
+  commit ends the transaction (docs/planning.md, Execution);
+- load the schema per schema version, with index keys compiled once per
+  version for the table layer;
+- parse, bind, optimize, run; DDL through the catalog; EXPLAIN from the
+  physical plan; integrity as checkStorage plus checkTables;
+- copy BLOBs into results, so a caller never holds a cached plan's bytes;
+- give the run a checkpoint that can end a statement (a time limit, later);
+- delete `src/store`, `src/legacy` and cbor-x; bring the SLT expectations and
+  docs/api.md up to the new semantics.

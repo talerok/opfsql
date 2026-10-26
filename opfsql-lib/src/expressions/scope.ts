@@ -72,14 +72,14 @@ export interface CompiledSubquery {
  * on.
  */
 export class OuterRows {
-  readonly #rows: Tuple[] = [];
+  private readonly rows: Tuple[] = [];
 
   /** The current row `depth` query levels out. */
   at(depth: number): Tuple {
-    const row = this.#rows[this.#rows.length - depth];
+    const row = this.rows[this.rows.length - depth];
     if (row === undefined) {
       throw new InternalError(
-        `no outer row ${String(depth)} levels out (${String(this.#rows.length)} deep)`,
+        `no outer row ${String(depth)} levels out (${String(this.rows.length)} deep)`,
       );
     }
     return row;
@@ -91,21 +91,21 @@ export class OuterRows {
    * computed when a subquery first reads it, must see its own level's rows.
    */
   atLevel<T>(level: number, action: () => T): T {
-    const above = this.#rows.splice(level);
+    const above = this.rows.splice(level);
     try {
       return action();
     } finally {
-      this.#rows.push(...above);
+      this.rows.push(...above);
     }
   }
 
   /** What `action` returns while `row` is the nearest outer row. */
   within<T>(row: Tuple, action: () => T): T {
-    this.#rows.push(row);
+    this.rows.push(row);
     try {
       return action();
     } finally {
-      this.#rows.pop();
+      this.rows.pop();
     }
   }
 }

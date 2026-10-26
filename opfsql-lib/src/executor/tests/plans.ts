@@ -363,6 +363,7 @@ export function insert(
     table,
     columns,
     source: from,
+    readsTarget: true,
     onConflict,
     parameterCount: 0,
   };

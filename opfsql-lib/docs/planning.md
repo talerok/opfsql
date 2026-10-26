@@ -155,13 +155,19 @@ exactly as `=` matches it, with nothing left to convert: `id = $1` with
    the left row is still emitted with NULLs.
 3. **Order comes from one place.** A `sort` is removed only when its child
    already delivers exactly that order: an index scan whose key order,
-   direction and NULL placement match every key. `top-n` replaces a `sort`
+   direction and NULL placement match every key, or a table scan or rowid
+   lookup whose rowid order matches an ORDER BY of the rowid. `top-n` replaces a `sort`
    and the `limit` above it; it never coexists with that `limit`.
 4. **Rewrites follow `values`.** A rewrite that folds or simplifies an
    expression evaluates it with the expression compiler, never with its own
    JavaScript semantics, and leaves it alone if evaluating fails (it will
    fail again at run time, with the right error). A rewrite that would
-   change a result for some row — NULLs included — is not made.
+   change a result for some row — NULLs included — is not made. Errors are
+   not results: conditions run in any order and may run on rows a later
+   step discards, so one plan may fail where another succeeds (`x AND
+FALSE` never evaluates `x`; a condition pushed below a join meets rows
+   the join drops), as in SQLite and PostgreSQL. Every plan of a statement
+   that succeeds returns the same rows.
 5. **Parameters are unknown values.** A plan never depends on a parameter's
    value, so it can be reused with others. A parameter can bound a key range;
    it cannot decide which index is used.
@@ -173,7 +179,10 @@ compiled expressions and the table layer. An operator:
 
 ```ts
 interface Operator {
-  /** The next batch of at most `max` rows, or null when there are no more. */
+  /**
+   * The next batch of at most `max` rows, or null when there are no more.
+   * `max` is what the caller can still use: Infinity when it takes every row.
+   */
   next(max: number): Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
   rescan(): void;
@@ -201,7 +210,9 @@ UPDATE and DELETE read every target row from their source, and UPDATE
 computes every new row, before changing any — each change made by the table layer, which keeps indexes and
 constraints with the row — so a change never moves a row into or out of the
 scan that is still finding rows. An INSERT whose source reads the target
-table reads all of it first, for the same reason.
+table reads all of it first, for the same reason; the binder, which resolved
+every table the source names, says so on the statement. Any other INSERT
+writes each row as its source produces it.
 
 An UPDATE's source produces every column of the table, then the rowid; no
 pass prunes them. A DELETE's source produces the rows to delete, the rowid
