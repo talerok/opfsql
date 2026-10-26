@@ -20,6 +20,10 @@ const FIRST_ALLOCATABLE = SCHEMA_ROOT_PAGE + 1;
 /** Reads the database as of one snapshot, pinned until end(). */
 export class ReadTransaction implements PageReader {
   protected isOpen = true;
+  /** Changes made to each tree, by its root page: only a writer makes any. */
+  protected readonly treeChanges = new Map<number, number>();
+  /** Rollbacks to a savepoint, which may change any tree. */
+  protected rollbacks = 0;
   /**
    * Pages in the database as of the snapshot, taken when it was pinned: the
    * database file's size, which it may come from, changes when another tab
@@ -41,6 +45,11 @@ export class ReadTransaction implements PageReader {
   /** Pages in the database as of the snapshot. */
   get pageCount(): number {
     return this.pinnedPageCount;
+  }
+
+  /** How often the tree rooted at `root` changed in this transaction: never, unless it writes. */
+  treeVersion(root: number): number {
+    return (this.treeChanges.get(root) ?? 0) + this.rollbacks;
   }
 
   /** Incremented by every transaction that changes the schema. */
@@ -178,6 +187,11 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     for (const inner of inside.toReversed()) this.restore(inner);
     this.restore(savepoint);
     savepoint.before.clear();
+    this.rollbacks++;
+  }
+
+  noteChange(root: number): void {
+    this.treeChanges.set(root, (this.treeChanges.get(root) ?? 0) + 1);
   }
 
   /** Keeps what was written since `savepoint`, and closes it and any inside it. */

@@ -1,4 +1,5 @@
 import { BTree } from "./btree/btree.js";
+import type { TreeGuard } from "./btree/guard.js";
 import { checkTree } from "./btree/check.js";
 import type { PageReader } from "./btree/page-store.js";
 import type { TreeKind } from "./btree/types.js";
@@ -95,16 +96,22 @@ class StorageCheck {
   }
 
   private checkRows(tree: Tree): void {
-    const cells = new BTree(this.pages, tree.root, "table").ascending();
-    for (const { page, index } of cells) {
-      this.checkRow(tree.name, page.rowid(index), page.record(index));
+    const rows = new BTree(this.pages, tree.root, "table");
+    const guard = rows.guard();
+    for (const { page, index } of rows.ascending()) {
+      const row = { rowid: page.rowid(index), record: page.record(index) };
+      this.checkRow(tree.name, row, guard);
     }
   }
 
   /** The row's record must parse, and its overflow chains hold their bytes. */
-  private checkRow(owner: string, rowid: number, record: Uint8Array): void {
+  private checkRow(
+    owner: string,
+    { rowid, record }: { rowid: number; record: Uint8Array },
+    guard: TreeGuard,
+  ): void {
     try {
-      const row = new StoredRow(this.pages, rowid, record);
+      const row = new StoredRow(this.pages, rowid, record, guard);
       for (const chain of row.overflowValues()) this.claimChain(owner, chain);
     } catch (error) {
       this.report(owner, `row ${String(rowid)}: ${messageOf(error)}`);

@@ -130,5 +130,4 @@ again is thrown as the cause of a new one.
 Found by an audit of every boundary (2026-10-26). Each item goes when its
 fix lands; the labels stay as they were.
 
-- **G3. No change count per tree.** Open cursors and lazily read overflow values
-  are not checked against writes and rollbacks in the same transaction.
+None is left: every gap the audit found has been closed.

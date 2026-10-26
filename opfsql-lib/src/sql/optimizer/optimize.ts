@@ -64,9 +64,10 @@ function optimizeStatement(
       };
     }
     case "update": {
+      const source = planQuery(statement.source, planner);
       return {
         ...statement,
-        source: planQuery(statement.source, planner),
+        source: rowidSource(source),
         assignments: lowerAssignments(statement.assignments, planner),
       };
     }
@@ -80,11 +81,12 @@ function optimizeStatement(
 }
 
 /**
- * A DELETE's source narrowed to what deleting needs: the rowid, which the
- * executor finds by its binding (statement.ts). Once the WHERE is in the
- * scan's residual, the scan reads only the rowid and the columns that
- * residual reads. A residual with a correlated subquery keeps every column:
- * the subquery's plan reads them from outside, where columnsOf cannot see.
+ * A DELETE's or UPDATE's source narrowed to what finding the rows needs:
+ * the rowid, which the executor finds by its binding (statement.ts); an
+ * UPDATE reads each row by it. Once the WHERE is in the scan's residual,
+ * the scan reads only the rowid and the columns that residual reads. A
+ * residual with a correlated subquery keeps every column: the subquery's
+ * plan reads them from outside, where columnsOf cannot see.
  */
 function rowidSource(plan: physical.Plan): physical.Plan {
   if (

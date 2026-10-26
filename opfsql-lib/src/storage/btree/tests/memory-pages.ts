@@ -9,6 +9,7 @@ export class MemoryPages implements PageWriter {
   private readonly committed = new Map<number, Uint8Array>();
   private readonly dirty = new Map<number, Uint8Array>();
   private readonly freed = new Set<number>();
+  private readonly treeChanges = new Map<number, number>();
   private pageCount = 1;
 
   constructor(readonly pageSize: number) {}
@@ -43,6 +44,14 @@ export class MemoryPages implements PageWriter {
   free(pageNo: number): void {
     this.requireInUse(pageNo);
     this.freed.add(pageNo);
+  }
+
+  treeVersion(root: number): number {
+    return this.treeChanges.get(root) ?? 0;
+  }
+
+  noteChange(root: number): void {
+    this.treeChanges.set(root, this.treeVersion(root) + 1);
   }
 
   commit(): void {

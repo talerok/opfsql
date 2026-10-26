@@ -7,6 +7,7 @@ import {
   tableInteriorCell,
 } from "../format/btree-page.js";
 import type { Descent, Step } from "./cursor.js";
+import { TreeGuard } from "./guard.js";
 import { Cursor, descendToKey } from "./cursor.js";
 import type { PageReader, PageWriter } from "./page-store.js";
 import type { NodeContent, SplitStyle } from "./split.js";
@@ -44,17 +45,30 @@ export class BTree {
     return leaf.holds(index, key) ? { page: leaf, index } : null;
   }
 
+  /** A guard against reading on after this tree changes. */
+  guard(): TreeGuard {
+    return new TreeGuard(this.pages, this.root);
+  }
+
   /** Leaf cells in key order, from the first whose key is at least `from`. */
   *ascending(from?: TreeKey): Generator<Position> {
+    const guard = this.guard();
     for (const leaf of this.leavesFrom(from)) {
-      yield* cellsUpFrom(leaf.page, leaf.index);
+      for (const position of cellsUpFrom(leaf.page, leaf.index)) {
+        yield position;
+        guard.check();
+      }
     }
   }
 
   /** Leaf cells in reverse key order, from the last whose key is below `before`. */
   *descending(before?: TreeKey): Generator<Position> {
+    const guard = this.guard();
     for (const leaf of this.leavesBefore(before)) {
-      yield* cellsDownFrom(leaf.page, leaf.index);
+      for (const position of cellsDownFrom(leaf.page, leaf.index)) {
+        yield position;
+        guard.check();
+      }
     }
   }
 
@@ -130,6 +144,7 @@ export class BTreeWriter extends BTree {
     this.checkCellSize(cell);
     const descent = this.descend(key);
     if (descent.leaf.holds(descent.index, key)) return false;
+    this.writer.noteChange(this.root);
     this.insertCell(descent, cell);
     return true;
   }
@@ -139,6 +154,7 @@ export class BTreeWriter extends BTree {
     this.checkCellSize(cell);
     const descent = this.descend(key);
     if (!descent.leaf.holds(descent.index, key)) return false;
+    this.writer.noteChange(this.root);
     this.edit(descent.leafPageNo).removeCell(descent.index);
     this.insertCell(descent, cell);
     return true;
@@ -148,6 +164,7 @@ export class BTreeWriter extends BTree {
   delete(key: TreeKey): boolean {
     const { path, leafPageNo, leaf, index } = this.descend(key);
     if (!leaf.holds(index, key)) return false;
+    this.writer.noteChange(this.root);
     const editor = this.edit(leafPageNo);
     editor.removeCell(index);
     if (editor.cellCount === 0) this.removeEmpty(path, leafPageNo);
@@ -156,6 +173,7 @@ export class BTreeWriter extends BTree {
 
   /** Frees every page of the tree, the root included. */
   drop(): void {
+    this.writer.noteChange(this.root);
     this.free(this.root);
   }
 

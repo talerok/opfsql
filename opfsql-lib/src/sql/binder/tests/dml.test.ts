@@ -276,6 +276,48 @@ describe("UPDATE", () => {
     );
   });
 
+  it("says whether an assignment reads a table it writes, its WHERE aside", () => {
+    const counted = schemaOf(
+      ...SHOP,
+      "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT)",
+    );
+    const isWrittenTableRead = (sql: string): boolean =>
+      boundAs(sql, "update", counted).readsTarget;
+    expect(isWrittenTableRead("UPDATE orders SET total = total + 1")).toBe(
+      false,
+    );
+    expect(
+      isWrittenTableRead(
+        "UPDATE orders SET total = 0 WHERE id IN (SELECT id FROM orders WHERE total > 5)",
+      ),
+    ).toBe(false);
+    expect(
+      isWrittenTableRead(
+        "UPDATE orders SET total = (SELECT sum(qty) FROM items WHERE items.order_id = orders.id)",
+      ),
+    ).toBe(false);
+    expect(
+      isWrittenTableRead(
+        "UPDATE orders SET total = (SELECT max(total) FROM orders o WHERE o.id < orders.id)",
+      ),
+    ).toBe(true);
+    expect(
+      isWrittenTableRead(
+        "UPDATE orders SET total = (SELECT count(*) FROM items WHERE order_id IN (SELECT id FROM orders))",
+      ),
+    ).toBe(true);
+    expect(
+      isWrittenTableRead(
+        "UPDATE logs SET note = (SELECT max(name) FROM opfsql_sequence)",
+      ),
+    ).toBe(true);
+    expect(
+      isWrittenTableRead(
+        "UPDATE orders SET status = (SELECT max(name) FROM opfsql_sequence)",
+      ),
+    ).toBe(false);
+  });
+
   it("correlates a subquery that reads the row it updates", () => {
     const bound = update(
       "UPDATE users SET age = (SELECT max(qty) FROM items WHERE items.order_id = users.id)",

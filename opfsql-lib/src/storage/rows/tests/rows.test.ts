@@ -45,6 +45,10 @@ class CountingReader implements PageReader {
     this.reads++;
     return this.pages.read(pageNo);
   }
+
+  treeVersion(root: number): number {
+    return this.pages.treeVersion(root);
+  }
 }
 
 describe("table rows", () => {

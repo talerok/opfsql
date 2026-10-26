@@ -117,14 +117,20 @@ export class TableEditor extends TableRows {
 
   /** Replaces row `rowid` with `values`, and returns its rowid, which may change. */
   update(rowid: number, values: readonly Value[]): number {
-    const old = this.stateOf(rowid, this.require(rowid));
-    const row = this.prepare(values);
-    const state = this.stateOf(this.rowidToUpdate(row, rowid), row);
-    this.refuseConflict(state, rowid);
-    this.moveRow(rowid, state);
-    this.moveEntries(old, state);
-    if (state.rowid !== rowid) this.recordIssued(state.rowid);
-    return state.rowid;
+    return this.replace(rowid, this.require(rowid), values);
+  }
+
+  /**
+   * Replaces row `rowid` with what `change` makes of its values, every
+   * column's, and returns its rowid, which may change. The row is read
+   * once, for `change` and for its index entries.
+   */
+  updateWith(
+    rowid: number,
+    change: (old: readonly Value[]) => readonly Value[],
+  ): number {
+    const old = this.require(rowid);
+    return this.replace(rowid, old, change(old));
   }
 
   /** Removes row `rowid`. False if there is none. */
@@ -149,6 +155,24 @@ export class TableEditor extends TableRows {
     target: ConflictConstraint | null = null,
   ): Conflict | null {
     return this.conflictOf(this.newRow(values), null, target);
+  }
+
+  // --- Replacing a row -----------------------------------------------------------
+
+  /** Replaces row `rowid`, whose values were `oldValues`, with `values`. */
+  private replace(
+    rowid: number,
+    oldValues: readonly Value[],
+    values: readonly Value[],
+  ): number {
+    const old = this.stateOf(rowid, oldValues);
+    const row = this.prepare(values);
+    const state = this.stateOf(this.rowidToUpdate(row, rowid), row);
+    this.refuseConflict(state, rowid);
+    this.moveRow(rowid, state);
+    this.moveEntries(old, state);
+    if (state.rowid !== rowid) this.recordIssued(state.rowid);
+    return state.rowid;
   }
 
   // --- Deciding a row ------------------------------------------------------------

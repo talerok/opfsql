@@ -6,6 +6,7 @@ import {
   type Value,
 } from "../../values/index.js";
 import { BTree, BTreeWriter } from "../btree/btree.js";
+import type { TreeGuard } from "../btree/guard.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import { tableLeafCell, tableLeafCellSize } from "../format/btree-page.js";
 import type {
@@ -97,10 +98,12 @@ function mutableDefaultsOf(
 export class StoredRow {
   private readonly fields: RecordField[];
 
+  /** `guard` watches the row's tree: an overflow value is read only while it is unchanged. */
   constructor(
     private readonly pages: PageReader,
     readonly rowid: number,
     record: Uint8Array,
+    private readonly guard: TreeGuard,
   ) {
     this.fields = decodeRecord(record);
   }
@@ -113,7 +116,10 @@ export class StoredRow {
   /** The value of a decoded field, read from its overflow chain if it has one. */
   value(column: number): Value {
     const field = this.fields[column];
-    if (field instanceof OverflowValue) return overflowValue(this.pages, field);
+    if (field instanceof OverflowValue) {
+      this.guard.check();
+      return overflowValue(this.pages, field);
+    }
     if (field === undefined) {
       throw new InternalError(
         `field ${String(column)} of row ${String(this.rowid)} was not decoded`,
@@ -143,13 +149,20 @@ export class TableReader {
   get(rowid: number): StoredRow | null {
     const found = this.tree.find(rowid);
     if (found === null) return null;
-    return new StoredRow(this.pages, rowid, found.page.record(found.index));
+    const record = found.page.record(found.index);
+    return new StoredRow(this.pages, rowid, record, this.tree.guard());
   }
 
   /** Rows in rowid order, from the first at or after `from`. */
   *scan(from?: number): Generator<StoredRow> {
+    const guard = this.tree.guard();
     for (const { page, index } of this.tree.ascending(from)) {
-      yield new StoredRow(this.pages, page.rowid(index), page.record(index));
+      yield new StoredRow(
+        this.pages,
+        page.rowid(index),
+        page.record(index),
+        guard,
+      );
     }
   }
 
@@ -188,11 +201,13 @@ export class TableReader {
   ): Generator<Value[]> {
     if (first > last) return;
     const from = first === -Infinity ? undefined : first;
+    const guard = this.tree.guard();
     for (const { page, index } of this.tree.leavesFrom(from)) {
       for (let cell = index; cell < page.cellCount; cell++) {
         const rowid = page.rowid(cell);
         if (rowid > last) return;
         yield this.tupleOf(rowid, page.record(cell), layout);
+        guard.check();
       }
     }
   }
@@ -204,11 +219,13 @@ export class TableReader {
   ): Generator<Value[]> {
     if (first > last) return;
     const before = last === Infinity ? undefined : Math.floor(last) + 1;
+    const guard = this.tree.guard();
     for (const { page, index } of this.tree.leavesBefore(before)) {
       for (let cell = index; cell >= 0; cell--) {
         const rowid = page.rowid(cell);
         if (rowid < first) return;
         yield this.tupleOf(rowid, page.record(cell), layout);
+        guard.check();
       }
     }
   }

@@ -260,6 +260,8 @@ export class Pager {
     return {
       pageSize: this.pageSize,
       read: (pageNo) => this.read(pageNo, snapshot),
+      // A pinned snapshot never changes.
+      treeVersion: () => 0,
     };
   }
 }
