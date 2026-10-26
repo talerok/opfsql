@@ -16,7 +16,7 @@ import { type CreateIndex, type logical, nodesOf } from "../plan/index.js";
 import { refuse } from "./clause.js";
 import { asCorruption } from "./corruption.js";
 import { checkNewName } from "./create-table.js";
-import { tableNamed } from "./dml.js";
+import { tableNamed } from "./tables.js";
 import { clauseOf } from "./expression.js";
 import { bindQuery } from "./query.js";
 import { BindContext, relation, Scope } from "./scope.js";

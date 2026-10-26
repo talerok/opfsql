@@ -12,11 +12,11 @@ import {
 } from "../parser/index.js";
 import type { AlterAction, AlterTable, logical } from "../plan/index.js";
 import { declareColumn } from "./column-definition.js";
-import { findColumn } from "./columns.js";
+import { findColumn, columnNamed } from "./columns.js";
 import { isStatementError } from "./corruption.js";
 import { bindStoredIndexKey, bindIndexKeyText } from "./create-index.js";
 import { isSameExpression } from "./same-expression.js";
-import { columnNamed, tableNamed } from "./dml.js";
+import { tableNamed } from "./tables.js";
 import type { BindContext } from "./scope.js";
 import { columnsReadBy } from "./walk.js";
 

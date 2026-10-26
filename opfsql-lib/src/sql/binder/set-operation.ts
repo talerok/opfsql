@@ -10,7 +10,8 @@ import {
 } from "../parser/index.js";
 import type { logical, OutputColumn } from "../plan/index.js";
 import { readColumns } from "./columns.js";
-import { bareName, keyOrder, literalPosition } from "./order-by.js";
+import { keyOrder } from "./order-by.js";
+import { bareName, literalPosition } from "./select-list.js";
 import type { BoundQuery, Scope } from "./scope.js";
 import { bindSelect, order } from "./select.js";
 import { commonType } from "../../functions/index.js";

@@ -20,6 +20,7 @@ import {
   type Scope,
 } from "./scope.js";
 import { checkComparable } from "./type-rules.js";
+import { tableNamed } from "./tables.js";
 
 // ---------------------------------------------------------------------------
 // FROM: each item a relation of the query's scope, under its own table
@@ -58,10 +59,7 @@ function bindNamedTable(reference: BaseTableReference, scope: Scope): Plan {
   const cte = scope.cte(reference.table);
   if (cte !== null)
     return bindCteScan(cte, relation(name, tableIndex, cte.columns), scope);
-  const table = scope.context.schema.table(reference.table);
-  if (table === null) {
-    throw new SemanticError(`no such table: ${reference.table}`);
-  }
+  const table = tableNamed(reference.table, scope.context);
   scope.context.noteTableRead(table.name);
   scope.add(relation(name, tableIndex, table.columns));
   const columns = table.columns.map((_, position) => position);

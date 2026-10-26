@@ -3,7 +3,7 @@ import type { logical } from "../plan/index.js";
 import { refuse, type Clause } from "./clause.js";
 import { clauseOf } from "./expression.js";
 import { hasColumn } from "./names.js";
-import { aliasPosition, bareName, literalPosition } from "./order-by.js";
+import { aliasPosition, bareName, literalPosition } from "./select-list.js";
 import type { Scope } from "./scope.js";
 import { aliasOf, type SelectItem } from "./select-list.js";
 

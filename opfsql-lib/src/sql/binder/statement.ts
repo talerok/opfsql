@@ -9,7 +9,7 @@ import type { logical, Statement as BoundStatement } from "../plan/index.js";
 import { bindAlterTable } from "./alter-table.js";
 import { bindCreateIndex } from "./create-index.js";
 import { bindCreateTable } from "./create-table.js";
-import { bindDelete, bindUpdate } from "./dml.js";
+import { bindDelete, bindUpdate } from "./update-delete.js";
 import { bindDrop } from "./drop.js";
 import { bindInsert } from "./insert.js";
 import { bindQuery } from "./query.js";

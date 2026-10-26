@@ -1,5 +1,5 @@
 import { SemanticError } from "../../errors.js";
-import { nameKey } from "../../schema/index.js";
+import { nameKey, type Table } from "../../schema/index.js";
 import {
   logical,
   type ColumnReference,
@@ -58,4 +58,9 @@ export function readColumns(
     const { name, type } = itemAt(columns, position, "a plan's columns");
     return { kind: "column", binding, depth: 0, name, type };
   });
+}
+
+/** The position of `table`'s column called `name`. */
+export function columnNamed(table: Table, name: string): number {
+  return columnIn(table.columns, name, table.name);
 }

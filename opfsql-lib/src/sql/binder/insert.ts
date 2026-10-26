@@ -1,6 +1,8 @@
 import { SemanticError } from "../../errors.js";
+import { commonType } from "../../functions/index.js";
 import type { Index, Table } from "../../schema/index.js";
 import type {
+  InsertSource,
   InsertStatement,
   OnConflictAction,
   OnConflictClause,
@@ -13,16 +15,11 @@ import type {
   OnConflict,
 } from "../plan/index.js";
 import { bindCondition, refuse, type Clause } from "./clause.js";
-import {
-  bindAssignments,
-  columnNamed,
-  insertSource,
-  writableTable,
-  writtenTableReads,
-} from "./dml.js";
-import { firstRepeated } from "./columns.js";
+import { bindAssignments } from "./update-delete.js";
+import { columnNamed, firstRepeated } from "./columns.js";
+import { writableTable, writtenTableReads } from "./tables.js";
 import { clauseOf } from "./expression.js";
-import { relation, Scope, type BindContext } from "./scope.js";
+import { relation, Scope, type BindContext, type BoundQuery } from "./scope.js";
 
 // ---------------------------------------------------------------------------
 // INSERT: the columns its source fills (all, unless listed; each once), the
@@ -150,4 +147,49 @@ function conflictAction(
   const assignments = bindAssignments(action.assignments, table, clause);
   const condition = bindOptionalCondition(action.where, clause);
   return { kind: "update", targetIndex, excludedIndex, assignments, condition };
+}
+
+// --- The source --------------------------------------------------------------------
+
+/** INSERT's rows: VALUES, each row as long as the column list, or a query. */
+export function insertSource(
+  source: InsertSource,
+  width: number,
+  context: BindContext,
+): BoundQuery {
+  if (source.type === "VALUES") {
+    for (const row of source.rows) checkWidth(row.length, width);
+    return bindValues(source.rows, width, context);
+  }
+  const query = context.bindQuery(source.query, Scope.root(context));
+  checkWidth(query.columns.length, width);
+  return query;
+}
+
+function checkWidth(count: number, width: number): void {
+  if (count !== width) {
+    throw new SemanticError(
+      `${String(count)} values for ${String(width)} columns`,
+    );
+  }
+}
+
+/** VALUES rows: constants and expressions without columns, typed per column. */
+function bindValues(
+  rows: readonly (readonly ParsedExpression[])[],
+  width: number,
+  context: BindContext,
+): BoundQuery {
+  const clause = clauseOf(Scope.root(context), refuse("VALUES"));
+  const bound = rows.map((row) => row.map((value) => clause.bind(value)));
+  const types = Array.from({ length: width }, (_, position) =>
+    commonType(bound.map((row) => row[position]?.type ?? "NULL")),
+  );
+  const tableIndex = context.newIndex();
+  const plan: Plan = { kind: "values", tableIndex, rows: bound, types };
+  const columns = types.map((type, position) => ({
+    name: `column${String(position + 1)}`,
+    type,
+  }));
+  return { plan, columns };
 }
