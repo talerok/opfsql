@@ -19,7 +19,7 @@ A value is one of:
 | NUMBER  | `number`              | never `NaN`; `-0` is stored and returned as `0` |
 | TEXT    | `string`              | well-formed UTF-16 (no lone surrogates)         |
 | BLOB    | `Uint8Array`          | values returned to callers are copies           |
-| JSON    | plain object or array | only in JSON-typed columns and expressions      |
+| JSON    | plain object or array | in JSON and ANY columns, and JSON expressions   |
 
 `NaN` coming in (a parameter, or a function result) becomes NULL, as in
 SQLite. A string with a lone surrogate is rejected: it cannot be stored as
