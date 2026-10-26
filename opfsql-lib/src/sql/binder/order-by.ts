@@ -57,10 +57,13 @@ export function orderColumns(
   source: KeySource,
 ): Ordering {
   const extras: Expression[] = [];
-  const keys = orderBy.map((order) => ({
-    position: keyPosition(order.expression, outputs, extras, source),
-    ...keyOrder(order),
-  }));
+  const keys: KeyColumn[] = [];
+  for (const order of orderBy) {
+    const target = keyTarget(order.expression, outputs, extras, source);
+    if (target.kind === "extra") extras.push(target.expression);
+    const position = positionOf(target, outputs.length + extras.length - 1);
+    keys.push({ position, ...keyOrder(order) });
+  }
   return { keys, extras };
 }
 
@@ -108,27 +111,36 @@ export function bareName(expression: ParsedExpression): string | null {
   return isName ? (expression.columnNames[0] ?? null) : null;
 }
 
-function keyPosition(
+/** What a key sorts by: a column already there, or an expression to add. */
+type KeyTarget =
+  | { readonly kind: "column"; readonly position: number }
+  | { readonly kind: "extra"; readonly expression: Expression };
+
+/** A target's column: its own, or `added`, where the extra it adds went. */
+function positionOf(target: KeyTarget, added: number): number {
+  return target.kind === "column" ? target.position : added;
+}
+
+function keyTarget(
   expression: ParsedExpression,
   outputs: readonly Output[],
-  extras: Expression[],
+  extras: readonly Expression[],
   source: KeySource,
-): number {
-  const position =
+): KeyTarget {
+  const named =
     literalPosition(expression, outputs.length, "ORDER BY") ??
     outputAliased(expression, outputs);
-  if (position !== null) return position;
+  if (named !== null) return { kind: "column", position: named };
   const key = source.bind(expression);
   const columns = [...outputs.map((output) => output.expression), ...extras];
-  const found = columns.findIndex((column) => isSameExpression(column, key));
-  if (found !== -1) return found;
+  const position = columns.findIndex((column) => isSameExpression(column, key));
+  if (position !== -1) return { kind: "column", position };
   if (!source.allowsExtras) {
     throw new SemanticError(
       "for SELECT DISTINCT, ORDER BY expressions must appear in the select list",
     );
   }
-  extras.push(key);
-  return columns.length;
+  return { kind: "extra", expression: key };
 }
 
 /** The output whose alias a bare name is, as ORDER BY reads it. */

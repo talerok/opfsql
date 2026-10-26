@@ -147,9 +147,9 @@ function usingEquality(
   const items = scope.relations;
   const left = usingColumn(name, items.slice(0, leftItems));
   const right = usingColumn(name, items.slice(leftItems));
+  checkComparable(left.type, right.type);
   const hidden = isRight ? left : right;
   scope.hide(hidden.binding.tableIndex, hidden.binding.columnIndex);
-  checkComparable(left.type, right.type);
   return {
     kind: "comparison",
     operator: "EQUAL",
