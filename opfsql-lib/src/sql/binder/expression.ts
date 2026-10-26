@@ -1,4 +1,5 @@
 import { SemanticError } from "../../errors.js";
+import { commonType } from "../../functions/index.js";
 import {
   ExpressionClass,
   type CaseExpression,
@@ -17,7 +18,7 @@ import {
 } from "./operators.js";
 import type { Scope } from "./scope.js";
 import { bindSubquery } from "./subquery.js";
-import { checkComparable, declaredType, sharedType } from "./type-rules.js";
+import { checkComparable, declaredType } from "./type-rules.js";
 
 // ---------------------------------------------------------------------------
 // Expressions: each node bound to the plan's expressions and typed. The
@@ -90,7 +91,8 @@ function bindNode(expression: ParsedExpression, clause: Clause): Expression {
 
 /**
  * CASE. With an operand, each WHEN value is compared with it as `=` would;
- * without, each WHEN is a condition. The results share one type.
+ * without, each WHEN is a condition. The result has the type the results
+ * share, ANY for a mix of kinds (docs/semantics.md, Functions).
  */
 function bindCase(expression: CaseExpression, clause: Clause): Expression {
   const compared =
@@ -109,7 +111,7 @@ function bindCase(expression: CaseExpression, clause: Clause): Expression {
     ...branches.map((branch) => branch.result),
     ...(otherwise === null ? [] : [otherwise]),
   ];
-  const type = sharedType(results.map((result) => result.type));
+  const type = commonType(results.map((result) => result.type));
   return { kind: "case", operand, branches, otherwise, type };
 }
 

@@ -12,12 +12,13 @@ import { readColumns } from "./from-clause.js";
 import { bareName, keyOrder, literalPosition } from "./order-by.js";
 import type { BoundQuery, Scope } from "./scope.js";
 import { bindSelect, order } from "./select.js";
-import { sharedType } from "./type-rules.js";
+import { commonType } from "../../functions/index.js";
 
 // ---------------------------------------------------------------------------
 // UNION, UNION ALL, INTERSECT and EXCEPT. Each member is a SELECT of its own
 // beside the others; their column counts must agree, and each column's type
-// is the type its values share. The result has a table index of its own,
+// is the type its values share, ANY for a mix of kinds. The result has a
+// table index of its own,
 // and ORDER BY can only name its columns: by position or by name.
 // ---------------------------------------------------------------------------
 
@@ -61,7 +62,7 @@ function bindMembers(node: SetOperationNode, scope: Scope): BoundQuery {
   }
   const columns = left.columns.map((column, position): OutputColumn => {
     const other = right.columns[position]?.type ?? column.type;
-    return { name: column.name, type: sharedType([column.type, other]) };
+    return { name: column.name, type: commonType([column.type, other]) };
   });
   const plan: logical.Plan = {
     kind: "set-operation",

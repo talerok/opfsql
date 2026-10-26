@@ -1,5 +1,5 @@
 import { SemanticError } from "../../errors.js";
-import { commonType, type StaticType } from "../../functions/index.js";
+import type { StaticType } from "../../functions/index.js";
 import { typeFromName, type SqlType } from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
@@ -44,26 +44,6 @@ export function checkComparable(left: StaticType, right: StaticType): void {
       `type mismatch: cannot compare ${left} with ${right}`,
     );
   }
-}
-
-/**
- * The type of values that meet in one column — CASE branches, the sides of
- * a UNION — after checking every pair can meet: as COALESCE types its result.
- */
-export function sharedType(types: readonly StaticType[]): StaticType {
-  const typed = types.filter((type) => kindOf(type) !== null);
-  const [first] = typed;
-  const clash = typed.find((type) => kindOf(type) !== kindOf(first ?? type));
-  if (first !== undefined && clash !== undefined) {
-    checkComparable(first, clash);
-  }
-  return commonType(types);
-}
-
-/** What checkComparable tells apart: numbers are one kind; untyped and JSON none. */
-function kindOf(type: StaticType): string | null {
-  if (type === "JSON" || UNTYPED.has(type)) return null;
-  return NUMBERS.has(type) ? "number" : type;
 }
 
 /**

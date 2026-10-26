@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plan, query, semanticError, lines } from "./helpers.js";
+import { bind, lines, plan, query, semanticError } from "./helpers.js";
 
 /** The static types of a query's result columns. */
 function types(sql: string): string[] {
@@ -41,6 +41,20 @@ describe("static types", () => {
     ).toEqual(["REAL"]);
   });
 
+  it("of values of different kinds in one column: ANY, decided by the row", () => {
+    expect(
+      types(
+        "SELECT CASE WHEN TRUE THEN 'a' ELSE 2 END, iif(age > 1, 1, 'a'), coalesce(name, 1) FROM users",
+      ),
+    ).toEqual(["ANY", "ANY", "ANY"]);
+    expect(types("SELECT 1 UNION SELECT '1'")).toEqual(["ANY"]);
+    expect(
+      types("SELECT name FROM users EXCEPT SELECT id FROM orders"),
+    ).toEqual(["ANY"]);
+    const values = bind("INSERT INTO users (data) VALUES (1), ('a'), (x'00')");
+    expect(values).toMatchObject({ source: { types: ["ANY"] } });
+  });
+
   it("of everything else, from the registry and the operators", () => {
     expect(
       types(
@@ -80,12 +94,6 @@ describe("type errors", () => {
     expect(
       semanticError("SELECT CASE age WHEN 'a' THEN 1 END FROM users"),
     ).toBe(mismatch("INTEGER", "TEXT"));
-    expect(semanticError("SELECT CASE WHEN TRUE THEN 'a' ELSE 2 END")).toBe(
-      mismatch("TEXT", "INTEGER"),
-    );
-    expect(
-      semanticError("SELECT name FROM users UNION SELECT id FROM orders"),
-    ).toBe(mismatch("TEXT", "INTEGER"));
     expect(
       semanticError(
         "SELECT 1 FROM users WHERE name IN (SELECT id FROM orders)",

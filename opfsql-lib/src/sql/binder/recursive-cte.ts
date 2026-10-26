@@ -1,4 +1,5 @@
 import { NotSupportedError, SemanticError } from "../../errors.js";
+import { commonType } from "../../functions/index.js";
 import { nameKey } from "../../schema/index.js";
 import {
   JoinType,
@@ -16,7 +17,6 @@ import { hasAggregateCall } from "./grouping.js";
 import { expressionsOf, mentions, mentionsInExpression } from "./references.js";
 import type { OutputColumn } from "../plan/index.js";
 import type { BoundQuery, CteDefinition, Scope } from "./scope.js";
-import { sharedType } from "./type-rules.js";
 
 // ---------------------------------------------------------------------------
 // A recursive WITH query: `anchor UNION [ALL] step`. The anchor must not
@@ -117,7 +117,7 @@ function bindStep(
   }
   const widened = columns.map((column, position) => ({
     name: column.name,
-    type: sharedType([
+    type: commonType([
       column.type,
       query.columns[position]?.type ?? column.type,
     ]),

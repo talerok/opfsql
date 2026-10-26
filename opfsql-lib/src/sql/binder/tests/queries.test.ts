@@ -102,6 +102,12 @@ describe("WITH RECURSIVE", () => {
     );
   });
 
+  it("makes a column its anchor and step give different kinds ANY", () => {
+    expect(query(recursive("SELECT 'x' FROM r")).columns).toEqual([
+      { name: "n", type: "ANY" },
+    ]);
+  });
+
   it("widens a column the step makes REAL, and reads it so in the step", () => {
     const bound = query(
       "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 0.5 FROM n WHERE x < 3) SELECT x FROM n",
@@ -183,9 +189,6 @@ describe("WITH RECURSIVE", () => {
       ),
     ).toBe(
       "the step of recursive WITH query r names it on the side of an outer join that is filled with NULLs",
-    );
-    expect(semanticError(recursive("SELECT 'x' FROM r"))).toBe(
-      "type mismatch: cannot compare INTEGER with TEXT",
     );
     expect(semanticError(recursive("SELECT n, n FROM r"))).toBe(
       "the anchor and step of recursive WITH query r must have as many columns: 1 and 2",
