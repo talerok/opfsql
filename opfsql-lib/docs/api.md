@@ -77,10 +77,11 @@ the worker's global scope, or on `scope` (anything with `postMessage` and
 `addEventListener("message")`).
 
 Opening fails with `DATABASE_IN_USE` when another tab has the database open
-in a browser that lets only one tab hold its files (all but Chromium), with
-`UNSUPPORTED_FORMAT` for files of another format version — databases written
-by opfsql 0.0.x (format 4) included, which this version neither reads nor
-converts — and with `WORKER_ERROR` when the worker cannot start, including
+in a browser that lets only one tab hold its files (all but Chromium), or
+when 64 tabs already have it open; with `UNSUPPORTED_FORMAT` for files of
+another format version — databases written by opfsql 0.0.x included (0.0.2
+wrote format 3), which this version neither reads nor converts — and with
+`WORKER_ERROR` when the worker cannot start, including
 when it has not answered within 10 seconds, as a worker whose script never
 calls `serveDatabase()` does not.
 The page and the worker must load the same opfsql: the worker refuses a page
@@ -341,7 +342,7 @@ fields, and its `cause`.
 | `TOO_LARGE`             | `IndexKeyTooLargeError`, `RowTooLargeError` | `index` or `table`, `size`, `limit`       | an index key larger than a page holds, or a row of thousands of columns           |
 | `BUSY`                  | `BusyError`                                 | `timeout`                                 | the write lock was not granted within `busyTimeout`                               |
 | `SERIALIZATION_FAILURE` | `SerializationError`                        |                                           | another writer committed since this transaction's snapshot                        |
-| `DATABASE_IN_USE`       | `DatabaseInUseError`                        | `database`, `reason`                      | another tab has the database open, and this browser allows one                    |
+| `DATABASE_IN_USE`       | `DatabaseInUseError`                        | `database`, `reason`                      | another tab has the database open and this browser allows one, or 64 tabs do      |
 | `ABORTED`               | `AbortError`                                |                                           | the call's signal was aborted, or its connection closed                           |
 | `IO_ERROR`              | `IoError`                                   |                                           | reading or writing the files failed, or a lock request did                        |
 | `STORAGE_FULL`          | `StorageFullError`                          |                                           | the browser refused to store more                                                 |
@@ -420,3 +421,51 @@ The engine reads every statement's schema from the snapshot the statement
 reads its data from, and a writer pins that snapshot only once it holds the
 write lock; so DDL in one tab and writes in another can never interleave on
 an outdated schema.
+
+## Exports
+
+Every name the two entry points export. `src/tests/api-documentation.test.ts` keeps
+this list and the code in step, and checks that the rest of this document
+names no type or class they do not export.
+
+### `"opfsql"`
+
+| Name                                                                    | Kind     | Is                                                                                       |
+| ----------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `openDatabase`                                                          | function | opens a database served by a worker ([Opening a database](#opening-a-database))          |
+| `DatabaseOptions`                                                       | type     | the options of `openDatabase`: `worker` and the `OpenOptions`                            |
+| `OpenOptions`                                                           | type     | `busyTimeout`, `pageSize`, `checkpointThreshold`, `onCheckpointError`                    |
+| `WorkerHandle`                                                          | type     | what `worker` must be: `postMessage`, `addEventListener`, `terminate`                    |
+| `Database`                                                              | type     | an open database ([Database](#database))                                                 |
+| `Connection`                                                            | type     | one session in the worker ([Connections](#connections))                                  |
+| `Statement`                                                             | type     | a prepared statement ([Prepared statements](#prepared-statements))                       |
+| `CallOptions`                                                           | type     | `{ signal }`, which every call takes ([Waiting and cancelling](#waiting-and-cancelling)) |
+| `TransactionOptions`                                                    | type     | `{ mode, signal }` of `transaction()` ([Transactions](#transactions))                    |
+| `TransactionMode`                                                       | type     | `"deferred"` or `"immediate"`                                                            |
+| `Result`                                                                | class    | what one statement returned ([Results](#results))                                        |
+| `ResultData`                                                            | type     | a result as plain data: `columns`, `rows`, `changes`, `lastInsertRowid`                  |
+| `ResultRow`                                                             | type     | one row of `rows`: its values in the order of `columns`                                  |
+| `Schema`, `TableInfo`, `ColumnInfo`, `IndexInfo`                        | type     | what `schema()` describes ([Schema](#schema))                                            |
+| `Value`                                                                 | type     | a SQL value: `null`, a boolean, a number, a string, a `Uint8Array` or JSON               |
+| `JsonValue`                                                             | type     | a JSON value: `null`, a boolean, a number, a string, an array or an object               |
+| `SqlType`                                                               | type     | a column type: `"INTEGER"`, `"REAL"`, `"TEXT"`, `"BLOB"`, `"BOOLEAN"`, `"JSON"`, `"ANY"` |
+| `OpfsqlError`                                                           | class    | the class of every error opfsql throws ([Errors](#errors))                               |
+| `SqlSyntaxError`, `SemanticError`, `NotSupportedError`                  | class    | errors of the statement                                                                  |
+| `ConstraintError`, `DatatypeMismatchError`, `IntegerOverflowError`      | class    | errors of the data                                                                       |
+| `IndexKeyTooLargeError`, `RowTooLargeError`                             | class    | `TOO_LARGE`                                                                              |
+| `BusyError`, `SerializationError`, `DatabaseInUseError`, `AbortError`   | class    | errors of concurrency                                                                    |
+| `IoError`, `StorageFullError`, `CorruptError`, `UnsupportedFormatError` | class    | errors of storage                                                                        |
+| `WorkerError`, `MisuseError`, `InternalError`                           | class    | errors of the worker, of the API's use, and of opfsql itself                             |
+| `ErrorCode`                                                             | type     | the codes in [Errors](#errors)                                                           |
+| `ConstraintKind`                                                        | type     | `ConstraintError.constraint`: `"not-null"`, `"unique"` or `"primary-key"`                |
+| `InUseReason`                                                           | type     | `DatabaseInUseError.reason`: `"one-tab-only"` or `"too-many-tabs"`                       |
+
+### `"opfsql/worker"`
+
+| Name                | Kind     | Is                                                                                              |
+| ------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `serveDatabase`     | function | makes the worker serve a database to `openDatabase` ([Opening a database](#opening-a-database)) |
+| `HostScope`         | type     | what `serveDatabase(scope)` serves on: `postMessage` and `addEventListener("message")`          |
+| `Engine`            | class    | the engine itself ([The engine inside a worker](#the-engine-inside-a-worker))                   |
+| `Session`           | type     | a session of the engine, as a `Connection` is of the database                                   |
+| `PreparedStatement` | type     | a statement prepared on a session                                                               |
