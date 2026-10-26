@@ -131,6 +131,22 @@ describe("table rows", () => {
     expect(table.lastRowid()).toBe(7);
     expect([...table.scan(0)].map((row) => row.rowid)).toEqual([7]);
   });
+
+  it("scans backward from the last row, or from below a rowid, across leaves", () => {
+    const { table } = setup();
+    expect([...table.scanBackward()]).toEqual([]);
+    const rowids = Array.from({ length: 500 }, (_, index) => index * 2);
+    for (const rowid of rowids) table.insert(rowid, ["x".repeat(40)]);
+
+    const backward = [...table.scanBackward()].map((row) => row.rowid);
+    expect(backward).toEqual(rowids.toReversed());
+    const below = [...table.scanBackward(7)].map((row) => row.rowid);
+    expect(below).toEqual([6, 4, 2, 0]);
+    expect([...table.scanBackward(0)]).toEqual([]);
+    expect(values([...table.scanBackward()][0] ?? null)).toEqual([
+      "x".repeat(40),
+    ]);
+  });
 });
 
 describe("index entries", () => {

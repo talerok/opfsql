@@ -63,4 +63,11 @@ export class TableRows {
       yield new TableRow(row, this.table);
     }
   }
+
+  /** Rows in reverse rowid order, from the last below `before` (or the last). */
+  *scanBackward(before?: number): Generator<TableRow> {
+    for (const row of this.stored.scanBackward(before)) {
+      yield new TableRow(row, this.table);
+    }
+  }
 }
