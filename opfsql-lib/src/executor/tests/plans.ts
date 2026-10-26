@@ -1,8 +1,10 @@
 import {
   aggregateFunction,
   resolveCall,
+  type ScalarFunction,
   type StaticType,
 } from "../../functions/index.js";
+import { callOf } from "../../expressions/tests/builders.js";
 import type { Index, Table } from "../../schema/index.js";
 import {
   type AggregateCall,
@@ -313,4 +315,34 @@ export function recursiveCte(
     isUnionAll,
     types: physical.typesOf(anchor),
   };
+}
+
+/**
+ * A function that returns its argument and counts how often it is compiled
+ * (implemented, once per compile of its expression) and called (per row).
+ */
+export class Counting {
+  compiles = 0;
+  calls = 0;
+
+  readonly definition: ScalarFunction = {
+    kind: "scalar",
+    name: "counting",
+    signature: { required: ["any"] },
+    returnType: ([type = "ANY"]) => type,
+    implement: () => {
+      this.compiles++;
+      return {
+        kind: "eager",
+        call: ([value = null]) => {
+          this.calls++;
+          return value;
+        },
+      };
+    },
+  };
+
+  of(operand: Node): Node {
+    return callOf(this.definition, [operand]);
+  }
 }
