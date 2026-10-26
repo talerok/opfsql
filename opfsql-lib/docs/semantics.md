@@ -243,6 +243,14 @@ that of [Order and equality](#order-and-equality).
 - `sum` and `avg` take numbers only: over TEXT, BOOLEAN, BLOB or JSON they
   are a bind error.
 
+## LIMIT and OFFSET
+
+LIMIT and OFFSET take integers, converted as an INTEGER column converts
+them: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
+OFFSET skips nothing. Any other value — NULL, `2.5`, `'five'` — fails with
+`DATATYPE_MISMATCH`. Both are evaluated each time their query starts,
+before it reads a row.
+
 ## Limits
 
 A statement nests at most 200 levels deep (parentheses, subqueries, CASE
