@@ -16,11 +16,14 @@ export function bindQuery(
   scope: Scope,
 ): BoundQuery {
   const { scope: inner, ctes } = bindWith(statement.with, scope);
-  const { body, orderBy } = statement;
-  const query =
-    body.type === "SELECT_NODE"
-      ? bindSelect(body, inner, orderBy)
-      : bindCompound(body, inner, orderBy);
+  const query = bindBody(statement, inner);
   const limited = applyLimit(query, statement.limit, scope.context);
   return wrapCtes(limited, ctes);
+}
+
+/** The body, one SELECT or a compound, with the ORDER BY over it. */
+function bindBody(statement: SelectStatement, scope: Scope): BoundQuery {
+  const { body, orderBy } = statement;
+  if (body.type === "SELECT_NODE") return bindSelect(body, scope, orderBy);
+  return bindCompound(body, scope, orderBy);
 }

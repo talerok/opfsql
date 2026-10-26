@@ -404,12 +404,16 @@ function arithmeticText(operator: ArithmeticOperator): string {
 }
 
 function describeGet(plan: Extract<Plan, { kind: "get" }>): string {
-  const columns = plan.columns.map((column) =>
-    column === ROWID_COLUMN
-      ? "rowid"
-      : (plan.table.columns[column]?.name ?? String(column)),
-  );
+  const columns = plan.columns.map((column) => columnLabel(plan, column));
   return `get #${String(plan.tableIndex)} ${plan.table.name} (${columns.join(", ")})`;
+}
+
+function columnLabel(
+  plan: Extract<Plan, { kind: "get" }>,
+  column: number,
+): string {
+  if (column === ROWID_COLUMN) return "rowid";
+  return plan.table.columns[column]?.name ?? String(column);
 }
 
 function formatColumn(reference: ColumnReference): string {

@@ -25,6 +25,7 @@ import {
   type ComparisonType,
   type CTENode,
   type JoinReference,
+  type JsonPathSegment,
   type LimitClause,
   type Literal,
   type OperatorExpression,
@@ -215,12 +216,13 @@ function formatList(expressions: readonly ParsedExpression[]): string {
 
 function formatColumn(reference: ColumnReferenceExpression): string {
   const names = reference.columnNames.map((name) => formatName(name));
-  const path = reference.path.map((segment) =>
-    segment.type === "field"
-      ? `.${formatName(segment.name)}`
-      : `[${String(segment.value)}]`,
-  );
+  const path = reference.path.map((segment) => formatSegment(segment));
   return names.join(".") + path.join("");
+}
+
+function formatSegment(segment: JsonPathSegment): string {
+  if (segment.type === "field") return `.${formatName(segment.name)}`;
+  return `[${String(segment.value)}]`;
 }
 
 function formatLiteral(literal: Literal): string {

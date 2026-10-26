@@ -11,19 +11,22 @@ import type { Drop } from "../plan/index.js";
 
 export function bindDrop(statement: DropStatement, schema: Schema): Drop {
   const { name, ifExists } = statement;
-  const isTable = statement.dropType === DropType.TABLE;
-  const found = isTable
-    ? droppedTable(name, schema)
-    : droppedIndex(name, schema);
+  const object = statement.dropType === DropType.TABLE ? "table" : "index";
+  const found = droppedName(object, name, schema);
   if (found === null && !ifExists) {
-    throw new SemanticError(`no such ${isTable ? "table" : "index"}: ${name}`);
+    throw new SemanticError(`no such ${object}: ${name}`);
   }
-  return {
-    kind: "drop",
-    object: isTable ? "table" : "index",
-    name: found ?? name,
-    isIfExists: ifExists,
-  };
+  return { kind: "drop", object, name: found ?? name, isIfExists: ifExists };
+}
+
+/** The name of the table or index to drop, as the schema has it; null if there is none. */
+function droppedName(
+  object: "table" | "index",
+  name: string,
+  schema: Schema,
+): string | null {
+  if (object === "table") return droppedTable(name, schema);
+  return droppedIndex(name, schema);
 }
 
 /** The name of the table to drop, as the schema has it; null if there is none. */

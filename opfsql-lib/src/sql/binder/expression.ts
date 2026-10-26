@@ -95,24 +95,27 @@ function bindNode(expression: ParsedExpression, clause: Clause): Expression {
  * share, ANY for a mix of kinds (docs/semantics.md, Functions).
  */
 function bindCase(expression: CaseExpression, clause: Clause): Expression {
-  const compared =
-    expression.operand === null ? null : clause.bind(expression.operand);
+  const compared = bindOptional(expression.operand, clause);
   const branches = expression.caseChecks.map((check) => ({
     when: bindWhen(check.whenExpression, compared, clause),
     result: clause.bind(check.thenExpression),
   }));
   const whenTypes = branches.map((branch) => branch.when.type);
   const operand = compared === null ? null : comparedWith(compared, whenTypes);
-  const otherwise =
-    expression.elseExpression === null
-      ? null
-      : clause.bind(expression.elseExpression);
+  const otherwise = bindOptional(expression.elseExpression, clause);
   const results = [
     ...branches.map((branch) => branch.result),
     ...(otherwise === null ? [] : [otherwise]),
   ];
   const type = commonType(results.map((result) => result.type));
   return { kind: "case", operand, branches, otherwise, type };
+}
+
+function bindOptional(
+  expression: ParsedExpression | null,
+  clause: Clause,
+): Expression | null {
+  return expression === null ? null : clause.bind(expression);
 }
 
 function bindWhen(

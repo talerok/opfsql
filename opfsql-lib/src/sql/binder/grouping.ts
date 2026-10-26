@@ -8,6 +8,7 @@ import {
   type SelectNode,
 } from "../parser/index.js";
 import type { ColumnReference, logical } from "../plan/index.js";
+import { nameOf } from "./column-names.js";
 import { isSameExpression } from "./same-expression.js";
 import { mapChildren, mapPlan } from "./walk.js";
 
@@ -123,15 +124,11 @@ export class Grouping {
     expression: Expression,
     depth: number,
   ): ColumnReference {
-    const name =
-      expression.kind === "column"
-        ? expression.name
-        : `group${String(group + 1)}`;
     return {
       kind: "column",
       binding: { tableIndex: this.groupIndex, columnIndex: group },
       depth,
-      name,
+      name: nameOf(expression, `group${String(group + 1)}`),
       type: expression.type,
     };
   }

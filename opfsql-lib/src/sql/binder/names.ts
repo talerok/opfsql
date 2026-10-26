@@ -186,9 +186,8 @@ function referenceTo(
 }
 
 function pathStep(segment: JsonPathSegment): JsonPathStep {
-  return segment.type === "field"
-    ? { kind: "key", key: segment.name }
-    : { kind: "index", index: segment.value };
+  if (segment.type === "field") return { kind: "key", key: segment.name };
+  return { kind: "index", index: segment.value };
 }
 
 function formatPath(path: readonly JsonPathStep[]): string {

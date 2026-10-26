@@ -11,6 +11,7 @@ import {
   conjunctsOf,
   refuse,
 } from "./clause.js";
+import { nameOf } from "./column-names.js";
 import { clauseOf } from "./expression.js";
 import { bindFrom } from "./from-clause.js";
 import { bindGroups } from "./group-by.js";
@@ -55,9 +56,7 @@ export function bindSelect(
 ): BoundQuery {
   const source = bindSource(node, scope);
   const items = selectItems(node.selectList, scope);
-  const aggregation = isAggregating(node, orderBy)
-    ? startAggregation(node, items, scope)
-    : null;
+  const aggregation = startAggregation(node, orderBy, items, scope);
   const above = aboveFrom(scope, aggregation);
   const outputs = items.map((item, position) =>
     bindOutput(item, position, above),
@@ -84,11 +83,14 @@ function bindSource(node: SelectNode, scope: Scope): Plan {
   return { kind: "filter", child: from, conditions: conjunctsOf(condition) };
 }
 
+/** The aggregation of a query that groups (grouping.ts); null if it does not. */
 function startAggregation(
   node: SelectNode,
+  orderBy: readonly OrderByNode[],
   items: readonly SelectItem[],
   scope: Scope,
-): Aggregation {
+): Aggregation | null {
+  if (!isAggregating(node, orderBy)) return null;
   const groups = bindGroups(node.groupBy, items, scope);
   const tables = new Set(scope.relations.map((item) => item.tableIndex));
   const groupIndex = scope.context.newIndex();
@@ -194,9 +196,7 @@ function finish(plan: Plan, shape: Shape, scope: Scope): BoundQuery {
     child: plan,
     expressions,
   };
-  const distinct: Plan = shape.isDistinct
-    ? { kind: "distinct", child: projected }
-    : projected;
+  const distinct = withDistinct(projected, shape.isDistinct);
   const columns = outputs.map((output) => ({
     name: output.name,
     type: output.expression.type,
@@ -211,6 +211,10 @@ function finish(plan: Plan, shape: Shape, scope: Scope): BoundQuery {
     expressions: projectColumns.slice(0, outputs.length),
   };
   return { plan: trimmed, columns };
+}
+
+function withDistinct(plan: Plan, isDistinct: boolean): Plan {
+  return isDistinct ? { kind: "distinct", child: plan } : plan;
 }
 
 /** An order node over `plan` sorting by its columns at the keys' positions. */
@@ -241,10 +245,7 @@ function columnsOf(
     kind: "column",
     binding: { tableIndex, columnIndex },
     depth: 0,
-    name:
-      expression.kind === "column"
-        ? expression.name
-        : `column${String(columnIndex + 1)}`,
+    name: nameOf(expression, `column${String(columnIndex + 1)}`),
     type: expression.type,
   }));
 }

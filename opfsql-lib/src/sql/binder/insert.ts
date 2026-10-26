@@ -4,6 +4,7 @@ import type {
   InsertStatement,
   OnConflictAction,
   OnConflictClause,
+  ParsedExpression,
 } from "../parser/index.js";
 import type {
   ConflictAction,
@@ -11,7 +12,7 @@ import type {
   logical,
   OnConflict,
 } from "../plan/index.js";
-import { bindCondition, refuse } from "./clause.js";
+import { bindCondition, refuse, type Clause } from "./clause.js";
 import {
   bindAssignments,
   columnNamed,
@@ -39,10 +40,7 @@ export function bindInsert(
   const table = writableTable(statement.table, context);
   const columns = targetColumns(statement.columns, table);
   const source = insertSource(statement.source, columns.length, context);
-  const onConflict =
-    statement.onConflict === null
-      ? null
-      : bindOnConflict(statement.onConflict, table, context);
+  const onConflict = bindOnConflict(statement.onConflict, table, context);
   return {
     kind: "insert",
     table,
@@ -59,23 +57,25 @@ function targetColumns(names: readonly string[], table: Table): number[] {
 }
 
 function bindOnConflict(
-  clause: OnConflictClause,
+  clause: OnConflictClause | null,
   table: Table,
   context: BindContext,
-): OnConflict<Plan> {
-  const target =
-    clause.target === null
-      ? null
-      : conflictTarget(clause.target, table, context);
+): OnConflict<Plan> | null {
+  if (clause === null) return null;
+  const target = conflictTarget(clause.target, table, context);
   return { target, action: conflictAction(clause.action, table, context) };
 }
 
-/** The unique constraint, unique index or rowid whose columns are `names`. */
+/**
+ * The unique constraint, unique index or rowid whose columns are `names`;
+ * null, any constraint, when there are none.
+ */
 function conflictTarget(
-  names: readonly string[],
+  names: readonly string[] | null,
   table: Table,
   context: BindContext,
-): Index | "rowid" {
+): Index | "rowid" | null {
+  if (names === null) return null;
   const columns = namedOnce(names, table, "ON CONFLICT");
   const { rowidColumn } = table;
   const isRowid =
@@ -120,6 +120,14 @@ function isOnColumns(index: Index, columns: readonly number[]): boolean {
   return index.isUnique && isSameSet;
 }
 
+function bindOptionalCondition(
+  where: ParsedExpression | null,
+  clause: Clause,
+): logical.Expression | null {
+  if (where === null) return null;
+  return bindCondition(where, clause, "ON CONFLICT … WHERE");
+}
+
 function conflictAction(
   action: OnConflictAction,
   table: Table,
@@ -136,9 +144,6 @@ function conflictAction(
   });
   const clause = clauseOf(scope, refuse("ON CONFLICT"));
   const assignments = bindAssignments(action.assignments, table, clause);
-  const condition =
-    action.where === null
-      ? null
-      : bindCondition(action.where, clause, "ON CONFLICT … WHERE");
+  const condition = bindOptionalCondition(action.where, clause);
   return { kind: "update", targetIndex, excludedIndex, assignments, condition };
 }

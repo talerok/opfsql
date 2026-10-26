@@ -36,11 +36,19 @@ export function bindAlterTable(
   if (isReservedName(table.name)) {
     throw new SemanticError(`table ${table.name} may not be altered`);
   }
-  const action =
-    statement.alterType === AlterType.ADD_COLUMN
-      ? addColumn(statement.column, table, context)
-      : dropColumn(statement.columnName, table, context);
+  const action = alterAction(statement, table, context);
   return { kind: "alter-table", table, action };
+}
+
+function alterAction(
+  statement: AlterTableStatement,
+  table: Table,
+  context: BindContext,
+): AlterAction {
+  if (statement.alterType === AlterType.ADD_COLUMN) {
+    return addColumn(statement.column, table, context);
+  }
+  return dropColumn(statement.columnName, table, context);
 }
 
 function addColumn(

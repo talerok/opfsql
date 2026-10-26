@@ -45,10 +45,8 @@ function countOf(
     const { index } = expression;
     return { kind: "parameter", index, affinity: null, type: "INTEGER" };
   }
-  const value =
-    expression.expressionClass === ExpressionClass.CONSTANT
-      ? expression.value
-      : undefined;
+  const isConstant = expression.expressionClass === ExpressionClass.CONSTANT;
+  const value = isConstant ? expression.value : undefined;
   const isInteger = typeof value === "number" && Number.isSafeInteger(value);
   if (!isInteger) {
     throw new SemanticError(
