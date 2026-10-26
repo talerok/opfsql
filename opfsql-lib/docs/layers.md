@@ -98,7 +98,10 @@ The trees an INSERT writes are its table's and its indexes', and
 
 A value the engine returns is never shared with anything the engine keeps,
 and a value it is given is checked and copied where it comes in. The
-sources make that so, so results need no copying of their own:
+sources make that so, so results need no copying of their own. Within one
+result, one value may fill several cells as the same object (a joined row
+in each of its matches): only sharing with what outlives the result is
+ruled out (docs/api.md, Results).
 
 | Source                      | Makes its value the caller's by                              |
 | --------------------------- | ------------------------------------------------------------ |
@@ -124,10 +127,3 @@ Errors from the platform — a DOMException from a file or a lock — become
 opfsql errors in one function, `toOpfsqlError` in `errors.ts`, used by the
 engine and the worker host alike. An error object is never shared between calls: one kept to be thrown
 again is thrown as the cause of a new one.
-
-## Where the code is not there yet
-
-Found by an audit of every boundary (2026-10-26). Each item goes when its
-fix lands; the labels stay as they were.
-
-None is left: every gap the audit found has been closed.

@@ -219,6 +219,12 @@ SELECT. Write `SELECT a.id AS a_id, b.id AS
 b_id` to get distinct names for `objects()`; `rows` never loses a column.
 EXPLAIN returns one column, `plan`.
 
+The values of a result are yours: changing a BLOB or a JSON object in one
+changes nothing in the database, in a prepared statement or in any other
+result. Within one result, the same value may sit in several cells as one
+object — a row joined to several others brings its values to each — so copy
+a value before changing it if other cells must keep theirs.
+
 Values are `null`, booleans, numbers, strings, `Uint8Array` (BLOB) and JSON
 objects and arrays, as [semantics.md](semantics.md) defines them. INTEGER
 values are safe integers, so they are plain numbers. A BLOB in a result is
