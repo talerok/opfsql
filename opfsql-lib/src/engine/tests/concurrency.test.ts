@@ -47,6 +47,28 @@ describe("one session, calls not awaited one by one", () => {
     expect(await ids(session)).toEqual([2]);
   });
 
+  it("cancels a call waiting behind a running one, and runs the rest in order", async () => {
+    await openEngine(10_000);
+    const holder = engine.connect();
+    await holder.query("BEGIN IMMEDIATE");
+    const session = engine.connect();
+    // Started at once on the idle session, then waits for the lock.
+    const first = session.query("INSERT INTO t (id) VALUES (1)");
+    const cancel = new AbortController();
+    const second = session.query("INSERT INTO t (id) VALUES (2)", [], {
+      signal: cancel.signal,
+    });
+    const third = session.query("INSERT INTO t (id) VALUES (3)");
+    await tick();
+    cancel.abort();
+    await expect(second).rejects.toBeInstanceOf(AbortError);
+
+    await holder.query("COMMIT");
+    await first;
+    await third;
+    expect(await ids(session)).toEqual([1, 3]);
+  });
+
   it("keeps a transaction's statements together when they are queued at once", async () => {
     await openEngine();
     const session = engine.connect();
