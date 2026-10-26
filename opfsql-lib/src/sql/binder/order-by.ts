@@ -141,20 +141,14 @@ function aliasPosition(
   const key = nameKey(name);
   const isNamed = (output: Output): boolean =>
     output.alias !== null && nameKey(output.alias) === key;
-  const matches = outputs
-    .map((output, position) => (isNamed(output) ? position : -1))
-    .filter((position) => position !== -1);
-  const [first] = matches;
-  if (first === undefined) return null;
-  const chosen = outputs[first]?.expression;
-  const isAmbiguous = matches.some((position) => {
-    const other = outputs[position]?.expression;
-    return (
-      chosen === undefined ||
-      other === undefined ||
-      !isSameExpression(chosen, other)
-    );
-  });
+  const position = outputs.findIndex((output) => isNamed(output));
+  const chosen = outputs[position];
+  if (chosen === undefined) return null;
+  const isAmbiguous = outputs.some(
+    (output) =>
+      isNamed(output) &&
+      !isSameExpression(output.expression, chosen.expression),
+  );
   if (isAmbiguous) throw new SemanticError(`ORDER BY ${name} is ambiguous`);
-  return first;
+  return position;
 }
