@@ -15,7 +15,8 @@ import { sameExpression } from "./same-expression.js";
 // Conditions an access path can seek with: a conjunct that compares one
 // operand, its subject, with seek values — constants other than NULL, and
 // parameters (docs/planning.md, rule 5: a parameter bounds a range, it never
-// picks the index; nothing here depends on a value).
+// picks the index; nothing here looks at a parameter's value, or at whether
+// a value is a parameter, except to keep its condition in the residual).
 //
 //   subject = v                        equal
 //   subject IN (v, …)                  in
