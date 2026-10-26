@@ -6,6 +6,7 @@ import {
   bytesToHex,
   castValue,
   hexToBytes,
+  isStoredAs,
   normalizeNumber,
   normalizeValue,
   numberFromText,
@@ -141,6 +142,22 @@ describe("hex", () => {
   it("round-trips bytes", () => {
     expect(hexToBytes(bytesToHex(blob))).toEqual(blob);
     expect(() => hexToBytes("abc")).toThrow(DatatypeMismatchError);
+  });
+});
+
+describe("isStoredAs", () => {
+  it.each([
+    ["INTEGER", 42, true],
+    ["INTEGER", "42", false],
+    ["TEXT", "42", true],
+    ["REAL", 1.5, true],
+    ["BOOLEAN", 1, false],
+    ["JSON", "abc", true],
+    ["JSON", { a: 1 }, true],
+    ["JSON", Uint8Array.from([1]), false],
+    ["BLOB", null, true],
+  ] as const)("a %s column stores %j as it is: %s", (type, value, expected) => {
+    expect(isStoredAs(value, type)).toBe(expected);
   });
 });
 

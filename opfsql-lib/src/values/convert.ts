@@ -1,5 +1,5 @@
 import { DatatypeMismatchError } from "../errors.js";
-import { canonicalJson } from "./order.js";
+import { areEqual, canonicalJson } from "./order.js";
 import type { SqlType } from "./types.js";
 import type { JsonValue, Value } from "./value.js";
 
@@ -36,6 +36,21 @@ export function assignValue(value: Value, type: SqlType): Value {
   throw new DatatypeMismatchError(
     `cannot store ${describeValue(normalized)} as ${type}`,
   );
+}
+
+/**
+ * True if a column of `type` stores `value` as it is: what assignment would
+ * keep unchanged. A JSON column stores any value but a BLOB as it is — text
+ * already stored is a JSON string, not JSON text to parse again.
+ */
+export function isStoredAs(value: Value, type: SqlType): boolean {
+  if (value === null) return true;
+  if (type === "JSON") return !(value instanceof Uint8Array);
+  try {
+    return areEqual(assignValue(value, type), value);
+  } catch {
+    return false;
+  }
 }
 
 /** CAST(value AS type), or throws. */
