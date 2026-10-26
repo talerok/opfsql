@@ -5,6 +5,8 @@ import {
   column,
   compare,
   constant,
+  cte,
+  cteScan,
   distinct,
   exists,
   filter,
@@ -22,6 +24,7 @@ import {
   users,
   values,
 } from "./builders.js";
+import { expectSameRows } from "./same-rows.js";
 
 const u = { tableIndex: 1, table: users, alias: "u" };
 const o = { tableIndex: 2, table: orders, alias: "o" };
@@ -197,22 +200,73 @@ describe("into set operations", () => {
       setOperation("INTERSECT", 8, left, right),
       compare(result, ">", constant(1)),
     );
-    expect(planOf(plan)).toMatch(
-      /^filter x > 1\n {2}set-operation#8 INTERSECT/u,
+    expect(planOf(plan)).toBe(
+      lines(
+        "filter x > 1",
+        "  set-operation#8 INTERSECT",
+        "    values#6 (1), (2)",
+        "    project#7 u.age",
+        "      table-scan users#1",
+      ),
     );
   });
 
-  it("stays above a union whose sides have other types than its result", () => {
-    const text = values(6, [constant("a")]);
-    const union = {
-      ...setOperation("UNION", 8, text, right),
-      types: ["ANY" as const],
-    };
+  it("goes into both sides of a UNION, whose duplicates pass or fail together", () => {
     const plan = filter(
-      union,
-      compare({ ...result, type: "ANY" }, "=", constant(1)),
+      setOperation("UNION", 8, left, right),
+      compare(result, "<", constant(2)),
     );
-    expect(planOf(plan)).toMatch(/^filter x = 1\n/u);
+    expect(planOf(plan)).toBe(
+      lines(
+        "set-operation#8 UNION",
+        "  filter x < 2",
+        "    values#6 (1), (2)",
+        "  project#7 u.age",
+        "    index-scan users#1 using users_age (age < 2) residual: u.age < 2",
+      ),
+    );
+    expectSameRows(plan);
+  });
+
+  it("stays above a union whose sides have other types than its result", () => {
+    // TEXT on one side and INTEGER on the other: the result is ANY.
+    const union = setOperation("UNION", 8, values(6, [constant("a")]), right);
+    const mixed = output(8, 0, "ANY", "x");
+    const plan = filter(union, compare(mixed, "=", constant(1)));
+    expect(planOf(plan)).toBe(
+      lines(
+        "filter x = 1",
+        "  set-operation#8 UNION",
+        "    values#6 ('a')",
+        "    project#7 u.age",
+        "      table-scan users#1",
+      ),
+    );
+  });
+});
+
+describe("into CTEs", () => {
+  it("goes into a CTE's body, and its definition gets its own", () => {
+    const definition = project(
+      7,
+      filter(get(u), compare(age, ">", constant(1))),
+      age,
+    );
+    const read = cteScan(1, 9, definition);
+    const plan = filter(
+      cte(1, "adults", definition, read),
+      compare(output(9, 0, "INTEGER", "a.age"), "<", constant(65)),
+    );
+    expect(planOf(plan)).toBe(
+      lines(
+        "cte#1 adults",
+        "  project#7 u.age",
+        "    index-scan users#1 using users_age (age > 1)",
+        "  filter a.age < 65",
+        "    cte-scan#9 of cte#1",
+      ),
+    );
+    expectSameRows(plan);
   });
 });
 
@@ -245,8 +299,15 @@ describe("conditions that stay", () => {
       join("inner", get(u), get(o), userOf),
       exists(inner, true),
     );
-    expect(planOf(plan)).toMatch(
-      /^filter EXISTS \(correlated subquery 1\)\n {2}hash-join/u,
+    expect(planOf(plan)).toBe(
+      lines(
+        "filter EXISTS (correlated subquery 1)",
+        "  hash-join inner on u.id = o.user_id",
+        "    table-scan users#1",
+        "    table-scan orders#2",
+        "subquery 1:",
+        "  index-scan orders#9 using orders_user (user_id = u.id)",
+      ),
     );
   });
 

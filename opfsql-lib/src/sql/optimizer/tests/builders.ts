@@ -53,7 +53,7 @@ export const users: Table = {
   isAutoincrement: false,
 };
 
-/** orders(id INTEGER PRIMARY KEY, user_id INTEGER, total REAL, status TEXT) */
+/** orders(id INTEGER PRIMARY KEY, user_id INTEGER, total REAL, status TEXT, paid BOOLEAN) */
 export const orders: Table = {
   name: "orders",
   columns: [
@@ -61,6 +61,7 @@ export const orders: Table = {
     columnOf("user_id", "INTEGER"),
     columnOf("total", "REAL"),
     columnOf("status", "TEXT"),
+    columnOf("paid", "BOOLEAN"),
   ],
   rootPage: 10,
   rowidColumn: 0,
@@ -396,8 +397,39 @@ export function setOperation(
   left: Plan,
   right: Plan,
 ): logical.SetOperation {
-  const types = logical.typesOf(left);
+  const rightTypes = logical.typesOf(right);
+  const types = logical
+    .typesOf(left)
+    .map((type, position) => commonType(type, rightTypes[position] ?? "ANY"));
   return { kind: "set-operation", operator, tableIndex, left, right, types };
+}
+
+/** The type two sides' values share, as the binder finds it (docs/semantics.md). */
+function commonType(left: StaticType, right: StaticType): StaticType {
+  if (left === right) return left;
+  const isNumeric = (type: StaticType): boolean =>
+    type === "INTEGER" || type === "REAL";
+  return isNumeric(left) && isNumeric(right) ? "REAL" : "ANY";
+}
+
+/** `WITH name AS (definition) body`, the CTE numbered `cteIndex`. */
+export function cte(
+  cteIndex: number,
+  name: string,
+  definition: Plan,
+  body: Plan,
+): logical.Cte {
+  return { kind: "cte", cteIndex, name, definition, body };
+}
+
+/** A read of CTE `cteIndex`, of `definition`'s types, as relation `tableIndex`. */
+export function cteScan(
+  cteIndex: number,
+  tableIndex: number,
+  definition: Plan,
+): logical.CteScan {
+  const types = logical.typesOf(definition);
+  return { kind: "cte-scan", cteIndex, tableIndex, types };
 }
 
 export function values(tableIndex: number, ...rows: Node[][]): logical.Values {

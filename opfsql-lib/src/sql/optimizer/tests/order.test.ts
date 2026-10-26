@@ -73,6 +73,18 @@ describe("sorts an index delivers", () => {
     );
   });
 
+  it("reads a range backward for a descending order", () => {
+    const later = filter(get(u), compare(email, ">", constant("e2")));
+    const plan = limit(order(later, desc(email)), constant(3));
+    expect(planOf(plan)).toBe(
+      lines(
+        "limit 3",
+        "  index-scan users#1 using users_email (email > 'e2') descending",
+      ),
+    );
+    expectSameSequence(plan);
+  });
+
   it("ignores NULL placement on a column that holds no NULL", () => {
     const plan = limit(order(get(u), asc(email, "last")), constant(5));
     expect(planOf(plan)).toBe(
@@ -143,7 +155,12 @@ describe("sorts an index delivers", () => {
       asc(name),
       desc(age),
     );
-    expect(planOf(plan)).toMatch(/^sort name ASC, age DESC\n/u);
+    expect(planOf(plan)).toBe(
+      lines(
+        "sort name ASC, age DESC",
+        "  index-scan users#1 using users_name_age (name = 'bob')",
+      ),
+    );
   });
 });
 

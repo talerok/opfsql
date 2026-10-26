@@ -51,6 +51,14 @@ function optimized(
   return optimize(statement, schema, bindKey);
 }
 
+/** The physical plan of a query statement, printed. */
+function printedPlan(statement: Statement<physical.Plan>): string {
+  if (statement.kind !== "query") {
+    throw new InternalError(`${statement.kind} is not a query`);
+  }
+  return formatPhysicalPlan(statement.plan);
+}
+
 /** The physical plan of a DML statement's source. */
 function sourceOf(statement: Statement<physical.Plan>): string {
   if (!("source" in statement)) {
@@ -185,10 +193,10 @@ describe("DML", () => {
       throw new InternalError("an insert that updates on conflict");
     }
     const [assignment] = statement.onConflict.action.assignments;
-    expect(
-      assignment?.value.kind === "scalar-subquery" &&
-        formatPhysicalPlan(assignment.value.plan),
-    ).toBe(
+    if (assignment?.value.kind !== "scalar-subquery") {
+      throw new InternalError("an assignment of a scalar subquery");
+    }
+    expect(formatPhysicalPlan(assignment.value.plan)).toBe(
       lines("hash-aggregate#6#7 compute max(o.id)", "  table-scan orders#2"),
     );
   });
@@ -264,8 +272,23 @@ describe("subqueries", () => {
       ),
       asc(scalarSubquery(one)),
     );
-    const printed = planOf(plan);
-    expect(printed.match(/^subquery \d+:$/gmu)).toHaveLength(4);
+    expect(planOf(plan)).toBe(
+      lines(
+        "sort (subquery 1) ASC",
+        "  nested-loop-join inner",
+        "    project#5 (subquery 2)",
+        "      table-scan users#1 residual: EXISTS (subquery 3)",
+        "    values#6 ((subquery 4))",
+        "subquery 1:",
+        "  values#7 (1)",
+        "subquery 2:",
+        "  values#7 (1)",
+        "subquery 3:",
+        "  values#7 (1)",
+        "subquery 4:",
+        "  values#7 (1)",
+      ),
+    );
   });
 });
 
@@ -298,8 +321,7 @@ describe("purity", () => {
     const statement = query(
       filter(get(u), compare(lowered, "=", constant("bob"))),
     );
-    const plan = optimize(statement, schema);
-    expect(plan.kind === "query" && formatPhysicalPlan(plan.plan)).toBe(
+    expect(printedPlan(optimize(statement, schema))).toBe(
       "table-scan users#1 residual: lower(u.name) = 'bob'",
     );
   });
@@ -342,8 +364,12 @@ describe("the rules every optimization keeps", () => {
       compare(column(o, "total"), ">", age),
       compare(age, ">", constant(1)),
     );
-    expect(planOf(plan)).toMatch(
-      /^hash-join left on u\.id = o\.user_id residual: o\.total > u\.age AND u\.age > 1\n/u,
+    expect(planOf(plan)).toBe(
+      lines(
+        "hash-join left on u.id = o.user_id residual: o.total > u.age AND u.age > 1",
+        "  table-scan users#1",
+        "  table-scan orders#2",
+      ),
     );
   });
 

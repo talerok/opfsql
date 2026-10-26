@@ -65,12 +65,14 @@ const TAGS: readonly Value[] = [
   -1,
   "X",
   1,
+  "1",
 ];
 const USER_IDS: readonly Value[] = [null, 1, 2, 3, 5, 8, 13, 40, 99];
 const TOTALS: readonly Value[] = [null, 0, 1.5, 5, 10, -2];
 const STATUSES: readonly Value[] = ["paid", "open", null, "5"];
+const PAID: readonly Value[] = [true, false, null];
 
-/** users(id, name, age, email, tag) and orders(id, user_id, total, status). */
+/** users(id, name, age, email, tag) and orders(id, user_id, total, status, paid). */
 export function sampleTables(random: Random): Tables {
   const users: StoredRow[] = [];
   for (let id = 1; id <= 40; id += 1) {
@@ -91,6 +93,7 @@ export function sampleTables(random: Random): Tables {
       random.pick(USER_IDS),
       random.pick(TOTALS),
       random.pick(STATUSES),
+      random.pick(PAID),
     ];
     orders.push({ rowid: id, values });
   }

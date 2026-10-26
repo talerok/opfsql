@@ -68,7 +68,12 @@ describe("MIN and MAX from an index's end", () => {
         compare(column(u, "tag"), "=", parameter(0)),
       ),
     );
-    expect(planOf(plan)).toMatch(/^hash-aggregate#3#4 compute max\(age\)\n/u);
+    expect(planOf(plan)).toBe(
+      lines(
+        "hash-aggregate#3#4 compute max(age)",
+        "  index-scan users#1 using users_name_age (name = 'bob') residual: tag = $1",
+      ),
+    );
   });
 
   it("is not chosen with GROUP BY, another aggregate, or no index", () => {
@@ -92,9 +97,21 @@ describe("MIN and MAX from an index's end", () => {
       [],
       aggregateCall("max", column(o, "total")),
     );
-    for (const plan of [grouped, two, unindexed]) {
-      expect(planOf(plan)).toMatch(/^hash-aggregate/u);
-    }
+    expect(planOf(grouped)).toBe(
+      lines(
+        "hash-aggregate#3#4 group by name compute max(age)",
+        "  table-scan users#1",
+      ),
+    );
+    expect(planOf(two)).toBe(
+      lines(
+        "hash-aggregate#3#4 compute max(age), count(*)",
+        "  table-scan users#1",
+      ),
+    );
+    expect(planOf(unindexed)).toBe(
+      lines("hash-aggregate#3#4 compute max(total)", "  table-scan orders#2"),
+    );
   });
 
   it("is not chosen for a JSON or ANY part, whose decoded key may lose an object's key order", () => {
@@ -115,6 +132,8 @@ describe("MIN and MAX from an index's end", () => {
   });
 
   it("is not chosen for COUNT", () => {
-    expect(planOf(single("count", get(u)))).toMatch(/^hash-aggregate/u);
+    expect(planOf(single("count", get(u)))).toBe(
+      lines("hash-aggregate#3#4 compute count(age)", "  table-scan users#1"),
+    );
   });
 });

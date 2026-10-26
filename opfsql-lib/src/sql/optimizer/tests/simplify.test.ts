@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { logical, physical } from "../../plan/index.js";
 import { simplifyExpression } from "../simplify.js";
 import {
   aggregate,
@@ -16,16 +17,20 @@ import {
   not,
   NULL,
   nullCheck,
+  optimizedPlan,
   or,
   orders,
+  output,
   parameter,
   planOf,
   plus,
+  project,
   random,
   times,
   TRUE,
   users,
 } from "./builders.js";
+import { expectSameRows } from "./same-rows.js";
 
 const u = { tableIndex: 1, table: users };
 const o = { tableIndex: 2, table: orders, alias: "o" };
@@ -159,10 +164,92 @@ describe("conditions no row passes", () => {
   });
 
   it("is not fooled by a column compared with FALSE", () => {
-    const flag = { ...column(u, "name"), type: "BOOLEAN" as const };
-    const plan = filter(get(u), compare(flag, "=", FALSE), nullCheck(age));
-    expect(planOf(plan)).toBe(
-      "table-scan users#1 residual: name = FALSE AND age IS NULL",
+    const paid = column(o, "paid");
+    const plan = filter(
+      get(o),
+      compare(paid, "=", FALSE),
+      nullCheck(column(o, "total")),
     );
+    expect(planOf(plan)).toBe(
+      "table-scan orders#2 residual: o.paid = FALSE AND o.total IS NULL",
+    );
+    expectSameRows(plan);
+  });
+});
+
+/** The physical layout is the logical one, so the nodes above find their columns. */
+function expectLayoutKept(plan: logical.Plan): void {
+  expect(physical.layoutOf(optimizedPlan(plan))).toEqual(
+    logical.layoutOf(plan),
+  );
+  expectSameRows(plan);
+}
+
+describe("plans that read nothing keep their layout", () => {
+  const p = { tableIndex: 3, table: users, alias: "p" };
+  const userOf = compare(column(o, "user_id"), "=", column(u, "id"));
+
+  it("under a join, a join that reads nothing", () => {
+    const nothing = filter(join("inner", get(u), get(o), userOf), FALSE);
+    const plan = join(
+      "left",
+      nothing,
+      get(p),
+      compare(column(p, "id"), "=", column(o, "user_id")),
+    );
+    expect(planOf(plan)).toBe(
+      lines(
+        "hash-join left on o.user_id = p.id",
+        "  nested-loop-join inner",
+        "    rowid-lookup users#1 (rowid IN ())",
+        "    rowid-lookup orders#2 (rowid IN ())",
+        "  table-scan users#3",
+      ),
+    );
+    expectLayoutKept(plan);
+  });
+
+  it("under a join, an aggregate of groups and aggregates that reads nothing", () => {
+    const counted = aggregate(
+      { groupIndex: 4, aggregateIndex: 5 },
+      get(o),
+      [column(o, "user_id")],
+      aggregateCall("count"),
+    );
+    const group = output(4, 0, "INTEGER", "user_id");
+    const plan = join(
+      "inner",
+      get(u),
+      filter(counted, NULL),
+      compare(group, "=", column(u, "id")),
+    );
+    expect(planOf(plan)).toBe(
+      lines(
+        "hash-join inner on id = user_id",
+        "  table-scan users#1",
+        "  nested-loop-join inner",
+        "    values#4 no rows",
+        "    values#5 no rows",
+      ),
+    );
+    expectLayoutKept(plan);
+  });
+
+  it("under a join, a project that reads nothing", () => {
+    const projected = filter(project(6, get(o), column(o, "user_id")), FALSE);
+    const plan = join(
+      "left",
+      get(u),
+      projected,
+      compare(output(6, 0, "INTEGER", "x"), "=", column(u, "id")),
+    );
+    expect(planOf(plan)).toBe(
+      lines(
+        "hash-join left on id = x",
+        "  table-scan users#1",
+        "  values#6 no rows",
+      ),
+    );
+    expectLayoutKept(plan);
   });
 });

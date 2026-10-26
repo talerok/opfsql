@@ -39,8 +39,12 @@ describe("join planning", () => {
       compare(id, "=", userId),
       compare(column(u, "age"), "=", column(o, "id")),
     );
-    expect(planOf(plan)).toMatch(
-      /^hash-join inner on u\.id = o\.user_id, u\.age = o\.id\n/u,
+    expect(planOf(plan)).toBe(
+      lines(
+        "hash-join inner on u.id = o.user_id, u.age = o.id",
+        "  table-scan users#1",
+        "  table-scan orders#2",
+      ),
     );
   });
 
@@ -52,8 +56,12 @@ describe("join planning", () => {
       compare(id, "=", userId),
       compare(column(o, "total"), ">", column(u, "age")),
     );
-    expect(planOf(plan)).toMatch(
-      /^hash-join inner on u\.id = o\.user_id residual: o\.total > u\.age\n/u,
+    expect(planOf(plan)).toBe(
+      lines(
+        "hash-join inner on u.id = o.user_id residual: o.total > u.age",
+        "  table-scan users#1",
+        "  table-scan orders#2",
+      ),
     );
   });
 
@@ -92,8 +100,12 @@ describe("join planning", () => {
       get(o),
       compare(plus(id, userId), "=", constant(3)),
     );
-    expect(planOf(plan)).toMatch(
-      /^nested-loop-join inner on u\.id \+ o\.user_id = 3\n/u,
+    expect(planOf(plan)).toBe(
+      lines(
+        "nested-loop-join inner on u.id + o.user_id = 3",
+        "  table-scan users#1",
+        "  table-scan orders#2",
+      ),
     );
   });
 
@@ -104,8 +116,12 @@ describe("join planning", () => {
       get(o),
       compare(plus(id, random()), "=", userId),
     );
-    expect(planOf(plan)).toMatch(
-      /^nested-loop-join inner on u\.id \+ random\(\) = o\.user_id\n/u,
+    expect(planOf(plan)).toBe(
+      lines(
+        "nested-loop-join inner on u.id + random() = o.user_id",
+        "  table-scan users#1",
+        "  table-scan orders#2",
+      ),
     );
   });
 
