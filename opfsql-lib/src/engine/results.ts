@@ -29,9 +29,9 @@ export function changesResult(
 
 /** `row`, with copies of its BLOBs; the row itself when it has none. */
 function ownRow(row: Tuple): ResultRow {
-  return row.some((value) => isBlob(value))
-    ? row.map((value) => copyBlob(value))
-    : row;
+  const hasBlob = row.some((value) => isBlob(value));
+  if (!hasBlob) return row;
+  return row.map((value) => copyBlob(value));
 }
 
 function copyBlob(value: Value): Value {
