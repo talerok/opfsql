@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import type { Tuple } from "../../../expressions/index.js";
 import { rowKey, type Value } from "../../../values/index.js";
-import { formatPhysicalPlan, type logical } from "../../plan/index.js";
+import {
+  formatPhysicalPlan,
+  type logical,
+  type physical,
+} from "../../plan/index.js";
 import {
   aggregate,
   aggregateCall,
@@ -38,31 +42,68 @@ import {
   userSubjects,
   usersRead,
 } from "./random-plans.js";
-import { bothRuns, bothSequences, runPlan } from "./reference.js";
+import { SampleDatabase } from "./executed.js";
+import { multiset, runPlan } from "./reference.js";
 
-// Random plans, each optimized and lowered naively (naive.ts), run by the
-// reference interpreter over random tables with an ANY column: the same
-// rows, whatever the optimizer chose. Seeded, so a failure repeats; the
-// message carries the plan the optimizer made.
+// Random plans over sample tables with an ANY column, each run three ways:
+// lowered naively (naive.ts) and interpreted, optimized and interpreted
+// (reference.ts), and optimized and run by the real executor over the same
+// rows in a database (executed.ts). All three give the same rows, whatever
+// the optimizer chose. Seeded, so a failure repeats; the message carries the
+// plan the optimizer made.
 
 const SEED = 20_261_026;
 const CASES = 60;
 
+const SAMPLES = [1, 2, 3].map((seed) => sampleTables(new Random(seed)));
+let databases: readonly SampleDatabase[] = [];
+
+beforeAll(async () => {
+  databases = await Promise.all(
+    SAMPLES.map(async (rows) => SampleDatabase.open(rows)),
+  );
+});
+
 type Shape = (random: Random) => logical.Plan;
 
-/** For CASES plans of `shape`, the optimized and the naive one give the same rows. */
+/** The rows of a plan run the three ways, over one sample. */
+interface Runs {
+  readonly naive: readonly Tuple[];
+  readonly interpreted: readonly Tuple[];
+  readonly executed: readonly Tuple[];
+}
+
+function runThreeWays(
+  plan: logical.Plan,
+  optimized: physical.Plan,
+  random: Random,
+): Runs {
+  const sample = random.below(SAMPLES.length);
+  const tables = SAMPLES[sample]!;
+  const parameters = parametersFor(random);
+  return {
+    naive: runPlan(naivePlan(plan), tables, parameters, bindKey),
+    interpreted: runPlan(optimized, tables, parameters, bindKey),
+    executed: databases[sample]!.query(optimized, parameters),
+  };
+}
+
+/** For CASES plans of `shape`, the three runs give the same rows. */
 function expectSameRowsFor(shape: Shape): void {
   const random = new Random(SEED);
   for (let count = 0; count < CASES; count += 1) {
     const plan = shape(random);
     const optimized = optimizedPlan(plan);
-    const data = {
-      tables: sampleTables(random),
-      parameters: parametersFor(random),
-    };
-    const { expected, actual } = bothRuns(plan, optimized, data, bindKey);
-    expect(actual, formatPhysicalPlan(optimized)).toEqual(expected);
+    const runs = runThreeWays(plan, optimized, random);
+    const printed = formatPhysicalPlan(optimized);
+    expect(multiset(runs.interpreted), printed).toEqual(multiset(runs.naive));
+    expect(multiset(runs.executed), printed).toEqual(multiset(runs.naive));
   }
+}
+
+/** Rows as a list of keys, in order. */
+function sequence(rows: readonly Tuple[]): string[] {
+  return rows.map((row) => rowKey(row));
 }
 
 describe("optimized plans give the naive plans' rows", () => {
@@ -260,6 +301,13 @@ function keysOf(rows: readonly Tuple[], keys: readonly Key[]): string[] {
   );
 }
 
+/** An ORDER BY of `key`, in a random direction and NULL placement. */
+function orderKeyOf(random: Random, key: Key): logical.OrderKey {
+  const nulls = random.pick(["first", "last"] as const);
+  const subject = column(u, key);
+  return random.chance(0.5) ? asc(subject, nulls) : desc(subject, nulls);
+}
+
 describe("optimized orders give the naive orders' keys", () => {
   it("for ORDER BY a unique key over a select list, under LIMIT and OFFSET", () => {
     const random = new Random(SEED);
@@ -272,9 +320,8 @@ describe("optimized orders give the naive orders' keys", () => {
         orderCount(),
         column(u, "email"),
       );
-      const byEmail = random.chance(0.5)
-        ? asc(output(5, 2, "TEXT", "email"))
-        : desc(output(5, 2, "TEXT", "email"));
+      const email = output(5, 2, "TEXT", "email");
+      const byEmail = random.chance(0.5) ? asc(email) : desc(email);
       const offset = constant(random.below(10));
       const plan = limit(
         order(shown, byEmail),
@@ -282,17 +329,11 @@ describe("optimized orders give the naive orders' keys", () => {
         offset,
       );
       const optimized = optimizedPlan(plan);
-      const data = {
-        tables: sampleTables(random),
-        parameters: parametersFor(random),
-      };
-      const { expected, actual } = bothSequences(
-        plan,
-        optimized,
-        data,
-        bindKey,
-      );
-      expect(actual, formatPhysicalPlan(optimized)).toEqual(expected);
+      const runs = runThreeWays(plan, optimized, random);
+      const printed = formatPhysicalPlan(optimized);
+      const expected = sequence(runs.naive);
+      expect(sequence(runs.interpreted), printed).toEqual(expected);
+      expect(sequence(runs.executed), printed).toEqual(expected);
     }
   });
 
@@ -302,27 +343,20 @@ describe("optimized orders give the naive orders' keys", () => {
       const keys = Array.from({ length: 1 + random.below(2) }, () =>
         random.pick(KEYS),
       );
-      const orderKeys = keys.map((key) => {
-        const nulls = random.pick(["first", "last"] as const);
-        return random.chance(0.5)
-          ? asc(column(u, key), nulls)
-          : desc(column(u, key), nulls);
-      });
-      const read = random.chance(0.3)
-        ? usersRead()
-        : filter(usersRead(), condition(random, userSubjects()));
-      const ordered = order(read, ...orderKeys);
-      const plan = random.chance(0.6)
-        ? limit(ordered, constant(random.pick([0, 1, 3, 10])))
-        : ordered;
+      const orderKeys = keys.map((key) => orderKeyOf(random, key));
+      const read = usersRead();
+      const filtered = random.chance(0.3)
+        ? read
+        : filter(read, condition(random, userSubjects()));
+      const ordered = order(filtered, ...orderKeys);
+      const rows = constant(random.pick([0, 1, 3, 10]));
+      const plan = random.chance(0.6) ? limit(ordered, rows) : ordered;
       const optimized = optimizedPlan(plan);
-      const tables = sampleTables(random);
-      const parameters = parametersFor(random);
-      const expected = runPlan(naivePlan(plan), tables, parameters, bindKey);
-      const actual = runPlan(optimized, tables, parameters, bindKey);
-      expect(keysOf(actual, keys), formatPhysicalPlan(optimized)).toEqual(
-        keysOf(expected, keys),
-      );
+      const runs = runThreeWays(plan, optimized, random);
+      const printed = formatPhysicalPlan(optimized);
+      const expected = keysOf(runs.naive, keys);
+      expect(keysOf(runs.interpreted, keys), printed).toEqual(expected);
+      expect(keysOf(runs.executed, keys), printed).toEqual(expected);
     }
   });
 });
