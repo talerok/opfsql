@@ -11,6 +11,7 @@ npm run bench:browser -- --browser chromium     # a browser worker: real OPFS
 npm run bench -- --filter join                  # only scenarios whose name has "join"
 npm run bench -- --repeats 15 --warmup 5 --json results.json
 npm run bench -- --compare bench/baselines/format4-node.json
+npm run bench:profile -- --scenario "full scan" # where one scenario's CPU time goes
 ```
 
 Each scenario reports the median of `--repeats` timed runs after `--warmup`
@@ -25,6 +26,9 @@ sourcemap for profiles — into `bench/dist`, and runs the bundle with
 `node --expose-gc`. Running the sources through vite-node instead would
 measure code no user runs: its transform turns every imported function into
 a getter call on a module object, which keeps V8 from inlining hot helpers.
+`npm run bench:profile` profiles the same build: `profile.ts` is the
+bundle's second entry, and it reads each minified frame back through the
+sourcemap to its function's own name and source file.
 
 Files live in memory (opfs-mock), so the Node bench measures the CPU path:
 planning, executing, encoding and B-tree work, not disk I/O.
