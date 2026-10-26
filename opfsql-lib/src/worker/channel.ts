@@ -180,6 +180,9 @@ export class Channel {
     try {
       this.worker.postMessage({ ...request, id });
     } catch (error) {
+      // The request holds a value structured clone refuses — a function, a
+      // class instance — passed as a parameter: the caller's mistake, MISUSE,
+      // as the worker would call a parameter that is not a value.
       const reason = error instanceof Error ? error.message : String(error);
       this.settle(id, (pending) => {
         pending.reject(

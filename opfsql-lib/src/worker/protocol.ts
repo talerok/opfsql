@@ -133,23 +133,27 @@ export interface EventMessage {
 /** Host → client. */
 export type HostMessage = ReplyMessage | EventMessage;
 
-const REQUEST_TYPES = new Set<string>([
-  "hello",
-  "open",
-  "connect",
-  "disconnect",
-  "query",
-  "execute",
-  "prepare",
-  "run",
-  "finalize",
-  "begin",
-  "commit",
-  "rollback",
-  "schema",
-  "close",
-  "cancel",
-]);
+/**
+ * Every type a client message may have. Keyed by the union's own types, so
+ * a request type added to it and left out here does not compile.
+ */
+const CLIENT_MESSAGE_TYPES = {
+  hello: true,
+  open: true,
+  connect: true,
+  disconnect: true,
+  query: true,
+  execute: true,
+  prepare: true,
+  run: true,
+  finalize: true,
+  begin: true,
+  commit: true,
+  rollback: true,
+  schema: true,
+  close: true,
+  cancel: true,
+} as const satisfies Record<ClientMessage["type"], true>;
 
 /** A message has at least the shape the host dispatches on. */
 export function isClientMessage(data: unknown): data is ClientMessage {
@@ -157,7 +161,7 @@ export function isClientMessage(data: unknown): data is ClientMessage {
   const { type, id } = data as { type?: unknown; id?: unknown };
   return (
     typeof type === "string" &&
-    REQUEST_TYPES.has(type) &&
+    Object.hasOwn(CLIENT_MESSAGE_TYPES, type) &&
     typeof id === "number"
   );
 }

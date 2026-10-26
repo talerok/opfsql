@@ -47,7 +47,7 @@ export function startHost(scope: HostScope, open: EngineOpener): void {
   });
 }
 
-interface Connection {
+interface HostConnection {
   readonly session: SessionContract;
   readonly statements: Map<number, StatementContract>;
   /** Opened for a statement prepared on the database: it goes with it. */
@@ -84,7 +84,7 @@ class Host {
 
   private engine: EngineContract | null = null;
 
-  private readonly connections = new Map<number, Connection>();
+  private readonly connections = new Map<number, HostConnection>();
 
   private readonly pool: SessionContract[] = [];
 
@@ -137,7 +137,7 @@ class Host {
   }
 
   /** The connection whose order `message` runs in, if it has one. */
-  private orderedOn(message: RequestMessage): Connection | null {
+  private orderedOn(message: RequestMessage): HostConnection | null {
     const id = connectionOf(message);
     if (id === undefined || !ORDERED.has(message.type)) return null;
     return this.connections.get(id) ?? null;
@@ -153,7 +153,7 @@ class Host {
     try {
       reply = await answer;
     } catch (error) {
-      reply = { id, ok: false, error: toWireError(toOpfsqlError(error)) };
+      reply = failureReply(id, error);
     } finally {
       dispose();
       this.running.delete(id);
@@ -169,11 +169,7 @@ class Host {
       const value = await this.handle(message, signal);
       return { id: message.id, ok: true, value };
     } catch (error) {
-      return {
-        id: message.id,
-        ok: false,
-        error: toWireError(toOpfsqlError(error)),
-      };
+      return failureReply(message.id, error);
     }
   }
 
@@ -301,8 +297,8 @@ class Host {
     message: RequestOf<"prepare">,
     signal: AbortSignal,
   ): Promise<Replies["prepare"]> {
-    const isOwned = message.connection === undefined;
-    const connection = message.connection ?? this.connect(SHARED, true);
+    const isStatementOwned = message.connection === undefined;
+    const connection = message.connection ?? this.connect(SHARED, "statement");
     const { session, statements } = this.connectionAt(connection);
     try {
       const statement = await session.prepare(message.sql, { signal });
@@ -310,7 +306,7 @@ class Host {
       statements.set(id, statement);
       return { statement: id, columns: statement.columns, connection };
     } catch (error) {
-      if (isOwned) await this.disconnect(connection);
+      if (isStatementOwned) await this.disconnect(connection);
       throw error;
     }
   }
@@ -404,13 +400,17 @@ class Host {
     return this.engine.connect(options);
   }
 
-  private connect(options: SessionOptions, isStatementOwned = false): number {
+  /** A connection for the client, or for a statement it closes with. */
+  private connect(
+    options: SessionOptions,
+    owner: "client" | "statement" = "client",
+  ): number {
     const session = this.openSession(options);
     const id = this.nextId++;
     this.connections.set(id, {
       session,
       statements: new Map<number, StatementContract>(),
-      isStatementOwned,
+      isStatementOwned: owner === "statement",
       calls: new TaskQueue(),
       lifetime: new AbortController(),
     });
@@ -426,7 +426,7 @@ class Host {
     return null;
   }
 
-  private connectionAt(id: number): Connection {
+  private connectionAt(id: number): HostConnection {
     const connection = this.connections.get(id);
     if (connection === undefined) {
       throw new MisuseError("the connection is closed");
@@ -467,4 +467,9 @@ async function closeQuietly(session: SessionContract): Promise<void> {
   } catch {
     // a pooled session that fails to close holds nothing anyone waits for
   }
+}
+
+/** The reply to request `id` that failed with `error`, as the client reads it. */
+function failureReply(id: number, error: unknown): ReplyMessage {
+  return { id, ok: false, error: toWireError(toOpfsqlError(error)) };
 }

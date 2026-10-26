@@ -40,7 +40,7 @@ export class TaskQueue {
     }
   }
 
-  /** Settles once every task queued so far has finished or been cancelled. */
+  /** Settles once the queue is empty: tasks queued after the call included. */
   async idle(): Promise<void> {
     if (!this.isBusy) return;
     const emptied = Promise.withResolvers<undefined>();

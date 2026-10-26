@@ -113,15 +113,15 @@ ruled out (docs/api.md, Results).
 
 ## Errors
 
-| Layer          | Raises                                                                                                           |
-| -------------- | ---------------------------------------------------------------------------------------------------------------- |
-| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE                                  |
-| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                                         |
-| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT                    |
-| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows, a malformed JSON path), MISUSE           |
-| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE; IO_ERROR when a lock request fails                                 |
-| worker         | WORKER_ERROR (a worker that crashed or did not start, a message that could not be read or sent), MISUSE, ABORTED |
-| any            | INTERNAL: a broken contract                                                                                      |
+| Layer          | Raises                                                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE                                                                                                            |
+| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                                                                                                                   |
+| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT                                                                                              |
+| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows, a malformed JSON path), MISUSE                                                                                     |
+| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE; IO_ERROR when a lock request fails                                                                                                           |
+| worker         | WORKER_ERROR (a worker that crashed or did not start, a message from it that could not be read, a reply it could not send), MISUSE (a call with a value structured clone refuses), ABORTED |
+| any            | INTERNAL: a broken contract                                                                                                                                                                |
 
 Errors from the platform — a DOMException from a file or a lock — become
 opfsql errors in `errors.ts`: `toOpfsqlError` at the boundaries of the

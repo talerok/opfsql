@@ -1,7 +1,9 @@
 // ---------------------------------------------------------------------------
 // Every error opfsql throws is an OpfsqlError with a stable code. Callers
 // branch on `code`, which survives the worker boundary; the message is for
-// people and may change. Subclasses add typed details.
+// people and may change. Subclasses add typed details. Each sets `name` to
+// its class's name: an error that crosses the worker boundary finds its
+// class again by it (worker/wire-error.ts).
 // ---------------------------------------------------------------------------
 
 export type ErrorCode =
@@ -41,8 +43,8 @@ export type ErrorCode =
   | "UNSUPPORTED_FORMAT"
   // The environment
   /**
-   * The worker serving the database failed: it crashed or did not start, or
-   * a message between it and the page could not be read or sent.
+   * The worker serving the database failed: it crashed or did not start, a
+   * message it sent could not be read, or it could not send its reply.
    */
   | "WORKER_ERROR"
   // The API
@@ -249,8 +251,9 @@ export class UnsupportedFormatError extends OpfsqlError {
 }
 
 /**
- * The worker serving the database failed: it crashed or did not start, or a
- * message between it and the page could not be read or sent.
+ * The worker serving the database failed: it crashed or did not start, a
+ * message it sent could not be read, or it could not send its reply. A call
+ * the page cannot send holds a value structured clone refuses: MISUSE.
  */
 export class WorkerError extends OpfsqlError {
   override readonly name = "WorkerError";
