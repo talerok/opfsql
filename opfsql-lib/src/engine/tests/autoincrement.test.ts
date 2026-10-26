@@ -66,27 +66,20 @@ describe("AUTOINCREMENT", () => {
   });
 
   it("reads a source that reads opfsql_sequence whole before it inserts", async () => {
-    // More counters than a batch has rows, one AUTOINCREMENT table each, and
-    // with long names: they fill many leaves, so the scan is leaves away from
-    // the last when the first batch is inserted.
-    const counters = BATCH_SIZE + 64;
-    const statements = Array.from({ length: counters }, (_, index) => {
-      const name = `counter_${"x".repeat(100)}_${String(index)}`;
-      return (
-        `CREATE TABLE ${name} (id INTEGER PRIMARY KEY AUTOINCREMENT); ` +
-        `INSERT INTO ${name} VALUES (NULL);`
-      );
-    });
-    await session.execute(statements.join(" "));
-
-    // Inserting into a adds a's counter to opfsql_sequence: a source still
-    // reading it would meet that row too.
+    // A batch of rows of b, then opfsql_sequence: streamed, the source would
+    // read opfsql_sequence after the first batch was inserted into a, and
+    // meet a's own counter there.
+    const names = Array.from(
+      { length: BATCH_SIZE },
+      (_, index) => `('b${String(index)}')`,
+    );
+    await session.execute(`INSERT INTO b (name) VALUES ${names.join(", ")}`);
     await session.execute(
-      "INSERT INTO a (name) SELECT name FROM opfsql_sequence",
+      "INSERT INTO a (name) SELECT name FROM b UNION ALL SELECT name FROM opfsql_sequence",
     );
     const [result] = await session.execute(
       "SELECT count(*) AS copied, count(CASE WHEN name = 'a' THEN 1 END) AS own FROM a",
     );
-    expect(result.objects()).toEqual([{ copied: counters, own: 0 }]);
+    expect(result.objects()).toEqual([{ copied: BATCH_SIZE, own: 0 }]);
   });
 });
