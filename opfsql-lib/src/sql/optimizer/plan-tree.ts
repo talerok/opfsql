@@ -1,5 +1,5 @@
 import type { logical } from "../plan/index.js";
-import type { Replacement } from "./expression-tree.js";
+import { type Replacement, substitute } from "./expression-tree.js";
 
 // ---------------------------------------------------------------------------
 // Walking logical plans: a node rebuilt with new children. Each pass decides
@@ -86,4 +86,18 @@ export function groupedBy(
     const isGroup = tableIndex === aggregate.groupIndex;
     return isGroup ? aggregate.groups[columnIndex] : undefined;
   };
+}
+
+/** `expression` over the outermost project's columns, rewritten over the innermost's child. */
+export function throughProjects(
+  expression: logical.Expression,
+  projects: readonly logical.Project[],
+): logical.Expression | null {
+  let result = expression;
+  for (const project of projects) {
+    const rewritten = substitute(result, projectedBy(project));
+    if (rewritten === null) return null;
+    result = rewritten;
+  }
+  return result;
 }

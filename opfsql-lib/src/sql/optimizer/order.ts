@@ -1,6 +1,6 @@
 import type { logical, physical } from "../plan/index.js";
 import { chooseAccessPath } from "./access-path.js";
-import { hasNeverTrue, substitute } from "./expression-tree.js";
+import { hasNeverTrue } from "./expression-tree.js";
 import {
   lowerExpressions,
   lowerOptional,
@@ -8,10 +8,10 @@ import {
   underProjects,
 } from "./lower-expression.js";
 import {
-  projectedBy,
   projectsOf,
   type TableRead,
   tableReadOf,
+  throughProjects,
 } from "./plan-tree.js";
 import type { Planner } from "./planner.js";
 
@@ -129,18 +129,4 @@ function keysOverTable(
     resolved.push({ ...key, expression });
   }
   return resolved;
-}
-
-/** `expression` over the outermost project's columns, rewritten over the innermost's child. */
-function throughProjects(
-  expression: logical.Expression,
-  projects: readonly logical.Project[],
-): logical.Expression | null {
-  let result = expression;
-  for (const project of projects) {
-    const rewritten = substitute(result, projectedBy(project));
-    if (rewritten === null) return null;
-    result = rewritten;
-  }
-  return result;
 }

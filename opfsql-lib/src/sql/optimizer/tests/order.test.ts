@@ -156,7 +156,7 @@ describe("sorts an index delivers", () => {
     expectSameSequence(backward);
   });
 
-  it("sees the order through projects", () => {
+  it("sees the order through projects, and computes them for the rows returned", () => {
     const projected = project(5, adults, name, age);
     const plan = limit(
       order(projected, asc(output(5, 0, "TEXT", "n"))),
@@ -164,8 +164,8 @@ describe("sorts an index delivers", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "limit $1",
-        "  project#5 name, age",
+        "project#5 name, age",
+        "  limit $1",
         "    index-scan users#1 using users_name_age residual: age > 18",
       ),
     );

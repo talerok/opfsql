@@ -23,6 +23,7 @@ import {
   output,
   plus,
   project,
+  scalarSubquery,
   setOperation,
 } from "./builders.js";
 import { naivePlan } from "./naive.js";
@@ -37,7 +38,7 @@ import {
   userSubjects,
   usersRead,
 } from "./random-plans.js";
-import { bothRuns, runPlan } from "./reference.js";
+import { bothRuns, bothSequences, runPlan } from "./reference.js";
 
 // Random plans, each optimized and lowered naively (naive.ts), run by the
 // reference interpreter over random tables with an ANY column: the same
@@ -131,6 +132,14 @@ describe("optimized plans give the naive plans' rows", () => {
     for (const shape of shapes) expectSameRowsFor(shape);
   });
 
+  it("for LIMIT and OFFSET over a select list with a correlated subquery", () => {
+    expectSameRowsFor((random) => {
+      const counted = project(5, usersRead(), column(u, "name"), orderCount());
+      const offset = random.chance(0.5) ? constant(random.below(40)) : null;
+      return limit(counted, constant(random.below(5)), offset);
+    });
+  });
+
   it("for correlated subqueries that seek on their outer row", () => {
     const inner = { tableIndex: 9, table: o.table, alias: "i" };
     expectSameRowsFor((random) => {
@@ -156,6 +165,19 @@ describe("optimized plans give the naive plans' rows", () => {
 /** Columns of both users and orders. */
 function bothSubjects(): logical.Expression[] {
   return [...userSubjects(), ...orderSubjects()];
+}
+
+/** `(SELECT count(*) FROM orders i WHERE i.user_id = u.id)`, correlated. */
+function orderCount(): logical.Expression {
+  const inner = { tableIndex: 9, table: o.table, alias: "i" };
+  const matching = compare(column(inner, "user_id"), "=", column(u, "id", 1));
+  const counted = aggregate(
+    { groupIndex: 10, aggregateIndex: 11 },
+    filter(get(inner), matching),
+    [],
+    aggregateCall("count"),
+  );
+  return scalarSubquery(counted, true);
 }
 
 function overProject(random: Random): logical.Plan {
@@ -239,6 +261,41 @@ function keysOf(rows: readonly Tuple[], keys: readonly Key[]): string[] {
 }
 
 describe("optimized orders give the naive orders' keys", () => {
+  it("for ORDER BY a unique key over a select list, under LIMIT and OFFSET", () => {
+    const random = new Random(SEED);
+    for (let count = 0; count < CASES; count += 1) {
+      const read = filter(usersRead(), condition(random, userSubjects()));
+      const shown = project(
+        5,
+        read,
+        column(u, "name"),
+        orderCount(),
+        column(u, "email"),
+      );
+      const byEmail = random.chance(0.5)
+        ? asc(output(5, 2, "TEXT", "email"))
+        : desc(output(5, 2, "TEXT", "email"));
+      const offset = constant(random.below(10));
+      const plan = limit(
+        order(shown, byEmail),
+        constant(random.below(6)),
+        offset,
+      );
+      const optimized = optimizedPlan(plan);
+      const data = {
+        tables: sampleTables(random),
+        parameters: parametersFor(random),
+      };
+      const { expected, actual } = bothSequences(
+        plan,
+        optimized,
+        data,
+        bindKey,
+      );
+      expect(actual, formatPhysicalPlan(optimized)).toEqual(expected);
+    }
+  });
+
   it("for ORDER BY, with and without LIMIT", () => {
     const random = new Random(SEED);
     for (let count = 0; count < CASES * 2; count += 1) {

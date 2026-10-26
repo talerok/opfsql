@@ -11,7 +11,7 @@ import {
   underProjects,
 } from "./lower-expression.js";
 import { lowerOrder } from "./order.js";
-import { projectsOf } from "./plan-tree.js";
+import { placeLimit } from "./limit.js";
 import type { Planner } from "./planner.js";
 
 // ---------------------------------------------------------------------------
@@ -137,22 +137,26 @@ function hashAggregate(
 }
 
 /**
- * A LIMIT over an ORDER BY, through any projects between them: a project
- * keeps rows one for one, so the limit applies below it as well as above,
- * and goes with the order (order.ts).
+ * A LIMIT, placed below the projects it sits on (limit.ts); over an ORDER
+ * BY, the two lower together (order.ts).
  */
 function lowerLimit(plan: logical.Limit, planner: Planner): physical.Plan {
+  const { projects, limit } = placeLimit(plan);
+  return underProjects(lowerPlacedLimit(limit, planner), projects, planner);
+}
+
+function lowerPlacedLimit(
+  limit: logical.Limit,
+  planner: Planner,
+): physical.Plan {
   const lower = (child: logical.Plan): physical.Plan =>
     lowerPlan(child, planner);
-  const { projects, below } = projectsOf(plan.child);
-  if (below.kind === "order") {
-    const ordered = lowerOrder(below, plan, planner, lower);
-    return underProjects(ordered, projects, planner);
-  }
+  const { child } = limit;
+  if (child.kind === "order") return lowerOrder(child, limit, planner, lower);
   return {
     kind: "limit",
-    child: lower(plan.child),
-    limit: lowerOptional(plan.limit, planner),
-    offset: lowerOptional(plan.offset, planner),
+    child: lower(child),
+    limit: lowerOptional(limit.limit, planner),
+    offset: lowerOptional(limit.offset, planner),
   };
 }
