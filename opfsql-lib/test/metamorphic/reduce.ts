@@ -13,9 +13,9 @@ import { runCheck } from "./run-check.js";
 import type { DatabaseSpec } from "./schema.js";
 
 // ---------------------------------------------------------------------------
-// Reducing a failure, greedily and within a budget of attempts: each
-// condition to one of its parts while the oracle still isStillFailing, the select
-// list to fewer columns, then each table to fewer rows.
+// Reducing a failure, greedily and within a budget of attempts: each condition
+// to one of its parts while the oracle still fails, the select list to fewer
+// columns, then each table to fewer rows.
 // ---------------------------------------------------------------------------
 
 /** Times a reduction runs the check, at most. */
@@ -30,7 +30,7 @@ export interface Reduction {
 
 type RowsByTable = ReadonlyMap<string, readonly Row[]>;
 
-/** A smaller case that isStillFailing `oracle` as `queryCase` does, or null if none was found. */
+/** A smaller case that fails `oracle` as `queryCase` does, or null if none was found. */
 export async function reduceFailure(
   spec: DatabaseSpec,
   copies: Copies,
@@ -160,7 +160,7 @@ class Reducer {
     }
   }
 
-  /** How the oracle isStillFailing on `queryCase`, or null if it does not or the budget is spent. */
+  /** How the oracle fails on `queryCase`, or null if it does not or the budget is spent. */
   private async failure(
     queryCase: QueryCase,
     copies: Copies,
@@ -177,7 +177,7 @@ class Reducer {
   }
 }
 
-/** The smallest part of `expression` that still `isStillFailing`, one step at a time. */
+/** The smallest part of `expression` that still fails, one step at a time. */
 async function smallest(
   expression: Expression,
   isStillFailing: (candidate: Expression) => Promise<boolean>,

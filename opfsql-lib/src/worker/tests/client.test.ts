@@ -389,6 +389,25 @@ describe("connections", () => {
     await database.query("INSERT INTO t VALUES (2)");
   });
 
+  it("when the database closes, fail a call queued behind a running one with ABORTED", async () => {
+    const { database } = await open({ busyTimeout: Infinity });
+    await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    const holder = await database.connect();
+    const waiter = await database.connect();
+    await holder.query("BEGIN IMMEDIATE");
+
+    const waiting = expect(
+      waiter.query("INSERT INTO t VALUES (1)"),
+    ).rejects.toBeInstanceOf(AbortError);
+    const queued = expect(
+      waiter.query("INSERT INTO t VALUES (2)"),
+    ).rejects.toBeInstanceOf(AbortError);
+    await tick();
+    await database.close();
+    await waiting;
+    await queued;
+  });
+
   it("collected without close(), roll back and release the lock", async () => {
     const { database } = await open({ busyTimeout: 200 });
     await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");

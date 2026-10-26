@@ -93,7 +93,7 @@ describe("the metamorphic harness", () => {
       copies,
     );
     expect(outcome.kind === "failed" ? outcome.reason : "").toMatch(
-      /^SEMANTIC_ERROR/u,
+      /^plain copy: SEMANTIC_ERROR/u,
     );
   });
 });

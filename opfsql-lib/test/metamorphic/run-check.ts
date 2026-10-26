@@ -9,7 +9,8 @@ import type { Copies, Copy } from "./database.js";
 // Running one check. Errors are not results (docs/planning.md, rule 4): a
 // check where any form fails at run time is skipped and counted. Any other
 // error — one binding should have caught, or an internal one — is a
-// failure, as a disagreement is.
+// failure, as a disagreement is, and a failure on either copy is reported
+// before a skip on the other: a crash only an index path causes must show.
 // ---------------------------------------------------------------------------
 
 /** What generated SQL may fail with at run time, whatever the plan. */
@@ -25,8 +26,11 @@ export type Outcome =
 
 /** Runs every form on both copies, and holds them to the check and to each other. */
 export async function runCheck(check: Check, copies: Copies): Promise<Outcome> {
-  const plain = await runForms(check, copies.plain);
-  const indexed = await runForms(check, copies.indexed);
+  const plain = await runForms(check, copies.plain, "plain copy");
+  const indexed = await runForms(check, copies.indexed, "indexed copy");
+  for (const outcome of [plain, indexed]) {
+    if (!Array.isArray(outcome) && outcome.kind === "failed") return outcome;
+  }
   if (!Array.isArray(plain)) return plain;
   if (!Array.isArray(indexed)) return indexed;
   const reasons = [
@@ -53,7 +57,11 @@ function labelled(label: string, difference: string | null): string | null {
  * prepared statements, one for each SQL text, so a statement's second run
  * reuses its plan with other values.
  */
-async function runForms(check: Check, copy: Copy): Promise<Rows[] | Outcome> {
+async function runForms(
+  check: Check,
+  copy: Copy,
+  label: string,
+): Promise<Rows[] | Outcome> {
   const statements = new Map<string, PreparedStatement>();
   const results: Rows[] = [];
   let running = "";
@@ -64,7 +72,7 @@ async function runForms(check: Check, copy: Copy): Promise<Rows[] | Outcome> {
       results.push(result.rows);
     }
   } catch (error) {
-    return outcomeOfError(error, running);
+    return outcomeOfError(error, running, label);
   } finally {
     for (const statement of statements.values()) statement.close();
   }
@@ -83,10 +91,11 @@ async function runForm(
   return statement.query(form.parameters);
 }
 
-function outcomeOfError(error: unknown, sql: string): Outcome {
+function outcomeOfError(error: unknown, sql: string, label: string): Outcome {
   const isRuntime =
     error instanceof OpfsqlError && RUNTIME_ERRORS.has(error.code);
   if (isRuntime) return { kind: "skipped", code: error.code };
   const code = error instanceof OpfsqlError ? error.code : "not an OpfsqlError";
-  return { kind: "failed", reason: `${code}: ${String(error)}\n  in: ${sql}` };
+  const reason = `${label}: ${code}: ${String(error)}\n  in: ${sql}`;
+  return { kind: "failed", reason };
 }

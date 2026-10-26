@@ -438,6 +438,12 @@ class Host {
     const engine = this.engine;
     this.state = "closing";
     this.engine = null;
+    // As disconnect() does for one: calls still waiting on a connection are
+    // ABORTED, never run against a connection that is gone. The engine
+    // closes the sessions.
+    for (const connection of this.connections.values()) {
+      connection.lifetime.abort(new AbortError("the database was closed"));
+    }
     this.connections.clear();
     this.pool.length = 0;
     await engine?.close();
