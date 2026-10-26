@@ -12,6 +12,7 @@ import {
 import {
   compareValues,
   firstSighting,
+  parametersOf,
   rowKey,
   type Value,
 } from "../../../values/index.js";
@@ -40,7 +41,7 @@ export function runPlan(
   bindKey: KeyBinder,
 ): readonly Tuple[] {
   const holder: { context?: Context } = {};
-  const run = createRun(parameters, {
+  const run = createRun(parametersOf(parameters), {
     compile: (subplan, query) => ({
       rows: (limit) => {
         if (holder.context === undefined) throw new InternalError("no run yet");

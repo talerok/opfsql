@@ -6,6 +6,7 @@ import {
   type Schema as SchemaModel,
   type Table,
 } from "../schema/index.js";
+import { copyValue } from "../values/index.js";
 import type { ColumnInfo, IndexInfo, Schema, TableInfo } from "./api/index.js";
 
 // What schema() returns: the schema model as callers read it, without root
@@ -53,7 +54,8 @@ function describeColumn(
     primaryKey: isKey,
     unique: indexes.some((index) => isUniqueColumn(index, position)),
     autoIncrement: isRowid && table.isAutoincrement,
-    defaultValue,
+    // The schema's own value: the caller gets a copy to change.
+    defaultValue: copyValue(defaultValue),
   };
 }
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StorageFiles } from "../../storage/index.js";
+import { Pager } from "../../storage/pager/pager.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { mulberry32 } from "../../../test/support/random.js";
@@ -37,15 +38,14 @@ function slotOffset(slot: number): number {
   return 24 + slot * 8;
 }
 
-/** Writes a mark as a tab that died holding `snapshot` would have left it. */
-function writeOrphanMark(
-  marks: StorageFiles["marks"],
-  slot: number,
-  snapshot: number,
-): void {
+/** The slot of a tab that died: the last, which no test tab claims. */
+const ORPHAN_SLOT = 63;
+
+/** Writes the mark a tab that died holding snapshot 1 would have left. */
+function writeOrphanMark(marks: StorageFiles["marks"]): void {
   const bytes = new Uint8Array(8);
-  new DataView(bytes.buffer).setFloat64(0, snapshot);
-  marks!.write(bytes, { at: slotOffset(slot) });
+  new DataView(bytes.buffer).setFloat64(0, 1);
+  marks!.write(bytes, { at: slotOffset(ORPHAN_SLOT) });
 }
 
 function markIn(marks: StorageFiles["marks"], slot: number): number {
@@ -185,7 +185,7 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     await writer.session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
     );
-    writeOrphanMark(files.marks, 63, 1); // a tab crashed holding snapshot 1
+    writeOrphanMark(files.marks);
     // Only a restart truncates the WAL here: no append fails in this test.
     const restarts = vi.spyOn(files.wal, "truncate");
 
@@ -194,8 +194,51 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     }
     // The orphan's mark was cleared, and a checkpoint then went all the way
     // and restarted the WAL.
-    expect(markIn(files.marks, 63)).toBe(-1);
+    expect(markIn(files.marks, ORPHAN_SLOT)).toBe(-1);
     expect(restarts).toHaveBeenCalled();
+  });
+
+  it("close() waits for the background release of dead tabs' read marks", async () => {
+    const files = sharedFiles();
+    const [writer] = await openTabs("closing", 1, files);
+    await writer.session.execute(
+      "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
+    );
+    writeOrphanMark(files.marks);
+    const events: string[] = [];
+    const gate = Promise.withResolvers<undefined>();
+    const release = Reflect.get<Pager, "releaseAbandonedSnapshots">(
+      Pager.prototype,
+      "releaseAbandonedSnapshots",
+    );
+    vi.spyOn(Pager.prototype, "releaseAbandonedSnapshots").mockImplementation(
+      async function released(this: Pager) {
+        await gate.promise;
+        await release.call(this);
+        events.push("released");
+      },
+    );
+    const close = Reflect.get<Pager, "close">(Pager.prototype, "close");
+    vi.spyOn(Pager.prototype, "close").mockImplementation(function closed(
+      this: Pager,
+    ) {
+      events.push("closed");
+      close.call(this);
+    });
+
+    // Checkpoints the orphan holds back start releases, which wait on `gate`.
+    for (let id = 1; id <= 20; id++) {
+      await writer.session.query("INSERT INTO t (id, v) VALUES ($1, 0)", [id]);
+    }
+    const closing = writer.engine.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(events).toEqual([]);
+
+    gate.resolve(undefined);
+    await closing;
+    expect(events.at(-1)).toBe("closed");
+    expect(events.filter((event) => event === "closed")).toHaveLength(1);
+    expect(events).toContain("released");
   });
 
   it("AUTOINCREMENT ids stay unique when tabs take turns inserting", async () => {

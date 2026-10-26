@@ -1,25 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  AbortError,
-  BusyError,
-  ConstraintError,
-  CorruptError,
-  DatabaseInUseError,
-  DatatypeMismatchError,
-  IndexKeyTooLargeError,
-  IntegerOverflowError,
-  InternalError,
-  IoError,
-  MisuseError,
-  NotSupportedError,
-  OpfsqlError,
-  RowTooLargeError,
-  SemanticError,
-  SerializationError,
-  SqlSyntaxError,
-  StorageFullError,
-  UnsupportedFormatError,
-} from "../../errors.js";
+import * as errors from "../../errors.js";
 import { fromWireError, toWireError } from "../wire-error.js";
 
 /** An error's own fields, as a plain object. */
@@ -27,16 +7,62 @@ function fieldsOf(error: Error): Record<string, unknown> {
   return Object.fromEntries(Object.entries(error));
 }
 
+type ErrorClass = abstract new (...parameters: never[]) => errors.OpfsqlError;
+
+/** Every OpfsqlError class errors.ts exports. */
+function exportedErrorClasses(): ErrorClass[] {
+  return Object.values(errors as Record<string, unknown>).filter(
+    (value): value is ErrorClass => isErrorClass(value),
+  );
+}
+
+function isErrorClass(value: unknown): value is ErrorClass {
+  if (typeof value !== "function") return false;
+  const isSubclass = value.prototype instanceof errors.OpfsqlError;
+  return value === errors.OpfsqlError || isSubclass;
+}
+
+/**
+ * One error of each class, with fields: a class errors.ts exports without
+ * one here fails the test, so no class goes untried.
+ */
+const SAMPLES: readonly errors.OpfsqlError[] = [
+  new errors.OpfsqlError("CORRUPT", "damaged"),
+  new errors.SqlSyntaxError("bad token", 7, 3),
+  new errors.SemanticError("no such table"),
+  new errors.NotSupportedError("WINDOW"),
+  new errors.MisuseError("closed"),
+  new errors.DatatypeMismatchError("not an integer"),
+  new errors.IntegerOverflowError(),
+  new errors.ConstraintError("unique", "users", ["email"], "users_email"),
+  new errors.RowTooLargeError("t", 5000, 2025),
+  new errors.IndexKeyTooLargeError("t_body", 3000, 2000),
+  new errors.IoError("could not write", { cause: new Error("disk") }),
+  new errors.StorageFullError("no room"),
+  new errors.CorruptError("page 3 is damaged"),
+  new errors.UnsupportedFormatError("app.opfsql", 4, 5),
+  new errors.WorkerError("the worker crashed"),
+  new errors.InternalError("bug"),
+  new errors.BusyError(250),
+  new errors.SerializationError(),
+  new errors.DatabaseInUseError("db", "one-tab-only", {
+    cause: new Error("held"),
+  }),
+  new errors.AbortError("stop"),
+];
+
 /** What the page gets for an error the worker throws. */
-function acrossTheBoundary(error: unknown): OpfsqlError {
+function acrossTheBoundary(error: unknown): errors.OpfsqlError {
   return fromWireError(structuredClone(toWireError(error)));
 }
 
 describe("errors across the worker boundary", () => {
   it("come back as the same class, with code, message and fields", () => {
-    const received = acrossTheBoundary(new SqlSyntaxError("bad token", 7, 3));
-    expect(received).toBeInstanceOf(SqlSyntaxError);
-    expect(received).toBeInstanceOf(OpfsqlError);
+    const received = acrossTheBoundary(
+      new errors.SqlSyntaxError("bad token", 7, 3),
+    );
+    expect(received).toBeInstanceOf(errors.SqlSyntaxError);
+    expect(received).toBeInstanceOf(errors.OpfsqlError);
     expect(received).toBeInstanceOf(Error);
     expect(received).toMatchObject({
       name: "SqlSyntaxError",
@@ -49,31 +75,15 @@ describe("errors across the worker boundary", () => {
   });
 
   it("keep every class errors.ts exports", () => {
-    const samples: OpfsqlError[] = [
-      new OpfsqlError("CORRUPT", "damaged"),
-      new BusyError(250),
-      new DatabaseInUseError("db", "one-tab-only", {
-        cause: new Error("held"),
-      }),
-      new NotSupportedError("WINDOW"),
-      new AbortError("stop"),
-      new SerializationError(),
-      new ConstraintError("unique", "users", ["email"], "users_email"),
-      new RowTooLargeError("t", 5000, 2025),
-      new IndexKeyTooLargeError("t_body", 3000, 2000),
-      new IoError("could not write", { cause: new Error("disk") }),
-      new CorruptError("page 3 is damaged"),
-      new StorageFullError("no room"),
-      new UnsupportedFormatError("app.opfsql", 4, 5),
-      new MisuseError("closed"),
-      new SemanticError("no such table"),
-      new DatatypeMismatchError("not an integer"),
-      new IntegerOverflowError(),
-      new InternalError("bug"),
-    ];
-    for (const original of samples) {
+    for (const errorClass of exportedErrorClasses()) {
+      const original = SAMPLES.find(
+        (sample) => sample.constructor === errorClass,
+      );
+      if (original === undefined) {
+        throw new Error(`no sample of ${errorClass.name} to send across`);
+      }
       const received = acrossTheBoundary(original);
-      expect(received.constructor).toBe(original.constructor);
+      expect(received.constructor).toBe(errorClass);
       expect(fieldsOf(received)).toEqual(fieldsOf(original));
       expect(received.message).toBe(original.message);
     }
@@ -87,9 +97,9 @@ describe("errors across the worker boundary", () => {
       }
     }
     const disk = new DiskError(42);
-    const error = new IoError("could not read", { cause: disk });
+    const error = new errors.IoError("could not read", { cause: disk });
     const received = acrossTheBoundary(error);
-    expect(received).toBeInstanceOf(IoError);
+    expect(received).toBeInstanceOf(errors.IoError);
     expect(received.cause).toBeInstanceOf(Error);
     expect(received.cause).toMatchObject({
       name: "DiskError",
@@ -99,17 +109,17 @@ describe("errors across the worker boundary", () => {
   });
 
   it("keep a DOMException a DOMException", () => {
-    const error = new DatabaseInUseError("db", "one-tab-only", {
+    const error = new errors.DatabaseInUseError("db", "one-tab-only", {
       cause: new DOMException("held elsewhere", "InvalidStateError"),
     });
     const received = acrossTheBoundary(error);
-    expect(received).toBeInstanceOf(DatabaseInUseError);
+    expect(received).toBeInstanceOf(errors.DatabaseInUseError);
     expect(received.cause).toBeInstanceOf(DOMException);
     expect(received.cause).toMatchObject({ name: "InvalidStateError" });
   });
 
   it("keep where in a script the error happened", () => {
-    const error = new SemanticError("no such table");
+    const error = new errors.SemanticError("no such table");
     Object.defineProperty(error, "statementIndex", {
       value: 2,
       enumerable: true,

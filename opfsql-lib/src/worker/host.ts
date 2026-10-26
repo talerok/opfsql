@@ -1,3 +1,4 @@
+import { linkSignals, TaskQueue } from "../async/index.js";
 import type {
   EngineContract,
   EngineOpener,
@@ -9,9 +10,9 @@ import type {
 } from "../engine/api/index.js";
 import {
   AbortError,
-  InternalError,
   MisuseError,
-  OpfsqlError,
+  toOpfsqlError,
+  WorkerError,
 } from "../errors.js";
 import {
   type ClientMessage,
@@ -51,7 +52,24 @@ interface Connection {
   readonly statements: Map<number, StatementContract>;
   /** Opened for a statement prepared on the database: it goes with it. */
   readonly isStatementOwned: boolean;
+  /** Its calls, run one at a time in the order their messages arrived. */
+  readonly calls: TaskQueue;
+  /** Aborted when it closes: the calls still waiting fail with ABORTED. */
+  readonly lifetime: AbortController;
 }
+
+/** Requests that run in their connection's order; the rest run at once. */
+const ORDERED = new Set<Request["type"]>([
+  "query",
+  "execute",
+  "prepare",
+  "run",
+  "finalize",
+  "begin",
+  "commit",
+  "rollback",
+  "schema",
+]);
 
 type Reply = Replies[Request["type"]];
 
@@ -89,8 +107,10 @@ class Host {
   }
 
   /**
-   * Hands each request to its session at once, before anything is awaited,
-   * so a connection's calls queue in the order they were sent.
+   * Puts each request in its connection's queue as its message arrives,
+   * before anything is awaited: then nothing awaited on the way down to
+   * the session can reorder a connection's calls. Other requests run at
+   * once.
    */
   private dispatch(message: ClientMessage): void {
     if (message.type === "cancel") {
@@ -101,11 +121,44 @@ class Host {
     }
     const controller = new AbortController();
     this.running.set(message.id, controller);
-    void (async () => {
-      const reply = await this.answer(message, controller.signal);
-      this.running.delete(message.id);
-      this.post(reply);
-    })();
+    const connection = this.orderedOn(message);
+    if (connection === null) {
+      void this.reply(message.id, this.answer(message, controller.signal));
+      return;
+    }
+    const linked = linkSignals([controller.signal, connection.lifetime.signal]);
+    const turn = connection.calls.run(
+      async () => this.answer(message, linked.signal),
+      linked.signal,
+    );
+    void this.reply(message.id, turn, () => {
+      linked.dispose();
+    });
+  }
+
+  /** The connection whose order `message` runs in, if it has one. */
+  private orderedOn(message: RequestMessage): Connection | null {
+    const id = connectionOf(message);
+    if (id === undefined || !ORDERED.has(message.type)) return null;
+    return this.connections.get(id) ?? null;
+  }
+
+  /** Posts the reply once it is ready; a call that never ran is ABORTED. */
+  private async reply(
+    id: number,
+    answer: Promise<ReplyMessage>,
+    dispose: () => void = noDisposal,
+  ): Promise<void> {
+    let reply: ReplyMessage;
+    try {
+      reply = await answer;
+    } catch (error) {
+      reply = { id, ok: false, error: toWireError(toOpfsqlError(error)) };
+    } finally {
+      dispose();
+      this.running.delete(id);
+    }
+    this.post(reply);
   }
 
   private async answer(
@@ -116,7 +169,11 @@ class Host {
       const value = await this.handle(message, signal);
       return { id: message.id, ok: true, value };
     } catch (error) {
-      return { id: message.id, ok: false, error: toWireError(asOpfsql(error)) };
+      return {
+        id: message.id,
+        ok: false,
+        error: toWireError(toOpfsqlError(error)),
+      };
     }
   }
 
@@ -125,7 +182,7 @@ class Host {
       this.scope.postMessage(message);
     } catch (error) {
       if (!("id" in message)) return;
-      const failure = new InternalError("the reply could not be sent", {
+      const failure = new WorkerError("the reply could not be sent", {
         cause: error,
       });
       this.scope.postMessage({
@@ -350,14 +407,21 @@ class Host {
   private connect(options: SessionOptions, isStatementOwned = false): number {
     const session = this.openSession(options);
     const id = this.nextId++;
-    const statements = new Map<number, StatementContract>();
-    this.connections.set(id, { session, statements, isStatementOwned });
+    this.connections.set(id, {
+      session,
+      statements: new Map<number, StatementContract>(),
+      isStatementOwned,
+      calls: new TaskQueue(),
+      lifetime: new AbortController(),
+    });
     return id;
   }
 
+  /** Closes a connection at once: what still waits on it is ABORTED. */
   private async disconnect(id: number): Promise<null> {
     const connection = this.connections.get(id);
     this.connections.delete(id);
+    connection?.lifetime.abort(new AbortError("the connection was closed"));
     await connection?.session.close();
     return null;
   }
@@ -382,16 +446,19 @@ class Host {
   }
 }
 
+/** The connection a request names; none for the database's own calls. */
+function connectionOf(message: RequestMessage): number | undefined {
+  return "connection" in message ? message.connection : undefined;
+}
+
+function noDisposal(): void {
+  // a call outside a connection's order links no signals
+}
+
 async function closeQuietly(session: SessionContract): Promise<void> {
   try {
     await session.close();
   } catch {
     // a pooled session that fails to close holds nothing anyone waits for
   }
-}
-
-function asOpfsql(error: unknown): OpfsqlError {
-  if (error instanceof OpfsqlError) return error;
-  const message = error instanceof Error ? error.message : String(error);
-  return new InternalError(message, { cause: error });
 }

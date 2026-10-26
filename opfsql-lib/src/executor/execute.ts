@@ -7,7 +7,7 @@ import type {
   Update,
 } from "../sql/plan/index.js";
 import type { Tables, WritableTables } from "../table/index.js";
-import type { Value } from "../values/index.js";
+import type { ParameterValues } from "../values/index.js";
 import { compilePlan, statementContext } from "./compile.js";
 import { drain } from "./operator.js";
 import { runDelete } from "./writes/delete.js";
@@ -27,7 +27,7 @@ export type WriteStatement =
 export function runQuery(
   statement: Query<physical.Plan>,
   tables: Tables,
-  parameters: readonly Value[],
+  parameters: ParameterValues,
   checkpoint?: () => void,
 ): readonly Tuple[] {
   const context = statementContext(tables, parameters, checkpoint);
@@ -38,7 +38,7 @@ export function runQuery(
 export function runWrite(
   statement: WriteStatement,
   tables: WritableTables,
-  parameters: readonly Value[],
+  parameters: ParameterValues,
   checkpoint?: () => void,
 ): WriteOutcome {
   const context = statementContext(tables, parameters, checkpoint);

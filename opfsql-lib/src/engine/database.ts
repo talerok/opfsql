@@ -1,11 +1,14 @@
-import { type OpfsqlError, SerializationError } from "../errors.js";
+import {
+  type OpfsqlError,
+  SerializationError,
+  toOpfsqlError,
+} from "../errors.js";
 import type {
   Pager,
   ReadTransaction,
   WriteTransaction,
 } from "../storage/index.js";
-import { abortErrorOf } from "./signals.js";
-import { toOpfsqlError } from "./translate-error.js";
+import { abortErrorOf } from "../async/index.js";
 import { type Lease, WriteLock } from "./write-lock.js";
 
 // ---------------------------------------------------------------------------
@@ -33,6 +36,8 @@ export interface Writer {
 
 export class Database {
   private readonly lock: WriteLock;
+  /** Work still running after the call that started it: close() waits for it. */
+  private readonly background = new Set<Promise<void>>();
 
   constructor(
     private readonly pager: Pager,
@@ -102,6 +107,8 @@ export class Database {
    * the engine runs this.
    */
   async checkpoint(signal: AbortSignal): Promise<void> {
+    // Safe only because everything below the engine is synchronous: nothing
+    // of the holder's runs between this check and the checkpoint.
     if (this.lock.isHeld) {
       this.pager.checkpoint();
       return;
@@ -114,12 +121,18 @@ export class Database {
     }
   }
 
-  close(): void {
+  /**
+   * Closes the files once background work has finished: a release of dead
+   * tabs' read marks still running writes the read-mark file.
+   */
+  async close(): Promise<void> {
+    await Promise.all(this.background);
     this.pager.close();
   }
 
   /** Lowers a stale checkpoint intent, under the lock. */
   private async resetStaleIntent(signal: AbortSignal): Promise<void> {
+    // As in checkpoint(): the holder cannot run between check and reset.
     if (this.lock.isHeld) {
       this.pager.resetStaleIntent();
       return;
@@ -159,7 +172,14 @@ export class Database {
 
   /** In the background: the commit that got here has succeeded. */
   private releaseAbandonedSnapshots(): void {
-    void this.reportFailure(this.pager.releaseAbandonedSnapshots());
+    const release = this.reportFailure(this.pager.releaseAbandonedSnapshots());
+    this.background.add(release);
+    void this.forgetWhenDone(release);
+  }
+
+  private async forgetWhenDone(work: Promise<void>): Promise<void> {
+    await work;
+    this.background.delete(work);
   }
 
   private async reportFailure(work: Promise<void>): Promise<void> {

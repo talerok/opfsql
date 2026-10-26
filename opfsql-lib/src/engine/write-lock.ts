@@ -1,5 +1,5 @@
-import { BusyError, InternalError, OpfsqlError } from "../errors.js";
-import { abortErrorOf, linkSignals } from "./signals.js";
+import { BusyError, IoError, OpfsqlError } from "../errors.js";
+import { abortErrorOf, linkSignals } from "../async/index.js";
 
 /** How long and until when to wait for the lock. */
 export interface Wait {
@@ -54,7 +54,7 @@ export class WriteLock {
 async function requestLock(name: string, wait: Wait): Promise<() => void> {
   if (wait.signal.aborted) throw abortErrorOf(wait.signal);
   const isFreeLockOnly = wait.timeout <= 0;
-  if (isFreeLockOnly) return hold(name, { ifAvailable: true });
+  if (isFreeLockOnly) return holdIfFree(name);
   const timer = busyTimer(wait.timeout);
   const linked = linkSignals([wait.signal, timer.signal]);
   try {
@@ -75,8 +75,25 @@ function waitFailure(
 ): OpfsqlError {
   if (timer.aborted) return new BusyError(wait.timeout);
   if (wait.signal.aborted) return abortErrorOf(wait.signal);
+  return lockFailure(error);
+}
+
+/** The lock at once, or BUSY. */
+async function holdIfFree(name: string): Promise<() => void> {
+  try {
+    return await hold(name, { ifAvailable: true });
+  } catch (error) {
+    throw lockFailure(error);
+  }
+}
+
+/**
+ * A lock request the browser failed: the environment's failure, not a bug,
+ * so IO_ERROR — as SQLite reports a failed file lock (SQLITE_IOERR_LOCK).
+ */
+function lockFailure(error: unknown): OpfsqlError {
   if (error instanceof OpfsqlError) return error;
-  return new InternalError("requesting the write lock failed", {
+  return new IoError("the write lock could not be requested", {
     cause: error,
   });
 }

@@ -2,7 +2,7 @@ import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryFile } from "../../storage/file/sync-file.js";
 import type { Engine } from "../index.js";
-import { createEngine as engineOn } from "../engine.js";
+import { connectSession, createEngine as engineOn } from "../engine.js";
 import { openTestEngine } from "./test-engine.js";
 
 let engine: Engine;
@@ -336,6 +336,76 @@ describe("failed commit", () => {
     await expect(other.execute("SELECT * FROM u")).rejects.toThrow();
     expect(await engine.checkIntegrity()).toEqual([]);
     await other.close();
+    await s.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared sessions — no call leaves a transaction behind
+// ---------------------------------------------------------------------------
+
+/** Another session takes the write lock at once: none is left held. */
+async function expectLockFree(): Promise<void> {
+  const other = engine.connect();
+  await other.begin({ mode: "immediate" });
+  await other.rollback();
+  await other.close();
+}
+
+describe("a session shared by unrelated callers", () => {
+  it("ends a transaction a call left open, and fails the call with MISUSE", async () => {
+    engine = await engineOn(
+      { database: new MemoryFile(), wal: new MemoryFile(), marks: null },
+      { busyTimeout: 0 },
+    );
+    const shared = connectSession(engine, { callScopedTransactions: true });
+    await expect(shared.query("BEGIN IMMEDIATE")).rejects.toMatchObject({
+      code: "MISUSE",
+    });
+    expect(shared.inTransaction).toBe(false);
+    await expectLockFree();
+    await shared.close();
+  });
+
+  it("ends the transaction of a call that fails with it open, keeping the call's own error", async () => {
+    engine = await engineOn(
+      { database: new MemoryFile(), wal: new MemoryFile(), marks: null },
+      { busyTimeout: 0 },
+    );
+    const shared = connectSession(engine, { callScopedTransactions: true });
+    await shared.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    await expect(
+      shared.execute(
+        "BEGIN IMMEDIATE; INSERT INTO t VALUES (1); SELECT * FROM nope",
+      ),
+    ).rejects.toMatchObject({ code: "SEMANTIC_ERROR", statementIndex: 2 });
+    expect(shared.inTransaction).toBe(false);
+    await expectLockFree();
+    const [rows] = await shared.execute("SELECT count(*) FROM t");
+    expect(rows.rows).toEqual([[0]]);
+    await shared.close();
+  });
+});
+
+describe("the write lock", () => {
+  it("reports a lock request the browser fails as IO_ERROR, and then works", async () => {
+    engine = await engineOn({
+      database: new MemoryFile(),
+      wal: new MemoryFile(),
+      marks: null,
+    });
+    const s = engine.connect();
+    await s.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    vi.spyOn(navigator.locks, "request").mockRejectedValueOnce(
+      new DOMException("locks are unavailable", "InvalidStateError"),
+    );
+    await expect(s.query("INSERT INTO t VALUES (1)")).rejects.toMatchObject({
+      code: "IO_ERROR",
+      cause: { name: "InvalidStateError" },
+    });
+    await s.query("INSERT INTO t VALUES (2)");
+    const [rows] = await s.execute("SELECT id FROM t");
+    expect(rows.rows).toEqual([[2]]);
     await s.close();
   });
 });

@@ -62,6 +62,9 @@ storage       pages, B-trees, records, keys,     │
 schema        the schema model                   │
 engine        sessions, transactions, statement  │
               cache, schema loading, DDL         │
+async         calls in turn, cancellable: the    │
+              engine's sessions and the host's   │
+              connections                        │
 worker        the worker host and the client     │
 ```
 
@@ -77,6 +80,7 @@ Dependencies point down the request path and never back:
 | Module             | May use                                                                       |
 | ------------------ | ----------------------------------------------------------------------------- |
 | `values`, `errors` | nothing else                                                                  |
+| `async`            | `errors`                                                                      |
 | `sql/precedence`   | nothing else                                                                  |
 | `schema`           | `values`, `errors`                                                            |
 | `storage`          | `values`, `errors`                                                            |
@@ -89,7 +93,7 @@ Dependencies point down the request path and never back:
 | `table`            | `storage`, `schema`, `functions`, `values`, `errors`                          |
 | `executor`         | `sql/plan`, `expressions`, `table`, `functions`, `schema`, `values`, `errors` |
 | `engine`           | all of the above                                                              |
-| `worker`           | `engine`, `errors`, `values`                                                  |
+| `worker`           | `engine` (its contract, `engine/api`), `async`, `errors`, `values`            |
 
 ESLint enforces the table (`import-x/no-restricted-paths` in
 `eslint.config.js`).

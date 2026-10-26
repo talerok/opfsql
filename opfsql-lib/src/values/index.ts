@@ -26,6 +26,11 @@ export {
 export { firstSighting, rowKey, valueKey } from "./key.js";
 export { realLiteral, sqlLiteral, textLiteral } from "./literal.js";
 export {
+  NO_PARAMETERS,
+  type ParameterValues,
+  parametersOf,
+} from "./parameters.js";
+export {
   and,
   compareSql,
   CONJUNCTIONS,
@@ -52,7 +57,9 @@ export {
   typeFromName,
 } from "./types.js";
 export {
+  copyValue,
   isJsonComposite,
+  isMutable,
   type JsonComposite,
   type JsonObject,
   type JsonValue,

@@ -114,6 +114,16 @@ describe("columns, constants and parameters", () => {
     expect(compiled([])).toEqual({ a: [1] });
   });
 
+  it("gives a fresh copy of a BLOB constant each time, so no caller changes it", () => {
+    const compiled = compileExpression(
+      constant(new Uint8Array([1, 2])),
+      scopeOf(),
+    );
+    const first = compiled([]) as Uint8Array;
+    first.fill(0);
+    expect(compiled([])).toEqual(new Uint8Array([1, 2]));
+  });
+
   it("reads parameters, normalized: NaN is NULL and -0 is 0", () => {
     const parameters = ["a", NaN, -0];
     expect(evaluate(parameter(0), { parameters })).toBe("a");

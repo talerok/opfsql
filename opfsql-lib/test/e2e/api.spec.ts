@@ -89,7 +89,7 @@ test.describe("Results and errors through the worker", () => {
     await cleanOpfs(tab);
   });
 
-  test("a worker that cannot start fails the open with INTERNAL", async ({
+  test("a worker that cannot start fails the open with WORKER_ERROR", async ({
     context,
   }) => {
     const tab = await openTab(context);
@@ -98,7 +98,7 @@ test.describe("Results and errors through the worker", () => {
     );
     expect(outcome).toMatchObject({
       ok: false,
-      error: { name: "InternalError", code: "INTERNAL", isItsClass: true },
+      error: { name: "WorkerError", code: "WORKER_ERROR", isItsClass: true },
     });
   });
 });

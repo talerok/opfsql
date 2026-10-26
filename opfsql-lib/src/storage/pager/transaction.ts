@@ -62,6 +62,14 @@ export class ReadTransaction implements PageReader {
     return this.pager.read(pageNo, this.snapshot);
   }
 
+  /**
+   * True if the transaction reads changes of its own, not committed: then
+   * what it reads is no commit's. A read transaction never has any.
+   */
+  hasChanges(): boolean {
+    return false;
+  }
+
   /** Releases the snapshot; later calls do nothing. */
   end(): void {
     if (!this.isOpen) return;
@@ -196,6 +204,13 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     for (const inner of released) handOver(inner, outer);
   }
 
+  /** True while it holds a page or page count it has not committed. */
+  override hasChanges(): boolean {
+    return (
+      this.dirty.size > 0 || this.currentPageCount !== this.initialPageCount
+    );
+  }
+
   /** Records that this transaction changes the schema. */
   bumpSchemaVersion(): void {
     const header = this.write(HEADER_PAGE);
@@ -248,13 +263,6 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     const depth = this.savepoints.indexOf(savepoint);
     if (depth === -1) throw new MisuseError("the savepoint is not open");
     return depth;
-  }
-
-  /** Writers are serialized by a lock: another commit means a bug, not a race. */
-  private hasChanges(): boolean {
-    return (
-      this.dirty.size > 0 || this.currentPageCount !== this.initialPageCount
-    );
   }
 
   /** Adds a page at the end of the file. */

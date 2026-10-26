@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConstraintError } from "../../errors.js";
 import type {
   Index,
@@ -14,7 +14,7 @@ import type {
   physical,
 } from "../../sql/plan/index.js";
 import { ROWID_COLUMN } from "../../sql/plan/index.js";
-import type { CompileExpression } from "../../table/index.js";
+import { type CompileExpression, TableEditor } from "../../table/index.js";
 import { column as columnOf } from "../../table/tests/database.js";
 import type { Value } from "../../values/index.js";
 import { BATCH_SIZE } from "../operator.js";
@@ -163,6 +163,48 @@ describe("INSERT", () => {
       [3, "c", 1, "C"],
       [4, "d", 1, null],
     ]);
+  });
+
+  it("hands the table layer each row's own copy of a BLOB or JSON default", () => {
+    const blob = new Uint8Array([1, 2]);
+    const tags = ["new"];
+    const notes = database.createTable(
+      {
+        name: "notes",
+        columns: [
+          columnOf("id", "INTEGER"),
+          columnOf("data", "BLOB", { defaultValue: blob }),
+          columnOf("tags", "JSON", { defaultValue: tags }),
+        ],
+        rowidColumn: 0,
+        isAutoincrement: false,
+      },
+      [],
+    );
+    const inserted: (readonly Value[])[] = [];
+    const insertRow = Reflect.get<TableEditor, "insert">(
+      TableEditor.prototype,
+      "insert",
+    );
+    vi.spyOn(TableEditor.prototype, "insert").mockImplementation(
+      function recorded(this: TableEditor, row) {
+        inserted.push(row);
+        return insertRow.call(this, row);
+      },
+    );
+    database.run(
+      insert(notes, [0], values(LITERALS, [constant(1)], [constant(2)])),
+    );
+
+    const [first, second] = inserted;
+    expect(first).toEqual([1, blob, tags]);
+    expect(second).toEqual([2, blob, tags]);
+    for (const row of [first, second]) {
+      expect(row?.[1]).not.toBe(blob);
+      expect(row?.[2]).not.toBe(tags);
+    }
+    expect(first?.[1]).not.toBe(second?.[1]);
+    vi.restoreAllMocks();
   });
 
   it("refuses a row that breaks NOT NULL or UNIQUE, as the table layer decides", () => {

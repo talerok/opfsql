@@ -1,4 +1,5 @@
-import { AbortError, MisuseError } from "../errors.js";
+import { linkSignals, TaskQueue } from "../async/index.js";
+import { AbortError, MisuseError, toOpfsqlError } from "../errors.js";
 import type { Schema as SchemaModel } from "../schema/index.js";
 import {
   type Statement,
@@ -6,7 +7,12 @@ import {
   type TransactionStatement,
   TransactionType,
 } from "../sql/parser/index.js";
-import type { Value } from "../values/index.js";
+import {
+  NO_PARAMETERS,
+  type ParameterValues,
+  parametersOf,
+  type Value,
+} from "../values/index.js";
 import {
   type CallOptions,
   emptyResult,
@@ -17,20 +23,16 @@ import {
   type TransactionOptions,
 } from "./api/index.js";
 import { describeSchema } from "./describe-schema.js";
-import { linkSignals } from "./signals.js";
 import { eachStep, planAhead, StepFailure } from "./script.js";
 import { beginMode, checkParameters, parseScript, Step } from "./statements.js";
-import { TaskQueue } from "./task-queue.js";
 import { Transaction, type TransactionHost } from "./transaction.js";
-import { locateStatement, toOpfsqlError } from "./translate-error.js";
+import { locateStatement } from "./locate-statement.js";
 
 /** What a session needs from its engine. */
 export interface SessionHost extends TransactionHost {
   /** The session has closed. */
   forget(session: SessionCore): void;
 }
-
-type ParameterValues = readonly Value[] | undefined;
 
 /**
  * A session's state and rules; Session is the handle callers hold. Calls run
@@ -60,14 +62,19 @@ export class SessionCore {
     return this.transaction !== null;
   }
 
+  /**
+   * Runs one statement. Its parameters are checked and copied at once, so
+   * what the caller does with them while the call waits changes nothing.
+   */
   async query(
     sql: string,
-    parameters: ParameterValues,
+    parameters: readonly Value[] | undefined,
     options: CallOptions,
   ): Promise<Result> {
+    const values = parametersOf(parameters);
     return this.call(options, async (signal) => {
       const statement = onlyStatement(parseScript(sql), "query()");
-      return this.runOne(new Step(sql, statement), parameters, signal);
+      return this.runOne(new Step(sql, statement), values, signal);
     });
   }
 
@@ -97,13 +104,15 @@ export class SessionCore {
     });
   }
 
+  /** Runs a prepared statement; its parameters are checked as query()'s are. */
   async runPrepared(
     step: Step,
-    parameters: ParameterValues,
+    parameters: readonly Value[] | undefined,
     options: CallOptions,
   ): Promise<Result> {
+    const values = parametersOf(parameters);
     return this.call(options, async (signal) =>
-      this.runOne(step, parameters, signal),
+      this.runOne(step, values, signal),
     );
   }
 
@@ -174,27 +183,38 @@ export class SessionCore {
     }
   }
 
-  /** One call's turn: its task, then no transaction left where none may stay. */
+  /**
+   * One call's turn: its task, then no transaction left where none may
+   * stay — whether the task succeeded or failed, so no path through a task
+   * can leave one behind.
+   */
   private async inTurn<T>(
     task: (signal: AbortSignal) => Promise<T> | T,
     signal: AbortSignal,
   ): Promise<T> {
-    const value = await task(signal);
-    this.rejectLeftoverTransaction();
-    return value;
+    let hasSucceeded = false;
+    try {
+      const value = await task(signal);
+      hasSucceeded = true;
+      return value;
+    } finally {
+      this.endLeftoverTransaction(hasSucceeded);
+    }
   }
 
   /**
    * A session shared by unrelated callers keeps no transaction past a call:
-   * one left open is rolled back, and the call fails with MISUSE.
+   * one left open is rolled back. A call that otherwise succeeded then fails
+   * with MISUSE; a failed one keeps its own error.
    */
-  private rejectLeftoverTransaction(): void {
+  private endLeftoverTransaction(hasSucceeded: boolean): void {
     const transaction = this.transaction;
     const isLeftOver =
       transaction !== null && this.options.callScopedTransactions === true;
     if (!isLeftOver) return;
     this.transaction = null;
     transaction.rollback();
+    if (!hasSucceeded) return;
     throw new MisuseError(
       "a call on a shared connection must end the transaction it begins; it was rolled back",
     );
@@ -228,7 +248,7 @@ export class SessionCore {
     const transaction = await this.beginForScript(steps, signal);
     try {
       const results = await eachStep(steps, (step) =>
-        runPlanned(transaction, step, undefined),
+        transaction.run(step, NO_PARAMETERS),
       );
       transaction.commit();
       return results;
@@ -245,7 +265,7 @@ export class SessionCore {
     const before = this.transaction;
     try {
       return await eachStep(steps, async (step) =>
-        this.runOne(step, undefined, signal),
+        this.runOne(step, NO_PARAMETERS, signal),
       );
     } catch (error) {
       this.endBegunSince(before);
@@ -309,7 +329,7 @@ export class SessionCore {
     const transaction = await Transaction.begin(this.host, mode, signal);
     let result: Result;
     try {
-      result = runPlanned(transaction, step, parameters);
+      result = transaction.run(step, parameters);
     } catch (error) {
       transaction.rollback();
       throw error;
@@ -333,7 +353,7 @@ export class SessionCore {
       checkParameters(step.plan(transaction.schema), parameters);
       await transaction.makeWritable(signal);
     }
-    return runPlanned(transaction, step, parameters);
+    return transaction.run(step, parameters);
   }
 
   // -------------------------------------------------------------------------
@@ -413,17 +433,6 @@ export class SessionCore {
       pages.end();
     }
   }
-}
-
-/** Plans `step` against the transaction's schema and runs it. */
-function runPlanned(
-  transaction: Transaction,
-  step: Step,
-  parameters: ParameterValues,
-): Result {
-  const planned = step.plan(transaction.schema);
-  checkParameters(planned, parameters);
-  return transaction.run(planned, parameters ?? []);
 }
 
 function isControl(statement: Statement): statement is TransactionStatement {

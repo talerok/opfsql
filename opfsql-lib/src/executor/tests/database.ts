@@ -13,7 +13,7 @@ import {
   WritableTables,
 } from "../../table/index.js";
 import { Database } from "../../table/tests/database.js";
-import type { Value } from "../../values/index.js";
+import { parametersOf, type Value } from "../../values/index.js";
 import {
   runQuery,
   runWrite,
@@ -103,7 +103,12 @@ export class TestDatabase {
     };
     return this.database.reading((pages) => {
       const tables = new Tables(pages, this.database.schema);
-      const rows = runQuery(statement, tables, parameters, checkpoint);
+      const rows = runQuery(
+        statement,
+        tables,
+        parametersOf(parameters),
+        checkpoint,
+      );
       return rows.map((row) => [...row]);
     });
   }
@@ -115,7 +120,11 @@ export class TestDatabase {
   ): WriteOutcome {
     const keys = new IndexKeys(this.database.schema, this.compile);
     return this.database.writing((pages) =>
-      runWrite(statement, new WritableTables(pages, keys), parameters),
+      runWrite(
+        statement,
+        new WritableTables(pages, keys),
+        parametersOf(parameters),
+      ),
     );
   }
 }

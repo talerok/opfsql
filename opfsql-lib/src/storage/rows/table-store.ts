@@ -1,6 +1,7 @@
 import { InternalError, RowTooLargeError } from "../../errors.js";
 import {
-  isJsonComposite,
+  copyValue,
+  isMutable,
   type JsonComposite,
   type Value,
 } from "../../values/index.js";
@@ -50,10 +51,11 @@ export interface TupleLayout {
   /** Positions that repeat a field already placed: [from, to]. */
   readonly repeats: readonly (readonly [number, number])[];
   /**
-   * The defaults that are JSON objects or arrays, by position: a tuple that
-   * keeps one gets a copy, its own as a value decoded from its record is.
+   * The defaults its holder could change — BLOBs, JSON objects and arrays —
+   * by position: a tuple that keeps one gets a copy, its own as a value
+   * decoded from its record is.
    */
-  readonly jsonDefaults: readonly (readonly [number, JsonComposite])[];
+  readonly mutableDefaults: readonly (readonly [number, MutableValue])[];
 }
 
 /**
@@ -76,14 +78,18 @@ export function tupleLayout(
     if (placed === undefined) places[field] = position;
     else repeats.push([placed, position]);
   }
-  const jsonDefaults = jsonDefaultsOf(defaults);
-  return { defaults, places, rowids, repeats, jsonDefaults };
+  const mutableDefaults = mutableDefaultsOf(defaults);
+  return { defaults, places, rowids, repeats, mutableDefaults };
 }
 
-function jsonDefaultsOf(defaults: readonly Value[]): [number, JsonComposite][] {
-  const found: [number, JsonComposite][] = [];
+type MutableValue = Uint8Array | JsonComposite;
+
+function mutableDefaultsOf(
+  defaults: readonly Value[],
+): [number, MutableValue][] {
+  const found: [number, MutableValue][] = [];
   for (const [position, value] of defaults.entries()) {
-    if (isJsonComposite(value)) found.push([position, value]);
+    if (isMutable(value)) found.push([position, value]);
   }
   return found;
 }
@@ -234,10 +240,8 @@ export class TableReader {
     const hasOverflow = decodeInto(record, layout.places, tuple);
     for (const position of layout.rowids) tuple[position] = rowid;
     for (const [from, to] of layout.repeats) tuple[to] = tuple[from] ?? null;
-    for (const [position, fallback] of layout.jsonDefaults) {
-      if (tuple[position] === fallback) {
-        tuple[position] = structuredClone(fallback);
-      }
+    for (const [position, fallback] of layout.mutableDefaults) {
+      if (tuple[position] === fallback) tuple[position] = copyValue(fallback);
     }
     // Without an overflow reference among them, every field is a Value.
     if (!hasOverflow) return tuple as Value[];

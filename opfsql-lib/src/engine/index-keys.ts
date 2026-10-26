@@ -9,6 +9,7 @@ import { bindIndexKey } from "../sql/binder/index.js";
 import type { KeyBinder } from "../sql/optimizer/index.js";
 import { type Expression, nodesOf, positions } from "../sql/plan/index.js";
 import { type CompileExpression, IndexKeys } from "../table/index.js";
+import { NO_PARAMETERS } from "../values/index.js";
 
 // ---------------------------------------------------------------------------
 // Index keys that are expressions are stored as SQL text (docs/planning.md,
@@ -32,7 +33,7 @@ export const compileIndexKey: CompileExpression = (sql, table) => {
   const scope: Scope = {
     layout: positions(KEY_TABLE, table.columns.length),
     outerLayouts: [],
-    run: createRun([], { compile: refuseSubquery }),
+    run: createRun(NO_PARAMETERS, { compile: refuseSubquery }),
   };
   return compileExpression(expression, scope);
 };

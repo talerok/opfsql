@@ -20,7 +20,7 @@ import {
   type TableEditor,
   type WritableTables,
 } from "../../table/index.js";
-import type { Value } from "../../values/index.js";
+import { copyValue, isMutable, type Value } from "../../values/index.js";
 import { compilePlan } from "../compile.js";
 import { type Context, scopeOf } from "../context.js";
 import { drain, EVERY_ROW, pull } from "../operator.js";
@@ -89,14 +89,23 @@ function insertEach(
   return { changes, lastInsertRowid };
 }
 
-/** A source row as a row of the table: the columns it fills, defaults in the rest. */
+/**
+ * A source row as a row of the table: the columns it fills, defaults in the
+ * rest. A BLOB or JSON default is the schema's own value: each row takes a
+ * copy of it.
+ */
 function compileNewRow(
   table: Table,
   columns: readonly number[],
 ): (source: Tuple) => Value[] {
   const defaults = table.columns.map((column) => column.defaultValue);
+  const filled = new Set(columns);
+  const copied = [...defaults.entries()].filter(
+    ([column, value]) => isMutable(value) && !filled.has(column),
+  );
   return (source) => {
     const values = [...defaults];
+    for (const [column, value] of copied) values[column] = copyValue(value);
     for (const [position, column] of columns.entries()) {
       values[column] = source[position] ?? null;
     }

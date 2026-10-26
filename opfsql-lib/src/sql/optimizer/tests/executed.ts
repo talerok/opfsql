@@ -9,7 +9,7 @@ import {
   type TableRows,
 } from "../../../table/index.js";
 import { Database } from "../../../table/tests/database.js";
-import type { Value } from "../../../values/index.js";
+import { parametersOf, type Value } from "../../../values/index.js";
 import type { physical } from "../../plan/index.js";
 import { schema } from "./builders.js";
 import type { Tables } from "./scans.js";
@@ -61,7 +61,7 @@ export class SampleDatabase {
     } as const;
     return this.database.reading((pages) => {
       const tables = new ByName(pages, this.database.schema);
-      return runQuery(statement, tables, parameters);
+      return runQuery(statement, tables, parametersOf(parameters));
     });
   }
 }

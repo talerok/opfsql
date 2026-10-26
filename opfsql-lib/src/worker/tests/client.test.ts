@@ -1,6 +1,7 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectGarbage } from "../../../test/support/gc.js";
+import type { SessionContract } from "../../engine/api/index.js";
 import { Engine, engineContract, Result } from "../../engine/index.js";
 import { createEngine } from "../../engine/engine.js";
 import {
@@ -11,6 +12,7 @@ import {
   MisuseError,
   SemanticError,
   SqlSyntaxError,
+  WorkerError,
 } from "../../errors.js";
 import { MemoryFile } from "../../storage/file/sync-file.js";
 import { type Database, openDatabase } from "../client.js";
@@ -160,14 +162,14 @@ describe("a database served by a worker", () => {
     await holder.query("BEGIN IMMEDIATE");
     const pending = expect(
       database.query("INSERT INTO t VALUES (1)"),
-    ).rejects.toThrow(InternalError);
+    ).rejects.toThrow(WorkerError);
 
     worker.crash("out of memory");
     await pending;
     await expect(database.query("SELECT 1")).rejects.toThrow(/out of memory/);
-    await expect(database.query("SELECT 1")).rejects.toBeInstanceOf(
-      InternalError,
-    );
+    await expect(database.query("SELECT 1")).rejects.toMatchObject({
+      code: "WORKER_ERROR",
+    });
     expect(worker.isTerminated).toBe(true);
   });
 
@@ -175,6 +177,21 @@ describe("a database served by a worker", () => {
     const { database, worker } = await open();
     worker.garble();
     await expect(database.query("SELECT 1")).rejects.toThrow(/unreadable/);
+    await expect(database.query("SELECT 1")).rejects.toBeInstanceOf(
+      WorkerError,
+    );
+  });
+
+  it("reports a DOMException as the engine does: IO_ERROR, not INTERNAL", async () => {
+    const refusal = new DOMException("the files are locked", "NotAllowedError");
+    // Opening fails the way a file API does, after a while.
+    const worker = startTestWorker(async () => {
+      await tick();
+      throw refusal;
+    });
+    await expect(
+      openDatabase(`client-${String(seq++)}`, { worker }),
+    ).rejects.toMatchObject({ code: "IO_ERROR", name: "IoError" });
   });
 
   it("refuses parameters that cannot cross to the worker, and goes on working", async () => {
@@ -184,6 +201,15 @@ describe("a database served by a worker", () => {
       database.query("SELECT $1", [notAValue]),
     ).rejects.toBeInstanceOf(MisuseError);
     expect(await rowsOf(database.query("SELECT 1 AS one"))).toEqual([[1]]);
+  });
+
+  it("refuses values that cross but are not values, as the engine does", async () => {
+    const { database } = await open();
+    const date = new Date(0) as unknown as string;
+    await expect(database.query("SELECT $1", [date])).rejects.toMatchObject({
+      name: "MisuseError",
+      message: expect.stringMatching(/^parameter \$1 is a Date/) as unknown,
+    });
   });
 
   it("closes once, settling what waits, terminating the worker", async () => {
@@ -288,6 +314,37 @@ describe("connections", () => {
     ).toEqual([[2], [3]]);
   });
 
+  it("run their calls in the order their messages arrived, whatever is awaited on the way", async () => {
+    // Each query waits before it reaches the session, the earlier ones
+    // longer: only the host's queue keeps the later ones from overtaking.
+    const waits: number[] = [];
+    const worker = startTestWorker(async (name, options) => {
+      const contract = engineContract(await Engine.open(name, options));
+      return {
+        ...contract,
+        connect: (sessionOptions) =>
+          waitingBeforeQuery(contract.connect(sessionOptions), waits),
+      };
+    });
+    const database = await openDatabase(`client-${String(seq++)}`, {
+      worker,
+    });
+    opened.push(database);
+    await database.execute(
+      "CREATE TABLE log (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)",
+    );
+    const connection = await database.connect();
+    waits.push(60, 30, 0);
+    await Promise.all(
+      ["first", "second", "third"].map(async (v) =>
+        connection.query("INSERT INTO log (v) VALUES ($1)", [v]),
+      ),
+    );
+    expect(
+      await rowsOf(database.query("SELECT v FROM log ORDER BY id")),
+    ).toEqual([["first"], ["second"], ["third"]]);
+  });
+
   it("can be cancelled while waiting for the lock", async () => {
     const { database } = await open({ busyTimeout: Infinity });
     await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
@@ -318,9 +375,14 @@ describe("connections", () => {
     const waiting = expect(
       waiter.query("INSERT INTO t VALUES (1)"),
     ).rejects.toBeInstanceOf(AbortError);
+    // Queued behind it, in the worker: closing fails it too, unrun.
+    const queued = expect(
+      waiter.query("INSERT INTO t VALUES (3)"),
+    ).rejects.toBeInstanceOf(AbortError);
     await tick();
     await waiter.close();
     await waiting;
+    await queued;
     await expect(waiter.query("SELECT 1")).rejects.toBeInstanceOf(MisuseError);
 
     await holder.query("ROLLBACK");
@@ -510,7 +572,10 @@ describe("the worker's life cycle", () => {
     const worker = startSilentWorker();
     const opening = expect(
       openDatabase(`client-${String(seq++)}`, { worker }),
-    ).rejects.toThrow(/serveDatabase/);
+    ).rejects.toMatchObject({
+      code: "WORKER_ERROR",
+      message: expect.stringMatching(/serveDatabase/) as unknown,
+    });
     await vi.advanceTimersByTimeAsync(START_TIMEOUT);
     await opening;
     expect(worker.isTerminated).toBe(true);
@@ -563,3 +628,26 @@ describe("the database's own calls", () => {
     ]);
   });
 });
+
+/**
+ * `session`, with an await before each query reaches it: the next of
+ * `waits`, in ms, while there are any.
+ */
+function waitingBeforeQuery(
+  session: SessionContract,
+  waits: number[],
+): SessionContract {
+  return {
+    query: async (...call) => {
+      await new Promise((resolve) => setTimeout(resolve, waits.shift() ?? 0));
+      return session.query(...call);
+    },
+    execute: async (...call) => session.execute(...call),
+    prepare: async (...call) => session.prepare(...call),
+    begin: async (...call) => session.begin(...call),
+    commit: async (...call) => session.commit(...call),
+    rollback: async (...call) => session.rollback(...call),
+    schema: async (...call) => session.schema(...call),
+    close: async () => session.close(),
+  };
+}

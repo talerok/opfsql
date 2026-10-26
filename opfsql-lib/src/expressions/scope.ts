@@ -1,6 +1,6 @@
 import { InternalError } from "../errors.js";
 import type { ColumnBinding, physical } from "../sql/plan/index.js";
-import { normalizeValue, type Value } from "../values/index.js";
+import type { ParameterValues, Value } from "../values/index.js";
 
 // ---------------------------------------------------------------------------
 // What compiling an expression knows, and what running it reads. Compiling
@@ -36,8 +36,8 @@ export interface Scope extends QueryContext {
 
 /** What one run of a statement gives every expression compiled for it. */
 export interface Run {
-  /** The run's parameters, normalized as values are when stored. */
-  readonly parameters: readonly Value[];
+  /** The run's parameters, checked and normalized where they came in. */
+  readonly parameters: ParameterValues;
   /** The executor's compiler for the subqueries in the run's expressions. */
   readonly subqueries: SubqueryCompiler;
   /** The rows of the enclosing queries while correlated subqueries run. */
@@ -112,17 +112,16 @@ export class OuterRows {
 
 /**
  * A run with `parameters`, the executor's subquery compiler and the engine's
- * checkpoint, which does nothing unless given. The parameters are normalized
- * here, the one place they are: NaN becomes NULL and -0 becomes 0, as in a
- * stored value.
+ * checkpoint, which does nothing unless given. The parameters were checked
+ * and normalized where they came in (values' parametersOf): the type says so.
  */
 export function createRun(
-  parameters: readonly Value[],
+  parameters: ParameterValues,
   subqueries: SubqueryCompiler,
   checkpoint: () => void = runToTheEnd,
 ): Run {
   return {
-    parameters: parameters.map((parameter) => normalizeValue(parameter)),
+    parameters,
     subqueries,
     outer: new OuterRows(),
     checkpoint,

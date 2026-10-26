@@ -53,17 +53,17 @@ they guard.
 | A cursor, a row or an overflow reference read from a tree lives until that tree is changed or rolled back in the same transaction | by check: a change count per tree, which cursors and rows compare                                                                                                                                                |
 | The allocation map never frees a free page nor hands out one in use                                                               | by check: CORRUPT                                                                                                                                                                                                |
 | Each statement of a write transaction runs in a savepoint; a failure rolls back to it (docs/planning.md, Execution)               | by construction, in the engine                                                                                                                                                                                   |
-| The schema cache holds committed schemas only                                                                                     | by check: a snapshot with uncommitted changes is refused                                                                                                                                                         |
+| The schema cache holds committed schemas only                                                                                     | by check: a transaction with changes of its own (`hasChanges()`) is refused                                                                                                                                      |
 
 ## Engine ↔ SQL pipeline
 
-| Contract                                                                                              | Enforced                                                        |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| A statement is planned for one schema and runs only against it                                        | by check: the planned statement carries its schema              |
-| A prepared statement is planned again when the schema version moves                                   | by construction: the plan cache is keyed by schema              |
-| Parameters are values as docs/semantics.md defines them, normalized, and as many as the statement has | by check at the call: anything else is MISUSE; BLOBs are copied |
-| BEGIN, COMMIT and ROLLBACK never reach the binder                                                     | by construction                                                 |
-| Binding and optimizing see the same schema; index keys are bound one way for both                     | by construction: one call site, one key binder                  |
+| Contract                                                                                              | Enforced                                                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A statement is planned for one schema and runs only against it                                        | by construction: a transaction plans what it runs, against its own schema                                                                                                        |
+| A prepared statement is planned again when the schema version moves                                   | by construction: the plan cache is keyed by schema                                                                                                                               |
+| Parameters are values as docs/semantics.md defines them, normalized, and as many as the statement has | by check at the call (`parametersOf`): anything else is MISUSE, and BLOBs and JSON are copied; by type below it: a run takes only `ParameterValues`, which only that check makes |
+| BEGIN, COMMIT and ROLLBACK never reach the binder                                                     | by construction                                                                                                                                                                  |
+| Binding and optimizing see the same schema; index keys are bound one way for both                     | by construction: one call site, one key binder                                                                                                                                   |
 
 ## Executor ↔ table
 
@@ -110,18 +110,19 @@ sources make that so, so results need no copying of their own:
 
 ## Errors
 
-| Layer          | Raises                                                                                        |
-| -------------- | --------------------------------------------------------------------------------------------- |
-| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE               |
-| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                      |
-| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT |
-| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows), MISUSE               |
-| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE                                                  |
-| any            | INTERNAL: a broken contract                                                                   |
+| Layer          | Raises                                                                                                           |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE                                  |
+| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                                         |
+| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT                    |
+| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows), MISUSE                                  |
+| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE; IO_ERROR when a lock request fails                                 |
+| worker         | WORKER_ERROR (a worker that crashed or did not start, a message that could not be read or sent), MISUSE, ABORTED |
+| any            | INTERNAL: a broken contract                                                                                      |
 
 Errors from the platform — a DOMException from a file or a lock — become
-opfsql errors in one function, used by the engine and the worker host
-alike. An error object is never shared between calls: one kept to be thrown
+opfsql errors in one function, `toOpfsqlError` in `errors.ts`, used by the
+engine and the worker host alike. An error object is never shared between calls: one kept to be thrown
 again is thrown as the cause of a new one.
 
 ## Where the code is not there yet
@@ -129,19 +130,4 @@ again is thrown as the cause of a new one.
 Found by an audit of every boundary (2026-10-26). Each item goes when its
 fix lands; the labels stay as they were.
 
-- **G5. Parameters are not checked.** Typed arrays other than `Uint8Array`,
-  `ArrayBuffer`, `Date`, `Map`, BigInt and `undefined` slip through or fail
-  as INTERNAL.
-- **G6. A planned statement does not carry its schema**; only its one caller
-  pairs them.
-- **G7. The schema cache accepts a write transaction's snapshot.**
-- **G8. BLOB defaults and BLOB constants are shared**, and so are defaults an
-  INSERT fills in or the schema description hands out; results copy BLOBs per
-  row instead. (A row read from a record already copies a JSON default.)
-- **G9. Call order on a connection relies on no `await`** before the queue.
-- **G10. A failing call on the shared connection** can leave its transaction
-  open.
-- **G15. Errors are translated in two places** that disagree on a DOMException;
-  INTERNAL also covers a crashed worker and a failed lock request.
-- **G18. `close()` does not wait** for the background release of abandoned read
-  marks.
+None is left: every gap the audit found has been closed.

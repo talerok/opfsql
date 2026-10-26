@@ -1,7 +1,7 @@
 import { InternalError } from "../../errors.js";
 import { physical } from "../../sql/plan/index.js";
 import type { ColumnReference } from "../../sql/plan/index.js";
-import type { Value } from "../../values/index.js";
+import { parametersOf, type Value } from "../../values/index.js";
 import {
   compileExpression,
   compilePredicate,
@@ -47,7 +47,7 @@ export interface Options {
 export function scopeOf(options: Options = {}): Scope {
   const subqueries = options.subqueries ?? fakeExecutor();
   return {
-    run: createRun(options.parameters ?? [], subqueries),
+    run: createRun(parametersOf(options.parameters), subqueries),
     outerLayouts: [],
     layout: options.layout ?? LAYOUT,
   };

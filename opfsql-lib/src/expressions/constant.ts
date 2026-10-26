@@ -1,6 +1,6 @@
 import { InternalError } from "../errors.js";
 import { type Expression, nodesOf } from "../sql/plan/index.js";
-import type { Value } from "../values/index.js";
+import { NO_PARAMETERS, type Value } from "../values/index.js";
 import { compileExpression } from "./compile.js";
 import { createRun, type Scope } from "./scope.js";
 
@@ -8,7 +8,7 @@ import { createRun, type Scope } from "./scope.js";
 const CONSTANT_SCOPE: Scope = {
   layout: [],
   outerLayouts: [],
-  run: createRun([], {
+  run: createRun(NO_PARAMETERS, {
     compile: () => {
       throw new InternalError("a constant expression compiled a subquery");
     },

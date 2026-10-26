@@ -136,6 +136,20 @@ describe("savepoints", () => {
     expect(fingerprint(transaction)).toBe(start);
   });
 
+  it("leave a transaction without changes when they undo all it had", async () => {
+    const { pager, transaction } = await withPages();
+    expect(transaction.hasChanges()).toBe(false);
+    const savepoint = transaction.savepoint();
+    mark(transaction, 3, 1);
+    transaction.allocate();
+    expect(transaction.hasChanges()).toBe(true);
+    transaction.rollbackTo(savepoint);
+    expect(transaction.hasChanges()).toBe(false);
+    const reader = beginRead(pager);
+    expect(reader.hasChanges()).toBe(false);
+    reader.end();
+  });
+
   it("refuse a savepoint that is no longer open", async () => {
     const { transaction } = await withPages();
     const savepoint = transaction.savepoint();

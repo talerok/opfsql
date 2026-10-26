@@ -1,4 +1,10 @@
-import { AbortError, MisuseError, type OpfsqlError } from "../errors.js";
+import { linkSignals, TaskQueue } from "../async/index.js";
+import {
+  AbortError,
+  MisuseError,
+  type OpfsqlError,
+  toOpfsqlError,
+} from "../errors.js";
 import {
   openOpfsFiles,
   openPager,
@@ -15,9 +21,6 @@ import { checkIntegrity } from "./integrity.js";
 import { SchemaCache } from "./schemas.js";
 import { SessionCore, type SessionHost } from "./session-core.js";
 import { Session } from "./session.js";
-import { linkSignals } from "./signals.js";
-import { TaskQueue } from "./task-queue.js";
-import { toOpfsqlError } from "./translate-error.js";
 
 const DEFAULT_BUSY_TIMEOUT = 5000;
 
@@ -140,7 +143,7 @@ export class Engine implements AsyncDisposable {
     );
     this.lifetime.abort(new AbortError("the database was closed"));
     await this.tasks.idle();
-    this.database.close();
+    await this.database.close();
     this.state = "closed";
     const failure = closed.find((outcome) => outcome.status === "rejected");
     if (failure !== undefined) throw toOpfsqlError(failure.reason);

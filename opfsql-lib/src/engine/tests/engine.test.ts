@@ -1,6 +1,7 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MisuseError } from "../../errors.js";
+import type { Value } from "../../values/index.js";
 import { bindStatement } from "../../sql/binder/index.js";
 import type * as BinderModule from "../../sql/binder/index.js";
 import { Engine, PreparedStatement, type Session } from "../index.js";
@@ -970,6 +971,49 @@ describe("parameters: count and conversion", () => {
     ).rejects.toMatchObject({ code: "MISUSE" });
   });
 
+  it("fails with MISUSE for a value that is not one, before running anything", async () => {
+    await parameterTable();
+    const prepared = await session.prepare(
+      "INSERT INTO t (id, m) VALUES ($1, $2)",
+    );
+    // What a JavaScript caller can pass, whatever the types say.
+    const notValues = [
+      new Date(0),
+      new Map(),
+      10n,
+      undefined,
+      new Int8Array(1),
+    ];
+    for (const bad of notValues as unknown as Value[]) {
+      await expect(
+        session.query("INSERT INTO t (id, m) VALUES ($1, $2)", [50, bad]),
+      ).rejects.toMatchObject({ code: "MISUSE", message: /^parameter \$2 / });
+      await expect(prepared.query([51, bad])).rejects.toMatchObject({
+        code: "MISUSE",
+      });
+    }
+    const [count] = await session.execute(
+      "SELECT count(*) FROM t WHERE id >= 50",
+    );
+    expect(count.rows).toEqual([[0]]);
+  });
+
+  it("copies parameters at the call: a BLOB changed while the call waits is stored as it was", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE b (id INTEGER PRIMARY KEY, data BLOB)");
+    await session.begin({ mode: "immediate" });
+    const other = engine.connect();
+    const blob = new Uint8Array([1, 2, 3]);
+    // Waits for the lock the open transaction holds.
+    const insert = other.query("INSERT INTO b VALUES (1, $1)", [blob]);
+    blob.fill(0);
+    await session.commit();
+    await insert;
+    const [stored] = await session.execute("SELECT data FROM b");
+    expect(stored.rows).toEqual([[new Uint8Array([1, 2, 3])]]);
+    await other.close();
+  });
+
   it("fails with MISUSE for more parameters than a statement uses", async () => {
     // As in SQLite, where binding past the last parameter is SQLITE_RANGE.
     await parameterTable();
@@ -1260,6 +1304,25 @@ describe("schema changes", () => {
 });
 
 describe("schema()", () => {
+  it("hands out copies of BLOB and JSON defaults, which the caller may change", async () => {
+    await createEngine();
+    await session.execute(
+      `CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB DEFAULT x'0102', tags JSON DEFAULT '["a"]')`,
+    );
+    const first = await session.schema();
+    const [, data, tags] = first.tables[0].columns;
+    (data.defaultValue as Uint8Array).fill(0);
+    (tags.defaultValue as string[]).push("changed");
+
+    const second = await session.schema();
+    expect(
+      second.tables[0].columns.map((column) => column.defaultValue),
+    ).toEqual([null, new Uint8Array([1, 2]), ["a"]]);
+    await session.execute("INSERT INTO t (id) VALUES (1)");
+    const [row] = await session.execute("SELECT data, tags FROM t");
+    expect(row.rows).toEqual([[new Uint8Array([1, 2]), ["a"]]]);
+  });
+
   it("describes columns from the model, leaving out opfsql's own tables", async () => {
     await createEngine();
     await session.execute(`
@@ -1375,6 +1438,23 @@ describe("prepared statements", () => {
     await statement.query([1]);
     await statement.query([2]);
     expect(binds).toHaveBeenCalledTimes(1);
+  });
+
+  it("run against the schema of the transaction they run in, its own DDL included", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    await session.execute("INSERT INTO t VALUES (1)");
+    const statement = await session.prepare("SELECT * FROM t");
+
+    await session.begin();
+    await session.execute("ALTER TABLE t ADD COLUMN v TEXT DEFAULT 'x'");
+    const inside = await statement.query();
+    expect(inside.columns).toEqual(["id", "v"]);
+    await session.rollback();
+
+    const after = await statement.query();
+    expect(after.columns).toEqual(["id"]);
+    expect(after.rows).toEqual([[1]]);
   });
 
   it("fail with the binding error when the schema change broke them", async () => {

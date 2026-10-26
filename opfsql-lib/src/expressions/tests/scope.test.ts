@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { InternalError } from "../../errors.js";
+import { NO_PARAMETERS } from "../../values/index.js";
 import { createRun } from "../index.js";
 import { fakeExecutor } from "./harness.js";
 
 describe("OuterRows", () => {
   it("sets aside the rows above a level while an action runs, and restores them", () => {
-    const { outer } = createRun([], fakeExecutor());
+    const { outer } = createRun(NO_PARAMETERS, fakeExecutor());
     const seen = outer.within(["level 0 row"], () =>
       outer.within(["level 1 row"], () => {
         const atLevel1 = outer.atLevel(1, () => outer.at(1));
@@ -22,10 +23,10 @@ describe("OuterRows", () => {
 describe("createRun", () => {
   it("gives a checkpoint that does nothing unless the engine passes one", () => {
     expect(() => {
-      createRun([], fakeExecutor()).checkpoint();
+      createRun(NO_PARAMETERS, fakeExecutor()).checkpoint();
     }).not.toThrow();
     let checkpoints = 0;
-    createRun([], fakeExecutor(), () => {
+    createRun(NO_PARAMETERS, fakeExecutor(), () => {
       checkpoints++;
     }).checkpoint();
     expect(checkpoints).toBe(1);
