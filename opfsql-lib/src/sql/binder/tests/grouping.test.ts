@@ -179,6 +179,40 @@ describe("GROUP BY", () => {
     );
   });
 
+  it("binds a named item once, and the select list reads its group", () => {
+    const correlated = lines(
+      "project #7 (group1#5.0, count(*)#6.0)",
+      "  aggregate #5 (subquery(1)) #6 (count(*))",
+      "    subquery(1, correlated): project #4 (max(o.total)#3.0)",
+      "      aggregate #2 () #3 (max(total#1.2))",
+      "        filter (user_id#1.1 = id#0.0^1)",
+      "          get #1 orders (id, user_id, total, status)",
+      "    get #0 users (id, name, age, email, data)",
+    );
+    const item =
+      "SELECT (SELECT max(o.total) FROM orders o WHERE o.user_id = u.id) AS m, count(*) FROM users u";
+    expect(plan(`${item} GROUP BY 1`)).toBe(correlated);
+    expect(plan(`${item} GROUP BY m`)).toBe(correlated);
+    expect(query(`${item} GROUP BY m`).columns).toEqual([
+      { name: "m", type: "REAL" },
+      { name: "count(*)", type: "INTEGER" },
+    ]);
+  });
+
+  it("computes a volatile item once per group", () => {
+    expect(
+      plan("SELECT (SELECT random()) AS r, count(*) FROM users GROUP BY 1"),
+    ).toBe(
+      lines(
+        "project #5 (group1#3.0, count(*)#4.0)",
+        "  aggregate #3 (subquery(1)) #4 (count(*))",
+        "    subquery(1): project #2 (random())",
+        "      values #1 ()",
+        "    get #0 users (id, name, age, email, data)",
+      ),
+    );
+  });
+
   it("prefers a column of the FROM to an alias", () => {
     expect(
       semanticError("SELECT age AS name, count(*) FROM users GROUP BY name"),

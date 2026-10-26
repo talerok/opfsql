@@ -21,7 +21,12 @@ import {
   type Output,
 } from "./order-by.js";
 import type { BoundQuery, Scope } from "./scope.js";
-import { itemName, selectItems, type SelectItem } from "./select-list.js";
+import {
+  aliasOf,
+  itemName,
+  selectItems,
+  type SelectItem,
+} from "./select-list.js";
 import { checkCondition } from "./type-rules.js";
 
 // ---------------------------------------------------------------------------
@@ -38,6 +43,8 @@ type Plan = logical.Plan;
 interface Aggregation {
   readonly collector: AggregateCollector;
   readonly grouping: Grouping;
+  /** For a select item GROUP BY named by position or alias: its group. */
+  readonly groupOfItem: ReadonlyMap<number, number>;
 }
 
 export function bindSelect(
@@ -51,7 +58,9 @@ export function bindSelect(
     ? startAggregation(node, items, scope)
     : null;
   const above = aboveFrom(scope, aggregation);
-  const outputs = items.map((item) => bindOutput(item, above));
+  const outputs = items.map((item, position) =>
+    bindOutput(item, position, above),
+  );
   const having = node.having === null ? null : bindHaving(node.having, above);
   const ordering = orderColumns(orderBy, outputs, {
     allowsExtras: !node.isDistinct,
@@ -81,9 +90,10 @@ function startAggregation(
 ): Aggregation {
   const groups = bindGroups(node.groupBy, items, scope);
   const tables = new Set(scope.relations.map((item) => item.tableIndex));
-  const grouping = new Grouping(groups, scope.context.newIndex(), tables);
+  const groupIndex = scope.context.newIndex();
+  const grouping = new Grouping(groups.expressions, groupIndex, tables);
   const collector = new AggregateCollector(scope.context.newIndex());
-  return { collector, grouping };
+  return { collector, grouping, groupOfItem: groups.ofItem };
 }
 
 /**
@@ -93,6 +103,8 @@ function startAggregation(
 interface Above {
   bind(expression: ParsedExpression): Expression;
   lift(expression: Expression): Expression;
+  /** The group column of select item `item`, if GROUP BY named the item. */
+  groupOf(item: number): Expression | null;
 }
 
 function aboveFrom(scope: Scope, aggregation: Aggregation | null): Above {
@@ -101,17 +113,30 @@ function aboveFrom(scope: Scope, aggregation: Aggregation | null): Above {
     return {
       bind: (expression) => clause.bind(expression),
       lift: (expression) => expression,
+      groupOf: () => null,
     };
   }
-  const { collector, grouping } = aggregation;
+  const { collector, grouping, groupOfItem } = aggregation;
   const clause = clauseOf(scope, { kind: "collect", collector });
   return {
     bind: (expression) => grouping.rewrite(clause.bind(expression)),
     lift: (expression) => grouping.rewrite(expression),
+    groupOf: (item) => {
+      const group = groupOfItem.get(item);
+      return group === undefined ? null : grouping.column(group);
+    },
   };
 }
 
-function bindOutput(item: SelectItem, above: Above): Output {
+function bindOutput(item: SelectItem, position: number, above: Above): Output {
+  const group = above.groupOf(position);
+  if (group !== null) {
+    return {
+      expression: group,
+      name: itemName(item, group),
+      alias: aliasOf(item),
+    };
+  }
   if (item.kind === "column") {
     const expression = above.lift(item.column);
     return { expression, name: item.column.name, alias: null };

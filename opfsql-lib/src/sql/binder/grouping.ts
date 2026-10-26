@@ -60,6 +60,13 @@ export class Grouping {
     private readonly fromTables: ReadonlySet<number>,
   ) {}
 
+  /** Group `group`'s column above the aggregate. */
+  column(group: number): ColumnReference | null {
+    const expression = this.groups[group];
+    if (expression === undefined) return null;
+    return this.groupColumn(group, expression, 0);
+  }
+
   /**
    * `expression`, bound over the FROM, as it reads above the aggregate:
    * groups become the group columns, `depth` levels out inside subqueries.
