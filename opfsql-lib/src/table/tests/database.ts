@@ -8,6 +8,7 @@ import type {
 import { constraintIndexName, Schema } from "../../schema/index.js";
 import type {
   Pager,
+  ReadTransaction,
   StoredSchemaEntry,
   WriteTransaction,
 } from "../../storage/index.js";
@@ -16,7 +17,12 @@ import {
   openPager,
   readSchemaTable,
 } from "../../storage/index.js";
-import { memoryFiles, read, write } from "../../storage/tests/pager-support.js";
+import {
+  beginWrite,
+  memoryFiles,
+  read,
+  write,
+} from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
 import type { CompileExpression } from "../index.js";
 import {
@@ -87,6 +93,27 @@ export class Database {
     return write(this.pager, (transaction) =>
       work(new Catalog(transaction, this.schema, this.compile), transaction),
     );
+  }
+
+  /** What `query` returns, run in a read transaction. */
+  reading<T>(query: (transaction: ReadTransaction) => T): T {
+    return read(this.pager, query);
+  }
+
+  /**
+   * What `change` returns, run in a write transaction: committed if it
+   * succeeds, rolled back if it fails.
+   */
+  writing<T>(change: (transaction: WriteTransaction) => T): T {
+    const transaction = beginWrite(this.pager);
+    try {
+      const result = change(transaction);
+      transaction.commit();
+      return result;
+    } catch (error) {
+      transaction.rollback();
+      throw error;
+    }
   }
 
   insert(table: Table, rows: Value[][]): void {

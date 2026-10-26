@@ -3,6 +3,7 @@ import type { Table } from "../schema/index.js";
 import type { PageReader, StoredRow } from "../storage/index.js";
 import { TableReader } from "../storage/index.js";
 import type { Value } from "../values/index.js";
+import type { KeyOrder } from "./index-rows.js";
 
 /**
  * A stored row as its table sees it: the rowid column holds the rowid, and
@@ -61,6 +62,46 @@ export class TableRows {
   *scan(from?: number): Generator<TableRow> {
     for (const row of this.stored.scan(from)) {
       yield new TableRow(row, this.table);
+    }
+  }
+
+  /**
+   * Rows whose rowid is from `first` to `last`, both included, in rowid
+   * order or its reverse: -Infinity and Infinity leave an end open.
+   */
+  *rowsBetween(
+    first: number,
+    last: number,
+    order: KeyOrder = "ascending",
+  ): Generator<TableRow> {
+    const isEmpty = first === Infinity || last === -Infinity || first > last;
+    if (isEmpty) return;
+    if (order === "ascending") yield* this.upward(first, last);
+    else yield* this.downward(first, last);
+  }
+
+  /** Rows in reverse rowid order, from the last below `before` (or the last). */
+  *scanBackward(before?: number): Generator<TableRow> {
+    for (const row of this.stored.scanBackward(before)) {
+      yield new TableRow(row, this.table);
+    }
+  }
+
+  /** Rows from `first` up to `last`. */
+  private *upward(first: number, last: number): Generator<TableRow> {
+    const from = first === -Infinity ? undefined : first;
+    for (const row of this.scan(from)) {
+      if (row.rowid > last) return;
+      yield row;
+    }
+  }
+
+  /** Rows from `last` down to `first`. */
+  private *downward(first: number, last: number): Generator<TableRow> {
+    const before = last === Infinity ? undefined : Math.floor(last) + 1;
+    for (const row of this.scanBackward(before)) {
+      if (row.rowid < first) return;
+      yield row;
     }
   }
 }

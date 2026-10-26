@@ -6,6 +6,7 @@ import {
   InternalError,
 } from "../errors.js";
 import type { Column, Index, Table } from "../schema/index.js";
+import { isSameName } from "../schema/index.js";
 import type { PageWriter } from "../storage/index.js";
 import { encodeKey, IndexWriter, TableWriter } from "../storage/index.js";
 import type { Value } from "../values/index.js";
@@ -30,11 +31,28 @@ import type { Sequences } from "./sequences.js";
 /** The constraint a conflict is with: a unique index, or the rowid. */
 export type ConflictConstraint = Index | "rowid";
 
+/**
+ * True if two constraints are one: both the rowid, or indexes of one name,
+ * whichever load of the schema each came from.
+ */
+export function isSameConstraint(
+  constraint: ConflictConstraint,
+  other: ConflictConstraint,
+): boolean {
+  if (constraint === "rowid" || other === "rowid") return constraint === other;
+  return isSameName(constraint.name, other.name);
+}
+
 /** A row that is in the way of a change, and the constraint it would break. */
 export interface Conflict {
   readonly rowid: number;
   readonly constraint: ConflictConstraint;
   readonly error: ConstraintError;
+  /**
+   * The row refused, as it would have been stored: converted to the column
+   * types, its rowid filled in — ON CONFLICT DO UPDATE's `excluded` row.
+   */
+  readonly refused: readonly Value[];
 }
 
 interface IndexEditor {
@@ -116,7 +134,8 @@ export class TableEditor extends TableRows {
   /**
    * The row an insert of `values` would conflict with, or null: for ON
    * CONFLICT, which decides what to do instead of failing. `target`, the
-   * constraint ON CONFLICT names, is checked first, as SQLite does. `values`
+   * constraint ON CONFLICT names, is checked first, as SQLite does; it is
+   * found by name, so it may come from any load of the schema. `values`
    * must be valid otherwise: they are prepared as insert() prepares them.
    */
   findConflict(
@@ -290,7 +309,7 @@ export class TableEditor extends TableRows {
   ): Conflict | null {
     for (const constraint of this.constraintsFrom(first)) {
       const holder = this.holderOf(constraint, state, replacing);
-      if (holder !== null) return this.conflict(constraint, holder);
+      if (holder !== null) return this.conflict(constraint, holder, state);
     }
     return null;
   }
@@ -303,7 +322,11 @@ export class TableEditor extends TableRows {
       .filter((index) => index.isUnique);
     const all: ConflictConstraint[] = ["rowid", ...unique];
     if (first === null) return all;
-    return [first, ...all.filter((constraint) => constraint !== first)];
+    // By name: ON CONFLICT's index may come from another load of the schema.
+    const isFirst = (constraint: ConflictConstraint): boolean =>
+      isSameConstraint(constraint, first);
+    const named = all.filter((item) => isFirst(item));
+    return [...named, ...all.filter((item) => !isFirst(item))];
   }
 
   /** The row other than `replacing` that holds what the row needs under `constraint`. */
@@ -331,8 +354,13 @@ export class TableEditor extends TableRows {
     return isTaken ? state.rowid : null;
   }
 
-  private conflict(constraint: ConflictConstraint, rowid: number): Conflict {
-    return { rowid, constraint, error: this.violation(constraint) };
+  private conflict(
+    constraint: ConflictConstraint,
+    rowid: number,
+    refused: RowState,
+  ): Conflict {
+    const error = this.violation(constraint);
+    return { rowid, constraint, error, refused: refused.row };
   }
 
   private violation(constraint: ConflictConstraint): ConstraintError {

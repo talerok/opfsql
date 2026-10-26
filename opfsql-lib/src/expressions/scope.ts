@@ -42,6 +42,12 @@ export interface Run {
   readonly subqueries: SubqueryCompiler;
   /** The rows of the enclosing queries while correlated subqueries run. */
   readonly outer: OuterRows;
+  /**
+   * Called once for each batch of rows the statement reads, and for each
+   * step of a recursive CTE: where the engine can end a statement nothing
+   * else can stop (docs/planning.md, Execution).
+   */
+  checkpoint(): void;
 }
 
 /** Turns a subquery's plan into something to run: the executor's part. */
@@ -79,6 +85,20 @@ export class OuterRows {
     return row;
   }
 
+  /**
+   * What `action` returns with only the rows of the outermost `level` query
+   * levels on the stack, those above set aside: a CTE of an enclosing level,
+   * computed when a subquery first reads it, must see its own level's rows.
+   */
+  atLevel<T>(level: number, action: () => T): T {
+    const above = this.rows.splice(level);
+    try {
+      return action();
+    } finally {
+      this.rows.push(...above);
+    }
+  }
+
   /** What `action` returns while `row` is the nearest outer row. */
   within<T>(row: Tuple, action: () => T): T {
     this.rows.push(row);
@@ -91,19 +111,26 @@ export class OuterRows {
 }
 
 /**
- * A run with `parameters` and the executor's subquery compiler. The
- * parameters are normalized here, the one place they are: NaN becomes
- * NULL and -0 becomes 0, as in a stored value.
+ * A run with `parameters`, the executor's subquery compiler and the engine's
+ * checkpoint, which does nothing unless given. The parameters are normalized
+ * here, the one place they are: NaN becomes NULL and -0 becomes 0, as in a
+ * stored value.
  */
 export function createRun(
   parameters: readonly Value[],
   subqueries: SubqueryCompiler,
+  checkpoint: () => void = runToTheEnd,
 ): Run {
   return {
     parameters: parameters.map((parameter) => normalizeValue(parameter)),
     subqueries,
     outer: new OuterRows(),
+    checkpoint,
   };
+}
+
+function runToTheEnd(): void {
+  // Without a checkpoint, nothing ends a statement before it is done.
 }
 
 /** What compiling a node needs: its scope, and a compiler for its operands. */
