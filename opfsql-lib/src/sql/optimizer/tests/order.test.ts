@@ -8,6 +8,7 @@ import {
   filter,
   get,
   inList,
+  join,
   limit,
   lines,
   order,
@@ -249,5 +250,54 @@ describe("sorts that stay", () => {
         "  index-scan users#1 using users_email (email = 'x')",
       ),
     );
+  });
+});
+
+describe("orders a lookup join delivers", () => {
+  const orderId = column(o, "id");
+  const userOf = compare(id, "=", column(o, "user_id"));
+
+  it("leads with the table read in the order wanted, each later join a lookup", () => {
+    const plan = limit(
+      order(join("inner", get(u), get(o), userOf), asc(orderId)),
+      constant(10),
+    );
+    expect(planOf(plan)).toBe(
+      lines(
+        "limit 10",
+        "  lookup-join inner",
+        "    table-scan orders#2",
+        "    rowid-lookup users#1 (rowid = user_id)",
+      ),
+    );
+    expectSameSequence(plan);
+  });
+
+  it("keeps a LEFT join's order from its left side, an index giving it", () => {
+    const plan = limit(
+      order(join("left", get(u), get(o), userOf), asc(email)),
+      constant(10),
+    );
+    expect(planOf(plan)).toBe(
+      lines(
+        "limit 10",
+        "  lookup-join left",
+        "    index-scan users#1 using users_email",
+        "    index-scan orders#2 using orders_user (user_id = id)",
+      ),
+    );
+  });
+
+  it("sorts when the keys read another table than the one that can lead in order", () => {
+    const plan = limit(
+      order(join("inner", get(u), get(o), userOf), asc(orderId), asc(age)),
+      constant(10),
+    );
+    expect(planOf(plan)).toMatch(/^top-n 10 by id ASC, age ASC\n/u);
+  });
+
+  it("sorts a free join when every row is wanted and sorting costs less", () => {
+    const plan = order(join("inner", get(u), get(o), userOf), asc(orderId));
+    expect(planOf(plan)).toMatch(/^sort id ASC\n {2}hash-join inner/u);
   });
 });

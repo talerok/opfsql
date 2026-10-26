@@ -3,8 +3,9 @@ import type { Tuple } from "../../../expressions/index.js";
 import { rowKey, type Value } from "../../../values/index.js";
 import {
   formatPhysicalPlan,
-  type logical,
+  logical,
   type physical,
+  positionIn,
 } from "../../plan/index.js";
 import {
   aggregate,
@@ -456,4 +457,76 @@ describe("optimized orders give the naive orders' keys", () => {
       expect(keysOf(runs.executed, keys), printed).toEqual(expected);
     }
   });
+
+  it("for ORDER BY one joined table's columns, with and without LIMIT", () => {
+    const random = new Random(SEED);
+    const plans: string[] = [];
+    for (let count = 0; count < CASES * 2; count += 1) {
+      const subjects = random.pick([
+        [column(o, "id")],
+        [column(o, "user_id")],
+        [column(u, "email")],
+        [column(u, "age"), column(u, "id")],
+      ]);
+      const plan = orderedJoin(random, subjects);
+      const optimized = optimizedPlan(plan);
+      const runs = runThreeWays(plan, optimized, random);
+      const printed = formatPhysicalPlan(optimized);
+      const expected = valuesOf(runs.naive, plan, subjects);
+      expect(valuesOf(runs.interpreted, plan, subjects), printed).toEqual(
+        expected,
+      );
+      expect(valuesOf(runs.executed, plan, subjects), printed).toEqual(
+        expected,
+      );
+      plans.push(printed);
+    }
+    // Some come in a lookup join's order, with no sort.
+    const unsorted = plans.filter(
+      (plan) => !plan.includes("sort") && !plan.includes("top-n"),
+    );
+    expect(countWith(unsorted, "lookup-join")).toBeGreaterThan(CASES / 10);
+  });
 });
+
+/** Orders and users joined by a key, maybe filtered, ordered by `subjects`, maybe limited. */
+function orderedJoin(
+  random: Random,
+  subjects: readonly logical.Expression[],
+): logical.Plan {
+  const isOrdersFirst = random.chance(0.5);
+  const joined = join(
+    random.pick(["inner", "left"] as const),
+    isOrdersFirst ? get(o) : usersRead(),
+    isOrdersFirst ? usersRead() : get(o),
+    keyCondition(random),
+  );
+  const isFiltered = random.chance(0.5);
+  const where = condition(random, selectiveSubjects());
+  const filtered = isFiltered ? filter(joined, where) : joined;
+  const keys = subjects.map((subject) => {
+    const nulls = random.pick(["first", "last"] as const);
+    return random.chance(0.5) ? asc(subject, nulls) : desc(subject, nulls);
+  });
+  const ordered = order(filtered, ...keys);
+  if (random.chance(0.4)) return ordered;
+  return limit(ordered, constant(random.pick([0, 1, 3, 10])));
+}
+
+/** Each row's values of `subjects`, found in `plan`'s layout: rows tied on them may come in any order. */
+function valuesOf(
+  rows: readonly Tuple[],
+  plan: logical.Plan,
+  subjects: readonly logical.Expression[],
+): string[] {
+  const layout = logical.layoutOf(plan);
+  const positions = subjects.map((subject) => {
+    const isColumn = subject.kind === "column";
+    const position = isColumn ? positionIn(layout, subject.binding) : null;
+    if (position === null) throw new RangeError("a key the join lacks");
+    return position;
+  });
+  return rows.map((row) =>
+    rowKey(positions.map((position): Value => row[position] ?? null)),
+  );
+}
