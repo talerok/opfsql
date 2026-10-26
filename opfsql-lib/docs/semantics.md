@@ -98,22 +98,27 @@ ORDER BY puts NULLs first when ascending and last when descending, unless
 `=`, `<>`, `<`, `<=`, `>`, `>=` return NULL when either side is NULL, and
 otherwise compare by the total order above.
 
-Before comparing, the binder converts operands with different types as
-SQLite does, by affinity:
+Operands of different kinds are a bind error: a number compares with a
+number, a text with a text, and so on; `id = '5'` and `name > 18` are
+refused; a JSON value compares with anything, as it is. An operand whose
+type is known only at run time — a parameter, a CASE or COALESCE of mixed
+types — takes the other side's affinity when it is compared, as in SQLite:
 
-- a numeric column (INTEGER, REAL) compared with TEXT converts the text side
-  to a number when it is exactly a number, so `id = '5'` matches id 5 and
-  `id = 'five'` matches nothing;
-- a TEXT column compared with an untyped literal or parameter converts that
-  side to text.
+- compared with a number (INTEGER, REAL), text that is exactly a number is
+  converted to it, so `id = $1` with `'5'` matches id 5 and with `'five'`
+  matches nothing;
+- compared with TEXT, a number is converted to text, so `name = $1` with
+  `5` matches `'5'`.
 
-Comparing values of different kinds after that falls back to the total
-order, so `1 < 'a'` is true.
+The same holds wherever values are compared as `=` compares them: IN,
+BETWEEN, CASE with an operand, ANY and ALL. Comparing values of different
+kinds after that falls back to the total order, so `1 < 'a'` is true.
 
 ## Logic
 
 WHERE, HAVING, ON, CASE WHEN, AND, OR and NOT take BOOLEAN operands; any
-other type is a bind error. NULL is "unknown":
+other type is a bind error, and a value whose type only a row tells (a
+parameter, a JSON value) must be a boolean when it runs. NULL is "unknown":
 
 | AND       | true  | false | NULL  |     | OR        | true | false | NULL |
 | --------- | ----- | ----- | ----- | --- | --------- | ---- | ----- | ---- |
@@ -129,6 +134,24 @@ other type is a bind error. NULL is "unknown":
   false whatever `x` is, and `NOT IN` of it is true.
 - `x IS y` / `x IS NOT y` compare like `=` / `<>` but treat two NULLs as
   equal and never return NULL.
+
+## Queries
+
+- A query with GROUP BY, HAVING or an aggregate call computes one row per
+  group; without GROUP BY, all rows are one group, even when there are none
+  (`SELECT count(*) FROM empty` is one row, 0). Above the grouping — the
+  select list, HAVING, ORDER BY — an expression may read the GROUP BY
+  expressions (matched as written, after binding) and aggregates; any other
+  column of the query is an error, as in PostgreSQL.
+- Aggregates are not allowed in WHERE, ON, GROUP BY or inside another
+  aggregate.
+- In ORDER BY, an integer literal is a 1-based position in the select list,
+  and a bare name that is an alias (`AS`) of the select list means that
+  column; anything else is an expression. After DISTINCT or a compound
+  operator (UNION, INTERSECT, EXCEPT), ORDER BY can only name result columns.
+  GROUP BY takes positions too, and an alias that no column of the FROM has.
+- LIMIT and OFFSET are integer constants or parameters. A negative LIMIT
+  means no limit, and a negative OFFSET skips none, as in SQLite.
 
 ## Arithmetic
 
@@ -247,3 +270,5 @@ that of [Order and equality](#order-and-equality).
 | JSON functions return JSON values                        | JSON text                         | as JSON columns do                                                        |
 | `md5` exists                                             | no `md5`                          | kept from earlier opfsql versions                                         |
 | a scalar subquery with several rows fails                | the first row is used             | a guessed value hides a bug                                               |
+| comparing typed values of different kinds is an error    | converted by affinity             | as in PostgreSQL; `id = '5'` is usually a mistake, caught at bind time    |
+| a column neither grouped nor aggregated is an error      | a "bare column" of some row       | as in PostgreSQL; a guessed value hides a bug                             |

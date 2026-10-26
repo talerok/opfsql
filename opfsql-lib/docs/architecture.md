@@ -55,21 +55,21 @@ switch, together with `src/store`.
 
 Dependencies point down the request path and never back:
 
-| Module             | May use                                                                       |
-| ------------------ | ----------------------------------------------------------------------------- |
-| `values`, `errors` | nothing else                                                                  |
-| `schema`           | `values`, `errors`                                                            |
-| `storage`          | `values`, `errors`                                                            |
-| `functions`        | `values`, `errors`                                                            |
-| `sql/parser`       | `values`, `errors`                                                            |
-| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                     |
-| `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                   |
-| `sql/binder`       | `sql/parser`, `sql/plan`, `schema`, `functions`, `values`, `errors`           |
-| `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                       |
-| `table`            | `storage`, `schema`, `functions`, `values`, `errors`                          |
-| `executor`         | `sql/plan`, `expressions`, `table`, `functions`, `schema`, `values`, `errors` |
-| `engine`           | all of the above                                                              |
-| `worker`           | `engine`, `errors`, `values`                                                  |
+| Module             | May use                                                                                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `values`, `errors` | nothing else                                                                                                                                                          |
+| `schema`           | `values`, `errors`                                                                                                                                                    |
+| `storage`          | `values`, `errors`                                                                                                                                                    |
+| `functions`        | `values`, `errors`                                                                                                                                                    |
+| `sql/parser`       | `values`, `errors`                                                                                                                                                    |
+| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                                                                                                             |
+| `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                                                                                                           |
+| `sql/binder`       | built on `sql/plan`: scopes, the grouping model, types through the registry, DDL to the schema model, loadSchema; the engine binds with `src/legacy` until the switch |
+| `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                                                                                                               |
+| `table`            | `storage`, `schema`, `functions`, `values`, `errors`                                                                                                                  |
+| `executor`         | `sql/plan`, `expressions`, `table`, `functions`, `schema`, `values`, `errors`                                                                                         |
+| `engine`           | all of the above                                                                                                                                                      |
+| `worker`           | `engine`, `errors`, `values`                                                                                                                                          |
 
 ESLint enforces the table for every module already rebuilt
 (`import-x/no-restricted-paths` in `eslint.config.js`); the rest join as they
