@@ -107,6 +107,8 @@ export class Database {
    * the engine runs this.
    */
   async checkpoint(signal: AbortSignal): Promise<void> {
+    // Safe only because everything below the engine is synchronous: nothing
+    // of the holder's runs between this check and the checkpoint.
     if (this.lock.isHeld) {
       this.pager.checkpoint();
       return;
@@ -130,6 +132,7 @@ export class Database {
 
   /** Lowers a stale checkpoint intent, under the lock. */
   private async resetStaleIntent(signal: AbortSignal): Promise<void> {
+    // As in checkpoint(): the holder cannot run between check and reset.
     if (this.lock.isHeld) {
       this.pager.resetStaleIntent();
       return;
