@@ -1,12 +1,15 @@
 import type { Schema } from "../../schema/index.js";
-import type {
-  Assignment,
-  ConflictAction,
-  logical,
-  OnConflict,
-  physical,
-  Statement,
+import {
+  type Assignment,
+  type ConflictAction,
+  type logical,
+  type OnConflict,
+  type physical,
+  ROWID_COLUMN,
+  type Statement,
 } from "../plan/index.js";
+import { isScan } from "./access-path.js";
+import { columnsOf, holdsCorrelatedSubquery } from "./expression-tree.js";
 import { lowerExpression } from "./lower-expression.js";
 import { lowerPlan } from "./lower.js";
 import type { KeyBinder, Planner } from "./planner.js";
@@ -50,7 +53,8 @@ function optimizeStatement(
       return { ...statement, plan: planQuery(statement.plan, planner) };
     }
     case "delete": {
-      return { ...statement, source: planQuery(statement.source, planner) };
+      const source = planQuery(statement.source, planner);
+      return { ...statement, source: rowidSource(source) };
     }
     case "insert": {
       return {
@@ -73,6 +77,30 @@ function optimizeStatement(
       return statement;
     }
   }
+}
+
+/**
+ * A DELETE's source narrowed to what deleting needs: the rowid, which the
+ * executor finds by its binding (statement.ts). Once the WHERE is in the
+ * scan's residual, the scan reads only the rowid and the columns that
+ * residual reads. A residual with a correlated subquery keeps every column:
+ * the subquery's plan reads them from outside, where columnsOf cannot see.
+ */
+function rowidSource(plan: physical.Plan): physical.Plan {
+  if (
+    !isScan(plan) ||
+    plan.residual.some((condition) => holdsCorrelatedSubquery(condition))
+  ) {
+    return plan;
+  }
+  const read = new Set<number>();
+  for (const condition of plan.residual) {
+    for (const binding of columnsOf(condition)) read.add(binding.columnIndex);
+  }
+  const columns = plan.columns.filter(
+    (column) => column === ROWID_COLUMN || read.has(column),
+  );
+  return { ...plan, columns };
 }
 
 function lowerOnConflict(

@@ -207,10 +207,23 @@ export function tablesOf(layout: readonly ColumnBinding[]): Set<number> {
  * need rewriting to move. Such a condition stays where the binder put it.
  */
 export function isPinned<Plan>(expression: Expression<Plan>): boolean {
+  return callsVolatile(expression) || holdsCorrelatedSubquery(expression);
+}
+
+function callsVolatile<Plan>(expression: Expression<Plan>): boolean {
   for (const node of nodesOf(expression)) {
     if (node.kind === "function" && node.function.isVolatile === true) {
       return true;
     }
+  }
+  return false;
+}
+
+/** True if `expression` holds a subquery that reads this query's rows (or rows further out). */
+export function holdsCorrelatedSubquery<Plan>(
+  expression: Expression<Plan>,
+): boolean {
+  for (const node of nodesOf(expression)) {
     if (isSubquery(node) && node.isCorrelated) return true;
   }
   return false;

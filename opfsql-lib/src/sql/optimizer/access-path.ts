@@ -72,11 +72,40 @@ export interface AccessPath {
   readonly isOrdered: boolean;
 }
 
-type Scan =
+/** A read of a table's rows, which a residual can sit on. */
+export type Scan =
   | physical.TableScan
   | physical.RowidLookup
   | physical.IndexScan
   | physical.IndexUnion;
+
+export function isScan(plan: physical.Plan): plan is Scan {
+  switch (plan.kind) {
+    case "table-scan":
+    case "rowid-lookup":
+    case "index-scan":
+    case "index-union": {
+      return true;
+    }
+    case "index-extreme":
+    case "filter":
+    case "project":
+    case "hash-join":
+    case "nested-loop-join":
+    case "hash-aggregate":
+    case "sort":
+    case "top-n":
+    case "limit":
+    case "hash-distinct":
+    case "set-operation":
+    case "cte":
+    case "cte-scan":
+    case "recursive-cte":
+    case "values": {
+      return false;
+    }
+  }
+}
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>

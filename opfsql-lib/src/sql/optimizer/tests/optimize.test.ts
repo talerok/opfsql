@@ -4,6 +4,7 @@ import {
   formatPhysicalPlan,
   type logical,
   type physical,
+  ROWID_COLUMN,
   type Statement,
 } from "../../plan/index.js";
 import { optimize } from "../index.js";
@@ -67,6 +68,29 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+/** DELETE FROM users WHERE conditions: every column, then the rowid. */
+function deleteWhere(
+  ...conditions: logical.Expression[]
+): Statement<physical.Plan> {
+  const target = get(u, "id", "name", "age", "email", "tag", "rowid");
+  const source = filter(target, ...conditions);
+  return optimized({
+    kind: "delete",
+    table: users,
+    tableIndex: 1,
+    source,
+    parameterCount: 1,
+  });
+}
+
+/** The columns a DELETE's physical source reads. */
+function columnsRead(statement: Statement<physical.Plan>): readonly number[] {
+  if (statement.kind !== "delete" || !("columns" in statement.source)) {
+    throw new InternalError("a delete whose source is a scan");
+  }
+  return statement.source.columns;
+}
+
 describe("DML", () => {
   it("gives an UPDATE's source an access path, keeping every column and the rowid", () => {
     const target = get(u, "id", "name", "age", "email", "tag", "rowid");
@@ -92,21 +116,31 @@ describe("DML", () => {
     ]);
   });
 
-  it("gives a DELETE's source an access path", () => {
-    const source = filter(
-      get(u, "email", "rowid"),
+  it("gives a DELETE's source an access path, reading the rowid alone", () => {
+    const statement = deleteWhere(
       compare(column(u, "email"), "=", parameter(0)),
     );
-    const statement = optimized({
-      kind: "delete",
-      table: users,
-      tableIndex: 1,
-      source,
-      parameterCount: 1,
-    });
     expect(sourceOf(statement)).toBe(
       "index-scan users#1 using users_email (email = $1)",
     );
+    expect(columnsRead(statement)).toEqual([ROWID_COLUMN]);
+  });
+
+  it("keeps the columns a DELETE's residual still reads", () => {
+    const statement = deleteWhere(compare(age, "<", constant(18)));
+    expect(sourceOf(statement)).toBe(
+      "index-scan users#1 using users_age (age < 18) residual: u.age < 18",
+    );
+    expect(columnsRead(statement)).toEqual([2, ROWID_COLUMN]);
+  });
+
+  it("keeps every column for a correlated subquery, whose plan reads them", () => {
+    const inner = filter(
+      get(o),
+      compare(column(o, "user_id"), "=", column(u, "id", 1)),
+    );
+    const statement = deleteWhere(exists(inner, true));
+    expect(columnsRead(statement)).toEqual([0, 1, 2, 3, 4, ROWID_COLUMN]);
   });
 
   it("optimizes an INSERT's source like a query, and plans its ON CONFLICT", () => {
