@@ -146,17 +146,15 @@ fix lands.
 8. **Call order on a connection relies on no `await`** before the queue.
 9. **A failing call on the shared connection** can leave its transaction
    open.
-10. **The editor ignores** whether an index entry it inserts or deletes was
-    already there.
-11. **The catalog's dropped-column check** misses expression keys.
-12. **Uncorrelated subqueries run with the outer rows open**, and a row
+10. **The catalog's dropped-column check** misses expression keys.
+11. **Uncorrelated subqueries run with the outer rows open**, and a row
     narrower than its layout reads NULL.
-13. **The WAL rethrows one stored IoError**, which statement tagging then
+12. **The WAL rethrows one stored IoError**, which statement tagging then
     changes.
-14. **Errors are translated in two places** that disagree on a DOMException;
+13. **Errors are translated in two places** that disagree on a DOMException;
     INTERNAL also covers a crashed worker and a failed lock request.
-15. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
+14. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
     bug.
-16. **The allocation map** does not check a page's state before marking it.
-17. **`close()` does not wait** for the background release of abandoned read
+15. **The allocation map** does not check a page's state before marking it.
+16. **`close()` does not wait** for the background release of abandoned read
     marks.

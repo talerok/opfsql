@@ -1,5 +1,6 @@
 import {
   ConstraintError,
+  CorruptError,
   DatatypeMismatchError,
   IndexKeyTooLargeError,
   IntegerOverflowError,
@@ -26,6 +27,11 @@ import type { Sequences } from "./sequences.js";
 // constraint. Then the row is written — which refuses a row too large
 // before writing a byte — and then its index entries, which can no longer
 // fail. So a refused change leaves the table and its indexes as they were.
+//
+// Every write is one the editor decided the trees allow: a row or an entry
+// it found absent is inserted, one it found present is replaced or deleted.
+// A tree that refuses one disagrees with what was read from it, or an index
+// with its table: CORRUPT, not a write skipped.
 // ---------------------------------------------------------------------------
 
 /** The constraint a conflict is with: a unique index, or the rowid. */
@@ -103,7 +109,7 @@ export class TableEditor extends TableRows {
   insert(values: readonly Value[]): number {
     const state = this.newRow(values);
     this.refuseConflict(state, null);
-    this.stored.insert(state.rowid, this.storedValues(state.row));
+    this.insertRow(state);
     this.insertEntries(state);
     this.recordIssued(state.rowid);
     return state.rowid;
@@ -126,8 +132,8 @@ export class TableEditor extends TableRows {
     const values = this.get(rowid)?.values();
     if (values === undefined) return false;
     const old = this.stateOf(rowid, values);
-    this.stored.delete(rowid);
-    for (const { index, entry } of old.indexed) index.entries.delete(entry);
+    this.deleteRow(rowid);
+    for (const indexed of old.indexed) deleteEntry(indexed, rowid);
     return true;
   }
 
@@ -208,26 +214,52 @@ export class TableEditor extends TableRows {
    * the old row still stands.
    */
   private moveRow(from: number, state: RowState): void {
-    const values = this.storedValues(state.row);
     if (from === state.rowid) {
-      this.stored.replace(from, values);
+      this.replaceRow(state);
       return;
     }
-    this.stored.insert(state.rowid, values);
-    this.stored.delete(from);
+    this.insertRow(state);
+    this.deleteRow(from);
+  }
+
+  /** Rewrites a row that was read, under its rowid. */
+  private replaceRow(state: RowState): void {
+    if (!this.stored.replace(state.rowid, this.storedValues(state.row))) {
+      throw this.rowDisagreement(state.rowid, "is gone, though it was read");
+    }
+  }
+
+  /** Stores a new row, under a rowid found free. */
+  private insertRow(state: RowState): void {
+    if (!this.stored.insert(state.rowid, this.storedValues(state.row))) {
+      throw this.rowDisagreement(state.rowid, "is taken, though it was free");
+    }
+  }
+
+  /** Deletes a row that was read. */
+  private deleteRow(rowid: number): void {
+    if (!this.stored.delete(rowid)) {
+      throw this.rowDisagreement(rowid, "is gone, though it was read");
+    }
+  }
+
+  private rowDisagreement(rowid: number, problem: string): CorruptError {
+    return new CorruptError(
+      `table ${this.table.name}: row ${String(rowid)} ${problem}`,
+    );
   }
 
   private insertEntries(state: RowState): void {
-    for (const { index, entry } of state.indexed) index.entries.insert(entry);
+    for (const indexed of state.indexed) insertEntry(indexed, state.rowid);
   }
 
   /** Replaces each index entry whose key or rowid changed. */
   private moveEntries(old: RowState, state: RowState): void {
     for (const [position, after] of state.indexed.entries()) {
-      const from = indexedAt(old, position).entry;
-      if (compareBytes(from, after.entry) === 0) continue;
-      after.index.entries.delete(from);
-      after.index.entries.insert(after.entry);
+      const before = indexedAt(old, position);
+      if (compareBytes(before.entry, after.entry) === 0) continue;
+      deleteEntry(before, old.rowid);
+      insertEntry(after, state.rowid);
     }
   }
 
@@ -397,6 +429,32 @@ function checkedEntry(
     throw new IndexKeyTooLargeError(name, entry.length, entries.maxKeySize);
   }
   return entry;
+}
+
+/**
+ * Adds row `rowid`'s entry for a key the table's row did not have: an entry
+ * already there means the index disagrees with its table.
+ */
+function insertEntry({ index, entry }: IndexedKey, rowid: number): void {
+  if (index.entries.insert(entry)) return;
+  throw indexDisagreement(
+    index,
+    `it already has the entry for row ${String(rowid)}`,
+  );
+}
+
+/**
+ * Removes row `rowid`'s entry for the key read from the table's row: no
+ * entry means the index disagrees with its table.
+ */
+function deleteEntry({ index, entry }: IndexedKey, rowid: number): void {
+  if (index.entries.delete(entry)) return;
+  throw indexDisagreement(index, `it has no entry for row ${String(rowid)}`);
+}
+
+function indexDisagreement(index: IndexEditor, problem: string): CorruptError {
+  const { name } = index.keyed.index;
+  return new CorruptError(`index ${name} disagrees with its table: ${problem}`);
 }
 
 /** Old and new states of a row list the same indexes in the same order. */
