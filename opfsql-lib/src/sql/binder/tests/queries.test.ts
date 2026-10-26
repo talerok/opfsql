@@ -215,6 +215,9 @@ describe("WITH RECURSIVE", () => {
     expect(notSupported(recursive("SELECT count(*) FROM r"))).toBe(
       "an aggregate in the step of a recursive WITH query",
     );
+    expect(notSupported(recursive("SELECT n FROM r GROUP BY n"))).toBe(
+      "GROUP BY in the step of a recursive WITH query",
+    );
     expect(notSupported(recursive("SELECT DISTINCT n FROM r"))).toBe(
       "DISTINCT in the step of a recursive WITH query",
     );

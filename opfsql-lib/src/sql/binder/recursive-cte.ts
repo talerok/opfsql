@@ -129,39 +129,54 @@ function bindStep(
   return isStable ? { working, query } : bindStep(node, cte, scope, widened);
 }
 
-/** The step's shape: aggregates aside, it names the query once, plainly. */
+/** The step's shape: no aggregate or DISTINCT, and the query named once, plainly. */
 function checkStep(step: SelectNode, name: string): void {
-  const hasAggregate =
-    step.groupBy.length > 0 ||
-    step.having !== null ||
-    step.selectList.some((item) => hasAggregateCall(item));
-  if (hasAggregate) {
-    throw new NotSupportedError(
-      "an aggregate in the step of a recursive WITH query",
+  checkStepComputes(step);
+  checkNoSubqueryReads(step, name);
+  const reference = stepReference(step, name);
+  if (reference.isNullable) {
+    throw new SemanticError(
+      `the step of recursive WITH query ${name} names it on the side of an outer join that is filled with NULLs`,
     );
   }
-  if (step.isDistinct) {
-    throw new NotSupportedError(
-      "DISTINCT in the step of a recursive WITH query",
-    );
+}
+
+/** A step adds rows one by one: it neither groups nor removes duplicates. */
+function checkStepComputes(step: SelectNode): void {
+  if (step.groupBy.length > 0) throw refusal("GROUP BY");
+  if (step.having !== null) throw refusal("HAVING");
+  if (step.selectList.some((item) => hasAggregateCall(item))) {
+    throw refusal("an aggregate");
   }
+  if (step.isDistinct) throw refusal("DISTINCT");
+}
+
+function refusal(feature: string): NotSupportedError {
+  return new NotSupportedError(
+    `${feature} in the step of a recursive WITH query`,
+  );
+}
+
+function checkNoSubqueryReads(step: SelectNode, name: string): void {
   for (const expression of expressionsOf(step)) {
     if (mentionsInExpression(expression, name)) throw inSubquery(name);
   }
+}
+
+/** The one FROM item of the step that names the query. */
+function stepReference(
+  step: SelectNode,
+  name: string,
+): { readonly isNullable: boolean } {
   const references =
     step.from === null ? [] : [...referencesIn(step.from, name, false)];
-  const reference = exactlyOne(
+  return exactlyOne(
     references,
     () =>
       new SemanticError(
         `the step of recursive WITH query ${name} must name ${name} exactly once`,
       ),
   );
-  if (reference.isNullable) {
-    throw new SemanticError(
-      `the step of recursive WITH query ${name} names it on the side of an outer join that is filled with NULLs`,
-    );
-  }
 }
 
 /** Each FROM item named `name`, and whether an outer join fills it with NULLs. */
