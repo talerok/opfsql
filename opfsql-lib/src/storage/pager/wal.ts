@@ -86,6 +86,8 @@ export class Wal {
   private base = 0;
   private latest = 0;
   private frames = 0;
+  /** Where the header is read to, every time: nothing read from it is kept. */
+  private readonly headerBytes = new Uint8Array(HEADER_SIZE);
 
   private constructor(
     private readonly file: SyncFile,
@@ -214,7 +216,8 @@ export class Wal {
   /** The header, read again while another tab is rewriting it. */
   private readHeader(): WalHeader {
     for (let attempt = 0; attempt < HEADER_READ_ATTEMPTS; attempt++) {
-      const header = this.readBytes(0, HEADER_SIZE);
+      const header = this.headerBytes;
+      this.file.read(header, { at: 0 });
       checkPrefix(header, "wal", this.name);
       if (
         readUint32(header, HEADER_CHECKSUM_OFFSET) === headerChecksum(header)

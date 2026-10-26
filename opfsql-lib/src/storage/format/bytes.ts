@@ -13,8 +13,16 @@ export function viewOf(bytes: Uint8Array): DataView {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
+// Big-endian u32s are read and written byte by byte: they are read on every
+// page and header, and a DataView for each would cost more than the read.
+
 export function readUint32(bytes: Uint8Array, offset: number): number {
-  return viewOf(bytes).getUint32(offset);
+  const high = (bytes[offset] ?? 0) * 0x1_00_00_00;
+  const rest =
+    ((bytes[offset + 1] ?? 0) << 16) |
+    ((bytes[offset + 2] ?? 0) << 8) |
+    (bytes[offset + 3] ?? 0);
+  return high + rest;
 }
 
 export function writeUint32(
@@ -22,7 +30,10 @@ export function writeUint32(
   offset: number,
   value: number,
 ): void {
-  viewOf(bytes).setUint32(offset, value);
+  bytes[offset] = value >>> 24;
+  bytes[offset + 1] = (value >>> 16) & 0xff;
+  bytes[offset + 2] = (value >>> 8) & 0xff;
+  bytes[offset + 3] = value & 0xff;
 }
 
 /** Bytes an unsigned LEB128 varint of `value` takes. */

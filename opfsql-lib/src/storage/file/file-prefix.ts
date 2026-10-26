@@ -33,6 +33,13 @@ type PrefixState =
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/** Each kind's magic as the bytes a file starts with. */
+const MAGIC_BYTES: Record<FileKind, Uint8Array> = {
+  database: encoder.encode(MAGIC.database),
+  wal: encoder.encode(MAGIC.wal),
+  shm: encoder.encode(MAGIC.shm),
+};
+
 export function writePrefix(header: Uint8Array, kind: FileKind): void {
   header.set(encoder.encode(MAGIC[kind]), 0);
   writeUint32(header, VERSION_OFFSET, FORMAT_VERSION);
@@ -63,13 +70,23 @@ export function hasPrefix(header: Uint8Array, kind: FileKind): boolean {
 }
 
 function prefixState(header: Uint8Array, kind: FileKind): PrefixState {
+  if (startsWith(header, MAGIC_BYTES[kind])) return versionState(header);
+  // Not this kind's magic: an earlier format, or not an opfsql file at all.
   const magic = decoder.decode(header.subarray(0, MAGIC_SIZE));
   const legacy = LEGACY_MAGIC.exec(magic);
   if (legacy !== null) {
     return { kind: "other-version", version: Number(legacy[1]) };
   }
-  if (magic !== MAGIC[kind]) return { kind: "foreign" };
+  return { kind: "foreign" };
+}
+
+/** The state of a file whose magic is this kind's: its version decides. */
+function versionState(header: Uint8Array): PrefixState {
   const version = readUint32(header, VERSION_OFFSET);
   if (version !== FORMAT_VERSION) return { kind: "other-version", version };
   return { kind: "current" };
+}
+
+function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
+  return prefix.every((byte, index) => bytes[index] === byte);
 }
