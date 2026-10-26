@@ -58,7 +58,7 @@ describe("join planning", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join inner on u.id = o.user_id residual: o.total > u.age",
+        "hash-join inner on u.id = o.user_id residual: (o.total > u.age)",
         "  table-scan users#1",
         "  table-scan orders#2",
       ),
@@ -75,7 +75,7 @@ describe("join planning", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join left on u.id = o.user_id residual: o.total > u.age",
+        "hash-join left on u.id = o.user_id residual: (o.total > u.age)",
         "  table-scan users#1",
         "  table-scan orders#2",
       ),
@@ -86,7 +86,7 @@ describe("join planning", () => {
     const plan = join("inner", get(u), get(o), compare(id, "<", userId));
     expect(planOf(plan)).toBe(
       lines(
-        "nested-loop-join inner on u.id < o.user_id",
+        "nested-loop-join inner on (u.id < o.user_id)",
         "  table-scan users#1",
         "  table-scan orders#2",
       ),
@@ -102,7 +102,7 @@ describe("join planning", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "nested-loop-join inner on u.id + o.user_id = 3",
+        "nested-loop-join inner on ((u.id + o.user_id) = 3)",
         "  table-scan users#1",
         "  table-scan orders#2",
       ),
@@ -118,7 +118,7 @@ describe("join planning", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "nested-loop-join inner on u.id + random() = o.user_id",
+        "nested-loop-join inner on ((u.id + random()) = o.user_id)",
         "  table-scan users#1",
         "  table-scan orders#2",
       ),

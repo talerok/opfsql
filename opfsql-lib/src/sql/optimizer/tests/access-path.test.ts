@@ -101,7 +101,7 @@ describe("index scans", () => {
       compare(email, "=", constant("e1x1")),
     );
     expect(planOf(plan)).toBe(
-      "index-scan users#1 using users_email (email = 'e1x1') residual: age = 30",
+      "index-scan users#1 using users_email (email = 'e1x1') residual: (age = 30)",
     );
     expectSameRows(plan);
   });
@@ -193,7 +193,7 @@ describe("index scans", () => {
 
   it("does not seek with <>", () => {
     const plan = where(compare(age, "<>", constant(3)));
-    expect(planOf(plan)).toBe("table-scan users#1 residual: age <> 3");
+    expect(planOf(plan)).toBe("table-scan users#1 residual: (age <> 3)");
   });
 });
 
@@ -210,7 +210,7 @@ describe("index unions", () => {
       ),
     );
     expect(planOf(plan)).toBe(
-      "index-union users#1 [rowid = 1; using users_email (email = 'e2x2'); using users_name_age (name = 'bob', age > 3)] residual: id = 1 OR email = 'e2x2' OR name = 'bob' AND age > 3",
+      "index-union users#1 [rowid = 1; using users_email (email = 'e2x2'); using users_name_age (name = 'bob', age > 3)] residual: ((id = 1) OR (email = 'e2x2') OR ((name = 'bob') AND (age > 3)))",
     );
     expectSameRows(plan);
   });
@@ -218,7 +218,7 @@ describe("index unions", () => {
   it("reads an IN list on an indexed column as a union of its items", () => {
     const plan = where(inList(age, constant(1), numeric));
     expect(planOf(plan)).toBe(
-      "index-union users#1 [using users_age (age = 1); using users_age (age = $1)] residual: age IN (1, $1)",
+      "index-union users#1 [using users_age (age = 1); using users_age (age = $1)] residual: (age IN (1, $1))",
     );
     for (const value of [30, "30", null]) expectSameRows(plan, [value]);
   });
@@ -228,7 +228,7 @@ describe("index unions", () => {
       or(compare(id, "=", constant(1)), compare(age, "<>", constant(3))),
     );
     expect(planOf(plan)).toBe(
-      "table-scan users#1 residual: id = 1 OR age <> 3",
+      "table-scan users#1 residual: ((id = 1) OR (age <> 3))",
     );
   });
 });
@@ -247,7 +247,7 @@ describe("seek values from enclosing queries", () => {
     const plan = where(exists(inner, true));
     expect(planOf(plan)).toBe(
       lines(
-        "table-scan users#1 residual: EXISTS (correlated subquery 1)",
+        "table-scan users#1 residual: (EXISTS (correlated subquery 1))",
         "subquery 1:",
         "  index-scan orders#2 using orders_user (user_id = u.id)",
       ),
@@ -264,9 +264,9 @@ describe("seek values from enclosing queries", () => {
     const plan = where(exists(inner, true));
     expect(planOf(plan)).toBe(
       lines(
-        "table-scan users#1 residual: EXISTS (correlated subquery 1)",
+        "table-scan users#1 residual: (EXISTS (correlated subquery 1))",
         "subquery 1:",
-        "  table-scan orders#2 residual: EXISTS (correlated subquery 2)",
+        "  table-scan orders#2 residual: (EXISTS (correlated subquery 2))",
         "subquery 2:",
         "  index-scan users#3 using users_age (age = u.age)",
       ),
@@ -279,7 +279,9 @@ describe("seek values from enclosing queries", () => {
       get(o),
       compare(column(o, "user_id"), "=", column(o, "id")),
     );
-    expect(planOf(plan)).toBe("table-scan orders#2 residual: o.user_id = o.id");
+    expect(planOf(plan)).toBe(
+      "table-scan orders#2 residual: (o.user_id = o.id)",
+    );
   });
 });
 
@@ -294,10 +296,10 @@ describe("parameters never choose the index (rule 5)", () => {
       compare(name, ">", parameter(1, "TEXT", "text")),
     );
     expect(planOf(withConstant)).toBe(
-      "index-scan users#1 using users_age (age = 30) residual: name > 'a'",
+      "index-scan users#1 using users_age (age = 30) residual: (name > 'a')",
     );
     expect(planOf(withParameter)).toBe(
-      "index-scan users#1 using users_age (age = $1) residual: name > $2",
+      "index-scan users#1 using users_age (age = $1) residual: (name > $2)",
     );
   });
 });

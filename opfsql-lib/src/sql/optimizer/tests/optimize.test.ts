@@ -137,7 +137,7 @@ describe("DML", () => {
   it("keeps the columns a DELETE's residual still reads", () => {
     const statement = deleteWhere(compare(age, "<>", constant(18)));
     expect(sourceOf(statement)).toBe(
-      "table-scan users#1 residual: u.age <> 18",
+      "table-scan users#1 residual: (u.age <> 18)",
     );
     expect(columnsRead(statement)).toEqual([2, ROWID_COLUMN]);
   });
@@ -232,7 +232,7 @@ describe("subqueries", () => {
     const plan = filter(get(u), compare(age, ">", scalarSubquery(total)));
     expect(planOf(plan)).toBe(
       lines(
-        "table-scan users#1 residual: u.age > (subquery 1)",
+        "table-scan users#1 residual: (u.age > (subquery 1))",
         "subquery 1:",
         "  project#5 o.total",
         "    index-scan orders#2 using orders_user (user_id = 7)",
@@ -252,7 +252,7 @@ describe("subqueries", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "table-scan users#1 residual: u.age = ANY (subquery 1) AND EXISTS (correlated subquery 2)",
+        "table-scan users#1 residual: (u.age = ANY (subquery 1)) AND (EXISTS (correlated subquery 2))",
         "subquery 1:",
         "  project#6 o.user_id",
         "    table-scan orders#2",
@@ -278,7 +278,7 @@ describe("subqueries", () => {
         "sort (subquery 1) ASC",
         "  nested-loop-join inner",
         "    project#5 (subquery 2)",
-        "      table-scan users#1 residual: EXISTS (subquery 3)",
+        "      table-scan users#1 residual: (EXISTS (subquery 3))",
         "    values#6 ((subquery 4))",
         "subquery 1:",
         "  values#7 (1)",
@@ -323,7 +323,7 @@ describe("purity", () => {
       filter(get(u), compare(lowered, "=", constant("bob"))),
     );
     expect(printedPlan(optimize(statement, schema))).toBe(
-      "table-scan users#1 residual: lower(u.name) = 'bob'",
+      "table-scan users#1 residual: (lower(u.name) = 'bob')",
     );
   });
 });
@@ -352,7 +352,7 @@ describe("the rules every optimization keeps", () => {
       compare(column(u, "name"), "<>", constant("x")),
     );
     expect(planOf(plan)).toBe(
-      "index-scan users#1 using users_age (age < $1) residual: u.name <> 'x'",
+      "index-scan users#1 using users_age (age < $1) residual: (u.name <> 'x')",
     );
   });
 
@@ -367,7 +367,7 @@ describe("the rules every optimization keeps", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join left on u.id = o.user_id residual: o.total > u.age AND u.age > 1",
+        "hash-join left on u.id = o.user_id residual: (o.total > u.age) AND (u.age > 1)",
         "  table-scan users#1",
         "  table-scan orders#2",
       ),
@@ -392,7 +392,7 @@ describe("the rules every optimization keeps", () => {
   it("4: rewrites follow values, NULLs included", () => {
     const same = compare(age, "=", age);
     expect(planOf(filter(get(u), same))).toBe(
-      "table-scan users#1 residual: u.age = u.age",
+      "table-scan users#1 residual: (u.age = u.age)",
     );
   });
 

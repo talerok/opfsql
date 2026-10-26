@@ -106,7 +106,7 @@ describe("formatPhysicalPlan", () => {
       residual: [compare(column("age", 2), "LESS", parameter)],
     };
     expect(formatPhysicalPlan(scan)).toBe(
-      "index-scan users#1 using users_name_age (name = 'bob', age >= 18 AND age < $1) descending residual: age < $1",
+      "index-scan users#1 using users_name_age (name = 'bob', age >= 18 AND age < $1) descending residual: (age < $1)",
     );
   });
 
@@ -150,7 +150,7 @@ describe("formatPhysicalPlan", () => {
     expect(formatPhysicalPlan(sorted)).toBe(
       [
         "top-n 10 by a.name ASC NULLS LAST",
-        "  hash-join left on a.age = b.age residual: a.id > b.id",
+        "  hash-join left on a.age = b.age residual: (a.id > b.id)",
         "    table-scan users#1",
         "    rowid-lookup users#2 (rowid IN (1, 2))",
       ].join("\n"),
@@ -199,7 +199,7 @@ describe("formatPhysicalPlan", () => {
       types: [],
     };
     expect(formatPhysicalPlan(union)).toBe(
-      "index-union users#1 [using users_lower_name (lower(name) = 'bob'); rowid > 5] residual: lower(name) = 'bob' OR id > 5",
+      "index-union users#1 [using users_lower_name (lower(name) = 'bob'); rowid > 5] residual: ((lower(name) = 'bob') OR (id > 5))",
     );
     expect(formatPhysicalPlan(empty)).toBe("values#7 no rows");
   });
@@ -239,7 +239,7 @@ describe("formatPhysicalPlan", () => {
     };
     expect(formatPhysicalPlan(filter)).toBe(
       [
-        "filter NOT EXISTS (correlated subquery 1) AND (age = 1 OR age IS NULL)",
+        "filter (NOT (EXISTS (correlated subquery 1))) AND ((age = 1) OR (age IS NULL))",
         "  table-scan users#1",
         "subquery 1:",
         "  values#3 (1)",
@@ -260,7 +260,7 @@ describe("formatPhysicalPlan", () => {
       conditions: [compare(negate(negate(age)), "EQUAL", negate(constant(-5)))],
     };
     expect(formatPhysicalPlan(filter)).toBe(
-      lines("filter -(-age) = -(-5)", "  values#1 no rows"),
+      lines("filter ((-(-age)) = (-(-5)))", "  values#1 no rows"),
     );
   });
 

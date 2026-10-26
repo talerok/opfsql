@@ -1,10 +1,9 @@
 import type { Index, Table } from "../../schema/index.js";
 import {
+  type ExpressionStyle,
   formatAggregateCall,
   formatConditions,
   formatExpression,
-  formatOrderKey,
-  type SubqueryLabel,
 } from "./format-expression.js";
 import type { OrderDirection } from "./expression.js";
 import type {
@@ -21,21 +20,24 @@ import type {
 // ---------------------------------------------------------------------------
 // A physical plan as text, for EXPLAIN and tests: one line per node, its
 // children indented under it. A scan shows its access path, key range and
-// residual; a join its keys. `#n` is a table index. Subqueries inside
-// expressions print as `subquery n`, and their plans follow the main plan
-// under that heading.
+// residual; a join its keys. `#n` is a table index. A column prints by its
+// name as written; a subquery inside an expression as `(subquery n)`, its
+// plan following the main plan under that heading.
 // ---------------------------------------------------------------------------
 
 const INDENT = "  ";
 
 export function formatPhysicalPlan(plan: Plan): string {
   const subqueries: Plan[] = [];
-  const label: SubqueryLabel<Plan> = (subplan, isCorrelated) => {
-    subqueries.push(subplan);
-    const name = `subquery ${String(subqueries.length)}`;
-    return isCorrelated ? `correlated ${name}` : name;
+  const style: ExpressionStyle<Plan> = {
+    column: (reference) => reference.name,
+    subquery: (subplan, isCorrelated) => {
+      subqueries.push(subplan);
+      const name = `subquery ${String(subqueries.length)}`;
+      return isCorrelated ? `(correlated ${name})` : `(${name})`;
+    },
   };
-  const describer = new NodeDescriber(label);
+  const describer = new NodeDescriber(style);
   const lines = [...linesOf(plan, 0, describer)];
   // Printing a subquery can number further subqueries nested in it; an
   // array's iterator sees what is pushed while it runs.
@@ -94,7 +96,7 @@ function childPlans(plan: Plan): readonly Plan[] {
 
 /** The one line a node prints as, without its children. */
 class NodeDescriber {
-  constructor(private readonly label: SubqueryLabel<Plan>) {}
+  constructor(private readonly style: ExpressionStyle<Plan>) {}
 
   describe(plan: Plan): string {
     switch (plan.kind) {
@@ -263,7 +265,7 @@ class NodeDescriber {
     }
     if (plan.aggregates.length > 0) {
       const calls = plan.aggregates.map((call) =>
-        formatAggregateCall(call, this.label),
+        formatAggregateCall(call, this.style),
       );
       parts.push(`compute ${calls.join(", ")}`);
     }
@@ -302,11 +304,21 @@ class NodeDescriber {
   }
 
   private keys(keys: readonly OrderKey[]): string {
-    return keys.map((key) => formatOrderKey(key, this.label)).join(", ");
+    return keys.map((key) => this.orderKey(key)).join(", ");
+  }
+
+  /** `expression ASC`, with NULLS FIRST / LAST only where it is not the default. */
+  private orderKey(key: OrderKey): string {
+    const isAscending = key.direction === "ascending";
+    const direction = isAscending ? "ASC" : "DESC";
+    const defaultNulls = isAscending ? "first" : "last";
+    const nulls =
+      key.nulls === defaultNulls ? "" : ` NULLS ${key.nulls.toUpperCase()}`;
+    return `${this.expression(key.expression)} ${direction}${nulls}`;
   }
 
   private conditions(conditions: readonly Expression[]): string {
-    return formatConditions(conditions, this.label);
+    return formatConditions(conditions, this.style);
   }
 
   private list(expressions: readonly Expression[]): string {
@@ -316,7 +328,7 @@ class NodeDescriber {
   }
 
   private expression(expression: Expression): string {
-    return formatExpression(expression, this.label);
+    return formatExpression(expression, this.style);
   }
 }
 

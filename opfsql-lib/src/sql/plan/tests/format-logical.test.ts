@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { scalarFunction } from "../../../functions/index.js";
 import type { Table } from "../../../schema/index.js";
-import { formatPlan, type logical, ROWID_COLUMN } from "../index.js";
+import {
+  type ColumnReference,
+  formatPlan,
+  type logical,
+  ROWID_COLUMN,
+} from "../index.js";
 
 const users: Table = {
   name: "users",
@@ -97,6 +102,36 @@ describe("formatPlan", () => {
       types: ["INTEGER", "INTEGER", "INTEGER"],
     };
     expect(formatPlan(plan)).toBe("values #0 (-(-1), -(-c1#0.1), -c1#0.1)");
+  });
+
+  it("quotes a JSON path key that is not a plain name, as physical plans do", () => {
+    const data: ColumnReference = {
+      kind: "column",
+      binding: { tableIndex: 0, columnIndex: 1 },
+      depth: 0,
+      name: "data",
+      type: "JSON",
+    };
+    const plan: logical.Plan = {
+      kind: "values",
+      tableIndex: 1,
+      rows: [
+        [
+          {
+            kind: "json-access",
+            column: data,
+            path: [
+              { kind: "key", key: "plain" },
+              { kind: "key", key: "a b" },
+              { kind: "index", index: 2 },
+            ],
+            type: "JSON",
+          },
+        ],
+      ],
+      types: ["JSON"],
+    };
+    expect(formatPlan(plan)).toBe('values #1 (data#0.1.plain."a b"[2])');
   });
 
   it("keeps a REAL constant's decimal point", () => {
