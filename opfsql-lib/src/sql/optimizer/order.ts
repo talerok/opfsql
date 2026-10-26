@@ -1,6 +1,8 @@
 import type { logical, physical } from "../plan/index.js";
 import { chooseAccessPath } from "./access-path.js";
-import { hasNeverTrue } from "./expression-tree.js";
+import { orderedCost } from "./cost.js";
+import { columnsOf, hasNeverTrue } from "./expression-tree.js";
+import { type JoinPlanning, planJoin } from "./join.js";
 import {
   lowerExpressions,
   lowerOptional,
@@ -19,9 +21,13 @@ import type { Planner } from "./planner.js";
 // Pass 5, order (docs/planning.md, rule 3). An ORDER BY over a table read —
 // through projects and the table's filter — asks the access path for its
 // order (order-match.ts says when an index or the rowid delivers it). Only
-// a path that delivers exactly that order lets the sort go. Otherwise a
-// sort stays; with a LIMIT right above it, a top-n takes the place of both,
-// and the limit is not kept beside it.
+// a path that delivers exactly that order lets the sort go. Over a join —
+// through projects and a filter — an ORDER BY of one table's columns asks
+// that table to lead in its order: a lookup join keeps its left side's
+// order, so when every join after it is one, the sort goes too, if that
+// costs less than joining freely and sorting (cost.ts). Otherwise a sort
+// stays; with a LIMIT right above it, a top-n takes the place of both, and
+// the limit is not kept beside it.
 // ---------------------------------------------------------------------------
 
 /** A table read and the projects above it, outermost first. */
@@ -37,7 +43,10 @@ export function lowerOrder(
   lowerChild: (plan: logical.Plan) => physical.Plan,
 ): physical.Plan {
   const clause = limitClauseOf(limit, planner);
-  const ordered = orderedRead(order, countOf(clause) !== null, planner);
+  const isLimited = countOf(clause) !== null;
+  const ordered =
+    orderedRead(order, isLimited, planner) ??
+    orderedJoin(order, isLimited, { planner, lower: lowerChild });
   if (ordered !== null) return withLimit(ordered, clause);
   const keys = lowerOrderKeys(order.keys, planner);
   return sorted(lowerChild(order.child), keys, clause);
@@ -108,6 +117,81 @@ function orderedRead(
   return underProjects(path.plan, chain.projects, planner);
 }
 
+/** A join under projects, and a filter over it. */
+interface JoinChain {
+  readonly projects: readonly logical.Project[];
+  readonly join: logical.Join;
+  readonly conditions: readonly logical.Expression[];
+}
+
+/**
+ * The order's child, a join, read in the order wanted: led by the table
+ * every key reads, in that order, each join after it a lookup join (rule
+ * 3); null when that cannot be, or costs more than a free join and a sort.
+ */
+function orderedJoin(
+  order: logical.Order,
+  isLimited: boolean,
+  planning: JoinPlanning,
+): physical.Plan | null {
+  const chain = joinChainOf(order.child);
+  const keys = chain === null ? null : keysThrough(order.keys, chain.projects);
+  const tableIndex = keys === null ? null : onlyTable(keys);
+  if (chain === null || keys === null || tableIndex === null) return null;
+  const { planner } = planning;
+  const wanted = { keys: lowerOrderKeys(keys, planner), isLimited };
+  const led = planJoin(chain.join, planning, { tableIndex, order: wanted });
+  if (!led.isOrdered) return null;
+  const free = planJoin(chain.join, planning, null);
+  // Two guesses at the same join's rows, from either side: the tighter.
+  const rows = Math.min(led.estimate.rows, free.estimate.rows);
+  const ledCost = orderedCost(
+    led.estimate,
+    { isDelivered: true, isLimited },
+    rows,
+  );
+  const freeCost = orderedCost(
+    free.estimate,
+    { isDelivered: false, isLimited },
+    rows,
+  );
+  if (ledCost > freeCost) return null;
+  const conditions = lowerExpressions(chain.conditions, planner);
+  return underProjects(
+    withFilter(led.plan, conditions),
+    chain.projects,
+    planner,
+  );
+}
+
+function withFilter(
+  plan: physical.Plan,
+  conditions: readonly physical.Expression[],
+): physical.Plan {
+  if (conditions.length === 0) return plan;
+  return { kind: "filter", child: plan, conditions };
+}
+
+function joinChainOf(plan: logical.Plan): JoinChain | null {
+  const { projects, below } = projectsOf(plan);
+  if (below.kind === "join") return { projects, join: below, conditions: [] };
+  const isFilteredJoin = below.kind === "filter" && below.child.kind === "join";
+  if (!isFilteredJoin || hasNeverTrue(below.conditions)) return null;
+  return { projects, join: below.child, conditions: below.conditions };
+}
+
+/** The one table whose columns every key reads, or null. */
+function onlyTable(keys: readonly logical.OrderKey[]): number | null {
+  const tables = new Set<number>();
+  for (const key of keys) {
+    for (const binding of columnsOf(key.expression)) {
+      tables.add(binding.tableIndex);
+    }
+  }
+  const [only = null, ...others] = tables;
+  return others.length === 0 ? only : null;
+}
+
 function scanChainOf(plan: logical.Plan): ScanChain | null {
   const { projects, below } = projectsOf(plan);
   const read = tableReadOf(below);
@@ -122,9 +206,17 @@ function keysOverTable(
   keys: readonly logical.OrderKey[],
   chain: ScanChain,
 ): logical.OrderKey[] | null {
+  return keysThrough(keys, chain.projects);
+}
+
+/** The order keys read through `projects`; null if one cannot be. */
+function keysThrough(
+  keys: readonly logical.OrderKey[],
+  projects: readonly logical.Project[],
+): logical.OrderKey[] | null {
   const resolved: logical.OrderKey[] = [];
   for (const key of keys) {
-    const expression = throughProjects(key.expression, chain.projects);
+    const expression = throughProjects(key.expression, projects);
     if (expression === null) return null;
     resolved.push({ ...key, expression });
   }

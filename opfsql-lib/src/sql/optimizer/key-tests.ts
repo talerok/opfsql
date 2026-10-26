@@ -15,9 +15,11 @@ import { sameExpression } from "./same-expression.js";
 // Conditions an access path can seek with: a conjunct that compares one
 // operand, its subject, with seek values — constants, parameters and
 // columns of enclosing queries, each fixed for one scan (docs/planning.md,
-// Physical plans), so a correlated subquery seeks on its outer row. A
-// column of the scan's own query changes from row to row: never a seek
-// value.
+// Physical plans), so a correlated subquery seeks on its outer row. On a
+// lookup join's right side, the left side's columns are fixed too: the
+// scan starts again for each left row, so a join seeks the other table by
+// each row's key. Any other column of the scan's own query changes from row
+// to row: never a seek value.
 //
 //   subject = v                        equal
 //   subject IN (v, …)                  in
@@ -83,9 +85,18 @@ function isEqualTest(keyTest: KeyTest): keyTest is EqualTest {
   return keyTest.test.kind === "equal";
 }
 
-/** The key tests among `conditions`; the other conditions are skipped. */
-export function keyTestsAmong(conditions: readonly Expression[]): KeyTest[] {
-  return conditions.flatMap((condition) => keyTestOf(condition) ?? []);
+/** No tables of this query whose columns are fixed: a scan of its own. */
+const NO_FIXED_TABLES: ReadonlySet<number> = new Set();
+
+/**
+ * The key tests among `conditions`; the other conditions are skipped.
+ * Columns of `fixed` tables are seek values: a lookup join's left side.
+ */
+export function keyTestsAmong(
+  conditions: readonly Expression[],
+  fixed: ReadonlySet<number> = NO_FIXED_TABLES,
+): KeyTest[] {
+  return conditions.flatMap((condition) => keyTestOf(condition, fixed) ?? []);
 }
 
 /** The first `=` among `tests` that fits `part`, or null. */
@@ -98,25 +109,44 @@ export function equalTestOn(
   return tests.find((keyTest) => isOnPart(keyTest)) ?? null;
 }
 
-/** `condition` as a key test, or null if it is not one. */
-export function keyTestOf(condition: Expression): KeyTest | null {
-  if (condition.kind === "comparison") return comparisonTest(condition);
-  if (condition.kind === "between") return betweenTest(condition);
-  if (condition.kind === "in-list") return inListTest(condition);
+/** `condition` as a key test, or null if it is not one; `fixed` as for keyTestsAmong. */
+export function keyTestOf(
+  condition: Expression,
+  fixed: ReadonlySet<number> = NO_FIXED_TABLES,
+): KeyTest | null {
+  const isFixed = (expression: Expression): expression is SeekValue =>
+    isSeekValue(expression, fixed);
+  if (condition.kind === "comparison") {
+    return comparisonTest(condition, isFixed);
+  }
+  if (condition.kind === "between") return betweenTest(condition, isFixed);
+  if (condition.kind === "in-list") return inListTest(condition, isFixed);
   return null;
 }
 
-function isSeekValue(expression: Expression): expression is SeekValue {
-  if (expression.kind === "column") return expression.depth > 0;
+/** Whether an expression is a seek value, fixed for one scan. */
+type IsFixed = (expression: Expression) => expression is SeekValue;
+
+function isSeekValue(
+  expression: Expression,
+  fixed: ReadonlySet<number>,
+): expression is SeekValue {
+  if (expression.kind === "column") {
+    const isOuter = expression.depth > 0;
+    return isOuter || fixed.has(expression.binding.tableIndex);
+  }
   return expression.kind === "constant" || expression.kind === "parameter";
 }
 
-function comparisonTest(condition: Comparison<physical.Plan>): KeyTest | null {
+function comparisonTest(
+  condition: Comparison<physical.Plan>,
+  isFixed: IsFixed,
+): KeyTest | null {
   const { left, right, operator } = condition;
-  if (isSeekValue(right) && !isSeekValue(left)) {
+  if (isFixed(right) && !isFixed(left)) {
     return comparedWith(condition, left, operator, right);
   }
-  if (isSeekValue(left) && !isSeekValue(right)) {
+  if (isFixed(left) && !isFixed(right)) {
     return comparedWith(condition, right, mirrored(operator), left);
   }
   return null;
@@ -180,10 +210,12 @@ function mirrored(operator: ComparisonOperator): ComparisonOperator {
   }
 }
 
-function betweenTest(condition: Between<physical.Plan>): KeyTest | null {
+function betweenTest(
+  condition: Between<physical.Plan>,
+  isFixed: IsFixed,
+): KeyTest | null {
   const { input, lower, upper } = condition;
-  const isRange =
-    isSeekValue(lower) && isSeekValue(upper) && !isSeekValue(input);
+  const isRange = isFixed(lower) && isFixed(upper) && !isFixed(input);
   if (!isRange) return null;
   const range = {
     lower: { value: lower, isInclusive: true },
@@ -192,11 +224,14 @@ function betweenTest(condition: Between<physical.Plan>): KeyTest | null {
   return { condition, subject: input, test: { kind: "range", range } };
 }
 
-function inListTest(condition: InList<physical.Plan>): KeyTest | null {
+function inListTest(
+  condition: InList<physical.Plan>,
+  isFixed: IsFixed,
+): KeyTest | null {
   const { needle, list } = condition;
-  const values = list.filter((item) => isSeekValue(item));
+  const values = list.filter((item) => isFixed(item));
   const isFixedList = values.length > 0 && values.length === list.length;
-  if (!isFixedList || isSeekValue(needle)) return null;
+  if (!isFixedList || isFixed(needle)) return null;
   return { condition, subject: needle, test: { kind: "in", values } };
 }
 
