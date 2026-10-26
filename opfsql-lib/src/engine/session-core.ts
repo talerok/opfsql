@@ -1,4 +1,4 @@
-import { linkSignals, TaskQueue } from "../async/index.js";
+import { runInTurn, TaskQueue } from "../async/index.js";
 import { AbortError, MisuseError, toOpfsqlError } from "../errors.js";
 import type { Schema as SchemaModel } from "../schema/index.js";
 import {
@@ -176,17 +176,11 @@ export class SessionCore {
     task: (signal: AbortSignal) => Promise<T> | T,
   ): Promise<T> {
     if (this.state !== "open") throw new MisuseError("the session is closed");
-    const linked = linkSignals([options.signal, this.lifetime.signal]);
-    try {
-      return await this.queue.run(
-        async () => this.withNoLeftoverTransaction(task, linked.signal),
-        linked.signal,
-      );
-    } catch (error) {
-      throw toOpfsqlError(error);
-    } finally {
-      linked.dispose();
-    }
+    return runInTurn(
+      this.queue,
+      [options.signal, this.lifetime.signal],
+      async (signal) => this.withNoLeftoverTransaction(task, signal),
+    );
   }
 
   /**

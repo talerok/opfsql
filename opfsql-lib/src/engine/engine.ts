@@ -1,4 +1,4 @@
-import { linkSignals, TaskQueue } from "../async/index.js";
+import { runInTurn, TaskQueue } from "../async/index.js";
 import {
   AbortError,
   MisuseError,
@@ -159,17 +159,7 @@ export class Engine implements AsyncDisposable {
     work: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
     this.assertOpen();
-    const linked = linkSignals([options.signal, this.lifetime.signal]);
-    try {
-      return await this.tasks.run(
-        async () => work(linked.signal),
-        linked.signal,
-      );
-    } catch (error) {
-      throw toOpfsqlError(error);
-    } finally {
-      linked.dispose();
-    }
+    return runInTurn(this.tasks, [options.signal, this.lifetime.signal], work);
   }
 
   private openSession(options: SessionOptions): Session {

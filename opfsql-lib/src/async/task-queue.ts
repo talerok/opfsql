@@ -1,4 +1,5 @@
-import { abortErrorOf } from "./signals.js";
+import { toOpfsqlError } from "../errors.js";
+import { abortErrorOf, linkSignals } from "./signals.js";
 
 /** A call waiting for its turn. */
 interface Waiter {
@@ -92,4 +93,24 @@ export class TaskQueue {
 /** A call whose signal has aborted never runs. */
 function ensureNotAborted(signal: AbortSignal): void {
   if (signal.aborted) throw abortErrorOf(signal);
+}
+
+/**
+ * Runs `task` in its turn on `queue`, cancelled by any of `signals` while it
+ * waits, and given their link while it runs; what it throws becomes an
+ * OpfsqlError. How the engine and its sessions run each call.
+ */
+export async function runInTurn<T>(
+  queue: TaskQueue,
+  signals: readonly (AbortSignal | undefined)[],
+  task: (signal: AbortSignal) => Promise<T> | T,
+): Promise<T> {
+  const linked = linkSignals(signals);
+  try {
+    return await queue.run(async () => task(linked.signal), linked.signal);
+  } catch (error) {
+    throw toOpfsqlError(error);
+  } finally {
+    linked.dispose();
+  }
 }

@@ -147,7 +147,7 @@ class Host {
   private async reply(
     id: number,
     answer: Promise<ReplyMessage>,
-    dispose: () => void = noDisposal,
+    dispose: () => void = nothingToDispose,
   ): Promise<void> {
     let reply: ReplyMessage;
     try {
@@ -457,7 +457,7 @@ function connectionOf(message: RequestMessage): number | undefined {
   return "connection" in message ? message.connection : undefined;
 }
 
-function noDisposal(): void {
+function nothingToDispose(): void {
   // a call outside a connection's order links no signals
 }
 

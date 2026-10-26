@@ -3,4 +3,4 @@
 // stop a call while it waits.
 
 export { abortErrorOf, type LinkedSignal, linkSignals } from "./signals.js";
-export { TaskQueue } from "./task-queue.js";
+export { runInTurn, TaskQueue } from "./task-queue.js";
