@@ -3,7 +3,10 @@ import {
   multisetDifference,
   type Rows,
   sequenceDifference,
+  type Sides,
 } from "./compare.js";
+
+const COPIES: Sides = ["the plain copy", "the indexed copy"];
 
 /** One statement of a check. */
 export interface Form {
@@ -47,6 +50,6 @@ export function copyDifference(
   plain: Rows,
   indexed: Rows,
 ): string | null {
-  if (form.isOrdered) return sequenceDifference(plain, indexed);
-  return multisetDifference(plain, indexed);
+  if (form.isOrdered) return sequenceDifference(plain, indexed, COPIES);
+  return multisetDifference(plain, indexed, COPIES);
 }

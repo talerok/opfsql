@@ -27,18 +27,22 @@ describe("metamorphic oracles", () => {
     async () => {
       const failures: string[] = [];
       let checks = 0;
+      let parted = 0;
       const skipped = new Map<string, number>();
       for (let seed = FIRST_SEED; seed < FIRST_SEED + SEEDS; seed++) {
         const report = await runSeed(seed, CASES_PER_SEED);
         failures.push(...report.failures);
         checks += report.checks;
+        if (report.hasParted) parted++;
         for (const [code, count] of report.skipped) {
           skipped.set(code, (skipped.get(code) ?? 0) + count);
         }
         // Let the test runner's own messages through on a long run.
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
-      if (IS_SOAK) process.stdout.write(`${summary(checks, skipped)}\n`);
+      if (IS_SOAK) {
+        process.stdout.write(`${summary(checks, skipped, parted)}\n`);
+      }
       expect(failures.join("\n\n")).toBe("");
     },
     TIMEOUT,
@@ -46,11 +50,16 @@ describe("metamorphic oracles", () => {
 });
 
 /** What a soak checked: the figure to quote for it. */
-function summary(checks: number, skipped: ReadonlyMap<string, number>): string {
+function summary(
+  checks: number,
+  skipped: ReadonlyMap<string, number>,
+  parted: number,
+): string {
   const skips = [...skipped].map(([code, count]) => `${code} ${String(count)}`);
   return [
     `metamorphic: seeds ${String(FIRST_SEED)}–${String(FIRST_SEED + SEEDS - 1)},`,
     `${String(checks)} checks,`,
-    `skipped: ${skips.length === 0 ? "none" : skips.join(", ")}`,
+    `skipped: ${skips.length === 0 ? "none" : skips.join(", ")};`,
+    `changes stopped where the copies parted: ${String(parted)} databases`,
   ].join(" ");
 }

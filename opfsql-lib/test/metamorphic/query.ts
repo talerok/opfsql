@@ -202,14 +202,14 @@ function generateFrom(random: Random, database: DatabaseSpec): FromClause {
   let sql = `${first.sql} AS a`;
   let leaves = tableLeaves(first.table, "a");
   let keys = keysOf(first, "a");
-  let pairs = first.maxRows + 1;
+  let maxJoinedRows = first.maxRows + 1;
   for (const [position, alias] of TABLE_ALIASES.slice(
     1,
     sourceCount,
   ).entries()) {
     const source = generateSource(random, database, position + 1);
-    pairs *= source.maxRows + 1;
-    if (pairs > MAX_JOINED_ROWS) break;
+    maxJoinedRows *= source.maxRows + 1;
+    if (maxJoinedRows > MAX_JOINED_ROWS) break;
     sql += ` ${joinOf(random, { database, source, alias, leaves })}`;
     leaves = [...leaves, ...tableLeaves(source.table, alias)];
     keys = [...keys, ...keysOf(source, alias)];

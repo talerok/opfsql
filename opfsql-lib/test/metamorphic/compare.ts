@@ -49,10 +49,14 @@ export function distinctRows(rows: Rows): Rows {
   });
 }
 
+/** What the two sides compared are called in a report: [first, second]. */
+export type Sides = readonly [string, string];
+
 /** What tells two multisets of rows apart, or null when they are equal. */
 export function multisetDifference(
   expected: Rows,
   actual: Rows,
+  [first, second]: Sides,
 ): string | null {
   const counts = new Map<string, number>();
   for (const row of expected)
@@ -62,10 +66,10 @@ export function multisetDifference(
   const differing = [...counts].filter(([, count]) => count !== 0);
   if (differing.length === 0) return null;
   const shown = differing.slice(0, SHOWN).map(([key, count]) => {
-    const side = count > 0 ? "only in the first" : "only in the second";
+    const side = count > 0 ? `only in ${first}` : `only in ${second}`;
     return `  ${side} (×${String(Math.abs(count))}): ${key}`;
   });
-  const sizes = `${String(expected.length)} rows against ${String(actual.length)}`;
+  const sizes = `${String(expected.length)} rows in ${first} against ${String(actual.length)} in ${second}`;
   return [sizes, ...shown].join("\n");
 }
 
@@ -73,19 +77,20 @@ export function multisetDifference(
 export function sequenceDifference(
   expected: Rows,
   actual: Rows,
+  [first, second]: Sides,
 ): string | null {
   const length = Math.max(expected.length, actual.length);
   for (let index = 0; index < length; index++) {
-    const first = expected[index];
-    const second = actual[index];
+    const expectedRow = expected[index];
+    const actualRow = actual[index];
     const isSame =
-      first !== undefined &&
-      second !== undefined &&
-      rowKey(first) === rowKey(second);
+      expectedRow !== undefined &&
+      actualRow !== undefined &&
+      rowKey(expectedRow) === rowKey(actualRow);
     if (isSame) continue;
     const shown = (row: ResultRow | undefined) =>
       row === undefined ? "none" : rowKey(row);
-    return `row ${String(index + 1)}: ${shown(first)} against ${shown(second)}`;
+    return `row ${String(index + 1)}: ${shown(expectedRow)} in ${first} against ${shown(actualRow)} in ${second}`;
   }
   return null;
 }

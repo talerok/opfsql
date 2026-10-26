@@ -22,7 +22,7 @@ export function describeFailure(failure: Failure): string {
   const { seed, index, spec, check } = failure;
   const reduced = failure.isReduced ? ", reduced" : "";
   return [
-    `seed ${String(seed)}, case ${String(index)}${reduced}: ${check.oracle} disagrees`,
+    `seed ${String(seed)}, case ${String(index)}${reduced}: ${check.oracle} failed`,
     failure.reason,
     ...describeSchema(spec),
     ...describeRows(failure),

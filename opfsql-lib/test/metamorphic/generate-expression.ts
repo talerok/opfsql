@@ -234,7 +234,7 @@ export class ExpressionGenerator {
         1,
         (inner) => node("integer", "sign(", this.value("integer", inner), ")"),
       ],
-      [2, (inner) => this.choice("integer", inner)],
+      [2, (inner) => this.conditionalValue("integer", inner)],
       [this.subqueryWeight(), (inner) => this.countSubquery(inner)],
     ]);
   }
@@ -248,7 +248,7 @@ export class ExpressionGenerator {
         (inner) =>
           node("real", "CAST(", this.value("integer", inner), " AS REAL)"),
       ],
-      [2, (inner) => this.choice("real", inner)],
+      [2, (inner) => this.conditionalValue("real", inner)],
     ]);
   }
 
@@ -309,7 +309,7 @@ export class ExpressionGenerator {
           node("text", "CAST(", this.value("integer", inner), " AS TEXT)"),
       ],
       [1, (inner) => node("text", "typeof(", this.anyValue(inner), ")")],
-      [2, (inner) => this.choice("text", inner)],
+      [2, (inner) => this.conditionalValue("text", inner)],
       [this.subqueryWeight(), (inner) => this.extremeSubquery("text", inner)],
     ]);
   }
@@ -317,7 +317,7 @@ export class ExpressionGenerator {
   private untyped(depth: number): Expression {
     return this.choose(depth, [
       [3, () => this.leafOf("untyped")],
-      [1, (inner) => this.choice("untyped", inner)],
+      [1, (inner) => this.conditionalValue("untyped", inner)],
       [
         this.subqueryWeight(),
         (inner) => this.extremeSubquery("untyped", inner),
@@ -340,7 +340,7 @@ export class ExpressionGenerator {
   }
 
   /** CASE, iif, coalesce or nullif: one of several values of `type`. */
-  private choice(type: ExpressionType, depth: number): Expression {
+  private conditionalValue(type: ExpressionType, depth: number): Expression {
     switch (this.random.below(4)) {
       case 0: {
         const otherwise = this.value(type, depth);
