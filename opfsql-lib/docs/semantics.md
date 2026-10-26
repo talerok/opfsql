@@ -116,8 +116,10 @@ applies affinity:
 
 Compared with several operands at once — the items of `IN`, the bounds of
 `BETWEEN`, the `WHEN` values of `CASE x` — it is converted only when they
-all agree on the type. Nothing else is converted: an ANY column's values
-compare as they were stored, so `x = 1` does not find `'1'`. Values of
+all agree on the type. Only a parameter that is itself an operand is
+converted, not one inside an expression or a subquery (`$1 + 0`,
+`(SELECT $1)`). Nothing else is converted: an ANY column's values compare as
+they were stored, so `x = 1` does not find `'1'`. Values of
 different kinds then compare by the total order, so `1 < 'a'` is true.
 
 ## Logic
@@ -261,6 +263,14 @@ that of [Order and equality](#order-and-equality).
 - `min` and `max` follow the total order, so they work on any type.
 - `sum` and `avg` take numbers only: over TEXT, BOOLEAN, BLOB or JSON they
   are a bind error.
+
+## LIMIT and OFFSET
+
+LIMIT and OFFSET take integers, converted as an INTEGER column converts
+them: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
+OFFSET skips nothing. Any other value — NULL, `2.5`, `'five'` — fails with
+`DATATYPE_MISMATCH`. Both are evaluated each time their query starts,
+before it reads a row.
 
 ## Limits
 

@@ -155,13 +155,19 @@ exactly as `=` matches it, with nothing left to convert: `id = $1` with
    the left row is still emitted with NULLs.
 3. **Order comes from one place.** A `sort` is removed only when its child
    already delivers exactly that order: an index scan whose key order,
-   direction and NULL placement match every key. `top-n` replaces a `sort`
+   direction and NULL placement match every key, or a table scan or rowid
+   lookup whose rowid order matches an ORDER BY of the rowid. `top-n` replaces a `sort`
    and the `limit` above it; it never coexists with that `limit`.
 4. **Rewrites follow `values`.** A rewrite that folds or simplifies an
    expression evaluates it with the expression compiler, never with its own
    JavaScript semantics, and leaves it alone if evaluating fails (it will
    fail again at run time, with the right error). A rewrite that would
-   change a result for some row — NULLs included — is not made.
+   change a result for some row — NULLs included — is not made. Errors are
+   not results: conditions run in any order and may run on rows a later
+   step discards, so one plan may fail where another succeeds (`x AND
+FALSE` never evaluates `x`; a condition pushed below a join meets rows
+   the join drops), as in SQLite and PostgreSQL. Every plan of a statement
+   that succeeds returns the same rows.
 5. **Parameters are unknown values.** A plan never depends on a parameter's
    value, so it can be reused with others. A parameter can bound a key range;
    it cannot decide which index is used.

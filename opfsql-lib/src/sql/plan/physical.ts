@@ -54,6 +54,7 @@ interface TableAccess {
   readonly table: Table;
   /** As in a logical `get`; ROWID_COLUMN is the rowid. */
   readonly columns: readonly number[];
+  /** Conditions on each row, bound to `columns` under `tableIndex`. */
   readonly residual: readonly Expression[];
 }
 
@@ -63,7 +64,11 @@ export interface TableScan extends TableAccess {
   readonly direction: OrderDirection;
 }
 
-/** Rowids listed, or a range of them. */
+/**
+ * Rowids listed, or a range of them. A value or bound may be any value,
+ * compared with the integer rowids in the total order: `rowid = 1.5` finds
+ * nothing, `rowid < 2.5` finds 2, and `rowid < 'a'` finds every row.
+ */
 export type RowidSet =
   | { readonly kind: "list"; readonly values: readonly Expression[] }
   | { readonly kind: "range"; readonly range: Range };
@@ -101,7 +106,9 @@ export interface IndexUnion extends TableAccess {
  * MIN or MAX of an index's next key part after `equal`, read from one end of
  * the index, NULLs skipped: the one row of an aggregate with that one call.
  * It has no residual, so it is chosen only when `equal` is exact and no
- * other condition applies; otherwise the aggregate runs over a scan.
+ * other condition applies; otherwise the aggregate runs over a scan. Its
+ * value is the decoded key, so a JSON part is never read this way: its key
+ * holds canonical text, which loses the stored object's key order.
  */
 export interface IndexExtreme {
   readonly kind: "index-extreme";
@@ -167,6 +174,7 @@ export interface Sort {
 }
 
 /** A sort and the limit above it: the first `limit` rows after `offset`. */
+/** `limit` and `offset` as LIMIT and OFFSET take them (docs/semantics.md). */
 export interface TopN {
   readonly kind: "top-n";
   readonly child: Plan;
