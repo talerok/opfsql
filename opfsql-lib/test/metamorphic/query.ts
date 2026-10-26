@@ -10,6 +10,7 @@ import {
 } from "./expression.js";
 import { ExpressionGenerator } from "./generate-expression.js";
 import type { Random } from "./random.js";
+import { anotherLiteral } from "./data.js";
 import { seekableCondition } from "./seekable.js";
 import { AliasSource, keyLeaf, seekKeys, tableLeaves } from "./scope.js";
 import type { DatabaseSpec, TableSpec } from "./schema.js";
@@ -39,10 +40,14 @@ export interface QueryCase {
   readonly summed: Expression;
   /** The condition TLP partitions groups on, over the group key and aggregates. */
   readonly groupCondition: Expression;
-  /** `condition` with some of its constants as parameters, and their values. */
+  /**
+   * `condition` with some of its constants as parameters: their values,
+   * and others of the same kinds to run the prepared statement with next.
+   */
   readonly parameterized: {
     readonly expression: Expression;
-    readonly values: Value[];
+    readonly values: readonly Value[];
+    readonly others: readonly string[];
   };
   /** What ORDER BY puts first — often a key, so that an index can deliver the order — or null. */
   readonly orderKey: string | null;
@@ -102,6 +107,7 @@ export function generateCase(
     parameterized: {
       expression: parameterized(condition, isParameter, values),
       values,
+      others: values.map((value) => anotherLiteral(random, value)),
     },
     orderKey: generateOrderKey(random, from),
     limit: random.between(0, 8),

@@ -1,3 +1,4 @@
+import type { Value } from "../../src/values/index.js";
 import type { Random } from "./random.js";
 import type { ColumnSpec, ColumnType, TableSpec } from "./schema.js";
 
@@ -50,6 +51,8 @@ export const TEXTS = [
   "'～'",
 ];
 export const BOOLEANS = ["TRUE", "FALSE"];
+/** REAL constants that are not also integers. */
+export const FRACTIONS = ["-2.5", "-0.25", "0.5", "1.5", "2.75", "13.5"];
 /** LIKE patterns over the text pool. */
 export const PATTERNS = [
   "'a%'",
@@ -76,9 +79,18 @@ const EXTREME_REALS = ["-0.0", "1e300", "1e999", "-1e999"];
 export function generateRows(random: Random, table: TableSpec): Row[] {
   const rows: Row[] = [];
   for (let index = 0; index < table.rowCount; index++) {
-    rows.push(table.columns.map((column) => valueFor(random, column, index)));
+    rows.push(generateRow(random, table, index));
   }
   return rows;
+}
+
+/** Row `index` of `table`: its primary key, if any, near three times the index. */
+export function generateRow(
+  random: Random,
+  table: TableSpec,
+  index: number,
+): Row {
+  return table.columns.map((column) => valueFor(random, column, index));
 }
 
 function valueFor(random: Random, column: ColumnSpec, index: number): string {
@@ -150,4 +162,14 @@ function jsonScalar(random: Random): string {
 
 export function insertSql(table: TableSpec, row: Row): string {
   return `INSERT INTO ${table.name} VALUES (${row.join(", ")})`;
+}
+
+/** Another constant of the kind `value` is: what a prepared statement runs with next. */
+export function anotherLiteral(random: Random, value: Value): string {
+  if (value === null) return "NULL";
+  if (typeof value === "boolean") return random.pick(BOOLEANS);
+  if (typeof value === "number") {
+    return random.pick(Number.isSafeInteger(value) ? INTEGERS : FRACTIONS);
+  }
+  return random.pick(TEXTS);
 }

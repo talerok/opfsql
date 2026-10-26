@@ -1,3 +1,4 @@
+import { runChanges } from "./changes.js";
 import { closeCopies, type Copies, openCopies } from "./database.js";
 import { checksOf } from "./oracles.js";
 import { generateCase, type QueryCase } from "./query.js";
@@ -9,9 +10,9 @@ import { type DatabaseSpec, generateDatabase } from "./schema.js";
 import type { Check } from "./check.js";
 
 // ---------------------------------------------------------------------------
-// Running the oracles over one random database, case after case. The first
-// failure of a database is reduced before it is reported; any later one is
-// reported as generated.
+// Running the oracles over one random database, case after case, and then
+// changes to its rows (changes.ts). The first failure of a query is reduced
+// before it is reported; any later one is reported as generated.
 // ---------------------------------------------------------------------------
 
 export interface SeedReport {
@@ -19,6 +20,8 @@ export interface SeedReport {
   /** Checks skipped, by the error code a form failed with. */
   readonly skipped: ReadonlyMap<string, number>;
   readonly failures: readonly string[];
+  /** Whether a change succeeded on one copy and failed on the other (changes.ts). */
+  readonly hasParted: boolean;
 }
 
 export async function runSeed(
@@ -33,10 +36,12 @@ export async function runSeed(
     for (let index = 0; index < caseCount; index++) {
       await runCase({ seed, index, spec, copies }, tally);
     }
+    const changes = await runChanges(seed, spec, copies);
+    for (const failure of changes.failures) tally.fail(failure);
+    return { ...tally.report(), hasParted: changes.hasParted };
   } finally {
     await closeCopies(copies);
   }
-  return tally.report();
 }
 
 /** Where a case runs: its seed and number, and its database. */
@@ -109,7 +114,7 @@ class Tally {
     return this.failures.length;
   }
 
-  report(): SeedReport {
+  report(): Omit<SeedReport, "hasParted"> {
     const { checks, skipped, failures } = this;
     return { checks, skipped, failures };
   }

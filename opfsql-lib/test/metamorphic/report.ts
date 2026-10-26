@@ -24,13 +24,7 @@ export function describeFailure(failure: Failure): string {
   return [
     `seed ${String(seed)}, case ${String(index)}${reduced}: ${check.oracle} disagrees`,
     failure.reason,
-    "schema:",
-    ...spec.tables.map((table) => `  ${createTableSql(table)};`),
-    "indexed copy only:",
-    ...spec.indexes.map(
-      (each) =>
-        `  ${createIndexSql(each)};${each.isEarly ? " -- before the rows" : ""}`,
-    ),
+    ...describeSchema(spec),
     ...describeRows(failure),
     "forms:",
     ...check.forms.map((form) => {
@@ -59,4 +53,17 @@ function describeRows(failure: Failure): string[] {
     (rows.get(table.name) ?? []).map((row) => `  ${insertSql(table, row)};`),
   );
   return [summary, ...inserts];
+}
+
+/** The tables, and the indexes only the indexed copy has. */
+export function describeSchema(spec: DatabaseSpec): string[] {
+  return [
+    "schema:",
+    ...spec.tables.map((table) => `  ${createTableSql(table)};`),
+    "indexed copy only:",
+    ...spec.indexes.map(
+      (each) =>
+        `  ${createIndexSql(each)};${each.isEarly ? " -- before the rows" : ""}`,
+    ),
+  ];
 }

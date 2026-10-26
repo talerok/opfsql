@@ -10,7 +10,7 @@ import {
   rowKey,
   sequenceDifference,
 } from "./compare.js";
-import { print } from "./expression.js";
+import { constant, print } from "./expression.js";
 import type { QueryCase } from "./query.js";
 import { selectList, tlpChecks } from "./tlp.js";
 
@@ -117,18 +117,41 @@ function setOperations(queryCase: QueryCase): Check {
   };
 }
 
+/**
+ * The condition with some constants as parameters, prepared once and run
+ * with their values, then with others; each against the condition with
+ * those values written in.
+ */
 function parameters(queryCase: QueryCase): Check {
   const query = `SELECT ${selectList(queryCase)} FROM ${queryCase.from.sql} WHERE `;
-  const { expression, values } = queryCase.parameterized;
+  const { expression, values, others } = queryCase.parameterized;
+  const prepared = `${query}${print(expression)}`;
+  const written = `${query}${withLiterals(print(expression), others)}`;
+  const otherValues = others.map((sql) => constant("untyped", sql).value);
   return {
     oracle: "parameters",
     forms: [
       unordered(`${query}${print(queryCase.condition)}`),
-      unordered(`${query}${print(expression)}`, values),
+      unordered(prepared, values),
+      unordered(written),
+      unordered(prepared, otherValues),
     ],
-    verdict: ([constants = [], bound = []]) =>
-      multisetDifference(constants, bound),
+    verdict: ([
+      constants = [],
+      bound = [],
+      otherConstants = [],
+      otherBound = [],
+    ]) =>
+      labelled("first values", multisetDifference(constants, bound)) ??
+      labelled("next values", multisetDifference(otherConstants, otherBound)),
   };
+}
+
+/** `sql` with `$n` replaced by the nth of `literals`. */
+function withLiterals(sql: string, literals: readonly string[]): string {
+  return sql.replaceAll(/\$(\d+)/gu, (parameter, number: string) => {
+    return literals[Number(number) - 1] ?? parameter;
+  });
 }
 
 function labelled(label: string, difference: string | null): string | null {

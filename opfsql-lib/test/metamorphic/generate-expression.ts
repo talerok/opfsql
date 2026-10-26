@@ -1,4 +1,4 @@
-import { BOOLEANS, INTEGERS, PATTERNS, TEXTS } from "./data.js";
+import { BOOLEANS, FRACTIONS, INTEGERS, PATTERNS, TEXTS } from "./data.js";
 import {
   areComparable,
   constant,
@@ -21,7 +21,6 @@ import { SubqueryGenerator } from "./subqueries.js";
 type Choice = readonly [weight: number, make: (depth: number) => Expression];
 
 const COMPARISONS = ["=", "<>", "<", "<=", ">", ">="];
-const REAL_LITERALS = ["-2.5", "-0.25", "0.5", "1.5", "2.75", "13.5"];
 const NULL_CHANCE = 0.03;
 const LEAF_CHANCE = 0.45;
 /** How often a leaf is a column rather than a constant, when there is one. */
@@ -131,7 +130,7 @@ export class ExpressionGenerator {
         return this.random.pick(INTEGERS);
       }
       case "real": {
-        return this.random.pick(REAL_LITERALS);
+        return this.random.pick(FRACTIONS);
       }
       case "text": {
         return this.random.pick(TEXTS);
