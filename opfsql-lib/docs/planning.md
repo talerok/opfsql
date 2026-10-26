@@ -116,6 +116,7 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 | `project`                          | as logical                                                                        |
 | `hash-join`                        | equality keys hashed on one side; residual conditions on each matching pair       |
 | `nested-loop-join`                 | every pair, matched by its conditions                                             |
+| `lookup-join`                      | for each left row, a seek of one table by values of that row; residual on pairs   |
 | `hash-aggregate`                   | groups in a hash table                                                            |
 | `sort`, `top-n`                    | full sort; or the first N in key order with a bounded heap                        |
 | `limit`                            | as logical                                                                        |
@@ -130,10 +131,31 @@ it returns. A rowid lookup and an index union return each row once; a rowid
 lookup returns them in rowid order or its reverse.
 
 A seek value — an equal value or a range bound — is fixed for one scan: a
-constant, a parameter, or a column of an enclosing query, evaluated again
-each time the scan starts. So a correlated subquery seeks on its outer row
-instead of scanning for it. A NULL seek value matches nothing, as `=` and `<`
-with NULL never hold.
+constant, a parameter, a column of an enclosing query, or, on the right side
+of a lookup join, a column of the left row; it is evaluated again each time
+the scan starts. So a correlated subquery seeks on its outer row instead of
+scanning for it, and a join seeks the other table by each row's key instead
+of reading all of it. A NULL seek value matches nothing, as `=` and `<` with
+NULL never hold.
+
+A lookup join's right side is one scan of a table — a rowid lookup or an
+index scan — whose seek values may read the left side's columns; nothing
+else of the right side may. For each left row the scan starts again with
+that row's values. The join's residual holds every condition of the join
+the seek does not enforce exactly (rules 1 and 2), checked on each pair; a
+LEFT join pads a left row with NULLs when no pair passes. Rows come out in
+the left side's order, each left row's matches in the scan's order.
+
+An inner join's sides may be swapped: expressions above it find columns by
+binding, not by position. The side with the more selective access path —
+a rowid, a unique key or an equality with a constant or a parameter — leads,
+and the other is looked up by its key when it has an index or a rowid on it;
+two sides that both need a full read meet in a hash join, which hashes the
+side estimated smaller.
+
+A scan reads only the columns some node above it uses, and the rowid only
+when one does: the binder may list more, and the optimizer prunes them, as
+the table layer decodes only the columns a scan asks for.
 
 `=` compares values as they are; the one conversion a comparison involves
 is a parameter's affinity (docs/semantics.md, Comparisons), which the binder
@@ -162,7 +184,8 @@ expression keys match nothing.
 3. **Order comes from one place.** A `sort` is removed only when its child
    already delivers exactly that order: an index scan whose key order,
    direction and NULL placement match every key, or a table scan or rowid
-   lookup whose rowid order and direction match an ORDER BY of the rowid. `top-n` replaces a `sort`
+   lookup whose rowid order and direction match an ORDER BY of the rowid,
+   or a lookup join whose left side delivers it. `top-n` replaces a `sort`
    and the `limit` above it; it never coexists with that `limit`.
 4. **Rewrites follow `values`.** A rewrite that folds or simplifies an
    expression evaluates it with the expression compiler, never with its own
