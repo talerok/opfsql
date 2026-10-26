@@ -1,0 +1,178 @@
+import { SemanticError } from "../../errors.js";
+import {
+  JoinType,
+  TableReferenceType,
+  type BaseTableReference,
+  type JoinReference,
+  type SubqueryReference,
+  type TableReference,
+} from "../parser/index.js";
+import type { ColumnReference, logical } from "../plan/index.js";
+import { bindCondition, conjunctsOf, refuse } from "./clause.js";
+import { readColumns } from "./columns.js";
+import { clauseOf } from "./expression.js";
+import { columnOf, unqualifiedColumn } from "./names.js";
+import { exactlyOne } from "./one.js";
+import {
+  relation,
+  type CteDefinition,
+  type Relation,
+  type Scope,
+} from "./scope.js";
+import { checkComparable } from "./type-rules.js";
+
+// ---------------------------------------------------------------------------
+// FROM: each item a relation of the query's scope, under its own table
+// index. A table is a `get` of every column; a CTE a `cte-scan`; a subquery
+// is its plan under a `project` that gives it an index of its own. Joins
+// keep their ON conjuncts; a RIGHT join is a LEFT join with its sides
+// swapped. A query without FROM reads one row of no columns.
+// ---------------------------------------------------------------------------
+
+type Plan = logical.Plan;
+
+export function bindFrom(from: TableReference | null, scope: Scope): Plan {
+  if (from !== null) return bindTableReference(from, scope);
+  const tableIndex = scope.context.newIndex();
+  return { kind: "values", tableIndex, rows: [[]], types: [] };
+}
+
+function bindTableReference(reference: TableReference, scope: Scope): Plan {
+  switch (reference.type) {
+    case TableReferenceType.BASE_TABLE: {
+      return bindNamedTable(reference, scope);
+    }
+    case TableReferenceType.SUBQUERY: {
+      return bindDerivedTable(reference, scope);
+    }
+    case TableReferenceType.JOIN: {
+      return bindJoin(reference, scope);
+    }
+  }
+}
+
+/** A CTE the query sees, else a table of the schema. */
+function bindNamedTable(reference: BaseTableReference, scope: Scope): Plan {
+  const name = reference.alias ?? reference.table;
+  const tableIndex = scope.context.newIndex();
+  const cte = scope.cte(reference.table);
+  if (cte !== null)
+    return bindCteScan(cte, relation(name, tableIndex, cte.columns), scope);
+  const table = scope.context.schema.table(reference.table);
+  if (table === null) {
+    throw new SemanticError(`no such table: ${reference.table}`);
+  }
+  scope.context.noteTableRead(table.name);
+  scope.add(relation(name, tableIndex, table.columns));
+  const columns = table.columns.map((_, position) => position);
+  return { kind: "get", tableIndex, table, columns };
+}
+
+/**
+ * A CTE read as `item`. It is materialized again for each row of the
+ * outermost query its definition reads, so reading it reads that query.
+ */
+function bindCteScan(cte: CteDefinition, item: Relation, scope: Scope): Plan {
+  if (cte.reach !== null) scope.noteReach(cte.reach);
+  scope.add(item);
+  const types = cte.columns.map((column) => column.type);
+  const { tableIndex } = item;
+  return { kind: "cte-scan", cteIndex: cte.cteIndex, tableIndex, types };
+}
+
+/** `(SELECT …) AS s`: bound beside this query, which it cannot see. */
+function bindDerivedTable(reference: SubqueryReference, scope: Scope): Plan {
+  const query = scope.context.bindQuery(reference.subquery, scope.sibling());
+  const tableIndex = scope.context.newIndex();
+  scope.add(relation(reference.alias, tableIndex, query.columns));
+  const expressions = readColumns(query.plan, query.columns);
+  return { kind: "project", tableIndex, child: query.plan, expressions };
+}
+
+// --- Joins -------------------------------------------------------------------------
+
+function bindJoin(reference: JoinReference, scope: Scope): Plan {
+  const left = bindTableReference(reference.left, scope);
+  const leftItems = scope.relations.length;
+  const right = bindTableReference(reference.right, scope);
+  const conditions = joinConditions(reference, scope, leftItems);
+  switch (reference.joinType) {
+    case JoinType.INNER:
+    case JoinType.CROSS: {
+      return { kind: "join", joinType: "inner", left, right, conditions };
+    }
+    case JoinType.LEFT: {
+      return { kind: "join", joinType: "left", left, right, conditions };
+    }
+    case JoinType.RIGHT: {
+      return {
+        kind: "join",
+        joinType: "left",
+        left: right,
+        right: left,
+        conditions,
+      };
+    }
+  }
+}
+
+/** The ON conjuncts, or the equalities USING stands for; none for a cross join. */
+function joinConditions(
+  reference: JoinReference,
+  scope: Scope,
+  leftItems: number,
+): readonly logical.Expression[] {
+  const { constraint } = reference;
+  if (constraint === null) return [];
+  if (constraint.type === "ON") {
+    const clause = clauseOf(scope, refuse("JOIN ON"));
+    return conjunctsOf(bindCondition(constraint.condition, clause, "ON"));
+  }
+  const isRight = reference.joinType === JoinType.RIGHT;
+  return constraint.columns.map((name) =>
+    usingEquality(name, scope, leftItems, isRight),
+  );
+}
+
+/**
+ * `USING (c)`: left.c = right.c. An unqualified c then means the column of
+ * the side every row has — the left, or the right of a RIGHT join — and
+ * `*` lists it once.
+ */
+function usingEquality(
+  name: string,
+  scope: Scope,
+  leftItems: number,
+  isRight: boolean,
+): logical.Expression {
+  const items = scope.relations;
+  const left = usingColumn(name, items.slice(0, leftItems));
+  const right = usingColumn(name, items.slice(leftItems));
+  checkComparable(left.type, right.type);
+  const hidden = isRight ? left : right;
+  scope.hide(hidden.binding.tableIndex, hidden.binding.columnIndex);
+  return {
+    kind: "comparison",
+    operator: "EQUAL",
+    left,
+    right,
+    type: "BOOLEAN",
+  };
+}
+
+function usingColumn(
+  name: string,
+  items: readonly Relation[],
+): ColumnReference {
+  const found = items.flatMap((item) => {
+    const column = unqualifiedColumn(item, name);
+    return column === null ? [] : [columnOf(item, column, 0)];
+  });
+  return exactlyOne(
+    found,
+    () =>
+      new SemanticError(
+        `cannot join using column ${name}: it must be in exactly one table on each side`,
+      ),
+  );
+}

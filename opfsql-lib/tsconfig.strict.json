@@ -18,6 +18,7 @@
     "src/storage",
     "src/table",
     "src/sql/parser",
+    "src/sql/binder",
     "src/sql/plan",
     "src/expressions",
     "src/legacy/executor/evaluate",
