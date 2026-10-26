@@ -4,7 +4,7 @@ import type {
   ReadTransaction,
   WriteTransaction,
 } from "../storage/index.js";
-import { abortErrorOf } from "./signals.js";
+import { abortErrorOf } from "../async/index.js";
 import { toOpfsqlError } from "./translate-error.js";
 import { type Lease, WriteLock } from "./write-lock.js";
 

@@ -139,20 +139,19 @@ fix lands.
    writes it through AUTOINCREMENT.
 5. **Defaults are handed out by reference**, and BLOB constants are not
    copied; results copy BLOBs per row instead.
-6. **Call order on a connection relies on no `await`** before the queue.
-7. **A failing call on the shared connection** can leave its transaction
+6. **A failing call on the shared connection** can leave its transaction
    open.
-8. **The editor ignores** whether an index entry it inserts or deletes was
+7. **The editor ignores** whether an index entry it inserts or deletes was
    already there.
-9. **The catalog's dropped-column check** misses expression keys.
-10. **Uncorrelated subqueries run with the outer rows open**, and a row
-    narrower than its layout reads NULL.
-11. **The WAL rethrows one stored IoError**, which statement tagging then
+8. **The catalog's dropped-column check** misses expression keys.
+9. **Uncorrelated subqueries run with the outer rows open**, and a row
+   narrower than its layout reads NULL.
+10. **The WAL rethrows one stored IoError**, which statement tagging then
     changes.
-12. **Errors are translated in two places** that disagree on a DOMException;
+11. **Errors are translated in two places** that disagree on a DOMException;
     INTERNAL also covers a crashed worker and a failed lock request.
-13. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
+12. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
     bug.
-14. **The allocation map** does not check a page's state before marking it.
-15. **`close()` does not wait** for the background release of abandoned read
+13. **The allocation map** does not check a page's state before marking it.
+14. **`close()` does not wait** for the background release of abandoned read
     marks.

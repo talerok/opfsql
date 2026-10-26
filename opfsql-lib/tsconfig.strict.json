@@ -26,6 +26,7 @@
     "src/sql/optimizer",
     "src/expressions",
     "src/executor",
+    "src/async",
     "src/engine",
     "src/worker",
     "test/support"

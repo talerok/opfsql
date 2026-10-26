@@ -1,5 +1,5 @@
 import { BusyError, InternalError, OpfsqlError } from "../errors.js";
-import { abortErrorOf, linkSignals } from "./signals.js";
+import { abortErrorOf, linkSignals } from "../async/index.js";
 
 /** How long and until when to wait for the lock. */
 export interface Wait {

@@ -1,3 +1,4 @@
+import { linkSignals, TaskQueue } from "../async/index.js";
 import { AbortError, MisuseError } from "../errors.js";
 import type { Schema as SchemaModel } from "../schema/index.js";
 import {
@@ -22,10 +23,8 @@ import {
   type TransactionOptions,
 } from "./api/index.js";
 import { describeSchema } from "./describe-schema.js";
-import { linkSignals } from "./signals.js";
 import { eachStep, planAhead, StepFailure } from "./script.js";
 import { beginMode, checkParameters, parseScript, Step } from "./statements.js";
-import { TaskQueue } from "./task-queue.js";
 import { Transaction, type TransactionHost } from "./transaction.js";
 import { locateStatement, toOpfsqlError } from "./translate-error.js";
 

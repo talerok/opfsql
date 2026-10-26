@@ -1,6 +1,7 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectGarbage } from "../../../test/support/gc.js";
+import type { SessionContract } from "../../engine/api/index.js";
 import { Engine, engineContract, Result } from "../../engine/index.js";
 import { createEngine } from "../../engine/engine.js";
 import {
@@ -297,6 +298,37 @@ describe("connections", () => {
     ).toEqual([[2], [3]]);
   });
 
+  it("run their calls in the order their messages arrived, whatever is awaited on the way", async () => {
+    // Each query waits before it reaches the session, the earlier ones
+    // longer: only the host's queue keeps the later ones from overtaking.
+    const waits: number[] = [];
+    const worker = startTestWorker(async (name, options) => {
+      const contract = engineContract(await Engine.open(name, options));
+      return {
+        ...contract,
+        connect: (sessionOptions) =>
+          waitingBeforeQuery(contract.connect(sessionOptions), waits),
+      };
+    });
+    const database = await openDatabase(`client-${String(seq++)}`, {
+      worker,
+    });
+    opened.push(database);
+    await database.execute(
+      "CREATE TABLE log (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)",
+    );
+    const connection = await database.connect();
+    waits.push(60, 30, 0);
+    await Promise.all(
+      ["first", "second", "third"].map(async (v) =>
+        connection.query("INSERT INTO log (v) VALUES ($1)", [v]),
+      ),
+    );
+    expect(
+      await rowsOf(database.query("SELECT v FROM log ORDER BY id")),
+    ).toEqual([["first"], ["second"], ["third"]]);
+  });
+
   it("can be cancelled while waiting for the lock", async () => {
     const { database } = await open({ busyTimeout: Infinity });
     await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
@@ -327,9 +359,14 @@ describe("connections", () => {
     const waiting = expect(
       waiter.query("INSERT INTO t VALUES (1)"),
     ).rejects.toBeInstanceOf(AbortError);
+    // Queued behind it, in the worker: closing fails it too, unrun.
+    const queued = expect(
+      waiter.query("INSERT INTO t VALUES (3)"),
+    ).rejects.toBeInstanceOf(AbortError);
     await tick();
     await waiter.close();
     await waiting;
+    await queued;
     await expect(waiter.query("SELECT 1")).rejects.toBeInstanceOf(MisuseError);
 
     await holder.query("ROLLBACK");
@@ -572,3 +609,26 @@ describe("the database's own calls", () => {
     ]);
   });
 });
+
+/**
+ * `session`, with an await before each query reaches it: the next of
+ * `waits`, in ms, while there are any.
+ */
+function waitingBeforeQuery(
+  session: SessionContract,
+  waits: number[],
+): SessionContract {
+  return {
+    query: async (...call) => {
+      await new Promise((resolve) => setTimeout(resolve, waits.shift() ?? 0));
+      return session.query(...call);
+    },
+    execute: async (...call) => session.execute(...call),
+    prepare: async (...call) => session.prepare(...call),
+    begin: async (...call) => session.begin(...call),
+    commit: async (...call) => session.commit(...call),
+    rollback: async (...call) => session.rollback(...call),
+    schema: async (...call) => session.schema(...call),
+    close: async () => session.close(),
+  };
+}

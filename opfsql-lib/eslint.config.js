@@ -189,6 +189,12 @@ export default config(
                 "table depends on nothing but storage, schema, functions, values and errors.",
             },
             {
+              target: "./src/async",
+              from: "./src",
+              except: ["./async", "./errors.ts"],
+              message: "async depends on nothing but errors.",
+            },
+            {
               target: "./src/errors.ts",
               from: "./src",
               except: ["./errors.ts"],
@@ -309,8 +315,15 @@ export default config(
               // the page's bundle need not carry the engine (tests aside).
               target: "./src/worker/*.ts",
               from: "./src",
-              except: ["./worker", "./engine/api", "./values", "./errors.ts"],
-              message: "worker depends only on engine/api, values and errors.",
+              except: [
+                "./worker",
+                "./engine/api",
+                "./async",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "worker depends only on engine/api, async, values and errors.",
             },
           ],
         },
