@@ -1239,6 +1239,70 @@ describe("schema changes", () => {
   });
 });
 
+describe("schema()", () => {
+  it("describes columns from the model, leaving out opfsql's own tables", async () => {
+    await createEngine();
+    await session.execute(`
+      CREATE TABLE a (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL DEFAULT 'x');
+      CREATE TABLE b (code TEXT PRIMARY KEY, tag TEXT UNIQUE, v REAL);
+    `);
+    const schema = await session.schema();
+    expect(schema.tables.map((table) => table.name)).toEqual(["a", "b"]);
+    expect(schema.tables[0].columns).toEqual([
+      {
+        name: "id",
+        type: "INTEGER",
+        nullable: false,
+        primaryKey: true,
+        unique: false,
+        autoIncrement: true,
+        defaultValue: null,
+      },
+      {
+        name: "name",
+        type: "TEXT",
+        nullable: false,
+        primaryKey: false,
+        unique: false,
+        autoIncrement: false,
+        defaultValue: "x",
+      },
+    ]);
+    expect(schema.tables[1].columns.map((column) => column.primaryKey)).toEqual(
+      [true, false, false],
+    );
+    expect(schema.tables[1].columns.map((column) => column.unique)).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    // The columns show the constraints' indexes.
+    expect(schema.tables[1].indexes).toEqual([]);
+  });
+
+  it("shows a primary key over several columns on each of them, and lists CREATE INDEX's indexes", async () => {
+    await createEngine();
+    await session.execute(
+      "CREATE TABLE t (a INTEGER, b TEXT, c TEXT, PRIMARY KEY (a, b)); CREATE UNIQUE INDEX t_c ON t (lower(c), a)",
+    );
+    const { tables } = await session.schema();
+    const [table] = tables;
+    expect(table.columns.map((column) => column.primaryKey)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    expect(table.columns.map((column) => column.nullable)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(table.indexes).toEqual([
+      { name: "t_c", unique: true, expressions: ["lower(c)", "a"] },
+    ]);
+  });
+});
+
 describe("prepared statements", () => {
   it("bind again, transparently, when the schema changes", async () => {
     await createEngine();

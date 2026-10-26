@@ -10,9 +10,8 @@ import type { ColumnInfo, IndexInfo, Schema, TableInfo } from "./api/index.js";
 
 // What schema() returns: the schema model as callers read it, without root
 // pages or versions. opfsql's own tables are left out, and so are the indexes
-// of PRIMARY KEY and single-column UNIQUE constraints, which their columns'
-// `primaryKey` and `unique` show; a UNIQUE over several columns has no
-// column to show it, so its index is listed.
+// of PRIMARY KEY and UNIQUE constraints, which their columns' `primaryKey`
+// and `unique` show: the indexes listed are those CREATE INDEX made.
 
 export function describeSchema(model: SchemaModel): Schema {
   const tables = model.tables.filter((table) => !isReservedName(table.name));
@@ -27,7 +26,7 @@ function describeTable(model: SchemaModel, table: Table): TableInfo {
       describeColumn(column, position, { table, indexes }),
     ),
     indexes: indexes
-      .filter((index) => isListed(index))
+      .filter((index) => index.origin === "statement")
       .map((index) => describeIndex(table, index)),
   };
 }
@@ -74,12 +73,6 @@ function isUniqueColumn(index: Index, position: number): boolean {
 
 function isColumn(key: IndexKey, position: number): boolean {
   return key.kind === "column" && key.column === position;
-}
-
-/** What the columns cannot show. */
-function isListed(index: Index): boolean {
-  if (index.origin === "statement") return true;
-  return index.origin === "unique" && index.keys.length > 1;
 }
 
 function describeIndex(table: Table, index: Index): IndexInfo {

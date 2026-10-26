@@ -1,6 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { DatabaseInUseError } from "../../errors.js";
+import { DatabaseInUseError, UnsupportedFormatError } from "../../errors.js";
 import { Engine } from "../engine.js";
 
 // opfs-mock allows one sync access handle per file, like Firefox and WebKit,
@@ -59,5 +59,29 @@ describe("Engine.open", () => {
     await root.removeEntry(`${dbName}.opfsql-wal`);
     const engine = await Engine.open(dbName);
     await engine.close();
+  });
+
+  it("refuses a format-4 database with UNSUPPORTED_FORMAT, leaving it as it was", async () => {
+    // A format-4 header: the magic, then the version as a big-endian u32.
+    const header = new Uint8Array(4096);
+    header.set(new TextEncoder().encode("OPFSQLDB"), 0);
+    new DataView(header.buffer).setUint32(8, 4);
+    const root = await navigator.storage.getDirectory();
+    const file = await root.getFileHandle(`${dbName}.opfsql`, { create: true });
+    const handle = await file.createSyncAccessHandle();
+    handle.write(header, { at: 0 });
+    handle.close();
+
+    const opened = Engine.open(dbName);
+    await expect(opened).rejects.toBeInstanceOf(UnsupportedFormatError);
+    await expect(opened).rejects.toMatchObject({
+      code: "UNSUPPORTED_FORMAT",
+      file: `${dbName}.opfsql`,
+      version: 4,
+      supported: 5,
+    });
+    const stored = await file.getFile();
+    const after = new Uint8Array(await stored.arrayBuffer());
+    expect(after).toEqual(header);
   });
 });
