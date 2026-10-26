@@ -33,7 +33,7 @@ const PRECEDENCE = {
 } as const;
 
 /** The symbol SQL writes for a comparison. */
-export function comparisonSymbol(operator: ComparisonOperator): string {
+function comparisonSymbol(operator: ComparisonOperator): string {
   switch (operator) {
     case "EQUAL": {
       return "=";
@@ -121,7 +121,7 @@ export function formatOrderKey<Plan>(
 }
 
 /** A value as a SQL literal; JSON as `JSON '…'`, so it never reads as text. */
-export function formatValue(value: Value): string {
+function formatValue(value: Value): string {
   if (value === null) return "NULL";
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
   if (typeof value === "number") return String(value);

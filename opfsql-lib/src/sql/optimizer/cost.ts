@@ -19,7 +19,7 @@ import type { physical } from "../plan/index.js";
 //   table scan                  every row
 // ---------------------------------------------------------------------------
 
-export const ASSUMED_TABLE_ROWS = 10_000;
+const ASSUMED_TABLE_ROWS = 10_000;
 const ASSUMED_LIMIT_ROWS = 100;
 
 const EQUALITY_SELECTIVITY = 0.01;

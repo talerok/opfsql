@@ -160,7 +160,7 @@ function inListTest(condition: InList<physical.Plan>): KeyTest | null {
 }
 
 /** The seek values a test compares with. */
-export function valuesOf(test: Test): SeekValue[] {
+function valuesOf(test: Test): SeekValue[] {
   switch (test.kind) {
     case "equal": {
       return [test.value];

@@ -217,7 +217,7 @@ export function isPinned<Plan>(expression: Expression<Plan>): boolean {
 }
 
 /** An expression holding a subquery's plan. */
-export type Subquery<Plan> = Extract<
+type Subquery<Plan> = Extract<
   Expression<Plan>,
   { readonly kind: "scalar-subquery" | "exists" | "quantified-comparison" }
 >;
@@ -309,9 +309,4 @@ function replaceColumns<Plan>(
     expression: (child) => replaceColumns(child, replacement),
     plan: (plan) => plan,
   });
-}
-
-/** A key for a binding, equal exactly for equal bindings. */
-export function bindingKey(binding: ColumnBinding): string {
-  return `${String(binding.tableIndex)}.${String(binding.columnIndex)}`;
 }
