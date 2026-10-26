@@ -244,6 +244,16 @@ export function conjunctsOf<Plan>(
   return expression.operands.flatMap((operand) => conjunctsOf(operand));
 }
 
+/** The operands of a condition's ORs, flattened. */
+export function disjunctsOf<Plan>(
+  expression: Expression<Plan>,
+): Expression<Plan>[] {
+  const isOr =
+    expression.kind === "conjunction" && expression.operator === "OR";
+  if (!isOr) return [expression];
+  return expression.operands.flatMap((operand) => disjunctsOf(operand));
+}
+
 /** The constant TRUE, FALSE or NULL as a condition. */
 export function truth(value: boolean | null): Constant {
   return { kind: "constant", value, type: "BOOLEAN" };
