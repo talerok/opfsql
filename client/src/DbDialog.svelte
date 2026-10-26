@@ -48,13 +48,22 @@
     try {
       if (currentDb === name) await onreset();
       const root = await navigator.storage.getDirectory();
-      try { await root.removeEntry(`${name}.opfsql`); } catch {}
-      try { await root.removeEntry(`${name}.opfsql-wal`); } catch {}
+      for (const suffix of ['', '-wal', '-shm']) {
+        await removeIfPresent(root, `${name}.opfsql${suffix}`);
+      }
       await scanDbs();
     } catch (e: any) {
       dialogError = e.message;
     } finally {
       deleteConfirm = null;
+    }
+  }
+
+  async function removeIfPresent(root: FileSystemDirectoryHandle, file: string) {
+    try {
+      await root.removeEntry(file);
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === 'NotFoundError')) throw e;
     }
   }
 
@@ -84,7 +93,7 @@
             <div class="db-item" class:current={db === currentDb}>
               <button class="db-item-open" onclick={() => selectExisting(db)}>
                 <span class="db-item-name">▦ {db}</span>
-                <span class="db-item-files">{db}.opfsql · {db}.opfsql-wal</span>
+                <span class="db-item-files">{db}.opfsql · -wal · -shm</span>
               </button>
               <button class="db-delete-btn" onclick={() => deleteConfirm = db} title="Delete">✕</button>
             </div>
@@ -106,7 +115,7 @@
     </div>
     {#if newName.trim()}
       <div class="db-files-preview">
-        {newName.trim()}.opfsql · {newName.trim()}.opfsql-wal
+        {newName.trim()}.opfsql · -wal · -shm
       </div>
     {/if}
 

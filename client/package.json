@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "cbor-x": "^1.6.4"
+    "opfsql": "file:../opfsql-lib"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",

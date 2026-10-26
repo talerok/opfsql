@@ -6,6 +6,9 @@ worker and stores its data in the browser's Origin Private File System
 for web apps that keep their data on the user's device and want to query it
 with SQL.
 
+Try it in the [demo](https://talerok.github.io/opfsql/client/): a SQL
+console on opfsql, built from [`client/`](client).
+
 **Status:** version 0.1.0, before 1.0. The file format is version 5. The
 API, the semantics and the file format may still change before 1.0. opfsql
 cannot open databases written by 0.0.x: opening one fails with

@@ -1,16 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { WorkerEngine, type Connection } from '../../opfsql-lib/src/worker/client.js';
-  import type { Result } from '../../opfsql-lib/src/engine/index.js';
-  import type { CatalogData } from '../../opfsql-lib/src/store/types.js';
+  import {
+    openDatabase,
+    OpfsqlError,
+    type Connection,
+    type Database,
+    type Result,
+    type Schema,
+    type Value,
+  } from 'opfsql';
   import DbDialog from './DbDialog.svelte';
   import SchemaSidebar from './SchemaSidebar.svelte';
 
-  import workerUrl from '../../opfsql-lib/src/worker/worker.ts?worker&url';
-
   const STORAGE_KEY = 'opfsql-db';
 
-  let engine: WorkerEngine | null = $state(null);
+  // The console is one session, so a transaction begun in one run stays open
+  // for the next.
+  let db: Database | null = null;
   let conn: Connection | null = $state(null);
 
   let currentDb: string | null = $state(null);
@@ -21,46 +27,65 @@
   let results: Result[] = $state([]);
   let error: string | null = $state(null);
   let loading = $state(false);
-  let schema: CatalogData = $state({ tables: [], indexes: [] });
+  let schema: Schema = $state({ tables: [] });
 
   onMount(async () => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      await openDb(saved);
+      try {
+        await openDb(saved);
+      } catch (e) {
+        error = describe(e);
+        showDialog = true;
+      }
     } else {
       showDialog = true;
     }
   });
 
   async function openDb(name: string) {
+    await closeDb();
     status = 'Opening…';
-    if (conn) { await conn.disconnect(); conn = null; }
-    if (engine) { await engine.close(); }
-    engine = new WorkerEngine(workerUrl);
-    await engine.open(name);
-    conn = await engine.connect();
+    try {
+      const worker = new Worker(new URL('./db-worker.ts', import.meta.url), {
+        type: 'module',
+      });
+      db = await openDatabase(name, { worker });
+      conn = await db.connect();
+    } catch (e) {
+      await closeDb();
+      throw e;
+    }
     currentDb = name;
     localStorage.setItem(STORAGE_KEY, name);
     status = 'Ready';
-    results = [];
-    error = null;
-    schema = { tables: [], indexes: [] };
     await loadSchema();
   }
 
-  async function resetDb() {
-    if (conn) { await conn.disconnect(); conn = null; }
-    if (engine) { await engine.close(); engine = null; }
+  async function closeDb() {
+    const closing = db;
+    db = null;
+    conn = null;
     currentDb = null;
     status = '';
     results = [];
     error = null;
-    schema = { tables: [], indexes: [] };
+    schema = { tables: [] };
+    await closing?.close();
+  }
+
+  async function resetDb() {
+    await closeDb();
     localStorage.removeItem(STORAGE_KEY);
   }
 
   async function loadSchema() {
-    try { if (conn) schema = await conn.getSchema(); } catch {}
+    if (!conn) return;
+    try {
+      schema = await conn.schema();
+    } catch (e) {
+      error = describe(e);
+    }
   }
 
   async function execute() {
@@ -68,14 +93,28 @@
     loading = true;
     error = null;
     try {
-      results = await conn.exec(sql);
-      await loadSchema();
-    } catch (e: any) {
-      error = e.message;
+      results = await conn.execute(sql);
+    } catch (e) {
+      error = describe(e);
       results = [];
     } finally {
       loading = false;
     }
+    await loadSchema();
+  }
+
+  function describe(e: unknown): string {
+    if (e instanceof OpfsqlError) return `${e.code}: ${e.message}`;
+    return e instanceof Error ? e.message : String(e);
+  }
+
+  function show(value: Value): string {
+    if (value === null) return 'NULL';
+    if (value instanceof Uint8Array) {
+      return `x'${Array.from(value, (b) => b.toString(16).padStart(2, '0')).join('')}'`;
+    }
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -113,12 +152,12 @@
       {/if}
 
       {#each results as result}
-        {#if result.type === 'rows' && result.rows && result.rows.length > 0}
+        {#if result.columns.length > 0}
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  {#each Object.keys(result.rows[0]) as col}
+                  {#each result.columns as col}
                     <th>{col}</th>
                   {/each}
                 </tr>
@@ -126,8 +165,8 @@
               <tbody>
                 {#each result.rows as row}
                   <tr>
-                    {#each Object.values(row) as val}
-                      <td>{val === null ? 'NULL' : typeof val === 'object' ? JSON.stringify(val) : val}</td>
+                    {#each row as val}
+                      <td>{show(val)}</td>
                     {/each}
                   </tr>
                 {/each}
@@ -135,12 +174,8 @@
             </table>
             <div class="row-count">{result.rows.length} row(s)</div>
           </div>
-        {:else if result.type === 'rows'}
-          <div class="message">Query returned 0 rows</div>
-        {:else if result.type === 'ok'}
-          <div class="message">
-            OK{result.rowsAffected != null ? `, ${result.rowsAffected} row(s) affected` : ''}
-          </div>
+        {:else}
+          <div class="message">OK, {result.changes} row(s) changed</div>
         {/if}
       {/each}
     </div>

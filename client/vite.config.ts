@@ -4,11 +4,8 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   base: process.env.BASE_PATH || '/',
   plugins: [svelte()],
+  worker: { format: 'es' },
   server: {
     fs: { allow: ['..'] },
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
   },
 });

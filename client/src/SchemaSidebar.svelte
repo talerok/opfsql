@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { CatalogData } from '../../opfsql-lib/src/store/types.js';
+  import type { Schema } from 'opfsql';
 
   let { schema, onrefresh }: {
-    schema: CatalogData;
+    schema: Schema;
     onrefresh: () => void;
   } = $props();
 
@@ -13,18 +13,6 @@
     if (expanded.has(key)) expanded.delete(key);
     else expanded.add(key);
     expanded = new Set(expanded);
-  }
-
-  function tableIndexes(tableName: string) {
-    return schema.indexes.filter(
-      (i) => i.tableName.toLowerCase() === tableName.toLowerCase(),
-    );
-  }
-
-  function expressionLabel(expr: any): string {
-    if (expr.type === 'column') return expr.name;
-    if (expr.type === 'json_access') return `${expr.column}->json`;
-    return `<${expr.type}>`;
   }
 </script>
 
@@ -39,7 +27,6 @@
   {:else}
     {#each schema.tables as table}
       {@const open = expanded.has(table.name.toLowerCase())}
-      {@const idxs = tableIndexes(table.name)}
       <div class="tree-table">
         <button class="tree-header" onclick={() => toggle(table.name)}>
           <span class="chevron">{open ? '▾' : '▸'}</span>
@@ -60,12 +47,12 @@
               </div>
             {/each}
 
-            {#if idxs.length > 0}
+            {#if table.indexes.length > 0}
               <div class="tree-section-label">Indexes</div>
-              {#each idxs as idx}
+              {#each table.indexes as idx}
                 <div class="tree-idx">
                   <span class="idx-name">{idx.name}</span>
-                  <span class="idx-exprs">{idx.expressions.map(expressionLabel).join(', ')}</span>
+                  <span class="idx-exprs">{idx.expressions.join(', ')}</span>
                   {#if idx.unique}<span class="badge-uq">UQ</span>{/if}
                 </div>
               {/each}
