@@ -1,12 +1,26 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { type physical, ROWID_COLUMN } from "../../sql/plan/index.js";
+import type { Index } from "../../schema/index.js";
 import type { Value } from "../../values/index.js";
-import { age, email, type Fixture, fixture, name, USERS } from "./fixtures.js";
 import {
+  age,
+  amount,
+  email,
+  type Fixture,
+  fixture,
+  name,
+  note,
+  ORDERS,
+  USERS,
+} from "./fixtures.js";
+import {
+  aggregateCall,
   between,
   compare,
   constant,
   excluding,
+  filter,
+  hashAggregate,
   including,
   indexExtreme,
   indexScan,
@@ -245,5 +259,55 @@ describe("index extreme", () => {
     expect(extremeOf("MAX", [70])).toEqual([[null]]);
     expect(extremeOf("MAX", [99])).toEqual([[null]]);
     expect(extremeOf("MIN", [null])).toEqual([[null]]);
+  });
+});
+
+/** orders indexed on note (ANY) and amount: note holds the text '1', never the number 1. */
+function notesIndexed(): Index {
+  return data.database.createIndex(
+    {
+      name: "orders_note_amount",
+      table: "orders",
+      keys: [
+        { kind: "column", column: 3 },
+        { kind: "column", column: 2 },
+      ],
+      isUnique: false,
+      origin: "statement",
+    },
+    data.orders,
+  );
+}
+
+describe("seek values, matched as they are", () => {
+  it("find in an ANY column what a scan with `=` finds: not '1' for 1", () => {
+    const byNote = notesIndexed();
+    const orders = source(data.orders, ORDERS, [0, 3]);
+    const isOne = compare(note, "=", constant(1));
+    expect(data.database.query(filter(tableScan(orders), isOne))).toEqual([]);
+    const seekOne = indexScan(orders, byNote, keys([constant(1)]), {
+      residual: [isOne],
+    });
+    expect(data.database.query(seekOne)).toEqual([]);
+    const seekText = indexScan(orders, byNote, keys([constant("1")]));
+    expect(data.database.query(seekText)).toEqual([[12, "1"]]);
+  });
+
+  it("give MIN and MAX from an index what an aggregate over a scan gives", () => {
+    const byNote = notesIndexed();
+    const largest = (value: Value) =>
+      data.database.query(
+        indexExtreme(data.orders, byNote, "MAX", [constant(value)]),
+      );
+    const orders = tableScan(source(data.orders, ORDERS, [2, 3]));
+    const scanned = hashAggregate(
+      [20, 21],
+      filter(orders, compare(note, "=", constant(1))),
+      [],
+      [aggregateCall("max", [amount])],
+    );
+    expect(data.database.query(scanned)).toEqual([[null]]);
+    expect(largest(1)).toEqual([[null]]);
+    expect(largest("1")).toEqual([[7]]);
   });
 });
