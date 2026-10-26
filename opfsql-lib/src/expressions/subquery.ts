@@ -4,6 +4,7 @@ import type {
   physical,
   QuantifiedComparison,
   ScalarSubquery,
+  SubqueryExpression,
 } from "../sql/plan/index.js";
 import {
   foldTruth,
@@ -30,10 +31,7 @@ import type {
 // set aside, since its rows serve all of them.
 // ---------------------------------------------------------------------------
 
-export type Subquery = Extract<
-  physical.Expression,
-  { readonly kind: "scalar-subquery" | "exists" | "quantified-comparison" }
->;
+export type Subquery = SubqueryExpression<physical.Plan>;
 
 /** The statement's own query level, which reads no outer row. */
 const STATEMENT_LEVEL = 0;

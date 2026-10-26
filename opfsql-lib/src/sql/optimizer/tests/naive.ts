@@ -1,5 +1,9 @@
-import type { AggregateCall, logical, physical } from "../../plan/index.js";
-import { rebuildChildren } from "../expression-tree.js";
+import {
+  type AggregateCall,
+  type logical,
+  type physical,
+  rebuildChildren,
+} from "../../plan/index.js";
 
 // A logical plan lowered without choosing anything: table scans, filters,
 // nested loops, sorts. Run by the reference interpreter, it is the yardstick

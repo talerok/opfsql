@@ -12,7 +12,7 @@ import {
   type CreateIndexStatement,
   type ParsedExpression,
 } from "../parser/index.js";
-import type { CreateIndex, logical } from "../plan/index.js";
+import { type CreateIndex, type logical, nodesOf } from "../plan/index.js";
 import { refuse } from "./clause.js";
 import { asCorruption } from "./corruption.js";
 import { checkNewName } from "./create-table.js";
@@ -21,7 +21,6 @@ import { clauseOf } from "./expression.js";
 import { bindQuery } from "./query.js";
 import { BindContext, relation, Scope } from "./scope.js";
 import { storedType } from "./type-rules.js";
-import { partsOf } from "./walk.js";
 
 // ---------------------------------------------------------------------------
 // CREATE INDEX. A key is a column of the table, or an expression over its
@@ -130,24 +129,17 @@ function bindKeyExpression(
 
 /** A key's value depends on its row alone. */
 function checkDeterministic(expression: Expression): void {
-  if (SUBQUERIES.has(expression.kind)) {
-    throw new SemanticError("subqueries are not allowed in an index");
+  for (const node of nodesOf(expression)) {
+    if (SUBQUERIES.has(node.kind)) {
+      throw new SemanticError("subqueries are not allowed in an index");
+    }
+    if (node.kind === "parameter") {
+      throw new SemanticError("parameters are not allowed in an index");
+    }
+    if (node.kind === "function" && node.function.isVolatile === true) {
+      throw new SemanticError(
+        `${node.name}() is not allowed in an index: it gives another value each call`,
+      );
+    }
   }
-  if (expression.kind === "parameter") {
-    throw new SemanticError("parameters are not allowed in an index");
-  }
-  const isVolatile =
-    expression.kind === "function" && expression.function.isVolatile === true;
-  if (isVolatile) {
-    throw new SemanticError(
-      `${formatCall(expression)} is not allowed in an index: it gives another value each call`,
-    );
-  }
-  for (const part of partsOf(expression)) {
-    if (part !== null) checkDeterministic(part);
-  }
-}
-
-function formatCall(expression: Expression): string {
-  return expression.kind === "function" ? `${expression.name}()` : "it";
 }

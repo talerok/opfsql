@@ -240,6 +240,10 @@ export interface QuantifiedComparison<Plan> extends SubqueryPart<Plan> {
   readonly type: "BOOLEAN";
 }
 
+/** An expression that holds a subquery's plan. */
+export type SubqueryExpression<Plan> =
+  ScalarSubquery<Plan> | Exists<Plan> | QuantifiedComparison<Plan>;
+
 export type Expression<Plan> =
   | ColumnReference
   | Constant

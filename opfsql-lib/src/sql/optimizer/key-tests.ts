@@ -1,15 +1,15 @@
-import type {
-  Between,
-  ColumnReference,
-  Comparison,
-  ComparisonOperator,
-  Constant,
-  InList,
-  Parameter,
-  physical,
+import {
+  type Between,
+  type ColumnReference,
+  type Comparison,
+  type ComparisonOperator,
+  type Constant,
+  type InList,
+  type Parameter,
+  type physical,
+  isSameExpression,
 } from "../plan/index.js";
 import type { KeyPart } from "./key-parts.js";
-import { sameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
 // Conditions an access path can seek with: a conjunct that compares one
@@ -237,5 +237,5 @@ function inListTest(
 
 /** True if the test can seek on `part`: its subject is what the part holds. */
 export function fitsPart(keyTest: KeyTest, part: KeyPart): boolean {
-  return sameExpression(keyTest.subject, part.expression);
+  return isSameExpression(keyTest.subject, part.expression);
 }

@@ -1,12 +1,15 @@
 import { evaluateConstant } from "../../expressions/index.js";
-import type { AggregateCall, logical } from "../plan/index.js";
+import {
+  type AggregateCall,
+  type logical,
+  rebuildChildren,
+} from "../plan/index.js";
 import {
   conjunctsOf,
   disjunctsOf,
   hasNeverTrue,
   isAlwaysFalse,
   isAlwaysTrue,
-  rebuildChildren,
   truth,
 } from "./expression-tree.js";
 import { withChildren } from "./plan-tree.js";

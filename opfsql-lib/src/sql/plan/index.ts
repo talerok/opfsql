@@ -24,6 +24,7 @@ export {
   isSameColumn,
   type IsNull,
   type JsonAccess,
+  type SubqueryExpression,
   type Negate,
   type Not,
   type OrderDirection,
@@ -37,7 +38,19 @@ export {
 export { formatPlan } from "./format-logical.js";
 export { columnType, positions } from "./logical.js";
 export * as logical from "./logical.js";
-export { childrenOf, nodesOf } from "./walk.js";
+export {
+  type ColumnMatch,
+  isSameColumnAnyLevel,
+  isSameColumnAtLevel,
+  isSameExpression,
+} from "./same-expression.js";
+export {
+  childrenOf,
+  isSubqueryExpression,
+  nodesOf,
+  type Rebuild,
+  rebuildChildren,
+} from "./walk.js";
 export * as physical from "./physical.js";
 export type * from "./statement.js";
 export { formatPhysicalPlan } from "./format-physical.js";

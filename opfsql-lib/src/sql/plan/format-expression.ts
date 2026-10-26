@@ -15,6 +15,7 @@ import type {
   ColumnReference,
   ComparisonOperator,
   Expression,
+  SubqueryExpression,
 } from "./expression.js";
 import { comparisonPower, powerOf } from "./printed-power.js";
 
@@ -97,11 +98,6 @@ type Operation<Plan> = Extract<
       | "in-list"
       | "between";
   }
->;
-
-type Subquery<Plan> = Extract<
-  Expression<Plan>,
-  { readonly kind: "scalar-subquery" | "exists" | "quantified-comparison" }
 >;
 
 class ExpressionPrinter<Plan> {
@@ -285,7 +281,7 @@ class ExpressionPrinter<Plan> {
     return parts.join(" ");
   }
 
-  private subquery(expression: Subquery<Plan>): string {
+  private subquery(expression: SubqueryExpression<Plan>): string {
     const reference = this.style.subquery(
       expression.plan,
       expression.isCorrelated,

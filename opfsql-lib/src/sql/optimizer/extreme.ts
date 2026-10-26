@@ -1,5 +1,10 @@
 import type { Table } from "../../schema/index.js";
-import type { AggregateCall, logical, physical } from "../plan/index.js";
+import {
+  type AggregateCall,
+  isSameExpression,
+  type logical,
+  type physical,
+} from "../plan/index.js";
 import type { IndexKeys, KeyPart } from "./key-parts.js";
 import {
   equalTestOn,
@@ -10,7 +15,6 @@ import {
 import { lowerExpressions } from "./lower-expression.js";
 import { tableReadOf } from "./plan-tree.js";
 import type { Planner } from "./planner.js";
-import { sameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
 // Pass 6, MIN and MAX from one end of an index. `SELECT MIN(x) FROM t WHERE
@@ -135,5 +139,5 @@ function equalPrefixOf(
  */
 function holds(part: KeyPart, argument: logical.Expression): boolean {
   const isDecodedExactly = part.type !== "JSON" && part.type !== "ANY";
-  return isDecodedExactly && sameExpression(argument, part.expression);
+  return isDecodedExactly && isSameExpression(argument, part.expression);
 }

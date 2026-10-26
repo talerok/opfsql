@@ -1,45 +1,73 @@
+import type { JsonPathStep } from "../../functions/index.js";
+import { compareValues, kindOf, type Value } from "../../values/index.js";
 import {
-  childrenOf,
   type ColumnReference,
   type Expression,
-  type JsonPathStep,
-} from "../plan/index.js";
-import { compareValues, kindOf, type Value } from "../../values/index.js";
+  isSameColumn,
+  type Parameter,
+} from "./expression.js";
+import { childrenOf } from "./walk.js";
 
 // ---------------------------------------------------------------------------
-// Structural equality of expressions: an index key matches a condition or an
-// ORDER BY key written the same way. Names as written are ignored (the
-// binding says which column); types are compared, since they decide
-// conversions. A subquery is never the same as anything: its plan is not
-// compared, so claiming sameness would be a guess.
+// Structural equality of bound expressions: the binder matches a select item
+// to a GROUP BY expression and an ORDER BY key to an output column, the
+// optimizer an index key to a condition or an ORDER BY key. Names as written
+// are ignored (the binding says which column); types are compared, since
+// they decide conversions, and so is a parameter's affinity. A subquery is
+// never the same as anything: its plan is not compared, so claiming
+// sameness would be a guess.
 // ---------------------------------------------------------------------------
 
-export function sameExpression<A, B>(
+/** When two column references are one column. */
+export type ColumnMatch = (a: ColumnReference, b: ColumnReference) => boolean;
+
+/** The same binding, at the same query level. */
+export function isSameColumnAtLevel(
+  a: ColumnReference,
+  b: ColumnReference,
+): boolean {
+  return isSameColumn(a.binding, b.binding) && a.depth === b.depth;
+}
+
+/** The same binding, at any level: table indexes are unique in a statement. */
+export function isSameColumnAnyLevel(
+  a: ColumnReference,
+  b: ColumnReference,
+): boolean {
+  return isSameColumn(a.binding, b.binding);
+}
+
+export function isSameExpression<A, B>(
   a: Expression<A>,
   b: Expression<B>,
+  areSameColumn: ColumnMatch = isSameColumnAtLevel,
 ): boolean {
-  if (!sameNode(a, b)) return false;
+  if (!sameNode(a, b, areSameColumn)) return false;
   const left = childrenOf(a);
   const right = childrenOf(b);
   if (left.length !== right.length) return false;
   return left.every((child, position) => {
     const other = right[position];
-    return other !== undefined && sameExpression(child, other);
+    return other !== undefined && isSameExpression(child, other, areSameColumn);
   });
 }
 
 /** True if the nodes themselves agree, their children aside. */
-function sameNode<A, B>(a: Expression<A>, b: Expression<B>): boolean {
+function sameNode<A, B>(
+  a: Expression<A>,
+  b: Expression<B>,
+  areSameColumn: ColumnMatch,
+): boolean {
   if (a.kind !== b.kind || a.type !== b.type) return false;
   switch (a.kind) {
     case "column": {
-      return b.kind === "column" && sameColumn(a, b);
+      return b.kind === "column" && areSameColumn(a, b);
     }
     case "constant": {
       return b.kind === "constant" && sameValue(a.value, b.value);
     }
     case "parameter": {
-      return b.kind === "parameter" && a.index === b.index;
+      return b.kind === "parameter" && isSameParameter(a, b);
     }
     case "comparison": {
       return b.kind === "comparison" && a.operator === b.operator;
@@ -76,11 +104,9 @@ function sameNode<A, B>(a: Expression<A>, b: Expression<B>): boolean {
   }
 }
 
-function sameColumn(a: ColumnReference, b: ColumnReference): boolean {
-  const isSameBinding =
-    a.binding.tableIndex === b.binding.tableIndex &&
-    a.binding.columnIndex === b.binding.columnIndex;
-  return isSameBinding && a.depth === b.depth;
+/** One parameter, converted the same way. */
+function isSameParameter(a: Parameter, b: Parameter): boolean {
+  return a.index === b.index && a.affinity === b.affinity;
 }
 
 /** Equal and of one kind: `1` and `1.0` are one value, `true` and `1` two. */

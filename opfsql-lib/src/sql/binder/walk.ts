@@ -1,90 +1,40 @@
-import type {
-  AggregateCall,
-  ColumnReference,
-  logical,
-  OrderKey,
+import {
+  type AggregateCall,
+  type ColumnReference,
+  type logical,
+  nodesOf,
+  type OrderKey,
+  rebuildChildren,
 } from "../plan/index.js";
 
 // ---------------------------------------------------------------------------
-// Walks over bound expressions and logical plans. Mapping returns a new tree
-// and leaves the old one as it was; a subquery's plan is a level further in,
-// so mapping an expression stops at it, and the caller decides what to do.
+// The binder's walks over bound expressions and logical plans, built on
+// sql/plan's (walk.ts). Mapping returns a new tree and leaves the old one as
+// it was; a subquery's plan is a level further in, so mapping an expression
+// stops at it, and the caller decides what to do.
 // ---------------------------------------------------------------------------
 
 type Expression = logical.Expression;
 type Plan = logical.Plan;
-type Map = (expression: Expression) => Expression;
+type ExpressionMapper = (expression: Expression) => Expression;
 
 /** `expression` with each direct sub-expression mapped; subquery plans untouched. */
-export function mapChildren(expression: Expression, map: Map): Expression {
-  switch (expression.kind) {
-    case "column":
-    case "constant":
-    case "parameter":
-    case "json-access":
-    case "scalar-subquery":
-    case "exists": {
-      return expression;
-    }
-    case "comparison":
-    case "arithmetic":
-    case "concatenate": {
-      const left = map(expression.left);
-      return { ...expression, left, right: map(expression.right) };
-    }
-    case "conjunction": {
-      return { ...expression, operands: mapAll(expression.operands, map) };
-    }
-    case "not":
-    case "is-null":
-    case "negate":
-    case "cast": {
-      return { ...expression, operand: map(expression.operand) };
-    }
-    case "in-list": {
-      const needle = map(expression.needle);
-      return { ...expression, needle, list: mapAll(expression.list, map) };
-    }
-    case "between": {
-      const input = map(expression.input);
-      const lower = map(expression.lower);
-      return { ...expression, input, lower, upper: map(expression.upper) };
-    }
-    case "function": {
-      return { ...expression, arguments: mapAll(expression.arguments, map) };
-    }
-    case "case": {
-      return mapCase(expression, map);
-    }
-    case "quantified-comparison": {
-      return { ...expression, needle: map(expression.needle) };
-    }
-  }
+export function mapChildren(
+  expression: Expression,
+  map: ExpressionMapper,
+): Expression {
+  return rebuildChildren(expression, { expression: map, plan: (plan) => plan });
 }
 
-function mapAll(expressions: readonly Expression[], map: Map): Expression[] {
+function mapAll(
+  expressions: readonly Expression[],
+  map: ExpressionMapper,
+): Expression[] {
   return expressions.map((expression) => map(expression));
 }
 
-function mapCase(
-  expression: Extract<Expression, { kind: "case" }>,
-  map: Map,
-): Expression {
-  const { operand, otherwise } = expression;
-  const branches = expression.branches.map((branch) => ({
-    when: map(branch.when),
-    result: map(branch.result),
-  }));
-  return {
-    ...expression,
-    operand: operand === null ? null : map(operand),
-    branches,
-    otherwise: otherwise === null ? null : map(otherwise),
-  };
-}
-
 /** `plan` with every expression of every node mapped, its subplans included. */
-export function mapPlan(plan: Plan, map: Map): Plan {
+export function mapPlan(plan: Plan, map: ExpressionMapper): Plan {
   switch (plan.kind) {
     case "get":
     case "cte-scan": {
@@ -134,7 +84,7 @@ export function mapPlan(plan: Plan, map: Map): Plan {
   }
 }
 
-function mapAggregate(plan: logical.Aggregate, map: Map): Plan {
+function mapAggregate(plan: logical.Aggregate, map: ExpressionMapper): Plan {
   const aggregates = plan.aggregates.map((call): AggregateCall<Plan> => ({
     ...call,
     arguments: mapAll(call.arguments, map),
@@ -147,11 +97,11 @@ function mapAggregate(plan: logical.Aggregate, map: Map): Plan {
   };
 }
 
-function mapKey(key: OrderKey<Plan>, map: Map): OrderKey<Plan> {
+function mapKey(key: OrderKey<Plan>, map: ExpressionMapper): OrderKey<Plan> {
   return { ...key, expression: map(key.expression) };
 }
 
-function mapLimit(plan: logical.Limit, map: Map): Plan {
+function mapLimit(plan: logical.Limit, map: ExpressionMapper): Plan {
   const { limit, offset } = plan;
   return {
     ...plan,
@@ -161,71 +111,11 @@ function mapLimit(plan: logical.Limit, map: Map): Plan {
   };
 }
 
-/**
- * The direct sub-expressions in a fixed order, with the gaps a CASE may
- * have; a subquery's plan is not among them.
- */
-export function partsOf(
-  expression: Expression,
-): readonly (Expression | null)[] {
-  switch (expression.kind) {
-    case "column":
-    case "constant":
-    case "parameter":
-    case "json-access":
-    case "scalar-subquery":
-    case "exists": {
-      return [];
-    }
-    case "comparison":
-    case "arithmetic":
-    case "concatenate": {
-      return [expression.left, expression.right];
-    }
-    case "conjunction": {
-      return expression.operands;
-    }
-    case "not":
-    case "is-null":
-    case "negate":
-    case "cast": {
-      return [expression.operand];
-    }
-    case "in-list": {
-      return [expression.needle, ...expression.list];
-    }
-    case "between": {
-      return [expression.input, expression.lower, expression.upper];
-    }
-    case "function": {
-      return expression.arguments;
-    }
-    case "case": {
-      const branches = expression.branches.flatMap((branch) => [
-        branch.when,
-        branch.result,
-      ]);
-      return [expression.operand, ...branches, expression.otherwise];
-    }
-    case "quantified-comparison": {
-      return [expression.needle];
-    }
-  }
-}
-
 /** The columns `expression` reads at its own level: not those inside subqueries. */
 export function* columnsReadBy(
   expression: Expression,
 ): Generator<ColumnReference> {
-  if (expression.kind === "column") {
-    yield expression;
-    return;
-  }
-  if (expression.kind === "json-access") {
-    yield expression.column;
-    return;
-  }
-  for (const part of partsOf(expression)) {
-    if (part !== null) yield* columnsReadBy(part);
+  for (const node of nodesOf(expression)) {
+    if (node.kind === "column") yield node;
   }
 }
