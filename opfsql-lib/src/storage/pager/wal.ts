@@ -93,7 +93,7 @@ export class Wal {
   static open(file: SyncFile, pageSize: number, name: string): Wal {
     const wal = new Wal(file, pageSize, name);
     if (file.getSize() === 0) wal.writeHeader();
-    else wal.startFrom(wal.readHeader());
+    else wal.recover();
     return wal;
   }
 
@@ -150,18 +150,22 @@ export class Wal {
     for (const pageNo of this.layered) this.prune(pageNo);
   }
 
-  /** Reads what other tabs appended since. True if anything changed. */
+  /**
+   * Reads what other tabs appended since, or the generation another tab
+   * restarted the WAL into; true if anything changed. The header is read
+   * again after the frames, and only an unchanged epoch makes what was read
+   * one generation: a restart writes its header before it cuts the old
+   * frames off (docs/concurrency.md, Catching up).
+   */
   catchUp(): boolean {
-    const header = this.readHeader();
-    if (header.epoch !== this.epoch) {
-      // Another tab restarted the WAL: everything so far is in the database file.
-      this.startFrom(header);
-      return true;
+    const { epoch, latest } = this;
+    for (;;) {
+      const header = this.readHeader();
+      if (header.epoch !== this.epoch) this.reset(header);
+      this.readFrom(this.offset);
+      if (this.readHeader().epoch === header.epoch) break;
     }
-    if (this.file.getSize() <= this.offset) return false;
-    const before = this.latest;
-    this.readFrom(this.offset);
-    return this.latest !== before;
+    return this.epoch !== epoch || this.latest !== latest;
   }
 
   /** The newest version of every page committed after `after` and up to `upTo`. */
@@ -194,10 +198,10 @@ export class Wal {
 
   // --- Reading the file --------------------------------------------------------
 
-  /** Forgets what the index holds and reads the generation `header` starts. */
-  private startFrom(header: WalHeader): void {
-    this.reset(header);
-    this.readFrom(HEADER_SIZE);
+  /** Reads the generation the WAL holds, as a tab opening it finds it. */
+  private recover(): void {
+    this.reset(this.readHeader());
+    this.catchUp();
   }
 
   /** The header, read again while another tab is rewriting it. */

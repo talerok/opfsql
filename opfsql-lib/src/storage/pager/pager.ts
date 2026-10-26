@@ -8,14 +8,14 @@ import type { Wal } from "./wal.js";
 
 // ---------------------------------------------------------------------------
 // The pages of a database at any snapshot: the newest version in the WAL that
-// the snapshot sees, else the database file.
+// the snapshot sees, else the database file. How tabs share the files — the
+// intent, the read marks, who may change what — is docs/concurrency.md; this
+// is its implementation, and the rule numbers below are that document's.
 //
-// Snapshots are pinned while a transaction reads them. A checkpoint copies
-// committed pages into the database file, but never past the oldest
-// snapshot open in any tab: each tab publishes its oldest in the read marks,
-// and a checkpoint announces its target (the intent) before reading them, so
-// a tab that publishes an older snapshot afterwards sees the intent and pins
-// a newer one instead — the SQLite WAL protocol.
+// Every operation reads what other tabs committed before it decides
+// anything, so no caller has to remember to: a decision made on a view that
+// missed a commit could cut that commit off the WAL. Writing, checkpointing
+// and lowering an intent need the write lock, which the caller holds.
 // ---------------------------------------------------------------------------
 
 export interface PagerOptions {
@@ -49,21 +49,30 @@ export class Pager {
   }
 
   /**
-   * A transaction reading the latest commit, or null when another tab's
-   * checkpoint may already have passed it: catch up and try again.
+   * A transaction reading the latest commit, or null while a checkpoint
+   * intent no commit backs refuses every snapshot: then take the write lock,
+   * resetStaleIntent, and begin again.
    */
   beginRead(): ReadTransaction | null {
-    const snapshot = this.pin();
+    this.catchUp();
+    let snapshot = this.pin();
+    // A checkpoint passed the snapshot meanwhile: its commits are in the
+    // WAL, so catching up finds them, and a newer snapshot holds.
+    while (snapshot === null && this.catchUp()) snapshot = this.pin();
     return snapshot === null ? null : new ReadTransaction(this, snapshot);
   }
 
   /**
-   * A transaction that writes on top of the latest commit. The caller holds
-   * the write lock and has caught up, so no one else commits meanwhile.
+   * A transaction writing on top of the latest commit. The caller holds the
+   * write lock, so no other tab commits or checkpoints meanwhile.
    */
-  beginWrite(): WriteTransaction | null {
+  beginWrite(): WriteTransaction {
+    this.resetStaleIntent();
     const snapshot = this.pin();
-    return snapshot === null ? null : new WriteTransaction(this, snapshot);
+    if (snapshot === null) {
+      throw new InternalError("the latest commit was refused under the lock");
+    }
+    return new WriteTransaction(this, snapshot);
   }
 
   /**
@@ -98,24 +107,18 @@ export class Pager {
    * Lowers a checkpoint intent no commit backs: one left in the read-mark
    * file by an earlier database of the same name, whose files were removed
    * and the read marks kept. Such an intent is ahead of every commit, so
-   * beginRead would refuse every snapshot. The caller holds the write lock
-   * — no checkpoint runs — and has caught up, so the latest commit is the
+   * beginRead would refuse every snapshot. The caller holds the write lock,
+   * so no checkpoint runs, and after catching up the latest commit is the
    * database's; true if the intent was lowered.
    */
   resetStaleIntent(): boolean {
+    this.catchUp();
     const marks = this.options.marks;
     if (marks === null) return false;
     const latest = this.latestCommit();
     if (marks.checkpointIntent() <= latest) return false;
     marks.setCheckpointIntent(latest);
     return true;
-  }
-
-  /** Reads what other tabs committed. True if anything changed. */
-  catchUp(): boolean {
-    const hasChanged = this.wal.catchUp();
-    this.backfilled = Math.max(this.backfilled, this.wal.baseTxId);
-    return hasChanged;
   }
 
   isCheckpointDue(): boolean {
@@ -125,11 +128,14 @@ export class Pager {
   /**
    * Copies committed pages into the database file, as far as the open
    * snapshots of every tab allow, and restarts the WAL once all of it is
-   * there, truncating the free pages at the end of the file.
+   * there, truncating the free pages at the end of the file. The caller holds
+   * the write lock.
    */
   checkpoint(): void {
-    this.backfill(this.agreeOnTarget(this.oldestPin() ?? this.latestCommit()));
-    const isAllInFile = this.backfilled === this.latestCommit();
+    this.catchUp();
+    const latest = this.latestCommit();
+    this.backfill(this.copyLimit(latest));
+    const isAllInFile = this.backfilled === latest;
     if (isAllInFile && this.wal.frameCount > 0) this.restartWal();
   }
 
@@ -145,6 +151,13 @@ export class Pager {
   }
 
   // --- Snapshots ---------------------------------------------------------------
+
+  /** Reads what other tabs committed. True if anything changed. */
+  private catchUp(): boolean {
+    const hasChanged = this.wal.catchUp();
+    this.backfilled = Math.max(this.backfilled, this.wal.baseTxId);
+    return hasChanged;
+  }
 
   /**
    * Pins the latest commit. The pin is published before the checkpoint
@@ -183,17 +196,21 @@ export class Pager {
     return this.pins.size === 0 ? null : Math.min(...this.pins.keys());
   }
 
-  /** Lowers `target` to the oldest snapshot any tab has open. */
-  private agreeOnTarget(target: number): number {
+  /**
+   * How far a checkpoint may copy: up to `latest`, past no snapshot a tab
+   * has pinned or is pinning. The intent is raised to `latest` before the
+   * marks are read, so a tab that publishes an older mark afterwards sees it
+   * and pins a newer snapshot. It is never lowered (rule 1): a tab that had
+   * published an old mark and then read a lowered intent would pin a
+   * snapshot the file has passed.
+   */
+  private copyLimit(latest: number): number {
+    const local = this.oldestPin() ?? latest;
     const marks = this.options.marks;
-    if (marks === null) return target;
-    let agreed = target;
-    let oldest = announce(marks, agreed);
-    while (oldest !== null && oldest < agreed) {
-      agreed = oldest;
-      oldest = announce(marks, agreed);
-    }
-    return agreed;
+    if (marks === null) return Math.min(latest, local);
+    if (marks.checkpointIntent() < latest) marks.setCheckpointIntent(latest);
+    const oldest = marks.oldestMark() ?? latest;
+    return Math.min(latest, local, oldest);
   }
 
   private backfill(target: number): void {
@@ -229,13 +246,4 @@ export class Pager {
       read: (pageNo) => this.read(pageNo, snapshot),
     };
   }
-}
-
-/**
- * Announces a checkpoint's target, then reads the oldest snapshot of any
- * tab: a tab that pins an older snapshot after this sees the announcement.
- */
-function announce(marks: ReadMarks, target: number): number | null {
-  marks.setCheckpointIntent(target);
-  return marks.oldestMark();
 }

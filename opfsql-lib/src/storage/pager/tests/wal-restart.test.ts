@@ -109,13 +109,12 @@ describe("a WAL restart seen from another tab", () => {
     const seen: number[] = [];
     let other: Pager | null = null;
     let pageNo = 0;
-    const catchUpAndRead = (): void => {
+    const readFromOtherTab = (): void => {
       if (other === null || pageNo === 0) return;
-      other.catchUp();
       seen.push(firstByte(other, pageNo));
     };
     const restarting = await openTab(
-      { database, wal: interleaved(wal, catchUpAndRead), marks },
+      { database, wal: interleaved(wal, readFromOtherTab), marks },
       lockName,
     );
     other = await openTab({ database, wal, marks }, lockName);
@@ -145,11 +144,10 @@ describe("a WAL restart seen from another tab", () => {
     writer.checkpoint();
 
     readerWal.tear(3);
-    reader.catchUp();
+    expect(firstByte(reader, pageNo)).toBe(7);
 
     expect(readerWal.left()).toBe(0);
     expect(reader.latestCommit()).toBe(writer.latestCommit());
-    expect(firstByte(reader, pageNo)).toBe(7);
   });
 
   it("calls a header that keeps failing its checksum corrupt", async () => {
@@ -166,6 +164,6 @@ describe("a WAL restart seen from another tab", () => {
 
     readerWal.tear(Infinity);
 
-    expect(() => reader.catchUp()).toThrow(CorruptError);
+    expect(() => reader.beginRead()).toThrow(CorruptError);
   });
 });

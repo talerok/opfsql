@@ -22,8 +22,9 @@ The design follows from what the web platform allows:
 | One thread per worker, no parallel query execution                                          | a pull-based executor that stops as soon as LIMIT or the caller does                                             |
 | A tab can disappear at any moment                                                           | every state on disk is recoverable; locks die with their tab                                                     |
 
-Tabs see each other only through the files, so anything a tab keeps across
-transactions can go stale behind its back. There is no page cache across
+Tabs see each other only through the files — the protocol, its invariants
+and what may change them are in docs/concurrency.md — so anything a tab keeps
+across transactions can go stale behind its back. There is no page cache across
 transactions, on purpose: reads are cheap, and a cache turns any flaw in
 the multi-tab protocol from one wrong read into wrong reads until the WAL
 restarts. A feature that changes what a tab keeps between transactions, or

@@ -17,12 +17,7 @@ import {
   openPager,
   readSchemaTable,
 } from "../../storage/index.js";
-import {
-  beginWrite,
-  memoryFiles,
-  read,
-  write,
-} from "../../storage/tests/pager-support.js";
+import { memoryFiles, read, write } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
 import type { CompileExpression } from "../index.js";
 import {
@@ -105,7 +100,7 @@ export class Database {
    * succeeds, rolled back if it fails.
    */
   writing<T>(change: (transaction: WriteTransaction) => T): T {
-    const transaction = beginWrite(this.pager);
+    const transaction = this.pager.beginWrite();
     try {
       const result = change(transaction);
       transaction.commit();

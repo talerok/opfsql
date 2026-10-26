@@ -20,11 +20,19 @@ const FIRST_ALLOCATABLE = SCHEMA_ROOT_PAGE + 1;
 /** Reads the database as of one snapshot, pinned until end(). */
 export class ReadTransaction implements PageReader {
   protected isOpen = true;
+  /**
+   * Pages in the database as of the snapshot, taken when it was pinned: the
+   * database file's size, which it may come from, changes when another tab
+   * truncates a free tail (docs/concurrency.md, rule 4).
+   */
+  private readonly pinnedPageCount: number;
 
   constructor(
     protected readonly pager: Pager,
     readonly snapshot: number,
-  ) {}
+  ) {
+    this.pinnedPageCount = pager.pageCount(snapshot);
+  }
 
   get pageSize(): number {
     return this.pager.pageSize;
@@ -32,7 +40,7 @@ export class ReadTransaction implements PageReader {
 
   /** Pages in the database as of the snapshot. */
   get pageCount(): number {
-    return this.pager.pageCount(this.snapshot);
+    return this.pinnedPageCount;
   }
 
   /** Incremented by every transaction that changes the schema. */
@@ -95,7 +103,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
 
   constructor(pager: Pager, snapshot: number) {
     super(pager, snapshot);
-    this.initialPageCount = pager.pageCount(snapshot);
+    this.initialPageCount = super.pageCount;
     this.currentPageCount = this.initialPageCount;
     this.map = new AllocationMap(this);
   }

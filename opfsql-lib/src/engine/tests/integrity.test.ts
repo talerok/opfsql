@@ -56,7 +56,6 @@ async function damage(
 ): Promise<void> {
   const pager = await openPager(files, { name: "damaged" });
   const transaction = pager.beginWrite();
-  if (transaction === null) throw new Error("no snapshot");
   edit(transaction);
   transaction.commit();
   pager.close();

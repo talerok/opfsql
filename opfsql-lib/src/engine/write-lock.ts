@@ -24,11 +24,7 @@ type Grant = PromiseWithResolvers<() => void>;
 export class WriteLock {
   private isTaken = false;
 
-  constructor(
-    private readonly name: string,
-    /** Runs as soon as the lock is granted, before anyone uses it. */
-    private readonly onGranted: () => void,
-  ) {}
+  constructor(private readonly name: string) {}
 
   /** True while a session (or the engine) holds the lock. */
   get isHeld(): boolean {
@@ -37,12 +33,6 @@ export class WriteLock {
 
   async acquire(wait: Wait): Promise<Lease> {
     const release = await requestLock(this.name, wait);
-    try {
-      this.onGranted();
-    } catch (error) {
-      release();
-      throw error;
-    }
     this.isTaken = true;
     return this.leaseFor(release);
   }
