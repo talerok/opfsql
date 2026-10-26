@@ -134,6 +134,12 @@ it) and the value's static type, through `comparisonConversion`. So
 `id = '5'`, and `id = $1` with `'5'`, find id 5 through an index exactly as a
 scan would; skipping the conversion would lose rows no residual can restore.
 
+An expression key is SQL text in the schema, and the optimizer cannot parse.
+To match `lower(name) = 'bob'` to an index on `lower(name)`, `optimize` takes
+a key binder from the engine — the binder's, binding a key over a table read
+— and compares the bound key with the condition structurally. Without one,
+expression keys match nothing.
+
 ## Rules every optimization keeps
 
 1. **An access path only narrows what is read.** A key range or rowid list

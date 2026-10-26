@@ -156,9 +156,10 @@ function placeBelowAggregate(
   const groupTables = new Set([plan.groupIndex]);
   const { below, above } = split(conditions, (condition) => {
     if (!hasGroups || !readsOnly(condition, groupTables)) return null;
-    return substitute(
-      condition,
-      (column) => plan.groups[column.binding.columnIndex],
+    return substitute(condition, (column) =>
+      column.binding.tableIndex === plan.groupIndex
+        ? plan.groups[column.binding.columnIndex]
+        : undefined,
     );
   });
   return withFilter({ ...plan, child: pushInto(plan.child, below) }, above);

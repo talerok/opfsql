@@ -45,6 +45,7 @@ function simplifyNode(plan: logical.Plan): logical.Plan {
   switch (plan.kind) {
     case "get":
     case "cte-scan":
+    case "limit":
     case "distinct":
     case "set-operation":
     case "cte":
@@ -59,40 +60,23 @@ function simplifyNode(plan: logical.Plan): logical.Plan {
       return { ...plan, conditions: simplifyConditions(plan.conditions) };
     }
     case "project": {
-      return {
-        ...plan,
-        expressions: plan.expressions.map((expression) =>
-          simplifyExpression(expression),
-        ),
-      };
+      return { ...plan, expressions: simplifyAll(plan.expressions) };
     }
     case "aggregate": {
-      const groups = plan.groups.map((expression) =>
-        simplifyExpression(expression),
-      );
-      return {
-        ...plan,
-        groups,
-        aggregates: plan.aggregates.map((call) => simplifyCall(call)),
-      };
+      const aggregates = plan.aggregates.map((call) => simplifyCall(call));
+      return { ...plan, groups: simplifyAll(plan.groups), aggregates };
     }
     case "order": {
       return { ...plan, keys: plan.keys.map((key) => simplifyKey(key)) };
     }
-    case "limit": {
-      return plan;
-    }
     case "values": {
-      const rows = plan.rows.map((row) =>
-        row.map((expression) => simplifyExpression(expression)),
-      );
-      return { ...plan, rows };
+      return { ...plan, rows: plan.rows.map((row) => simplifyAll(row)) };
     }
   }
 }
 
 /** The conjuncts of conditions, simplified: TRUE ones gone, or FALSE alone. */
-export function simplifyConditions(
+function simplifyConditions(
   conditions: readonly logical.Expression[],
 ): logical.Expression[] {
   const conjuncts = conditions
@@ -104,6 +88,12 @@ export function simplifyConditions(
   return conjuncts.filter((condition) => !isAlwaysTrue(condition));
 }
 
+function simplifyAll(
+  expressions: readonly logical.Expression[],
+): logical.Expression[] {
+  return expressions.map((expression) => simplifyExpression(expression));
+}
+
 function simplifyKey(key: logical.OrderKey): logical.OrderKey {
   return { ...key, expression: simplifyExpression(key.expression) };
 }
@@ -111,12 +101,7 @@ function simplifyKey(key: logical.OrderKey): logical.OrderKey {
 function simplifyCall(
   call: AggregateCall<logical.Plan>,
 ): AggregateCall<logical.Plan> {
-  return {
-    ...call,
-    arguments: call.arguments.map((expression) =>
-      simplifyExpression(expression),
-    ),
-  };
+  return { ...call, arguments: simplifyAll(call.arguments) };
 }
 
 /** `expression` with constants folded and the identities above applied, bottom up. */

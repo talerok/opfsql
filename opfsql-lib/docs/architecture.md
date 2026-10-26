@@ -154,17 +154,17 @@ holds the lock until this promise settles".
 
 ## Where the rebuild stands
 
-| Module             | State                                                                                                                   |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `values`, `errors` | rebuilt                                                                                                                 |
-| `schema`           | built: the model and name rules                                                                                         |
-| `storage`          | built: format 5 — pages, WAL, B-trees, rows, index entries, the schema table, integrity check                           |
-| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries                                    |
-| `sql/parser`       | rebuilt and reviewed for readability: Pratt expressions, one name rule, unions for every state                          |
-| `functions`        | built: one registry for the binder and the compiler                                                                     |
-| `expressions`      | built on `sql/plan`; the old compiler stays in `src/legacy/executor/evaluate` until the switch                          |
-| `sql/plan`         | contract written; binder, optimizer and executor move to it                                                             |
-| `sql/binder`       | to build on `sql/plan`: grouping model, scopes, DDL to the schema model; the old one is in `src/legacy`                 |
-| `sql/optimizer`    | to build on `sql/plan`: pure passes, access paths with residuals, physical plan; the old one is in `src/legacy`         |
-| `executor`         | to build on `sql/plan` and `table`: operators with rescan, DML through the planner; the old one is in `src/legacy`      |
-| `engine`, `worker` | rebuilt: snapshots, one write lock, queues, states, the worker API (docs/api.md); still on the old storage, `src/store` |
+| Module             | State                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `values`, `errors` | rebuilt                                                                                                                                                                   |
+| `schema`           | built: the model and name rules                                                                                                                                           |
+| `storage`          | built: format 5 — pages, WAL, B-trees, rows, index entries, the schema table, integrity check                                                                             |
+| `table`            | built: one write path for rows, constraints, rowids, AUTOINCREMENT and index entries                                                                                      |
+| `sql/parser`       | rebuilt and reviewed for readability: Pratt expressions, one name rule, unions for every state                                                                            |
+| `functions`        | built: one registry for the binder and the compiler                                                                                                                       |
+| `expressions`      | built on `sql/plan`; the old compiler stays in `src/legacy/executor/evaluate` until the switch                                                                            |
+| `sql/plan`         | contract written; binder, optimizer and executor move to it                                                                                                               |
+| `sql/binder`       | to build on `sql/plan`: grouping model, scopes, DDL to the schema model; the old one is in `src/legacy`                                                                   |
+| `sql/optimizer`    | built on `sql/plan`: pure passes (simplify, pushdown, joins, access paths keeping residuals, order, MIN/MAX) and `formatPhysicalPlan`; the engine still uses `src/legacy` |
+| `executor`         | to build on `sql/plan` and `table`: operators with rescan, DML through the planner; the old one is in `src/legacy`                                                        |
+| `engine`, `worker` | rebuilt: snapshots, one write lock, queues, states, the worker API (docs/api.md); still on the old storage, `src/store`                                                   |
