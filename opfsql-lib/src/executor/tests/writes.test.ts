@@ -17,17 +17,22 @@ import { column as columnOf } from "../../table/tests/database.js";
 import type { Value } from "../../values/index.js";
 import { TestDatabase } from "./database.js";
 import {
+  aggregateCall,
   arithmetic,
   between,
   column,
   compare,
   constant,
   deleteFrom,
+  filter,
+  hashAggregate,
   including,
   indexScan,
   insert,
   keys,
   NULL,
+  outer,
+  scalarSubquery,
   type Source,
   source,
   tableScan,
@@ -268,6 +273,46 @@ describe("UPDATE", () => {
   });
 });
 
+/** The table indexes of t, updated, and of u, the same table read in the subquery. */
+const T_INDEX = 3;
+const U_INDEX = 4;
+
+describe("UPDATE from the table as it was", () => {
+  it("computes every row's value before writing any: running sums 1, 3, 6", async () => {
+    // UPDATE t SET x = (SELECT sum(x) FROM t AS u WHERE u.id <= t.id)
+    const fresh = await TestDatabase.open();
+    const t = fresh.createTable({
+      name: "t",
+      columns: [columnOf("id", "INTEGER"), columnOf("x", "INTEGER")],
+      rowidColumn: 0,
+      isAutoincrement: false,
+    });
+    fresh.insert(t, [
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ]);
+    const target = source(t, T_INDEX, [0, 1, ROWID_COLUMN]);
+    const upToHere = filter(
+      tableScan(source(t, U_INDEX, [0, 1])),
+      compare(column(U_INDEX, 0, "INTEGER"), "<=", outer(1, T_INDEX, 0)),
+    );
+    const sum = hashAggregate(
+      [20, 21],
+      upToHere,
+      [],
+      [aggregateCall("sum", [column(U_INDEX, 1, "INTEGER")])],
+    );
+    const running = [{ column: 1, value: scalarSubquery(sum, "correlated") }];
+    fresh.run(update(target, tableScan(target), running));
+    expect(fresh.rows(t)).toEqual([
+      [1, 1],
+      [2, 3],
+      [3, 6],
+    ]);
+  });
+});
+
 describe("DELETE", () => {
   it("reads the rowids first, then deletes each row and its index entries", () => {
     database.insert(items, [[3, "c", 2, null]]);
@@ -280,6 +325,17 @@ describe("DELETE", () => {
     });
     expect(database.rows(items)).toEqual([[3, "c", 2, null]]);
     expect(database.problems()).toEqual([]);
+  });
+
+  it("finds the rowid by its binding, whatever columns its source has", () => {
+    database.insert(items, [[3, "c", 2, null]]);
+    const narrow = source(items, ITEMS, [ROWID_COLUMN]);
+    const atTwo = indexScan(narrow, byQty, keys([constant(2)]));
+    expect(database.run(deleteFrom(narrow, atTwo)).changes).toBe(1);
+    const wide = source(items, ITEMS, [...EVERY_COLUMN, ROWID_COLUMN]);
+    const named = filter(tableScan(wide), compare(name, "=", constant("a")));
+    expect(database.run(deleteFrom(wide, named)).changes).toBe(1);
+    expect(database.rows(items)).toEqual([[2, "b", 1, "B"]]);
   });
 
   it("needs a write transaction", () => {
