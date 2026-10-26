@@ -2,6 +2,7 @@ import { InternalError } from "../errors.js";
 import type {
   Column,
   Index,
+  IndexKey,
   IndexShape,
   Schema,
   Table,
@@ -14,24 +15,26 @@ import type {
   SchemaPages,
 } from "../storage/index.js";
 import {
-  encodeKey,
   IndexWriter,
   readSchemaTable,
   SchemaTableWriter,
   TableWriter,
 } from "../storage/index.js";
 import type { Value } from "../values/index.js";
+import { areEqual, assignValue } from "../values/index.js";
 import type { CompileExpression } from "./keys.js";
-import { entryOf, keyedIndex, uniqueViolation } from "./keys.js";
+import { entryOf, keyedIndex, rowidsWithKey, uniqueViolation } from "./keys.js";
 import { TableRows } from "./rows.js";
 import { SEQUENCE_TABLE_NAME, Sequences } from "./sequences.js";
 
 // ---------------------------------------------------------------------------
 // Schema changes on storage: the trees of tables and indexes, their rows in
 // opfsql_schema — statements generated from the model, never edited — and
-// the AUTOINCREMENT counters. Whether a change makes sense (names free, a
-// dropped column unindexed) is the binder's to check; the catalog does it.
-// The schema changes once a statement's changes are read back.
+// the AUTOINCREMENT counters. Whether a change makes sense — names free, a
+// dropped column unused — is the binder's to check, with messages for the
+// user; the catalog assumes it, and refuses with an InternalError what would
+// leave the database inconsistent. The schema changes once a statement's
+// changes are read back.
 // ---------------------------------------------------------------------------
 
 export class Catalog {
@@ -69,27 +72,35 @@ export class Catalog {
   /** Drops a table, its indexes and its AUTOINCREMENT counter. */
   dropTable(table: Table): void {
     for (const index of this.schema.indexesOf(table.name)) {
-      this.dropIndex(index);
+      this.removeIndex(index);
     }
     new TableWriter(this.pages, table.rootPage, table.name).drop();
     this.entries.remove(this.entryRowid(table.name));
     if (table.isAutoincrement) this.sequences()?.remove(table.name);
   }
 
+  /** Drops an index a CREATE INDEX made; a constraint's goes with its table. */
   dropIndex(index: Index): void {
-    new IndexWriter(this.pages, index.rootPage, index.name).drop();
-    this.entries.remove(this.entryRowid(index.name));
+    if (index.origin !== "statement") {
+      throw new InternalError(`${index.name} belongs to a constraint`);
+    }
+    this.removeIndex(index);
   }
 
-  /** Adds a column at the end; rows written before it read its default. */
+  /**
+   * Adds a column at the end; rows written before it read its default, so a
+   * NOT NULL column needs one, already of the column's type.
+   */
   addColumn(table: Table, column: Column): Table {
+    checkDefault(column);
     const changed = { ...table, columns: [...table.columns, column] };
     this.rewriteEntry(changed, this.constraintsOf(table));
     return changed;
   }
 
-  /** Drops a column no index or constraint uses, from every row too. */
+  /** Drops a column that is not the rowid and no index uses, from every row too. */
   dropColumn(table: Table, column: number): Table {
+    this.checkUnused(table, column);
     const changed = withoutColumn(table, column);
     const constraints = this.constraintsOf(table).map((index) =>
       withKeysAfter(index, column),
@@ -99,7 +110,25 @@ export class Catalog {
     return changed;
   }
 
+  /** A dropped column must be neither the rowid nor any index's key. */
+  private checkUnused(table: Table, column: number): void {
+    const isKey = this.schema
+      .indexesOf(table.name)
+      .some((index) => index.keys.some((key) => isColumnKey(key, column)));
+    const isRowid = column === table.rowidColumn;
+    if (isKey || isRowid) {
+      throw new InternalError(
+        `column ${String(column)} of ${table.name} is in use`,
+      );
+    }
+  }
+
   // --- Indexes -------------------------------------------------------------------
+
+  private removeIndex(index: Index): void {
+    new IndexWriter(this.pages, index.rootPage, index.name).drop();
+    this.entries.remove(this.entryRowid(index.name));
+  }
 
   private addIndex(shape: IndexShape, sql: string | null): Index {
     const index: Index = {
@@ -202,9 +231,22 @@ function tableEntry(
 
 /** True if the index has an entry with `key`; a key with a NULL never matches. */
 function hasKey(entries: IndexReader, key: readonly Value[]): boolean {
-  if (key.includes(null)) return false;
-  const matches = entries.keysWithPrefix(encodeKey(key));
-  return matches.next().done !== true;
+  return rowidsWithKey(entries, key).next().done !== true;
+}
+
+function isColumnKey(key: IndexKey, column: number): boolean {
+  return key.kind === "column" && key.column === column;
+}
+
+/** A default is stored as its column's type, and a NOT NULL column has one. */
+function checkDefault(column: Column): void {
+  const { defaultValue, type, isNotNull, name } = column;
+  if (isNotNull && defaultValue === null) {
+    throw new InternalError(`NOT NULL column ${name} needs a default`);
+  }
+  if (!areEqual(assignValue(defaultValue, type), defaultValue)) {
+    throw new InternalError(`the default of ${name} is not a ${type}`);
+  }
 }
 
 function withoutColumn(table: Table, dropped: number): Table {

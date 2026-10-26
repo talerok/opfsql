@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ConstraintError } from "../../errors.js";
+import { ConstraintError, InternalError } from "../../errors.js";
 import type { IndexShape } from "../../schema/index.js";
+import type { Catalog } from "../index.js";
 import { SEQUENCE_TABLE_NAME } from "../index.js";
 import { column, Database, usersShape, withUsers } from "./database.js";
 
@@ -99,5 +100,41 @@ describe("Catalog", () => {
     expect(names.filter((name) => name === SEQUENCE_TABLE_NAME)).toHaveLength(
       1,
     );
+  });
+
+  it("refuses changes that would leave the database inconsistent", async () => {
+    const { database, users } = await withUsers();
+    const [uniqueIndex] = database.indexes;
+    if (uniqueIndex === undefined)
+      throw new Error("users has its unique index");
+    const refusals: [string, (catalog: Catalog) => unknown][] = [
+      ["drop the rowid column", (catalog) => catalog.dropColumn(users, 0)],
+      ["drop an indexed column", (catalog) => catalog.dropColumn(users, 2)],
+      [
+        "drop a constraint's index",
+        (catalog) => {
+          catalog.dropIndex(uniqueIndex);
+        },
+      ],
+      [
+        "add NOT NULL without a default",
+        (catalog) =>
+          catalog.addColumn(
+            users,
+            column("age", "INTEGER", { isNotNull: true }),
+          ),
+      ],
+      [
+        "add a default of another type",
+        (catalog) =>
+          catalog.addColumn(
+            users,
+            column("age", "INTEGER", { defaultValue: "42" }),
+          ),
+      ],
+    ];
+    for (const [what, change] of refusals) {
+      expect(() => database.change(change), what).toThrow(InternalError);
+    }
   });
 });
