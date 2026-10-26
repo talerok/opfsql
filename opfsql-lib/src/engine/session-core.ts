@@ -426,7 +426,7 @@ export class SessionCore {
     signal: AbortSignal,
     read: (schema: SchemaModel) => T,
   ): Promise<T> {
-    const pages = await this.host.database.beginRead(signal);
+    const pages = await this.host.transactions.beginRead(signal);
     try {
       return read(this.host.schemas.load(pages).schema);
     } finally {

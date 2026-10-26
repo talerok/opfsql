@@ -16,7 +16,7 @@ import type {
   OpenOptions,
   SessionOptions,
 } from "./api/index.js";
-import { Database } from "./database.js";
+import { TransactionManager } from "./transaction-manager.js";
 import { checkIntegrity } from "./integrity.js";
 import { SchemaCache } from "./schemas.js";
 import { SessionCore, type SessionHost } from "./session-core.js";
@@ -25,7 +25,7 @@ import { Session } from "./session.js";
 const DEFAULT_BUSY_TIMEOUT = 5000;
 
 // Set by Engine's static block: the internal ways in, kept off its API.
-let construct: (database: Database) => Engine;
+let construct: (transactions: TransactionManager) => Engine;
 let connectWith: (engine: Engine, options: SessionOptions) => Session;
 
 /** Options of an engine on files of one's own: memory files, in tests. */
@@ -46,7 +46,7 @@ export interface EngineOptions extends OpenOptions {
  */
 export class Engine implements AsyncDisposable {
   static {
-    construct = (database) => new Engine(database);
+    construct = (transactions) => new Engine(transactions);
     connectWith = (engine, options) => engine.openSession(options);
   }
 
@@ -60,9 +60,9 @@ export class Engine implements AsyncDisposable {
   /** Sessions dropped without close() are closed when collected. */
   private readonly abandoned = new FinalizationRegistry(closeAbandoned);
 
-  private constructor(private readonly database: Database) {
+  private constructor(private readonly transactions: TransactionManager) {
     this.host = {
-      database,
+      transactions,
       schemas: this.schemas,
       forget: (core) => {
         this.sessions.delete(core);
@@ -97,7 +97,7 @@ export class Engine implements AsyncDisposable {
    */
   async checkpoint(options: CallOptions = {}): Promise<void> {
     await this.inTurn(options, async (signal) =>
-      this.database.checkpoint(signal),
+      this.transactions.checkpoint(signal),
     );
   }
 
@@ -109,7 +109,7 @@ export class Engine implements AsyncDisposable {
    */
   async checkIntegrity(options: CallOptions = {}): Promise<string[]> {
     return this.inTurn(options, async (signal) => {
-      const pages = await this.database.beginRead(signal);
+      const pages = await this.transactions.beginRead(signal);
       try {
         return checkIntegrity(pages, (read) => this.schemas.load(read).schema);
       } finally {
@@ -143,7 +143,7 @@ export class Engine implements AsyncDisposable {
     );
     this.lifetime.abort(new AbortError("the database was closed"));
     await this.tasks.idle();
-    await this.database.close();
+    await this.transactions.close();
     this.state = "closed";
     const failure = closed.find((outcome) => outcome.status === "rejected");
     if (failure !== undefined) throw toOpfsqlError(failure.reason);
@@ -202,12 +202,12 @@ export async function createEngine(
         checkpointThreshold: options.checkpointThreshold,
       }),
     });
-    const database = new Database(pager, {
+    const transactions = new TransactionManager(pager, {
       lockName,
       busyTimeout: options.busyTimeout ?? DEFAULT_BUSY_TIMEOUT,
       onCheckpointError: report,
     });
-    return construct(database);
+    return construct(transactions);
   } catch (error) {
     throw toOpfsqlError(error);
   }
