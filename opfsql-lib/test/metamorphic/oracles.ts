@@ -23,7 +23,9 @@ import { selectList, tlpChecks } from "./tlp.js";
 // - LIMIT and OFFSET take a slice of the rows ORDER BY puts in order;
 // - UNION, INTERSECT and EXCEPT of a query and its partitions are what
 //   their sets say;
-// - parameters: p with some constants as parameters finds the same rows.
+// - parameters: p with some constants as parameters, prepared once and run
+//   with two sets of values, finds the rows p with those values written in
+//   does.
 // Every form also runs on the copy of the database with the random indexes,
 // and must return the same there: index invariance.
 // ---------------------------------------------------------------------------

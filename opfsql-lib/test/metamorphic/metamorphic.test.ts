@@ -5,7 +5,8 @@ import { runSeed } from "./run.js";
 // Metamorphic tests of the whole pipeline — parse, bind, optimize, execute —
 // against the engine itself, as SQLancer tests a database: random databases
 // and well-typed random queries, and oracles that hold forms of one query
-// to each other (oracles.ts).
+// to each other (oracles.ts); then random changes, which the copy with
+// indexes must make as the copy without does (changes.ts).
 //
 // A failure names its seed and case; METAMORPHIC_SEED=<seed> runs from that
 // seed. METAMORPHIC_SEEDS=<n> runs n databases: a few in every test run,
