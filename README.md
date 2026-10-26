@@ -17,12 +17,12 @@ cannot open databases written by 0.0.x: opening one fails with
 
 ## How it is verified
 
-195,989 checks run against the code in this repository:
+195,993 checks run against the code in this repository:
 
 | Checks                                                                                                                                   | Count   | Reproduce                                                                                         |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
 | records from a subset of SQLite's [sqllogictest](https://www.sqlite.org/sqllogictest/) corpus, compared with SQLite's results            | 122,118 | `npx vitest run test/sqllogictest`; counts: `npx vite-node test/sqllogictest/triage.ts`           |
-| opfsql's own tests: the 2,047 of `npx vitest run`, less the 30 that run the corpus, the 2 interleaving tests and the 8 metamorphic tests | 2,007   | `npx vitest run`                                                                                  |
+| opfsql's own tests: the 2,051 of `npx vitest run`, less the 30 that run the corpus, the 2 interleaving tests and the 8 metamorphic tests | 2,011   | `npx vitest run`                                                                                  |
 | runs of the multi-tab interleaving test: 300 seeds, with and without torn writes                                                         | 600     | `INTERLEAVING_SEEDS=300 npx vitest run src/storage/pager/tests/interleaving.test.ts`              |
 | metamorphic checks of queries on 400 random databases                                                                                    | 71,219  | `METAMORPHIC_SEED=5000 METAMORPHIC_SEEDS=400 npx vitest run test/metamorphic/metamorphic.test.ts` |
 | end-to-end tests in Chromium, Firefox and WebKit                                                                                         | 45      | `npm run test:e2e`                                                                                |
