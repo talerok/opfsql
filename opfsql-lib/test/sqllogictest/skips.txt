@@ -8,16 +8,14 @@
 reason bare-column semantics.md, Queries and Departures: a column neither grouped nor aggregated is an error; SQLite reads a bare column of some row
 reason compare-types semantics.md, Comparisons: operands must be comparable; TEXT or BLOB against INTEGER is a bind error, where SQLite converts by affinity
 reason assigned-twice semantics.md, Departures: assigning one column twice in an UPDATE is a bind error, where SQLite takes the rightmost assignment
-reason sum-avg-text semantics.md, Aggregates: sum and avg take numbers only; over TEXT they are a bind error, where SQLite reads the text as a number
+reason sum-avg-text semantics.md, Aggregates: sum, total and avg take numbers only; over TEXT they are a bind error, where SQLite reads the text as a number
 
 # Features opfsql does not have.
 reason desc-index not supported: ASC or DESC on an index key
 reason in-table not supported: IN with a table name, x IN t1
 reason from-parentheses not supported: parentheses around FROM items
 reason indexed-by not supported: INDEXED BY and NOT INDEXED
-reason total not supported: the total() aggregate
-reason group-concat not supported: the group_concat() aggregate
-reason shift not supported: the << operator, and the sums over the rows it would have inserted
+reason shift not supported: the << operator, and the sums and totals over the rows it would have inserted
 
 test/evidence/in1.test:70 in-table
 test/evidence/in1.test:81 in-table
@@ -95,33 +93,24 @@ test/evidence/in1.test:1114 in-table
 test/evidence/in1.test:1125 in-table
 test/evidence/in1.test:1136 in-table
 test/evidence/in1.test:1147 in-table
-test/evidence/slt_lang_aggfunc.test:43 total
 test/evidence/slt_lang_aggfunc.test:58 indexed-by
 test/evidence/slt_lang_aggfunc.test:100 sum-avg-text
 test/evidence/slt_lang_aggfunc.test:105 sum-avg-text
-test/evidence/slt_lang_aggfunc.test:110 total
-test/evidence/slt_lang_aggfunc.test:125 group-concat
+test/evidence/slt_lang_aggfunc.test:110 sum-avg-text
 test/evidence/slt_lang_aggfunc.test:137 sum-avg-text
 test/evidence/slt_lang_aggfunc.test:142 sum-avg-text
-test/evidence/slt_lang_aggfunc.test:147 total
-test/evidence/slt_lang_aggfunc.test:162 group-concat
+test/evidence/slt_lang_aggfunc.test:147 sum-avg-text
 test/evidence/slt_lang_aggfunc.test:239 indexed-by
 test/evidence/slt_lang_aggfunc.test:244 indexed-by
 test/evidence/slt_lang_aggfunc.test:253 indexed-by
 test/evidence/slt_lang_aggfunc.test:266 indexed-by
 test/evidence/slt_lang_aggfunc.test:271 indexed-by
-test/evidence/slt_lang_aggfunc.test:380 total
-test/evidence/slt_lang_aggfunc.test:390 total
-test/evidence/slt_lang_aggfunc.test:409 total
-test/evidence/slt_lang_aggfunc.test:414 total
-test/evidence/slt_lang_aggfunc.test:423 total
-test/evidence/slt_lang_aggfunc.test:428 total
 test/evidence/slt_lang_aggfunc.test:470 shift
 test/evidence/slt_lang_aggfunc.test:473 shift
 test/evidence/slt_lang_aggfunc.test:480 shift
 test/evidence/slt_lang_aggfunc.test:484 shift
-test/evidence/slt_lang_aggfunc.test:491 total
-test/evidence/slt_lang_aggfunc.test:496 total
+test/evidence/slt_lang_aggfunc.test:491 shift
+test/evidence/slt_lang_aggfunc.test:496 shift
 test/evidence/slt_lang_update.test:88 assigned-twice
 test/evidence/slt_lang_update.test:98 assigned-twice
 test/evidence/slt_lang_update.test:104 assigned-twice

@@ -55,6 +55,12 @@ function bindAggregate(
     refuse("the arguments of an aggregate function"),
   );
   const argumentList = call.children.map((child) => inner.bind(child));
+  // As in SQLite: DISTINCT compares one value, group_concat's and no other.
+  if (call.isDistinct && argumentList.length !== 1) {
+    throw new SemanticError(
+      `${call.functionName}(DISTINCT …) takes exactly one argument`,
+    );
+  }
   checkLevel(argumentList);
   const types = argumentList.map((argument) => argument.type);
   const type = resolveCall(definition, types);
