@@ -70,6 +70,30 @@ describe("rowid lookups", () => {
   });
 });
 
+describe("rowid seeks with values of any kind", () => {
+  // Rowid values and bounds are compared with the integer rowids in the
+  // total order (physical.ts, RowidSet), as `=` and `<` compare them.
+  it.each([
+    [compare(id, ">=", constant(1.5)), "rowid-lookup users#1 (rowid >= 1.5)"],
+    [compare(id, "<", constant(2.5)), "rowid-lookup users#1 (rowid < 2.5)"],
+    [compare(id, "=", constant(1.5)), "rowid-lookup users#1 (rowid = 1.5)"],
+    [
+      compare(id, "<", constant(1e300)),
+      "rowid-lookup users#1 (rowid < 1e+300)",
+    ],
+  ])("seeks %# as a scan finds it", (condition, printed) => {
+    const plan = where(condition);
+    expect(planOf(plan)).toBe(printed);
+    expectSameRows(plan);
+  });
+
+  it("finds every row for id < $1 with text, which sorts after every number", () => {
+    const plan = where(compare(id, "<", numeric));
+    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid < $1)");
+    for (const value of ["abc", "3", 3.5, null]) expectSameRows(plan, [value]);
+  });
+});
+
 describe("index scans", () => {
   it("prefers a unique index's whole key to an equality prefix", () => {
     const plan = where(
