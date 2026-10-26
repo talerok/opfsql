@@ -12,7 +12,8 @@ import { isScan } from "./access-path.js";
 import { columnsOf, holdsCorrelatedSubquery } from "./expression-tree.js";
 import { lowerExpression } from "./lower-expression.js";
 import { lowerPlan } from "./lower.js";
-import type { KeyBinder, Planner } from "./planner.js";
+import { IndexCatalog, type KeyBinder } from "./key-parts.js";
+import type { Planner } from "./planner.js";
 import { pushDownFilters } from "./pushdown.js";
 import { simplifyPlan } from "./simplify.js";
 
@@ -33,8 +34,7 @@ export function optimize(
   bindKey: KeyBinder | null = null,
 ): Statement<physical.Plan> {
   const planner: Planner = {
-    schema,
-    bindKey,
+    indexes: new IndexCatalog(schema, bindKey),
     planSubquery: (plan) => planQuery(plan, planner),
   };
   return optimizeStatement(statement, planner);

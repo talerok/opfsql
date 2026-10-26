@@ -2,4 +2,4 @@
 // (docs/planning.md).
 
 export { optimize } from "./optimize.js";
-export type { KeyBinder } from "./planner.js";
+export type { KeyBinder } from "./key-parts.js";

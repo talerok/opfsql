@@ -7,7 +7,7 @@ import {
   ROWID_COLUMN,
   type Statement,
 } from "../../plan/index.js";
-import { optimize } from "../index.js";
+import { type KeyBinder, optimize } from "../index.js";
 import {
   aggregate,
   aggregateCall,
@@ -302,6 +302,22 @@ describe("purity", () => {
     expect(plan.kind === "query" && formatPhysicalPlan(plan.plan)).toBe(
       "table-scan users#1 residual: lower(u.name) = 'bob'",
     );
+  });
+});
+
+describe("expression keys", () => {
+  it("binds each expression key once per relation in one call", () => {
+    const bound: string[] = [];
+    const counting: KeyBinder = (sql, table, tableIndex) => {
+      bound.push(`${sql} over #${String(tableIndex)}`);
+      return bindKey(sql, table, tableIndex);
+    };
+    // The order asks the read for its order first, then plans it plainly:
+    // two requests for the indexes of #1, one binding.
+    const lowered = call("lower", column(u, "name"));
+    const read = filter(get(u), compare(lowered, "=", constant("bob")));
+    optimize(query(order(read, asc(column(u, "name")))), schema, counting);
+    expect(bound).toEqual(["lower(name) over #1"]);
   });
 });
 

@@ -1,5 +1,5 @@
 import type { AggregateCall, logical, physical } from "../plan/index.js";
-import { type IndexKeys, indexesOf, type KeyPart } from "./key-parts.js";
+import type { IndexKeys, KeyPart } from "./key-parts.js";
 import {
   fitsPart,
   type KeyTest,
@@ -34,7 +34,7 @@ export function indexExtreme(
   if (wanted === null || source === null) return null;
   const tests = keyTestsOf(lowerExpressions(source.conditions, planner));
   if (tests === null) return null;
-  for (const keys of indexesOf(source.get, planner)) {
+  for (const keys of planner.indexes.indexesOf(source.get)) {
     const equal = exactPrefix(keys, tests);
     const part = keys.parts[tests.length];
     if (equal !== null && part !== undefined && holds(part, wanted.argument)) {

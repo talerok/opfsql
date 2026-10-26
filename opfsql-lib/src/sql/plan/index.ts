@@ -1,5 +1,7 @@
 // The contract between binder, optimizer and executor (docs/planning.md).
 
+export type { StaticType } from "../../functions/index.js";
+
 export {
   type AggregateCall,
   type Arithmetic,

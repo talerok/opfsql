@@ -12,7 +12,6 @@ import {
 import { conjunctsOf, disjunctsOf } from "./expression-tree.js";
 import {
   type IndexKeys,
-  indexesOf,
   isRowidOf,
   type KeyPart,
   rowidPart,
@@ -133,7 +132,7 @@ export function chooseAccessPath(
   planner: Planner,
 ): AccessPath {
   const tests = keyTestsOf(request.conditions);
-  const indexes = indexesOf(request.get, planner);
+  const indexes = planner.indexes.indexesOf(request.get);
   const candidates = [
     rowidCandidate(request.get, tests, request.order),
     ...indexes.map((keys) => indexCandidate(keys, tests, request.order)),

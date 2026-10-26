@@ -1,7 +1,11 @@
-import type { Index, IndexKey } from "../../schema/index.js";
-import type { ColumnReference, Expression, logical } from "../plan/index.js";
-import { ROWID_COLUMN } from "../plan/index.js";
-import type { Planner } from "./planner.js";
+import type { Index, IndexKey, Schema, Table } from "../../schema/index.js";
+import {
+  type ColumnReference,
+  type Expression,
+  type logical,
+  ROWID_COLUMN,
+  type StaticType,
+} from "../plan/index.js";
 
 // ---------------------------------------------------------------------------
 // Index key parts as the optimizer matches conditions and ORDER BY keys
@@ -10,7 +14,18 @@ import type { Planner } from "./planner.js";
 // ordered by it.
 // ---------------------------------------------------------------------------
 
-type StaticType = ColumnReference["type"];
+/**
+ * Binds an index's expression key — SQL text in the schema — as an
+ * expression over the columns of `table` read as relation `tableIndex`, so
+ * a condition or ORDER BY key written the same way matches it. The optimizer
+ * cannot parse (docs/architecture.md, Modules): the engine passes the
+ * binder's. Without one, expression keys match nothing.
+ */
+export type KeyBinder = (
+  sql: string,
+  table: Table,
+  tableIndex: number,
+) => logical.Expression;
 
 export interface KeyPart {
   /** What the part holds, as an expression over the get's columns. */
@@ -26,31 +41,65 @@ export interface IndexKeys {
   readonly parts: readonly KeyPart[];
 }
 
-/** The indexes of the get's table, each with its parts; an expression key unbound without a binder. */
-export function indexesOf(get: logical.Get, planner: Planner): IndexKeys[] {
-  const indexes: IndexKeys[] = [];
-  for (const index of planner.schema.indexesOf(get.table.name)) {
-    const parts = index.keys.map((key) => keyPart(key, get, planner));
-    if (parts.every((part) => part !== null)) indexes.push({ index, parts });
-  }
-  return indexes;
-}
+/**
+ * The indexes of each table read with their key parts, bound once per
+ * relation for one optimize call: a get's indexes are asked for several
+ * times (its access path, its order, its MIN/MAX), and binding an
+ * expression key parses its SQL.
+ */
+export class IndexCatalog {
+  readonly #parts = new Map<Index, Map<number, readonly KeyPart[] | null>>();
 
-function keyPart(
-  key: IndexKey,
-  get: logical.Get,
-  planner: Planner,
-): KeyPart | null {
-  if (key.kind === "expression") {
-    if (planner.bindKey === null) return null;
-    const expression = planner.bindKey(key.sql, get.table, get.tableIndex);
+  constructor(
+    private readonly schema: Schema,
+    private readonly bindKey: KeyBinder | null,
+  ) {}
+
+  /** The indexes of the get's table; without a binder, none with an expression key. */
+  indexesOf(get: logical.Get): IndexKeys[] {
+    const indexes: IndexKeys[] = [];
+    for (const index of this.schema.indexesOf(get.table.name)) {
+      const parts = this.partsOf(index, get);
+      if (parts !== null) indexes.push({ index, parts });
+    }
+    return indexes;
+  }
+
+  private partsOf(index: Index, get: logical.Get): readonly KeyPart[] | null {
+    const byRelation =
+      this.#parts.get(index) ?? new Map<number, readonly KeyPart[] | null>();
+    this.#parts.set(index, byRelation);
+    const known = byRelation.get(get.tableIndex);
+    if (known !== undefined) return known;
+    const parts = this.bindParts(index, get);
+    byRelation.set(get.tableIndex, parts);
+    return parts;
+  }
+
+  private bindParts(index: Index, get: logical.Get): readonly KeyPart[] | null {
+    const parts: KeyPart[] = [];
+    for (const key of index.keys) {
+      const part = this.keyPart(key, get);
+      if (part === null) return null;
+      parts.push(part);
+    }
+    return parts;
+  }
+
+  private keyPart(key: IndexKey, get: logical.Get): KeyPart | null {
+    if (key.kind === "column") return columnPart(key.column, get);
+    if (this.bindKey === null) return null;
+    const expression = this.bindKey(key.sql, get.table, get.tableIndex);
     return { expression, type: key.type, isNeverNull: false };
   }
-  const column = get.table.columns[key.column];
+}
+
+function columnPart(position: number, get: logical.Get): KeyPart | null {
+  const column = get.table.columns[position];
   if (column === undefined) return null;
-  const isRowid = key.column === get.table.rowidColumn;
+  const isRowid = position === get.table.rowidColumn;
   return {
-    expression: columnOf(get, key.column),
+    expression: columnOf(get, position),
     type: column.type,
     isNeverNull: column.isNotNull || isRowid,
   };
