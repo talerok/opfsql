@@ -123,11 +123,13 @@ export class BTreeWriter extends BTree {
     return true;
   }
 
-  /** Removes the cell under `key`. False if there is none. */
+  /** Removes the cell under `key`, freeing a leaf it empties. False if there is none. */
   delete(key: TreeKey): boolean {
-    const { leafPageNo, leaf, index } = this.descend(key);
+    const { path, leafPageNo, leaf, index } = this.descend(key);
     if (!leaf.holds(index, key)) return false;
-    this.edit(leafPageNo).removeCell(index);
+    const editor = this.edit(leafPageNo);
+    editor.removeCell(index);
+    if (editor.cellCount === 0) this.removeEmpty(path, leafPageNo);
     return true;
   }
 
@@ -152,6 +154,71 @@ export class BTreeWriter extends BTree {
         `a ${String(cell.length)}-byte cell exceeds the B-tree limit`,
       );
     }
+  }
+
+  // --- Emptied pages -----------------------------------------------------------
+
+  /**
+   * Takes the emptied subtree at `pageNo` out of the tree and frees its
+   * pages, as far as that keeps every interior page with a separator and
+   * every leaf at one depth. A parent with other separators lets it go; the
+   * root takes the place of the one child it has left; any other parent
+   * with one separator keeps it until its other child is empty too, and then
+   * goes itself.
+   */
+  private removeEmpty(path: readonly Step[], pageNo: number): void {
+    const parent = path.at(-1);
+    if (parent === undefined) return;
+    if (parent.cellCount > 1) {
+      this.detach(parent, pageNo);
+      return;
+    }
+    const sibling = this.pageAt(parent.pageNo).child(1 - parent.index);
+    if (path.length === 1) {
+      this.collapseRoot(parent.pageNo, sibling, pageNo);
+      return;
+    }
+    if (this.isEmpty(sibling)) {
+      this.removeEmpty(path.slice(0, -1), parent.pageNo);
+    }
+  }
+
+  /** Takes child `parent.index` out of a parent with more than one separator. */
+  private detach(parent: Step, child: number): void {
+    const editor = this.edit(parent.pageNo);
+    const isRightmost = parent.index === parent.cellCount;
+    if (isRightmost) {
+      // The child left of the last separator now holds every key above it.
+      const last = parent.cellCount - 1;
+      editor.setRightChild(editor.child(last));
+      editor.removeCell(last);
+    } else {
+      // The next child now holds the emptied child's keys too.
+      editor.removeCell(parent.index);
+    }
+    this.free(child);
+  }
+
+  /**
+   * The root's other child moves into the root, a level up, as every leaf
+   * does; the root becomes an empty leaf if that child is empty too.
+   */
+  private collapseRoot(root: number, remaining: number, emptied: number): void {
+    this.free(emptied);
+    if (this.isEmpty(remaining)) {
+      this.free(remaining);
+      BTreePageEditor.initialize(this.writer.write(root), LEAF_TYPE[this.kind]);
+      return;
+    }
+    this.writer.write(root).set(this.pages.read(remaining));
+    this.writer.free(remaining);
+  }
+
+  /** True if no leaf under `pageNo` holds a cell. */
+  private isEmpty(pageNo: number): boolean {
+    const page = this.pageAt(pageNo);
+    if (page.isLeaf) return page.cellCount === 0;
+    return childrenOf(page).every((child) => this.isEmpty(child));
   }
 
   // --- Splits ------------------------------------------------------------------

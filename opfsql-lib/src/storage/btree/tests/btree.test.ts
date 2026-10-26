@@ -166,6 +166,59 @@ describe("BTree", () => {
     expect(pages.usedPages).toEqual([]);
   });
 
+  it("frees the leaves deletes empty, down to the root alone", () => {
+    const { pages, root, tree } = setup();
+    insertAscending(tree, 2000, 40);
+    pages.commit();
+    expect(pages.usedPages.length).toBeGreaterThan(20);
+
+    for (let rowid = 1; rowid <= 2000; rowid++) tree.delete(rowid);
+    pages.commit();
+    expect(pages.usedPages).toEqual([root]);
+    expect(new BTreePage(pages.read(root)).isLeaf).toBe(true);
+    expect(checkTree(pages, root, "table").problems).toEqual([]);
+  });
+
+  it("keeps a table used as a queue to the pages its rows need", () => {
+    const { pages, root, tree } = setup();
+    const size = 40;
+    insertAscending(tree, 1000, size);
+    pages.commit();
+    const filled = pages.usedPages.length;
+    for (let rowid = 1001; rowid <= 5000; rowid++) {
+      tree.insert(rowid, tableLeafCell(rowid, record(rowid, size)));
+      tree.delete(rowid - 1000);
+    }
+    pages.commit();
+    expect(pages.usedPages.length).toBeLessThanOrEqual(filled + 2);
+    expect(checkTree(pages, root, "table").problems).toEqual([]);
+  });
+
+  it.each([1, 2, 3])(
+    "frees emptied pages of an index under random deletes (seed %i)",
+    (seed) => {
+      const { pages, root, tree } = setup("index");
+      const random = mulberry32(seed);
+      const keys = Array.from({ length: 3000 }, (_, rowid) =>
+        encodeKey([Math.floor(random() * 300), rowid]),
+      );
+      for (const key of keys) tree.insert(key, indexLeafCell(key));
+      pages.commit();
+      const order = keys.toSorted(() => random() - 0.5);
+      for (const [count, key] of order.entries()) {
+        expect(tree.delete(key)).toBe(true);
+        if (count % 300 !== 299) continue;
+        pages.commit();
+        const report = checkTree(pages, root, "index");
+        expect(report.problems).toEqual([]);
+        expect(report.entries).toBe(keys.length - count - 1);
+        // Every page in use is in the tree: none leaked.
+        expect(report.pages.toSorted((a, b) => a - b)).toEqual(pages.usedPages);
+      }
+      expect(pages.usedPages).toEqual([root]);
+    },
+  );
+
   it.each([1, 2, 3, 4])(
     "matches a sorted map under random changes (seed %i)",
     (seed) => {
@@ -180,6 +233,7 @@ describe("BTree", () => {
         const report = checkTree(pages, root, "table");
         expect(report.problems).toEqual([]);
         expect(report.entries).toBe(model.size);
+        expect(report.pages.toSorted((a, b) => a - b)).toEqual(pages.usedPages);
       }
     },
   );
