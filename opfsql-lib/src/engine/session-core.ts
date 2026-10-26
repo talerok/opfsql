@@ -183,27 +183,38 @@ export class SessionCore {
     }
   }
 
-  /** One call's turn: its task, then no transaction left where none may stay. */
+  /**
+   * One call's turn: its task, then no transaction left where none may
+   * stay — whether the task succeeded or failed, so no path through a task
+   * can leave one behind.
+   */
   private async inTurn<T>(
     task: (signal: AbortSignal) => Promise<T> | T,
     signal: AbortSignal,
   ): Promise<T> {
-    const value = await task(signal);
-    this.rejectLeftoverTransaction();
-    return value;
+    let hasSucceeded = false;
+    try {
+      const value = await task(signal);
+      hasSucceeded = true;
+      return value;
+    } finally {
+      this.endLeftoverTransaction(hasSucceeded);
+    }
   }
 
   /**
    * A session shared by unrelated callers keeps no transaction past a call:
-   * one left open is rolled back, and the call fails with MISUSE.
+   * one left open is rolled back. A call that otherwise succeeded then fails
+   * with MISUSE; a failed one keeps its own error.
    */
-  private rejectLeftoverTransaction(): void {
+  private endLeftoverTransaction(hasSucceeded: boolean): void {
     const transaction = this.transaction;
     const isLeftOver =
       transaction !== null && this.options.callScopedTransactions === true;
     if (!isLeftOver) return;
     this.transaction = null;
     transaction.rollback();
+    if (!hasSucceeded) return;
     throw new MisuseError(
       "a call on a shared connection must end the transaction it begins; it was rolled back",
     );
