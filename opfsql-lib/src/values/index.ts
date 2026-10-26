@@ -52,6 +52,7 @@ export {
   typeFromName,
 } from "./types.js";
 export {
+  isJsonComposite,
   type JsonComposite,
   type JsonObject,
   type JsonValue,

@@ -46,6 +46,36 @@ describe("ColumnReader", () => {
     ]);
   });
 
+  it("reads a JSON default as each row's own copy, by columns or by rows", async () => {
+    const { database, users } = await threeUsers();
+    // A JSON column added after the rows were written: they read its default.
+    const fallback = ["new"];
+    const widened = {
+      ...users,
+      columns: [
+        ...users.columns,
+        column("tags", "JSON", { defaultValue: fallback }),
+      ],
+    };
+    const everyRead = (): Value[] =>
+      read(database.pager, (pages) => {
+        const rows = new TableRows(pages, widened);
+        const twice = rows.columns([3, 3]);
+        return [
+          ...[...twice.between(-Infinity, Infinity)].flat(),
+          ...(twice.at(5) ?? []),
+          ...[...rows.scan()].map((row) => row.value(3)),
+        ];
+      });
+    const tags = everyRead();
+    expect(tags).toEqual(Array.from({ length: 11 }, () => ["new"]));
+    // Every one a different array, and none the column's default itself.
+    expect(new Set([...tags, fallback]).size).toBe(tags.length + 1);
+    for (const value of tags) if (Array.isArray(value)) value.push("changed");
+    expect(everyRead()).toEqual(tags.map(() => ["new"]));
+    expect(fallback).toEqual(["new"]);
+  });
+
   it("reads one row by rowid, or none", async () => {
     const { database, users } = await threeUsers();
     const at = (rowid: number): Value[] | null =>

@@ -2,7 +2,7 @@ import { InternalError } from "../errors.js";
 import { ROWID_COLUMN, type Table } from "../schema/index.js";
 import type { PageReader, StoredRow, TupleLayout } from "../storage/index.js";
 import { ROWID_FIELD, TableReader, tupleLayout } from "../storage/index.js";
-import type { Value } from "../values/index.js";
+import { isJsonComposite, type Value } from "../values/index.js";
 import type { KeyOrder } from "./index-rows.js";
 
 /**
@@ -22,7 +22,9 @@ export class TableRow {
   value(column: number): Value {
     if (column === this.table.rowidColumn) return this.stored.rowid;
     if (column < this.stored.length) return this.stored.value(column);
-    return defaultOf(this.table, column);
+    // A JSON object or array is copied, so that each row's is its own.
+    const fallback = defaultOf(this.table, column);
+    return isJsonComposite(fallback) ? structuredClone(fallback) : fallback;
   }
 
   values(): Value[] {

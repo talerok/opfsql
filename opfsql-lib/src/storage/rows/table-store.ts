@@ -1,5 +1,9 @@
 import { InternalError, RowTooLargeError } from "../../errors.js";
-import type { Value } from "../../values/index.js";
+import {
+  isJsonComposite,
+  type JsonComposite,
+  type Value,
+} from "../../values/index.js";
 import { BTree, BTreeWriter } from "../btree/btree.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import { tableLeafCell, tableLeafCellSize } from "../format/btree-page.js";
@@ -44,6 +48,11 @@ export interface TupleLayout {
   readonly rowids: readonly number[];
   /** Positions that repeat a field already placed: [from, to]. */
   readonly repeats: readonly (readonly [number, number])[];
+  /**
+   * The defaults that are JSON objects or arrays, by position: a tuple that
+   * keeps one gets a copy, its own as a value decoded from its record is.
+   */
+  readonly jsonDefaults: readonly (readonly [number, JsonComposite])[];
 }
 
 /**
@@ -66,7 +75,16 @@ export function tupleLayout(
     if (placed === undefined) places[field] = position;
     else repeats.push([placed, position]);
   }
-  return { defaults, places, rowids, repeats };
+  const jsonDefaults = jsonDefaultsOf(defaults);
+  return { defaults, places, rowids, repeats, jsonDefaults };
+}
+
+function jsonDefaultsOf(defaults: readonly Value[]): [number, JsonComposite][] {
+  const found: [number, JsonComposite][] = [];
+  for (const [position, value] of defaults.entries()) {
+    if (isJsonComposite(value)) found.push([position, value]);
+  }
+  return found;
 }
 
 /** A stored row, its fields decoded out of the page as it is read. */
@@ -199,6 +217,11 @@ export class TableReader {
     const hasOverflow = decodeInto(record, layout.places, tuple);
     for (const position of layout.rowids) tuple[position] = rowid;
     for (const [from, to] of layout.repeats) tuple[to] = tuple[from] ?? null;
+    for (const [position, fallback] of layout.jsonDefaults) {
+      if (tuple[position] === fallback) {
+        tuple[position] = structuredClone(fallback);
+      }
+    }
     // Without an overflow reference among them, every field is a Value.
     if (!hasOverflow) return tuple as Value[];
     return tuple.map((value) =>

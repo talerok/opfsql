@@ -17,6 +17,12 @@ export type Value =
 export type ValueKind =
   "null" | "boolean" | "number" | "text" | "blob" | "json";
 
+/** Whether a value is a JSON object or array: one its holder can change. */
+export function isJsonComposite(value: Value): value is JsonComposite {
+  const isObject = typeof value === "object" && value !== null;
+  return isObject && !(value instanceof Uint8Array);
+}
+
 export function kindOf(value: Value): ValueKind {
   if (value === null) return "null";
   if (typeof value === "boolean") return "boolean";
