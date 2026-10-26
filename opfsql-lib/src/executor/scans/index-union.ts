@@ -1,35 +1,31 @@
 import { CorruptError } from "../../errors.js";
-import type { physical } from "../../sql/plan/index.js";
-import type { TableRow, TableRows } from "../../table/index.js";
+import type { Tuple } from "../../expressions/index.js";
+import { type physical, ROWID_COLUMN } from "../../sql/plan/index.js";
+import type { ColumnReader, TableRows } from "../../table/index.js";
 import type { Context } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
-import { compileRowidSet, rowsSelected } from "./rowids.js";
+import { compileRowidSet, type RowidSelection } from "./rowids.js";
 import { compileKeySeek } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
 
-/**
- * What the branches found, by rowid: a row a rowid branch read already, or
- * null for a rowid an index gave, whose row is still to read.
- */
-type Found = Map<number, TableRow | null>;
-
-/** A branch compiled: adds what it finds in one run. */
-type Branch = (found: Found) => void;
+/** A branch compiled: the rowids it finds in one run, each of an existing row. */
+type Branch = () => Iterable<number>;
 
 /**
  * The rows any branch finds, each read once, in rowid order, then checked
- * against the residual, which keeps the OR the branches came from.
+ * against the residual, which keeps the OR the branches came from: the
+ * branches give rowids, and each row is read once they are gathered.
  */
 export function indexUnion(
   plan: physical.IndexUnion,
   context: Context,
 ): Operator {
-  const { rows, matching } = tableAccess(plan, context);
+  const { rows, reader, matching } = tableAccess(plan, context);
   const branches = plan.branches.map((branch) =>
     compileBranch(branch, rows, context),
   );
   return leafOperator(
-    () => matching(foundRows(branches, rows)),
+    () => matching(rowsWithRowids(unionOf(branches), reader)),
     context.query.run,
   );
 }
@@ -43,41 +39,53 @@ function compileBranch(
     case "index": {
       const index = context.tables.index(branch.index);
       const seek = compileKeySeek(branch.keys, context);
-      return (found) => {
-        for (const rowid of index.rowids(seek(), "ascending")) {
-          if (!found.has(rowid)) found.set(rowid, null);
-        }
-      };
+      return () => index.rowids(seek(), "ascending");
     }
     case "rowids": {
       const selection = compileRowidSet(branch.rowids, context);
-      return (found) => {
-        const selected = rowsSelected(selection(), rows, "ascending");
-        for (const row of selected) {
-          found.set(row.rowid, row);
-        }
-      };
+      const rowidOnly = rows.columns([ROWID_COLUMN]);
+      return () => existingRowids(selection(), rows, rowidOnly);
     }
   }
 }
 
-function* foundRows(
-  branches: readonly Branch[],
+/** The rowids of the rows a selection finds: listed ones that exist, or a range's. */
+function* existingRowids(
+  selection: RowidSelection,
   rows: TableRows,
-): Generator<TableRow> {
-  const found: Found = new Map();
-  for (const branch of branches) branch(found);
-  const rowids = [...found.keys()].toSorted((a, b) => a - b);
-  for (const rowid of rowids) yield found.get(rowid) ?? indexedRow(rows, rowid);
+  rowidOnly: ColumnReader,
+): Generator<number> {
+  if (selection.kind === "list") {
+    yield* selection.rowids.filter((rowid) => rows.has(rowid));
+    return;
+  }
+  const inRange = rowidOnly.between(selection.first, selection.last);
+  for (const [rowid] of inRange) yield rowid as number;
 }
 
-/** The row an index entry names, which must exist. */
-function indexedRow(rows: TableRows, rowid: number): TableRow {
-  const row = rows.get(rowid);
-  if (row === null) {
-    throw new CorruptError(
-      `an index of ${rows.table.name} has an entry for a missing row ${String(rowid)}`,
-    );
+/** Every branch's rowids, each once, in order. */
+function unionOf(branches: readonly Branch[]): number[] {
+  const rowids = new Set<number>();
+  for (const branch of branches) addEach(rowids, branch());
+  return [...rowids].toSorted((a, b) => a - b);
+}
+
+function addEach(rowids: Set<number>, found: Iterable<number>): void {
+  for (const rowid of found) rowids.add(rowid);
+}
+
+/** The rows of `rowids`, which must exist: an index named them, or they were found. */
+function* rowsWithRowids(
+  rowids: readonly number[],
+  reader: ColumnReader,
+): Generator<Tuple> {
+  for (const rowid of rowids) {
+    const row = reader.at(rowid);
+    if (row === null) {
+      throw new CorruptError(
+        `an index has an entry for a missing row ${String(rowid)}`,
+      );
+    }
+    yield row;
   }
-  return row;
 }

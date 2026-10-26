@@ -22,6 +22,12 @@ export interface Column {
   readonly defaultValue: Value;
 }
 
+/**
+ * The column number that stands for a table's rowid, where columns are
+ * read by number: in a plan's scan, or in the table layer's tuples.
+ */
+export const ROWID_COLUMN = -1;
+
 export interface Table {
   readonly name: string;
   readonly columns: readonly Column[];

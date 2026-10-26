@@ -25,7 +25,7 @@ export interface ColumnBinding {
 }
 
 /** The column index that stands for a table's rowid in a `get` or a scan. */
-export const ROWID_COLUMN = -1;
+export { ROWID_COLUMN } from "../../schema/index.js";
 
 /** True if two bindings name the same column of the same relation. */
 export function isSameColumn(

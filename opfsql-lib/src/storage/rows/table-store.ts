@@ -24,6 +24,37 @@ import { freeChain, readChain, writeChain } from "./overflow.js";
 // row's cell moved to overflow pages (docs/file-format.md, Overflow values).
 // ---------------------------------------------------------------------------
 
+/** Where a tuple's value comes from: the row's rowid, as opposed to a field. */
+export const ROWID_FIELD = -1;
+
+/** Rowid order, or its reverse. */
+export type RowOrder = "ascending" | "descending";
+
+/** How each row is read as a tuple: where each of its values comes from. */
+export interface TupleLayout {
+  /** Per value, the field it is, or ROWID_FIELD for the rowid. */
+  readonly fields: readonly number[];
+  /**
+   * Per value, what it is when the record has no such field: the row was
+   * written before the column was added.
+   */
+  readonly missing: readonly Value[];
+  /** The fields to decode: those `fields` names. */
+  readonly wanted: FieldMask;
+}
+
+/** The layout of tuples of `fields`, each `missing` its value if a record lacks it. */
+export function tupleLayout(
+  fields: readonly number[],
+  missing: readonly Value[],
+): TupleLayout {
+  const wanted: boolean[] = [];
+  for (const field of fields) {
+    if (field !== ROWID_FIELD) wanted[field] = true;
+  }
+  return { fields, missing, wanted };
+}
+
 /** A stored row, its fields decoded out of the page as it is read. */
 export class StoredRow {
   private readonly fields: DecodedFields;
@@ -46,9 +77,7 @@ export class StoredRow {
   /** The value of a decoded field, read from its overflow chain if it has one. */
   value(column: number): Value {
     const field = this.fields[column];
-    if (field instanceof OverflowValue) {
-      return decodeBytes(field.holds, readChain(this.pages, field));
-    }
+    if (field instanceof OverflowValue) return overflowValue(this.pages, field);
     if (field === undefined) {
       throw new InternalError(
         `field ${String(column)} of row ${String(this.rowid)} was not decoded`,
@@ -88,17 +117,81 @@ export class TableReader {
     }
   }
 
-  /** Rows in reverse rowid order, from the last below `before` (or the last). */
-  *scanBackward(before?: number): Generator<StoredRow> {
-    for (const { page, index } of this.tree.descending(before)) {
-      yield new StoredRow(this.pages, page.rowid(index), page.record(index));
-    }
+  /** The tuple of the row with `rowid`, or null if there is none. */
+  tupleAt(rowid: number, layout: TupleLayout): Value[] | null {
+    const found = this.tree.find(rowid);
+    if (found === null) return null;
+    return this.tupleOf(rowid, found.page.record(found.index), layout);
+  }
+
+  /**
+   * The tuples of the rows whose rowid is from `first` to `last`, both
+   * included, in rowid order or its reverse; an infinite end leaves the
+   * range open. Each record is decoded where it lies, as its leaf is walked:
+   * one generator for every row.
+   */
+  tuples(
+    layout: TupleLayout,
+    [first, last]: readonly [number, number],
+    order: RowOrder,
+  ): Generator<Value[]> {
+    if (order === "ascending") return this.tuplesUp(layout, first, last);
+    return this.tuplesDown(layout, first, last);
   }
 
   /** The largest rowid in use, or null if the table is empty. */
   lastRowid(): number | null {
     const last = this.tree.last();
     return last === null ? null : last.page.rowid(last.index);
+  }
+
+  private *tuplesUp(
+    layout: TupleLayout,
+    first: number,
+    last: number,
+  ): Generator<Value[]> {
+    if (first > last) return;
+    const from = first === -Infinity ? undefined : first;
+    for (const { page, index } of this.tree.leavesFrom(from)) {
+      for (let cell = index; cell < page.cellCount; cell++) {
+        const rowid = page.rowid(cell);
+        if (rowid > last) return;
+        yield this.tupleOf(rowid, page.record(cell), layout);
+      }
+    }
+  }
+
+  private *tuplesDown(
+    layout: TupleLayout,
+    first: number,
+    last: number,
+  ): Generator<Value[]> {
+    if (first > last) return;
+    const before = last === Infinity ? undefined : Math.floor(last) + 1;
+    for (const { page, index } of this.tree.leavesBefore(before)) {
+      for (let cell = index; cell >= 0; cell--) {
+        const rowid = page.rowid(cell);
+        if (rowid < first) return;
+        yield this.tupleOf(rowid, page.record(cell), layout);
+      }
+    }
+  }
+
+  private tupleOf(
+    rowid: number,
+    record: Uint8Array,
+    layout: TupleLayout,
+  ): Value[] {
+    const fields = decodeRecord(record, layout.wanted);
+    return layout.fields.map((field, position) => {
+      if (field === ROWID_FIELD) return rowid;
+      if (field >= fields.length) return layout.missing[position] ?? null;
+      const value = fields[field] ?? null;
+      if (value instanceof OverflowValue) {
+        return overflowValue(this.pages, value);
+      }
+      return value;
+    });
   }
 }
 
@@ -223,4 +316,9 @@ function largestMovable(fields: readonly PreparedField[]): InlineColumn | null {
     }
   }
   return largest;
+}
+
+/** The value whose bytes an overflow chain holds. */
+function overflowValue(pages: PageReader, reference: OverflowValue): Value {
+  return decodeBytes(reference.holds, readChain(pages, reference));
 }

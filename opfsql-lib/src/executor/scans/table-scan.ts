@@ -8,10 +8,10 @@ export function tableScan(
   plan: physical.TableScan,
   context: Context,
 ): Operator {
-  const { rows, matching } = tableAccess(plan, context);
-  const isForward = plan.direction === "ascending";
+  const { reader, matching } = tableAccess(plan, context);
+  const { direction } = plan;
   return leafOperator(
-    () => matching(isForward ? rows.scan() : rows.scanBackward()),
+    () => matching(reader.between(-Infinity, Infinity, direction)),
     context.query.run,
   );
 }
