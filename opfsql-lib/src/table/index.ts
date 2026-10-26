@@ -1,6 +1,6 @@
 export { Catalog } from "./catalog.js";
 export { checkTables } from "./check.js";
-export type { Conflict } from "./editor.js";
+export type { Conflict, ConflictConstraint } from "./editor.js";
 export { TableEditor } from "./editor.js";
 export type { CompileExpression, KeyedIndex, RowExpression } from "./keys.js";
 export { entryOf, keyedIndex, uniqueViolation } from "./keys.js";
