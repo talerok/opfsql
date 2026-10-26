@@ -251,18 +251,27 @@ text to parse when it is TEXT; malformed text fails with
 
 ### Aggregates
 
-`count(*)` counts rows. `count(x)`, `sum`, `avg`, `min` and `max` skip
-NULL arguments; with `DISTINCT` they see each value once, equality being
-that of [Order and equality](#order-and-equality).
+`count(*)` counts rows. `count(x)`, `sum`, `total`, `avg`, `min`, `max`
+and `group_concat` skip rows whose `x` is NULL; with `DISTINCT` — which
+takes exactly one argument — they see each value once, equality being that
+of [Order and equality](#order-and-equality).
 
 - `sum` over INTEGERs is an INTEGER, failing with `INTEGER_OVERFLOW` when
   the total leaves the safe range; over REALs it is a REAL, summed with
   Kahan-Babuska-Neumaier compensation as SQLite does. Over no rows it is
   NULL.
+- `total` is `sum` as a REAL, as in SQLite: 0, not NULL, over no rows or
+  only NULLs, and never an integer overflow.
 - `avg` is a REAL; over no rows, NULL.
 - `min` and `max` follow the total order, so they work on any type.
-- `sum` and `avg` take numbers only: over TEXT, BOOLEAN, BLOB or JSON they
-  are a bind error.
+- `sum`, `total` and `avg` take numbers only: over TEXT, BOOLEAN, BLOB or
+  JSON they are a bind error.
+- `group_concat(x [, separator])` is TEXT: the text of the values, as `||`
+  converts them (so not BLOBs), joined by the separator — `,` by default,
+  a NULL one joining with nothing, each value after the first preceded by
+  its own row's separator; over no rows, NULL. The values come in the
+  order the rows reach the aggregate, which, as in SQLite, nothing in the
+  query fixes; `ORDER BY` inside the call is not supported.
 
 ## LIMIT and OFFSET
 
@@ -280,6 +289,23 @@ A statement nests at most 200 levels deep (parentheses, subqueries, CASE
 inside CASE), and a compound SELECT joins at most 500 SELECTs, as SQLite's
 default `SQLITE_MAX_COMPOUND_SELECT`. Past either, the statement fails to
 compile with a `SYNTAX_ERROR` or a `SEMANTIC_ERROR`, before it runs.
+
+## Not supported
+
+SQL that SQLite accepts and opfsql refuses with `NOT_SUPPORTED`, before
+anything runs. Among it:
+
+- descending index keys, `CREATE INDEX … (x DESC)`: an ascending index is
+  read backward for `ORDER BY … DESC`. An explicit `ASC` is accepted, and
+  left out of the statement stored for the index;
+- the bitwise operators `&`, `|`, `~`, `<<` and `>>`;
+- parentheses around FROM items, `FROM (a CROSS JOIN b)`;
+- `x IN table`, IN with a table's name in place of a list or a subquery;
+- `INDEXED BY` and `NOT INDEXED`;
+- triggers and views: `CREATE` and `DROP` of a `TRIGGER` or a `VIEW`;
+- `REPLACE`, as a statement and as `INSERT OR REPLACE`, and every other
+  `INSERT OR …` and `UPDATE OR …`;
+- `REINDEX`.
 
 ## Departures from SQLite
 
@@ -301,3 +327,4 @@ compile with a `SYNTAX_ERROR` or a `SEMANTIC_ERROR`, before it runs.
 | an ANY column compared with a typed column compares values as stored                 | the ANY side takes the other's affinity  | only parameters are converted, so an index seek or a hash join always finds what a scan finds |
 | UPDATE computes every row's new values from the table as it was before the statement | each row sees the rows updated before it | the result does not depend on the order rows are found in, as in PostgreSQL                   |
 | a column neither grouped nor aggregated is an error                                  | a "bare column" of some row              | as in PostgreSQL; a guessed value hides a bug                                                 |
+| assigning one column twice in an UPDATE (or DO UPDATE) is a bind error               | the rightmost assignment wins            | a repeated assignment is a mistake                                                            |

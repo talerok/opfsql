@@ -161,7 +161,7 @@ const NULL_TEST_RULE: InfixRule = {
   },
 };
 
-/** `a IN (list)` or `a IN (SELECT …)`. */
+/** `a IN (list)`, the list maybe empty, or `a IN (SELECT …)`. */
 const IN_RULE: InfixRule = {
   power: power.equality,
   parse(cursor, left) {
@@ -177,8 +177,8 @@ const IN_RULE: InfixRule = {
       );
     }
     cursor.expectSymbol("(");
-    cursor.rejectSymbol(")", "an empty IN list");
-    const values = cursor.list(() => cursor.expression());
+    const isEmpty = cursor.isSymbol(")");
+    const values = isEmpty ? [] : cursor.list(() => cursor.expression());
     cursor.expectSymbol(")");
     return operatorNode(ExpressionType.OPERATOR_IN, [left, ...values]);
   },

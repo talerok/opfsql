@@ -5,13 +5,14 @@ import {
   normalizeNumber,
   type Value,
 } from "../values/index.js";
-import { firstArgumentType, number, returns } from "./arguments.js";
+import { firstArgumentType, number, returns, text } from "./arguments.js";
 import type { Accumulator, AggregateFunction, StaticType } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Aggregate functions. Every one skips rows with a NULL argument, as SQL
-// aggregates do, and DISTINCT keeps the first of each value — both applied
-// by `startAggregate`, so the accumulators only see what they count.
+// Aggregate functions. Every one skips rows whose value — its first
+// argument — is NULL, as SQL aggregates do, and DISTINCT keeps the first of
+// each value — both applied by `startAggregate`, so the accumulators only
+// see what they count.
 // ---------------------------------------------------------------------------
 
 /** COUNT(*) or COUNT(x): the rows, or the non-NULL values. */
@@ -42,6 +43,53 @@ const sum: AggregateFunction = {
   returnType: ([type]) => numericResultType(type),
   accumulator: ([type]) => numericTotal(type),
 };
+
+/**
+ * TOTAL: SUM as a REAL, as SQLite has it — 0, not NULL, over no rows, and
+ * never an integer overflow.
+ */
+const realTotal: AggregateFunction = {
+  kind: "aggregate",
+  name: "total",
+  signature: { required: ["number"] },
+  returnType: returns("REAL"),
+  accumulator: () => {
+    const reals = compensatedSum();
+    return {
+      add: ([value]) => {
+        reals.add(number(value));
+      },
+      result: () => normalizeNumber(reals.value()),
+    };
+  },
+};
+
+/**
+ * GROUP_CONCAT: the text of the values, as `||` converts them, joined by
+ * the separator — `,` unless a second argument gives one, a NULL one
+ * joining with nothing — in the order the rows arrive; NULL over no rows.
+ * As in SQLite, each value after the first is preceded by its own row's
+ * separator.
+ */
+const groupConcat: AggregateFunction = {
+  kind: "aggregate",
+  name: "group_concat",
+  signature: { required: ["concatenable"], optional: ["text"] },
+  returnType: returns("TEXT"),
+  accumulator: () => {
+    let joined: string | null = null;
+    return {
+      add: ([value, separator = DEFAULT_SEPARATOR]) => {
+        const item = text(value);
+        const between = separator === null ? "" : text(separator);
+        joined = joined === null ? item : `${joined}${between}${item}`;
+      },
+      result: () => joined,
+    };
+  },
+};
+
+const DEFAULT_SEPARATOR = ",";
 
 /** AVG: the mean as a REAL; NULL over no rows. */
 const avg: AggregateFunction = {
@@ -134,14 +182,17 @@ function extreme(name: string, wanted: 1 | -1): AggregateFunction {
 export const aggregateFunctions: readonly AggregateFunction[] = [
   count,
   sum,
+  realTotal,
   avg,
+  groupConcat,
   extreme("min", -1),
   extreme("max", 1),
 ];
 
 /**
- * A new accumulator for one group: skips rows with a NULL argument and,
- * for DISTINCT, rows whose arguments it has seen.
+ * A new accumulator for one group: skips rows whose value, the first
+ * argument, is NULL — a later one, such as group_concat's separator, may
+ * be — and, for DISTINCT, rows whose arguments it has seen.
  */
 export function startAggregate(
   aggregate: AggregateFunction,
@@ -152,7 +203,8 @@ export function startAggregate(
   const isFirstSighting = isDistinct ? firstSighting() : () => true;
   return {
     add: (operands) => {
-      if (operands.includes(null) || !isFirstSighting(operands)) return;
+      const [value] = operands;
+      if (value === null || !isFirstSighting(operands)) return;
       inner.add(operands);
     },
     result: () => inner.result(),

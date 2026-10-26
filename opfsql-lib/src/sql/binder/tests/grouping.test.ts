@@ -282,6 +282,20 @@ describe("aggregate calls", () => {
     );
   });
 
+  it("type total() as REAL and group_concat() as TEXT, DISTINCT over one argument", () => {
+    expect(
+      query(
+        "SELECT total(age), group_concat(name), group_concat(age, '; '), group_concat(DISTINCT name) FROM users",
+      ).columns.map((column) => column.type),
+    ).toEqual(["REAL", "TEXT", "TEXT", "TEXT"]);
+    expect(semanticError("SELECT total(name) FROM users")).toBe(
+      "total() does not accept TEXT as argument 1",
+    );
+    expect(
+      semanticError("SELECT group_concat(DISTINCT name, ';') FROM users"),
+    ).toBe("group_concat(DISTINCT …) takes exactly one argument");
+  });
+
   it("belong to the query where they are written", () => {
     expect(
       notSupported("SELECT (SELECT sum(u.age) FROM orders) FROM users u"),

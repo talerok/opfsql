@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DatatypeMismatchError, IntegerOverflowError } from "../../errors.js";
+import {
+  DatatypeMismatchError,
+  IntegerOverflowError,
+  SemanticError,
+} from "../../errors.js";
 import { aggregate } from "./helpers.js";
 
 const MAX = Number.MAX_SAFE_INTEGER;
@@ -72,5 +76,52 @@ describe("aggregates", () => {
     expect(aggregate("max", [[9], [10]])).toBe(10);
     expect(aggregate("min", [["9"], ["10"]])).toBe("10");
     expect(aggregate("max", [[null]], { types: ["INTEGER"] })).toBeNull();
+  });
+
+  it("TOTAL is SUM as a REAL: 0 over no rows, never an overflow", () => {
+    expect(aggregate("total", [], { types: ["INTEGER"] })).toBe(0);
+    expect(aggregate("total", [[null]], { types: ["INTEGER"] })).toBe(0);
+    expect(aggregate("total", [[1], [null], [2]])).toBe(3);
+    expect(aggregate("total", [[MAX], [MAX]])).toBe(MAX * 2);
+    const tenths = Array.from({ length: 10 }, () => [0.1]);
+    expect(aggregate("total", tenths, { types: ["REAL"] })).toBe(1);
+    expect(() => aggregate("total", [["x"]], { types: ["ANY"] })).toThrow(
+      DatatypeMismatchError,
+    );
+  });
+
+  it("GROUP_CONCAT joins the values' text in the order they come, NULLs skipped", () => {
+    expect(aggregate("group_concat", [["a"], [null], ["b"], ["c"]])).toBe(
+      "a,b,c",
+    );
+    expect(
+      aggregate("group_concat", [[1], [2.5], [true]], { types: ["ANY"] }),
+    ).toBe("1,2.5,true");
+    expect(aggregate("group_concat", [], { types: ["TEXT"] })).toBeNull();
+    expect(aggregate("group_concat", [[null]], { types: ["TEXT"] })).toBeNull();
+    expect(
+      aggregate("group_concat", [["a"], ["a"], ["b"]], { distinct: true }),
+    ).toBe("a,b");
+  });
+
+  it("GROUP_CONCAT puts each later row's own separator before its value", () => {
+    const rows = [
+      ["a", "-"],
+      ["b", "+"],
+      ["c", null],
+      [null, "!"],
+    ];
+    expect(aggregate("group_concat", rows, { types: ["TEXT", "TEXT"] })).toBe(
+      "a+bc",
+    );
+  });
+
+  it("GROUP_CONCAT takes what || joins: JSON as its text, not a BLOB", () => {
+    expect(
+      aggregate("group_concat", [[{ b: 1, a: 2 }], [[1]]], { types: ["JSON"] }),
+    ).toBe('{"a":2,"b":1},[1]');
+    expect(() =>
+      aggregate("group_concat", [[Uint8Array.of(1)]], { types: ["BLOB"] }),
+    ).toThrow(SemanticError);
   });
 });
