@@ -270,8 +270,8 @@ export class Connection implements AsyncDisposable {
 
 /**
  * A statement prepared on a connection, or on the database (then with a
- * session of its own): bound once, bound again by itself when the schema
- * changes.
+ * session of its own): planned once, planned again by itself when the
+ * schema changes.
  */
 export class Statement implements AsyncDisposable {
   private closing: Promise<void> | null = null;
@@ -296,7 +296,10 @@ export class Statement implements AsyncDisposable {
     abandoned.register(this, cleanup, this);
   }
 
-  /** Result column names as of the last run; empty for writes. */
+  /**
+   * Result column names as of the last plan the page has heard of: at
+   * prepare, then each run's; empty for writes.
+   */
   get columns(): readonly string[] {
     return this.names;
   }

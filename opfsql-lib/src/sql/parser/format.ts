@@ -19,6 +19,7 @@ import {
   type LimitClause,
   type Literal,
   type BinaryOperatorType,
+  type FunctionExpression,
   type OperatorExpression,
   type OrderByNode,
   type ParsedExpression,
@@ -27,6 +28,7 @@ import {
   type SelectStatement,
   type SetOperationNode,
   type SubqueryExpression,
+  type WithClause,
   type TableReference,
 } from "./types.js";
 
@@ -223,12 +225,7 @@ function formatLiteral(literal: Literal): string {
   return sqlLiteral(literal.value);
 }
 
-function formatCall(
-  call: Extract<
-    ParsedExpression,
-    { expressionClass: ExpressionClass.FUNCTION }
-  >,
-): string {
+function formatCall(call: FunctionExpression): string {
   const name = formatName(call.functionName);
   if (call.isStar) return `${name}(*)`;
   const distinct = call.isDistinct ? "DISTINCT " : "";
@@ -296,7 +293,7 @@ export function formatQuery(statement: SelectStatement): string {
   return parts.filter((part) => part !== "").join(" ");
 }
 
-function formatWith(clause: NonNullable<SelectStatement["with"]>): string {
+function formatWith(clause: WithClause): string {
   const recursive = clause.isRecursive ? "RECURSIVE " : "";
   const ctes = clause.ctes.map((cte) => formatCte(cte));
   return `WITH ${recursive}${ctes.join(", ")}`;

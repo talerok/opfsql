@@ -47,7 +47,7 @@ export interface SessionOptions {
 }
 
 export interface StatementContract {
-  /** Names of the result columns as of the last bind; empty for writes. */
+  /** Result column names as of the last plan; empty for writes. */
   readonly columns: readonly string[];
   query(parameters?: readonly Value[], options?: CallOptions): Promise<Result>;
   close(): void;
