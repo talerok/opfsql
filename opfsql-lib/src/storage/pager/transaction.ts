@@ -192,9 +192,9 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   commit(): void {
     this.ensureOpen();
     try {
-      this.ensureNoOtherCommit();
-      if (this.hasChanges())
-        this.pager.append(this.dirty, this.currentPageCount);
+      if (this.hasChanges()) {
+        this.pager.append(this.dirty, this.currentPageCount, this.snapshot);
+      }
     } finally {
       this.discard();
     }
@@ -237,14 +237,6 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   }
 
   /** Writers are serialized by a lock: another commit means a bug, not a race. */
-  private ensureNoOtherCommit(): void {
-    if (this.pager.latestCommit() !== this.snapshot) {
-      throw new InternalError(
-        "another writer committed during this transaction",
-      );
-    }
-  }
-
   private hasChanges(): boolean {
     return (
       this.dirty.size > 0 || this.currentPageCount !== this.initialPageCount

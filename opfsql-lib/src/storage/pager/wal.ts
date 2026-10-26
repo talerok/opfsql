@@ -75,8 +75,12 @@ export class Wal {
   private commits: Commit[] = [];
   /** No open snapshot is older than this: older versions can go. */
   private pruneBound = Infinity;
-  /** Set when a failed append could not be undone: the tail is unknown. */
-  private failure: IoError | null = null;
+  /**
+   * Why a failed append could not be undone, once one could not: the tail
+   * is unknown, and every later append fails with its own error, caused by
+   * this (an error object is never shared between calls).
+   */
+  private failure: { readonly cause: unknown } | null = null;
   private offset = HEADER_SIZE;
   private epoch = 0;
   private base = 0;
@@ -126,12 +130,15 @@ export class Wal {
 
   /**
    * Appends a transaction and flushes it. Once this returns, it is durable;
-   * if it throws, the appended bytes are removed and nothing is visible.
+   * if it throws, the appended bytes are removed and nothing is visible. The
+   * index keeps the pages as they were written, its own bytes: no buffer a
+   * transaction held becomes a committed version (docs/layers.md).
    */
   append(pages: ReadonlyMap<number, Uint8Array>, pageCount: number): number {
-    if (this.failure !== null) throw this.failure;
+    if (this.failure !== null) throw this.unknownTail(this.failure.cause);
     const txId = this.latest + 1;
-    const bytes = this.encodeFrames(transactionFrames(pages, txId, pageCount));
+    const frames = transactionFrames(pages, txId, pageCount);
+    const { bytes, written } = this.encodeFrames(frames);
     try {
       this.file.write(bytes, { at: this.offset });
       this.file.flush();
@@ -140,7 +147,7 @@ export class Wal {
       throw writeFailure(this.name, error);
     }
     this.offset += bytes.length;
-    this.addTransaction(txId, pages, pageCount);
+    this.addTransaction(txId, written, pageCount);
     return txId;
   }
 
@@ -286,15 +293,24 @@ export class Wal {
     this.file.flush();
   }
 
-  private encodeFrames(frames: readonly Frame[]): Uint8Array {
+  /** The frames as bytes, and each page as it lies among them. */
+  private encodeFrames(frames: readonly Frame[]): {
+    bytes: Uint8Array;
+    written: Map<number, Uint8Array>;
+  } {
     const size = frames.reduce((total, frame) => total + frameSize(frame), 0);
     const bytes = new Uint8Array(size);
+    const written = new Map<number, Uint8Array>();
     let offset = 0;
     for (const frame of frames) {
       encodeFrame(bytes.subarray(offset), frame, this.epoch);
+      if (frame.kind === "page") {
+        const start = offset + FRAME_HEADER_SIZE;
+        written.set(frame.pageNo, bytes.subarray(start, start + this.pageSize));
+      }
       offset += frameSize(frame);
     }
-    return bytes;
+    return { bytes, written };
   }
 
   /**
@@ -307,11 +323,15 @@ export class Wal {
       this.file.truncate(this.offset);
       this.file.flush();
     } catch (error) {
-      this.failure = new IoError(
-        `"${this.name}" is in an unknown state after a failed write; reopen the database`,
-        { cause: error },
-      );
+      this.failure = { cause: error };
     }
+  }
+
+  private unknownTail(cause: unknown): IoError {
+    return new IoError(
+      `"${this.name}" is in an unknown state after a failed write; reopen the database`,
+      { cause },
+    );
   }
 
   // --- The index ---------------------------------------------------------------

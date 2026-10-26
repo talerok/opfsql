@@ -1,4 +1,4 @@
-import { CorruptError } from "../../errors.js";
+import { CorruptError, InternalError } from "../../errors.js";
 import { compareBytes } from "../../values/index.js";
 import {
   ByteWriter,
@@ -382,9 +382,16 @@ export class BTreePageEditor extends BTreePage {
     return editor;
   }
 
-  /** Inserts `cell` at `index`; the caller has checked that it fits. */
+  /**
+   * Inserts `cell` at `index`. The caller has checked that it fits, against
+   * the same header: if it does not, the caller skipped the check.
+   */
   insertCell(index: number, cell: Uint8Array): void {
-    if (!this.fits(cell)) throw new CorruptError("cell does not fit its page");
+    if (!this.fits(cell)) {
+      throw new InternalError(
+        "a cell was inserted into a page it does not fit",
+      );
+    }
     const start = this.contentStart - cell.length;
     this.bytes.set(cell, start);
     this.setContentStart(start);

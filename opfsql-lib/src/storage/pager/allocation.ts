@@ -1,3 +1,4 @@
+import { CorruptError } from "../../errors.js";
 import type { PageReader } from "../btree/page-store.js";
 
 // ---------------------------------------------------------------------------
@@ -122,11 +123,23 @@ export class AllocationMap extends AllocationMapReader {
     super(writer);
   }
 
+  /** Marks a free page in use. One the map already has in use is a page two owners would share. */
   markInUse(pageNo: number): void {
+    if (this.isInUse(pageNo)) {
+      throw new CorruptError(
+        `page ${String(pageNo)} is handed out, but the allocation map has it in use`,
+      );
+    }
     setBit(this.mapToChange(pageNo), pageNo % this.size);
   }
 
+  /** Marks a page in use free. One the map already has free is freed twice. */
   markFree(pageNo: number): void {
+    if (!this.isInUse(pageNo)) {
+      throw new CorruptError(
+        `page ${String(pageNo)} is freed, but the allocation map has it free`,
+      );
+    }
     clearBit(this.mapToChange(pageNo), pageNo % this.size);
   }
 

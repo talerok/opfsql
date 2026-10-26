@@ -43,17 +43,17 @@ they guard.
 
 ## Engine ↔ storage
 
-| Contract                                                                                                                          | Enforced                                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Pager operations act on the latest commit in the files                                                                            | by construction: each catches up first (docs/concurrency.md)                |
-| Only the write-lock holder appends, checkpoints or changes the intent                                                             | by check: an append verifies the WAL still ends where its transaction began |
-| A page is read only at a pinned snapshot                                                                                          | by check: `Pager.read`                                                      |
-| A transaction is used only while open                                                                                             | by check: MISUSE after it ends                                              |
-| A page read is shared and never changed; only pages from `write()` or `allocate()` are written                                    | by construction: the WAL keeps its own copies of committed pages            |
-| A cursor, a row or an overflow reference read from a tree lives until that tree is changed or rolled back in the same transaction | by check: a change count per tree, which cursors and rows compare           |
-| The allocation map never frees a free page nor hands out one in use                                                               | by check: CORRUPT                                                           |
-| Each statement of a write transaction runs in a savepoint; a failure rolls back to it (docs/planning.md, Execution)               | by construction, in the engine                                              |
-| The schema cache holds committed schemas only                                                                                     | by check: a snapshot with uncommitted changes is refused                    |
+| Contract                                                                                                                          | Enforced                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pager operations act on the latest commit in the files                                                                            | by construction: each catches up first (docs/concurrency.md)                                                                                                                                                     |
+| Only the write-lock holder appends, checkpoints or changes the intent                                                             | by check: an append reads other tabs' commits first; one made since its transaction began means the lock was not held                                                                                            |
+| A page is read only at a pinned snapshot                                                                                          | by check: `Pager.read`                                                                                                                                                                                           |
+| A transaction is used only while open                                                                                             | by check: MISUSE after it ends                                                                                                                                                                                   |
+| A page read is shared and never changed; only pages from `write()` or `allocate()` are written                                    | by construction: pages are read through read-only views (B-tree pages, the map and overflow readers), only `write()` and `allocate()` pages reach an editor, and the WAL keeps its own copies of committed pages |
+| A cursor, a row or an overflow reference read from a tree lives until that tree is changed or rolled back in the same transaction | by check: a change count per tree, which cursors and rows compare                                                                                                                                                |
+| The allocation map never frees a free page nor hands out one in use                                                               | by check: CORRUPT                                                                                                                                                                                                |
+| Each statement of a write transaction runs in a savepoint; a failure rolls back to it (docs/planning.md, Execution)               | by construction, in the engine                                                                                                                                                                                   |
+| The schema cache holds committed schemas only                                                                                     | by check: a snapshot with uncommitted changes is refused                                                                                                                                                         |
 
 ## Engine ↔ SQL pipeline
 
@@ -127,38 +127,29 @@ again is thrown as the cause of a new one.
 ## Where the code is not there yet
 
 Found by an audit of every boundary (2026-10-26). Each item goes when its
-fix lands.
+fix lands; the labels stay as they were.
 
-1. **The write lock is not proven at the append.** The commit check compares
-   the tab's cached latest commit, not the file.
-2. **Committed pages are shared with the writer.** The WAL keeps the
-   transaction's dirty buffers by reference.
-3. **No change count per tree.** Open cursors and lazily read overflow values
-   are not checked against writes and rollbacks in the same transaction.
-4. **INSERT streams when its source reads `opfsql_sequence`** while it
-   writes it through AUTOINCREMENT.
-5. **Parameters are not checked.** Typed arrays other than `Uint8Array`,
-   `ArrayBuffer`, `Date`, `Map`, BigInt and `undefined` slip through or fail
-   as INTERNAL.
-6. **A planned statement does not carry its schema**; only its one caller
-   pairs them.
-7. **The schema cache accepts a write transaction's snapshot.**
-8. **Defaults are handed out by reference**, and BLOB constants are not
-   copied; results copy BLOBs per row instead.
-9. **Call order on a connection relies on no `await`** before the queue.
-10. **A failing call on the shared connection** can leave its transaction
-    open.
-11. **The editor ignores** whether an index entry it inserts or deletes was
-    already there.
-12. **The catalog's dropped-column check** misses expression keys.
-13. **Uncorrelated subqueries run with the outer rows open**, and a row
-    narrower than its layout reads NULL.
-14. **The WAL rethrows one stored IoError**, which statement tagging then
-    changes.
-15. **Errors are translated in two places** that disagree on a DOMException;
-    INTERNAL also covers a crashed worker and a failed lock request.
-16. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
-    bug.
-17. **The allocation map** does not check a page's state before marking it.
-18. **`close()` does not wait** for the background release of abandoned read
-    marks.
+- **G3. No change count per tree.** Open cursors and lazily read overflow values
+  are not checked against writes and rollbacks in the same transaction.
+- **G4. INSERT streams when its source reads `opfsql_sequence`** while it
+  writes it through AUTOINCREMENT.
+- **G5. Parameters are not checked.** Typed arrays other than `Uint8Array`,
+  `ArrayBuffer`, `Date`, `Map`, BigInt and `undefined` slip through or fail
+  as INTERNAL.
+- **G6. A planned statement does not carry its schema**; only its one caller
+  pairs them.
+- **G7. The schema cache accepts a write transaction's snapshot.**
+- **G8. Defaults are handed out by reference**, and BLOB constants are not
+  copied; results copy BLOBs per row instead.
+- **G9. Call order on a connection relies on no `await`** before the queue.
+- **G10. A failing call on the shared connection** can leave its transaction
+  open.
+- **G11. The editor ignores** whether an index entry it inserts or deletes was
+  already there.
+- **G12. The catalog's dropped-column check** misses expression keys.
+- **G13. Uncorrelated subqueries run with the outer rows open**, and a row
+  narrower than its layout reads NULL.
+- **G15. Errors are translated in two places** that disagree on a DOMException;
+  INTERNAL also covers a crashed worker and a failed lock request.
+- **G18. `close()` does not wait** for the background release of abandoned read
+  marks.

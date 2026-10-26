@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../../../../test/support/random.js";
-import { CorruptError } from "../../../errors.js";
+import { CorruptError, InternalError } from "../../../errors.js";
 import { compareBytes } from "../../../values/index.js";
 import type { BTreePageType } from "../btree-page.js";
 import {
@@ -149,14 +149,17 @@ describe("B-tree pages", () => {
     expect(maxCellSize("index-interior", 4096)).toBe(1019);
   });
 
-  it("refuse bytes that are not a B-tree page, and cells that do not fit", () => {
+  it("refuse bytes that are not a B-tree page as damage", () => {
     expect(() => new BTreePage(new Uint8Array(PAGE_SIZE))).toThrow(
       CorruptError,
     );
+  });
+
+  it("refuse a cell that does not fit as a caller's bug: it checks first", () => {
     const leaf = page("index-leaf");
     expect(() => {
       leaf.insertCell(0, indexLeafCell(new Uint8Array(PAGE_SIZE)));
-    }).toThrow(CorruptError);
+    }).toThrow(InternalError);
   });
 
   it("report a damaged layout", () => {

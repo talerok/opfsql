@@ -94,8 +94,24 @@ export class Pager {
     return this.wal.pageCountAt(snapshot) ?? this.file.pageCount;
   }
 
-  /** Appends a transaction's pages; returns its id. Called by WriteTransaction. */
-  append(pages: ReadonlyMap<number, Uint8Array>, pageCount: number): number {
+  /**
+   * Appends the pages of a write transaction begun at `snapshot` as the
+   * next commit; returns its id. Called by WriteTransaction. The write lock
+   * is not visible here, so it is proven where breaking it would do harm:
+   * other tabs' commits are read first, and finding one means the lock was
+   * not held — nothing is written over it.
+   */
+  append(
+    pages: ReadonlyMap<number, Uint8Array>,
+    pageCount: number,
+    snapshot: number,
+  ): number {
+    this.catchUp();
+    if (this.latestCommit() !== snapshot) {
+      throw new InternalError(
+        `a commit was made after snapshot ${String(snapshot)} while it was being written on: the write lock was not held`,
+      );
+    }
     return this.wal.append(pages, pageCount);
   }
 
