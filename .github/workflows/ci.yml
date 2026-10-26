@@ -47,3 +47,25 @@ jobs:
 
       - name: End-to-end tests (Chromium, Firefox, WebKit)
         run: npm run test:e2e
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build opfsql-lib
+        working-directory: opfsql-lib
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check and build the demo against it
+        working-directory: client
+        run: |
+          npm ci
+          npm run check
+          npm run build
