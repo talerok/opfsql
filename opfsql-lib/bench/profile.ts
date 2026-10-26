@@ -1,8 +1,10 @@
 // Where a scenario's CPU time goes, phase by phase. Runs one scenario as
-// `npm run bench` does — Engine.open on opfs-mock — profiles only its timed
-// runs with the V8 sampling profiler, and gives each sample the phase of the
-// nearest enclosing function that PHASE_ROOTS names: compiling the plan,
-// running it, building the result, and the engine's work around them.
+// `npm run bench` does — Engine.open on opfs-mock, a fresh database for each
+// run of a scenario that writes, garbage collected before each run —
+// profiles only its timed runs with the V8 sampling profiler, and gives each
+// sample the phase of the nearest enclosing function that PHASE_ROOTS names:
+// compiling the plan, running it, building the result, and the engine's work
+// around them.
 //
 //   npm run bench:profile -- --scenario "prepared point query" --runs 20
 //
@@ -75,6 +77,10 @@ const PHASE_ROOTS: readonly PhaseRoot[] = [
   root("end the transaction", "commit", "engine/transaction.ts"),
   root("end the transaction", "rollback", "engine/transaction.ts"),
 ];
+
+/** Garbage from before a run is collected before it, as the bench does. */
+const collectGarbage =
+  (globalThis as { gc?: () => void }).gc ?? ((): void => undefined);
 
 /** Outside every phase root: the engine around them. */
 const OUTSIDE = "engine: session/queue/async";
@@ -152,19 +158,19 @@ function settingsOf(argv: readonly string[]): Settings {
 
 /** Profiles `runs` runs of the scenario, after `warmup` unprofiled ones. */
 async function profileRuns(settings: Settings): Promise<Profile> {
-  const { scenario } = settings;
-  const engine = await Engine.open(`profile-${String(Date.now())}`);
-  const setup = engine.connect();
-  await scenario.setup(setup);
-  await setup.close();
-  const repeat = async (times: number): Promise<void> => {
-    for (let count = 0; count < times; count++) {
+  const databases = await preparedDatabases(
+    settings.scenario,
+    settings.warmup + settings.runs,
+  );
+  const runOn = async (engines: readonly Engine[]): Promise<void> => {
+    for (const engine of engines) {
       const session = engine.connect();
-      await scenario.run(session);
+      collectGarbage();
+      await settings.scenario.run(session);
       await session.close();
     }
   };
-  await repeat(settings.warmup);
+  await runOn(databases.slice(0, settings.warmup));
   const inspector = new Inspector();
   inspector.connect();
   await inspector.post("Profiler.enable");
@@ -172,11 +178,34 @@ async function profileRuns(settings: Settings): Promise<Profile> {
     interval: settings.interval,
   });
   await inspector.post("Profiler.start");
-  await repeat(settings.runs);
+  await runOn(databases.slice(settings.warmup));
   const { profile } = await inspector.post("Profiler.stop");
   inspector.disconnect();
-  await engine.close();
+  const engines = new Set(databases);
+  for (const engine of engines) await engine.close();
   return readable(profile as Profile);
+}
+
+/**
+ * A database for each of `count` runs, as `npm run bench` gives them: one
+ * set up for each run of a scenario that writes, one for every run of a
+ * read-only one. All are set up before profiling starts, so that no setup
+ * is in the profile.
+ */
+async function preparedDatabases(
+  scenario: Scenario,
+  count: number,
+): Promise<Engine[]> {
+  const distinct = scenario.readOnly === true ? 1 : count;
+  const engines: Engine[] = [];
+  for (let index = 0; index < distinct; index++) {
+    const engine = await Engine.open(`profile-${String(index)}`);
+    const session = engine.connect();
+    await scenario.setup(session);
+    await session.close();
+    engines.push(engine);
+  }
+  return Array.from({ length: count }, (_, run) => engines[run % distinct]);
 }
 
 /** The bundle this script runs from: its URL, code and sourcemap. */
