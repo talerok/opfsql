@@ -213,7 +213,13 @@ function indexCandidate(
 ): Candidate<IndexAccess> | null {
   const prefix = equalPrefix(keys.parts, tests);
   const next = keys.parts[prefix.values.length];
-  const ranged = next === undefined ? null : rangeOn(next, tests);
+  const ranged =
+    next === undefined
+      ? null
+      : rangeOn(
+          next,
+          tests.filter((keyTest) => fitsPart(keyTest, next)),
+        );
   const direction = deliveredDirection(order, keys.parts, prefix.values.length);
   const isSeek = prefix.values.length > 0 || ranged !== null;
   if (!isSeek && direction === null) return null;
@@ -272,20 +278,18 @@ function equalTestOn(
 }
 
 /**
- * The range the tests set on `part`: the first lower bound and the first
- * upper bound among them. A test is enforced when it is exact and every
- * bound it has was used.
+ * The range `fitting`, the tests that fit `part`, set on it: the first
+ * lower bound and the first upper bound among them. A test is enforced
+ * when it is exact and every bound it has was used.
  */
 function rangeOn(
   part: KeyPart,
-  tests: readonly KeyTest[],
+  fitting: readonly KeyTest[],
 ): { readonly range: SeekRange; readonly enforced: Expression[] } | null {
   const ranges: { readonly keyTest: KeyTest; readonly range: SeekRange }[] = [];
-  for (const keyTest of tests) {
+  for (const keyTest of fitting) {
     const { test } = keyTest;
-    if (test.kind === "range" && fitsPart(keyTest, part)) {
-      ranges.push({ keyTest, range: test.range });
-    }
+    if (test.kind === "range") ranges.push({ keyTest, range: test.range });
   }
   const lower = ranges.find(({ range }) => range.lower !== null);
   const upper = ranges.find(({ range }) => range.upper !== null);
