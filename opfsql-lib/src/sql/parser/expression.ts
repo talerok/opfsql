@@ -10,9 +10,11 @@ import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
 import {
   comparisonNode,
+  binaryNode,
+  inListNode,
   notNode,
-  operatorNode,
   quantifiedNode,
+  unaryNode,
 } from "./nodes.js";
 import { above, power } from "../precedence.js";
 import { parsePrefix } from "./primary.js";
@@ -22,8 +24,9 @@ import {
   ExpressionType,
   type ComparisonType,
   type ConjunctionType,
-  type OperatorType,
+  type BinaryOperatorType,
   type ParsedExpression,
+  type UnaryOperatorType,
 } from "./types.js";
 
 /** An expression whose operators all bind at least as tightly as `minimum`. */
@@ -62,12 +65,12 @@ function infixRule(cursor: Cursor): InfixRule | undefined {
 
 // --- Binary operators ----------------------------------------------------------
 
-function binary(type: OperatorType, level: number): InfixRule {
+function binary(type: BinaryOperatorType, level: number): InfixRule {
   return {
     power: level,
     parse(cursor, left) {
       cursor.next();
-      return operatorNode(type, [left, cursor.expression(above(level))]);
+      return binaryNode(type, left, cursor.expression(above(level)));
     },
   };
 }
@@ -121,12 +124,12 @@ function conjunction(
 }
 
 /** `a ISNULL`, `a NOTNULL`, and NULL in `a NOT NULL`. */
-function postfix(type: OperatorType): InfixRule {
+function postfix(type: UnaryOperatorType): InfixRule {
   return {
     power: power.equality,
     parse(cursor, left) {
       cursor.next();
-      return operatorNode(type, [left]);
+      return unaryNode(type, left);
     },
   };
 }
@@ -157,7 +160,7 @@ const NULL_TEST_RULE: InfixRule = {
     const type = isNegated
       ? ExpressionType.OPERATOR_IS_NOT_NULL
       : ExpressionType.OPERATOR_IS_NULL;
-    return operatorNode(type, [left]);
+    return unaryNode(type, left);
   },
 };
 
@@ -180,7 +183,7 @@ const IN_RULE: InfixRule = {
     const isEmpty = cursor.isSymbol(")");
     const values = isEmpty ? [] : cursor.list(() => cursor.expression());
     cursor.expectSymbol(")");
-    return operatorNode(ExpressionType.OPERATOR_IN, [left, ...values]);
+    return inListNode(ExpressionType.OPERATOR_IN, left, values);
   },
 };
 
@@ -226,12 +229,12 @@ function withNotPrefix(rule: InfixRule): InfixRule {
 
 /** NOT around a node; NOT IN and IS NOT NULL are operators of their own. */
 function wrapInNot(node: ParsedExpression): ParsedExpression {
-  const isOperator = node.expressionClass === ExpressionClass.OPERATOR;
-  if (isOperator && node.type === ExpressionType.OPERATOR_IN) {
-    return operatorNode(ExpressionType.OPERATOR_NOT_IN, node.children);
+  if (node.expressionClass !== ExpressionClass.OPERATOR) return notNode(node);
+  if (node.type === ExpressionType.OPERATOR_IN) {
+    return inListNode(ExpressionType.OPERATOR_NOT_IN, node.needle, node.list);
   }
-  if (isOperator && node.type === ExpressionType.OPERATOR_IS_NULL) {
-    return operatorNode(ExpressionType.OPERATOR_IS_NOT_NULL, node.children);
+  if (node.type === ExpressionType.OPERATOR_IS_NULL) {
+    return unaryNode(ExpressionType.OPERATOR_IS_NOT_NULL, node.operand);
   }
   return notNode(node);
 }

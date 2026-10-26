@@ -66,19 +66,26 @@ export type ComparisonType =
 export type ConjunctionType =
   ExpressionType.CONJUNCTION_AND | ExpressionType.CONJUNCTION_OR;
 
-export type OperatorType =
+/** The operators of one operand: NOT, IS [NOT] NULL, and a minus sign. */
+export type UnaryOperatorType =
   | ExpressionType.OPERATOR_NOT
   | ExpressionType.OPERATOR_IS_NULL
   | ExpressionType.OPERATOR_IS_NOT_NULL
-  | ExpressionType.OPERATOR_IN
-  | ExpressionType.OPERATOR_NOT_IN
+  | ExpressionType.OPERATOR_NEGATE;
+
+/** The operators of two operands: arithmetic and `||`. */
+export type BinaryOperatorType =
   | ExpressionType.OPERATOR_ADD
   | ExpressionType.OPERATOR_SUBTRACT
   | ExpressionType.OPERATOR_MULTIPLY
   | ExpressionType.OPERATOR_DIVIDE
   | ExpressionType.OPERATOR_MOD
-  | ExpressionType.OPERATOR_NEGATE
   | ExpressionType.OPERATOR_CONCAT;
+
+export type InListType =
+  ExpressionType.OPERATOR_IN | ExpressionType.OPERATOR_NOT_IN;
+
+export type OperatorType = UnaryOperatorType | BinaryOperatorType | InListType;
 
 /** A step into a JSON value after a column: `.field` or `[index]`. */
 export type JsonPathSegment =
@@ -139,15 +146,33 @@ export interface ConjunctionExpression {
 }
 
 /**
- * Arithmetic, NOT, IS [NOT] NULL, and [NOT] IN with a list (the left side
- * first). NOT IN and IS NOT NULL keep shapes of their own, as NOT EXISTS
- * does, so that printed text — index keys, column names — reads as written;
- * the binder makes each a NOT around the positive form.
+ * NOT, IS [NOT] NULL, arithmetic, `||` and [NOT] IN with a list, each with
+ * the operands its type has. NOT IN and IS NOT NULL keep shapes of their
+ * own, as NOT EXISTS does, so that printed text — index keys, column names
+ * — reads as written; the binder makes each a NOT around the positive form.
  */
-export interface OperatorExpression {
+export type OperatorExpression =
+  UnaryOperatorExpression | BinaryOperatorExpression | InListExpression;
+
+export interface UnaryOperatorExpression {
   readonly expressionClass: ExpressionClass.OPERATOR;
-  readonly type: OperatorType;
-  readonly children: readonly ParsedExpression[];
+  readonly type: UnaryOperatorType;
+  readonly operand: ParsedExpression;
+}
+
+export interface BinaryOperatorExpression {
+  readonly expressionClass: ExpressionClass.OPERATOR;
+  readonly type: BinaryOperatorType;
+  readonly left: ParsedExpression;
+  readonly right: ParsedExpression;
+}
+
+/** `needle [NOT] IN (list)`. */
+export interface InListExpression {
+  readonly expressionClass: ExpressionClass.OPERATOR;
+  readonly type: InListType;
+  readonly needle: ParsedExpression;
+  readonly list: readonly ParsedExpression[];
 }
 
 export interface BetweenExpression {

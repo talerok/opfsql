@@ -7,7 +7,6 @@
 // parentheses go where the parser's precedence (precedence.ts) needs them.
 // ---------------------------------------------------------------------------
 
-import { InternalError } from "../../errors.js";
 import { realLiteral, sqlLiteral } from "../../values/index.js";
 import { compoundMembers } from "./compound.js";
 import { keywordOf } from "./keywords.js";
@@ -28,6 +27,7 @@ import {
   type JsonPathSegment,
   type LimitClause,
   type Literal,
+  type BinaryOperatorType,
   type OperatorExpression,
   type OrderByNode,
   type ParsedExpression,
@@ -129,55 +129,47 @@ const COMPARISON_TEXT: Readonly<
 
 function formatOperator(expression: OperatorExpression): string {
   const level = OPERATOR_POWER[expression.type];
-  const [first, ...rest] = expression.children;
-  const subject = required(first);
   switch (expression.type) {
     case ExpressionType.OPERATOR_NOT: {
-      return `NOT ${operand(subject, level)}`;
+      return `NOT ${operand(expression.operand, level)}`;
     }
     case ExpressionType.OPERATOR_NEGATE: {
-      return `-${minusOperand(subject)}`;
+      return `-${minusOperand(expression.operand)}`;
     }
     case ExpressionType.OPERATOR_IS_NULL: {
-      return `${operand(subject, level)} IS NULL`;
+      return `${operand(expression.operand, level)} IS NULL`;
     }
     case ExpressionType.OPERATOR_IS_NOT_NULL: {
-      return `${operand(subject, level)} IS NOT NULL`;
+      return `${operand(expression.operand, level)} IS NOT NULL`;
     }
     case ExpressionType.OPERATOR_IN: {
-      return `${operand(subject, level)} IN (${formatList(rest)})`;
+      const { needle, list } = expression;
+      return `${operand(needle, level)} IN (${formatList(list)})`;
     }
     case ExpressionType.OPERATOR_NOT_IN: {
-      return `${operand(subject, level)} NOT IN (${formatList(rest)})`;
+      const { needle, list } = expression;
+      return `${operand(needle, level)} NOT IN (${formatList(list)})`;
     }
-    case ExpressionType.OPERATOR_ADD: {
-      return binary(subject, "+", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_SUBTRACT: {
-      return binary(subject, "-", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_MULTIPLY: {
-      return binary(subject, "*", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_DIVIDE: {
-      return binary(subject, "/", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_MOD: {
-      return binary(subject, "%", required(rest[0]), level);
-    }
+    case ExpressionType.OPERATOR_ADD:
+    case ExpressionType.OPERATOR_SUBTRACT:
+    case ExpressionType.OPERATOR_MULTIPLY:
+    case ExpressionType.OPERATOR_DIVIDE:
+    case ExpressionType.OPERATOR_MOD:
     case ExpressionType.OPERATOR_CONCAT: {
-      return binary(subject, "||", required(rest[0]), level);
+      const { left, right, type } = expression;
+      return binary(left, BINARY_SYMBOL[type], right, level);
     }
   }
 }
 
-/** An operand the parser always builds; a tree without it is a bug. */
-function required(expression: ParsedExpression | undefined): ParsedExpression {
-  if (expression === undefined) {
-    throw new InternalError("an operator is missing an operand");
-  }
-  return expression;
-}
+const BINARY_SYMBOL: Record<BinaryOperatorType, string> = {
+  [ExpressionType.OPERATOR_ADD]: "+",
+  [ExpressionType.OPERATOR_SUBTRACT]: "-",
+  [ExpressionType.OPERATOR_MULTIPLY]: "*",
+  [ExpressionType.OPERATOR_DIVIDE]: "/",
+  [ExpressionType.OPERATOR_MOD]: "%",
+  [ExpressionType.OPERATOR_CONCAT]: "||",
+};
 
 /**
  * The operand of a prefix `-`. A number goes in parentheses, since `-5` is

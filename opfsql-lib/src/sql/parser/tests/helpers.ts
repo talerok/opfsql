@@ -3,7 +3,7 @@
 
 import { expect } from "vitest";
 import { NotSupportedError, SqlSyntaxError } from "../../../errors.js";
-import { parse } from "../index.js";
+import { childExpressions, parse } from "../index.js";
 import {
   ExpressionClass,
   ExpressionType,
@@ -173,9 +173,11 @@ function renderNode(node: ParsedExpression): string {
     case ExpressionClass.COMPARISON: {
       return list(SYMBOLS[node.type], [node.left, node.right]);
     }
-    case ExpressionClass.CONJUNCTION:
-    case ExpressionClass.OPERATOR: {
+    case ExpressionClass.CONJUNCTION: {
       return list(SYMBOLS[node.type], node.children);
+    }
+    case ExpressionClass.OPERATOR: {
+      return list(SYMBOLS[node.type], childExpressions(node));
     }
     case ExpressionClass.BETWEEN: {
       return list("BETWEEN", [node.input, node.lower, node.upper]);

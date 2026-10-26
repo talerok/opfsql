@@ -7,7 +7,7 @@ import { NotSupportedError } from "../../errors.js";
 import { hexToBytes } from "../../values/index.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
-import { constantNode, notNode, operatorNode, subqueryNode } from "./nodes.js";
+import { constantNode, notNode, subqueryNode, unaryNode } from "./nodes.js";
 import { power } from "../precedence.js";
 import type { SymbolText, Token } from "./tokens.js";
 import { parseTypeName } from "./type-name.js";
@@ -187,7 +187,7 @@ function parseSigned(cursor: Cursor): ParsedExpression {
   if (isNumber) return parseNumber(cursor, sign);
   const operand = cursor.expression(power.unary);
   if (sign.value === "+") return operand;
-  return operatorNode(ExpressionType.OPERATOR_NEGATE, [operand]);
+  return unaryNode(ExpressionType.OPERATOR_NEGATE, operand);
 }
 
 /** `NOT x`; `NOT EXISTS (…)` is one node. */
