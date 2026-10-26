@@ -156,7 +156,7 @@ function bindOutput(
   }
   const expression = above.bind(item.expression);
   const name = itemName(item, expression);
-  return { expression, name, alias: item.expression.alias };
+  return { expression, name, alias: item.alias };
 }
 
 function bindHaving(having: ParsedExpression, above: OutputBinder): Expression {

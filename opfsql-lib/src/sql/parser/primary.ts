@@ -109,7 +109,7 @@ function hexValue(cursor: Cursor, token: Token): number {
 
 function parseParameter(cursor: Cursor): ParameterExpression {
   const index = cursor.parameterIndex(cursor.next());
-  return { expressionClass: ExpressionClass.PARAMETER, alias: null, index };
+  return { expressionClass: ExpressionClass.PARAMETER, index };
 }
 
 // --- Keywords and symbols ----------------------------------------------------
@@ -228,7 +228,6 @@ function parseCase(cursor: Cursor): CaseExpression {
   cursor.expectKeyword("END");
   return {
     expressionClass: ExpressionClass.CASE,
-    alias: null,
     operand,
     caseChecks,
     elseExpression,
@@ -252,7 +251,6 @@ function parseCast(cursor: Cursor): CastExpression {
   cursor.expectSymbol(")");
   return {
     expressionClass: ExpressionClass.CAST,
-    alias: null,
     child,
     castType,
   };
@@ -270,7 +268,6 @@ function parseName(cursor: Cursor): ParsedExpression {
   }
   return {
     expressionClass: ExpressionClass.COLUMN_REF,
-    alias: null,
     names: columnNames,
     path: parseJsonPath(cursor),
   };
@@ -310,7 +307,6 @@ function parseCall(cursor: Cursor, name: string): FunctionExpression {
   cursor.rejectKeyword("FILTER", "FILTER");
   return {
     expressionClass: ExpressionClass.FUNCTION,
-    alias: null,
     functionName,
     children,
     isDistinct,

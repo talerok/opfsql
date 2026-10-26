@@ -14,6 +14,7 @@ import {
   type LimitClause,
   type OrderByNode,
   type ParsedExpression,
+  type SelectListItem,
   type SelectNode,
   type SelectStatement,
   type SetOperationNode,
@@ -62,7 +63,9 @@ export function select(sql: string): SelectNode {
 
 /** The select list of `SELECT <list>`, printed. */
 export function items(selectList: string): string[] {
-  return select(`SELECT ${selectList}`).selectList.map((item) => render(item));
+  return select(`SELECT ${selectList}`).selectList.map((item) =>
+    renderItem(item),
+  );
 }
 
 /** The expression `SELECT <sql>` selects, printed. */
@@ -137,8 +140,13 @@ function list(head: string, parts: readonly ParsedExpression[]): string {
  * follows `AS`; a subquery inside is `<query>`.
  */
 export function render(node: ParsedExpression): string {
-  const printed = renderNode(node);
-  return node.alias === null ? printed : `${printed} AS ${node.alias}`;
+  return renderNode(node);
+}
+
+/** A select list item, printed: its expression, then `AS alias` if it has one. */
+export function renderItem(item: SelectListItem): string {
+  const printed = render(item.expression);
+  return item.alias === null ? printed : `${printed} AS ${item.alias}`;
 }
 
 /** An optional expression, printed, or null. */
@@ -278,7 +286,7 @@ function renderBody(body: SelectNode | SetOperationNode): string {
   }
   const clauses = [
     `SELECT${body.isDistinct ? " DISTINCT" : ""}`,
-    body.selectList.map((item) => render(item)).join(", "),
+    body.selectList.map((item) => renderItem(item)).join(", "),
     body.from === null ? "" : `FROM ${renderTable(body.from)}`,
     body.where === null ? "" : `WHERE ${render(body.where)}`,
     body.groupBy.length === 0

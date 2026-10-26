@@ -31,6 +31,7 @@ import {
   type OperatorExpression,
   type OrderByNode,
   type ParsedExpression,
+  type SelectListItem,
   type SelectNode,
   type SelectStatement,
   type SetOperationNode,
@@ -344,9 +345,9 @@ function formatSelect(node: SelectNode): string {
   return parts.join(" ");
 }
 
-function formatSelectList(items: readonly ParsedExpression[]): string {
+function formatSelectList(items: readonly SelectListItem[]): string {
   return items
-    .map((item) => formatExpression(item) + aliasText(item.alias))
+    .map((item) => formatExpression(item.expression) + aliasText(item.alias))
     .join(", ");
 }
 

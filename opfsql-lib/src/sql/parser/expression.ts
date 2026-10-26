@@ -113,7 +113,6 @@ function conjunction(
       } while (cursor.isKeyword(keyword));
       return {
         expressionClass: ExpressionClass.CONJUNCTION,
-        alias: null,
         type,
         children,
       };
@@ -207,7 +206,6 @@ const BETWEEN_RULE: InfixRule = {
     const upper = cursor.expression(above(power.equality));
     return {
       expressionClass: ExpressionClass.BETWEEN,
-      alias: null,
       input: left,
       lower,
       upper,

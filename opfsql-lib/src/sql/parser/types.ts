@@ -92,7 +92,6 @@ export type JsonPathSegment =
  */
 export interface ColumnReferenceExpression {
   readonly expressionClass: ExpressionClass.COLUMN_REF;
-  readonly alias: string | null;
   readonly names: readonly string[];
   readonly path: readonly JsonPathSegment[];
 }
@@ -114,7 +113,6 @@ export type LiteralValue = Literal["value"];
 
 export type ConstantExpression = {
   readonly expressionClass: ExpressionClass.CONSTANT;
-  readonly alias: string | null;
 } & Literal;
 
 /**
@@ -123,13 +121,11 @@ export type ConstantExpression = {
  */
 export interface ParameterExpression {
   readonly expressionClass: ExpressionClass.PARAMETER;
-  readonly alias: string | null;
   readonly index: number;
 }
 
 export interface ComparisonExpression {
   readonly expressionClass: ExpressionClass.COMPARISON;
-  readonly alias: string | null;
   readonly type: ComparisonType | ExpressionType.COMPARE_LIKE;
   readonly left: ParsedExpression;
   readonly right: ParsedExpression;
@@ -138,7 +134,6 @@ export interface ComparisonExpression {
 /** A chain of ANDs or of ORs, flattened: `a AND b AND c` has three children. */
 export interface ConjunctionExpression {
   readonly expressionClass: ExpressionClass.CONJUNCTION;
-  readonly alias: string | null;
   readonly type: ConjunctionType;
   readonly children: readonly ParsedExpression[];
 }
@@ -151,14 +146,12 @@ export interface ConjunctionExpression {
  */
 export interface OperatorExpression {
   readonly expressionClass: ExpressionClass.OPERATOR;
-  readonly alias: string | null;
   readonly type: OperatorType;
   readonly children: readonly ParsedExpression[];
 }
 
 export interface BetweenExpression {
   readonly expressionClass: ExpressionClass.BETWEEN;
-  readonly alias: string | null;
   readonly input: ParsedExpression;
   readonly lower: ParsedExpression;
   readonly upper: ParsedExpression;
@@ -167,7 +160,6 @@ export interface BetweenExpression {
 /** A call; `count(*)` has `isStar` and no children. Names are lower case. */
 export interface FunctionExpression {
   readonly expressionClass: ExpressionClass.FUNCTION;
-  readonly alias: string | null;
   readonly functionName: string;
   readonly children: readonly ParsedExpression[];
   readonly isDistinct: boolean;
@@ -181,7 +173,6 @@ export interface FunctionExpression {
  */
 export type SubqueryExpression = {
   readonly expressionClass: ExpressionClass.SUBQUERY;
-  readonly alias: string | null;
   readonly subquery: SelectStatement;
 } & (
   | { readonly subqueryType: "SCALAR" | "EXISTS" | "NOT_EXISTS" }
@@ -203,7 +194,6 @@ export interface CaseCheck {
  */
 export interface CaseExpression {
   readonly expressionClass: ExpressionClass.CASE;
-  readonly alias: string | null;
   readonly operand: ParsedExpression | null;
   readonly caseChecks: readonly CaseCheck[];
   readonly elseExpression: ParsedExpression | null;
@@ -211,7 +201,6 @@ export interface CaseExpression {
 
 export interface CastExpression {
   readonly expressionClass: ExpressionClass.CAST;
-  readonly alias: string | null;
   readonly child: ParsedExpression;
   /** The type as written, such as `varchar(10)`. */
   readonly castType: string;
@@ -220,7 +209,6 @@ export interface CastExpression {
 /** `*` or `t.*`; the parser builds it only as an item of a select list. */
 export interface StarExpression {
   readonly expressionClass: ExpressionClass.STAR;
-  readonly alias: string | null;
   readonly table: string | null;
 }
 
@@ -321,10 +309,16 @@ export interface WithClause {
   readonly ctes: readonly CTENode[];
 }
 
+/** An item of a select list: an expression, and its AS name if it has one. */
+export interface SelectListItem {
+  readonly expression: ParsedExpression;
+  readonly alias: string | null;
+}
+
 export interface SelectNode {
   readonly type: "SELECT_NODE";
   readonly isDistinct: boolean;
-  readonly selectList: readonly ParsedExpression[];
+  readonly selectList: readonly SelectListItem[];
   readonly from: TableReference | null;
   readonly where: ParsedExpression | null;
   readonly groupBy: readonly ParsedExpression[];

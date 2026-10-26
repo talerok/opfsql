@@ -4,6 +4,7 @@ import {
   ExpressionClass,
   formatExpression,
   type ParsedExpression,
+  type SelectListItem,
 } from "../parser/index.js";
 import type { ColumnReference, logical } from "../plan/index.js";
 import { starColumns } from "./names.js";
@@ -17,16 +18,20 @@ import type { Scope } from "./scope.js";
 // ---------------------------------------------------------------------------
 
 export type SelectItem =
-  | { readonly kind: "expression"; readonly expression: ParsedExpression }
+  | {
+      readonly kind: "expression";
+      readonly expression: ParsedExpression;
+      readonly alias: string | null;
+    }
   | { readonly kind: "column"; readonly column: ColumnReference };
 
 export function selectItems(
-  list: readonly ParsedExpression[],
+  list: readonly SelectListItem[],
   scope: Scope,
 ): SelectItem[] {
-  return list.flatMap((expression): SelectItem[] => {
+  return list.flatMap(({ expression, alias }): SelectItem[] => {
     if (expression.expressionClass !== ExpressionClass.STAR) {
-      return [{ kind: "expression", expression }];
+      return [{ kind: "expression", expression, alias }];
     }
     return starColumns(expression, scope).map((column) => ({
       kind: "column",
@@ -37,7 +42,7 @@ export function selectItems(
 
 /** The item's AS name, if it has one. */
 export function aliasOf(item: SelectItem): string | null {
-  return item.kind === "expression" ? item.expression.alias : null;
+  return item.kind === "expression" ? item.alias : null;
 }
 
 /**
@@ -46,8 +51,8 @@ export function aliasOf(item: SelectItem): string | null {
  */
 export function itemName(item: SelectItem, bound: logical.Expression): string {
   if (item.kind === "column") return item.column.name;
-  const { expression } = item;
-  if (expression.alias !== null) return expression.alias;
+  const { expression, alias } = item;
+  if (alias !== null) return alias;
   const isColumn =
     expression.expressionClass === ExpressionClass.COLUMN_REF &&
     bound.kind === "column";

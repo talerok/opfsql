@@ -13,6 +13,7 @@ import {
   type LimitClause,
   type OrderByNode,
   type ParsedExpression,
+  type SelectListItem,
   type SelectNode,
   type SelectStatement,
   type SetOperationNode,
@@ -137,7 +138,7 @@ function parseSelectCore(cursor: Cursor): SelectNode {
 }
 
 /** `*`, `t.*`, or an expression with an optional alias. */
-function parseSelectItem(cursor: Cursor): ParsedExpression {
+function parseSelectItem(cursor: Cursor): SelectListItem {
   if (cursor.matchSymbol("*")) return star(null);
   const isTableStar =
     cursor.isName() && cursor.isSymbol(".", 1) && cursor.isSymbol("*", 2);
@@ -148,12 +149,14 @@ function parseSelectItem(cursor: Cursor): ParsedExpression {
     return star(table);
   }
   const expression = cursor.expression();
-  const alias = cursor.optionalAlias();
-  return alias === null ? expression : { ...expression, alias };
+  return { expression, alias: cursor.optionalAlias() };
 }
 
-function star(table: string | null): ParsedExpression {
-  return { expressionClass: ExpressionClass.STAR, alias: null, table };
+function star(table: string | null): SelectListItem {
+  return {
+    expression: { expressionClass: ExpressionClass.STAR, table },
+    alias: null,
+  };
 }
 
 function parseGroupBy(cursor: Cursor): readonly ParsedExpression[] {

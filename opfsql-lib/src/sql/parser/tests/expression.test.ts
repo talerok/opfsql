@@ -6,7 +6,7 @@ import {
   expression,
   items,
   notSupported,
-  render,
+  renderItem,
   syntaxError,
 } from "./helpers.js";
 
@@ -313,7 +313,7 @@ describe("parameters", () => {
       if (statement.type !== StatementType.SELECT_STATEMENT) return [];
       const { body } = statement;
       if (body.type !== "SELECT_NODE") return [];
-      return body.selectList.map((item) => render(item));
+      return body.selectList.map((item) => renderItem(item));
     });
     expect(selectLists).toEqual([["$1"], ["$1"]]);
   });

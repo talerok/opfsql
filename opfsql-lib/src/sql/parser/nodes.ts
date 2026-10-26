@@ -15,7 +15,7 @@ import {
 } from "./types.js";
 
 export function constantNode(literal: Literal): ConstantExpression {
-  return { expressionClass: ExpressionClass.CONSTANT, alias: null, ...literal };
+  return { expressionClass: ExpressionClass.CONSTANT, ...literal };
 }
 
 export function operatorNode(
@@ -24,7 +24,6 @@ export function operatorNode(
 ): OperatorExpression {
   return {
     expressionClass: ExpressionClass.OPERATOR,
-    alias: null,
     type,
     children,
   };
@@ -41,7 +40,6 @@ export function comparisonNode(
 ): ComparisonExpression {
   return {
     expressionClass: ExpressionClass.COMPARISON,
-    alias: null,
     type,
     left,
     right,
@@ -55,7 +53,6 @@ export function subqueryNode(
 ): SubqueryExpression {
   return {
     expressionClass: ExpressionClass.SUBQUERY,
-    alias: null,
     subqueryType,
     subquery,
   };
@@ -70,7 +67,6 @@ export function quantifiedNode(
 ): SubqueryExpression {
   return {
     expressionClass: ExpressionClass.SUBQUERY,
-    alias: null,
     subqueryType,
     subquery,
     child,

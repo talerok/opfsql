@@ -31,7 +31,7 @@ export function isAggregating(
   orderBy: readonly OrderByNode[],
 ): boolean {
   const expressions = [
-    ...node.selectList,
+    ...node.selectList.map((item) => item.expression),
     ...orderBy.map((order) => order.expression),
   ];
   const hasAggregate = expressions.some((expression) =>

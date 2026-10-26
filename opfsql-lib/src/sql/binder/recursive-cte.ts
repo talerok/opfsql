@@ -145,7 +145,7 @@ function checkStep(step: SelectNode, name: string): void {
 function checkStepComputes(step: SelectNode): void {
   if (step.groupBy.length > 0) throw refusal("GROUP BY");
   if (step.having !== null) throw refusal("HAVING");
-  if (step.selectList.some((item) => hasAggregateCall(item))) {
+  if (step.selectList.some((item) => hasAggregateCall(item.expression))) {
     throw refusal("an aggregate");
   }
   if (step.isDistinct) throw refusal("DISTINCT");

@@ -44,7 +44,7 @@ export function mentionsInExpression(
 
 /** The expressions of one SELECT: its list, WHERE, GROUP BY, HAVING and ON conditions. */
 export function* expressionsOf(node: SelectNode): Generator<ParsedExpression> {
-  yield* node.selectList;
+  for (const item of node.selectList) yield item.expression;
   if (node.where !== null) yield node.where;
   yield* node.groupBy;
   if (node.having !== null) yield node.having;
