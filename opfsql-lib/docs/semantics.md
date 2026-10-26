@@ -140,8 +140,8 @@ parameter, a JSON value) must be a boolean when it runs. NULL is "unknown":
 - `x IN (list)` is true if some element equals `x`; otherwise NULL if `x` or
   any element is NULL; otherwise false. An empty list (an empty subquery) is
   false whatever `x` is, and `NOT IN` of it is true.
-- `x IS y` / `x IS NOT y` compare like `=` / `<>` but treat two NULLs as
-  equal and never return NULL.
+- `x IS NULL` / `x IS NOT NULL` (also `x ISNULL`, `x NOTNULL`) are true or
+  false, never NULL.
 
 ## Queries
 
@@ -178,9 +178,8 @@ parameter, a JSON value) must be a boolean when it runs. NULL is "unknown":
 
 ## Text matching
 
-`LIKE` matches `%` (any run of characters) and `_` (one character), with an
-optional `ESCAPE` character. It ignores case for ASCII letters only, as in
-SQLite.
+`LIKE` matches `%` (any run of characters) and `_` (one character). It
+ignores case for ASCII letters only, as in SQLite.
 
 ## Casts
 
@@ -237,7 +236,6 @@ points) in text and bytes in BLOBs.
 | `json_type(json [, path])`                   | `'object'`, `'array'`, `'integer'`, `'real'`, `'text'`, `'true'`, `'false'` or `'null'`; NULL if the path finds nothing                                                                         |
 | `json_array_length(json [, path])`           | the length of an array, 0 for anything else                                                                                                                                                     |
 | `json_valid(x)`                              | whether `x` is JSON (TEXT is parsed)                                                                                                                                                            |
-| `like(pattern, x [, escape])`                | `x LIKE pattern` (see Text matching)                                                                                                                                                            |
 
 The result of `coalesce`, `ifnull`, `iif` and CASE, and each column of a
 UNION, INTERSECT, EXCEPT or VALUES, has the type its values share; INTEGER
@@ -299,6 +297,8 @@ anything runs. Among it:
   read backward for `ORDER BY … DESC`. An explicit `ASC` is accepted, and
   left out of the statement stored for the index;
 - the bitwise operators `&`, `|`, `~`, `<<` and `>>`;
+- `IS` and `IS NOT` with anything but NULL, and `IS [NOT] DISTINCT FROM`;
+- `LIKE … ESCAPE`;
 - parentheses around FROM items, `FROM (a CROSS JOIN b)`;
 - `x IN table`, IN with a table's name in place of a list or a subquery;
 - `INDEXED BY` and `NOT INDEXED`;
