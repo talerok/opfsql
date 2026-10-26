@@ -201,6 +201,14 @@ export function nestedLoopJoin(
   return { kind: "nested-loop-join", joinType, left, right, conditions };
 }
 
+export function lookupJoin(
+  left: Plan,
+  right: physical.RowidLookup | physical.IndexScan,
+  { residual = [], joinType = "inner" }: JoinOptions = {},
+): physical.LookupJoin {
+  return { kind: "lookup-join", joinType, left, right, residual };
+}
+
 export function hashAggregate(
   [groupIndex, aggregateIndex]: [number, number],
   child: Plan,

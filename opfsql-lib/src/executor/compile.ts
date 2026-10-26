@@ -3,25 +3,27 @@ import {
   type CompiledSubquery,
   createRun,
   type QueryContext,
+  type Scope,
   type SubqueryCompiler,
+  type Tuple,
 } from "../expressions/index.js";
-import type { physical } from "../sql/plan/index.js";
+import { physical } from "../sql/plan/index.js";
 import type { Tables } from "../table/index.js";
 import type { Value } from "../values/index.js";
-import { type Context, type CteScope, levelOf } from "./context.js";
+import { type Context, type CteScope, levelOf, scopeOf } from "./context.js";
 import { drain, type Operator, take } from "./operator.js";
 import { hashAggregate } from "./operators/aggregate.js";
 import { cte, CteRows, cteScan, recursiveCte } from "./operators/ctes.js";
-import { hashJoin, nestedLoopJoin } from "./operators/joins.js";
+import { hashJoin, lookupJoin, nestedLoopJoin } from "./operators/joins.js";
 import { limit } from "./operators/limit.js";
 import { filter, hashDistinct, project } from "./operators/per-row.js";
 import { setOperation } from "./operators/sets.js";
 import { sort, topN } from "./operators/sort.js";
 import { values } from "./operators/values.js";
 import { indexExtreme } from "./scans/index-extreme.js";
-import { indexScan } from "./scans/index-scan.js";
+import { indexScan, indexScanRows } from "./scans/index-scan.js";
 import { indexUnion } from "./scans/index-union.js";
-import { rowidLookup } from "./scans/rowids.js";
+import { rowidLookup, rowidLookupRows } from "./scans/rowids.js";
 import { tableScan } from "./scans/table-scan.js";
 
 // ---------------------------------------------------------------------------
@@ -86,7 +88,7 @@ export function compilePlan(plan: physical.Plan, context: Context): Operator {
       return compileTwoSided(plan, context);
     }
     case "lookup-join": {
-      throw new InternalError("the executor does not run a lookup join yet");
+      return compileLookupJoin(plan, context);
     }
     case "cte": {
       return compileCte(plan, context);
@@ -162,6 +164,36 @@ function compileTwoSided(plan: TwoSidedPlan, context: Context): Operator {
     }
     case "set-operation": {
       return setOperation(plan, left, right);
+    }
+  }
+}
+
+/**
+ * The left side, and the right scan compiled to start for each left row:
+ * its seek values in the scope of the left side's rows, its residual over
+ * its own.
+ */
+function compileLookupJoin(
+  plan: physical.LookupJoin,
+  context: Context,
+): Operator {
+  const left = compilePlan(plan.left, context);
+  const seeks = scopeOf(context, physical.layoutOf(plan.left));
+  const lookup = compileLookup(plan.right, context, seeks);
+  return lookupJoin(plan, left, lookup, context);
+}
+
+function compileLookup(
+  plan: physical.LookupJoin["right"],
+  context: Context,
+  seeks: Scope,
+): (row: Tuple) => Generator<Tuple> {
+  switch (plan.kind) {
+    case "rowid-lookup": {
+      return rowidLookupRows(plan, context, seeks);
+    }
+    case "index-scan": {
+      return indexScanRows(plan, context, seeks);
     }
   }
 }

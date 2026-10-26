@@ -1,10 +1,10 @@
 import type { OrderDirection, physical } from "../../sql/plan/index.js";
-import type { Tuple } from "../../expressions/index.js";
+import type { Scope, Tuple } from "../../expressions/index.js";
 import type { ColumnReader, KeyBound, KeyRange } from "../../table/index.js";
 import { compareValues, type Value } from "../../values/index.js";
-import type { Context } from "../context.js";
+import { type Context, fixedScope } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
-import { compileEqual, compileRange } from "./seeks.js";
+import { type AtStart, compileEqual, compileRange, NO_ROW } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
 
 // ---------------------------------------------------------------------------
@@ -34,28 +34,39 @@ export function rowidLookup(
   plan: physical.RowidLookup,
   context: Context,
 ): Operator {
+  const rowsFor = rowidLookupRows(plan, context, fixedScope(context));
+  return leafOperator(() => rowsFor(NO_ROW), context.query.run);
+}
+
+/**
+ * The lookup's rows for the row it starts for, its seek values compiled in
+ * `seeks`: a lookup of its own starts for no row; a lookup join's right
+ * scan starts for each left row.
+ */
+export function rowidLookupRows(
+  plan: physical.RowidLookup,
+  context: Context,
+  seeks: Scope,
+): (row: Tuple) => Generator<Tuple> {
   const { reader, matching } = tableAccess(plan, context);
-  const selection = compileRowidSet(plan.rowids, context);
+  const selection = compileRowidSet(plan.rowids, seeks);
   const { direction } = plan;
-  return leafOperator(
-    () => matching(rowsSelected(selection(), reader, direction)),
-    context.query.run,
-  );
+  return (row) => matching(rowsSelected(selection(row), reader, direction));
 }
 
 /** The set's rowids, evaluated each time its scan starts. */
 export function compileRowidSet(
   set: physical.RowidSet,
-  context: Context,
-): () => RowidSelection {
+  seeks: Scope,
+): AtStart<RowidSelection> {
   switch (set.kind) {
     case "list": {
-      const values = compileEqual(set.values, context);
-      return () => listOf(values());
+      const values = compileEqual(set.values, seeks);
+      return (row) => listOf(values(row));
     }
     case "range": {
-      const range = compileRange(set.range, context);
-      return () => rangeOf(range());
+      const range = compileRange(set.range, seeks);
+      return (row) => rangeOf(range(row));
     }
   }
 }
