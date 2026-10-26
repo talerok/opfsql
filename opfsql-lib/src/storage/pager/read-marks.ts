@@ -64,7 +64,7 @@ export class ReadMarks {
     try {
       // Clears a mark that a dead previous owner of the slot left.
       marks.publish(null);
-      await marks.reclaimDeadSlots();
+      await marks.clearDeadMarks();
       return marks;
     } catch (error) {
       release();
@@ -92,7 +92,7 @@ export class ReadMarks {
   }
 
   /** Clears marks left by tabs that died with a snapshot open. */
-  async reclaimDeadSlots(): Promise<void> {
+  async clearDeadMarks(): Promise<void> {
     for (const [slot, mark] of this.marks().entries()) {
       const isOtherTabsMark = slot !== this.slot && mark !== NO_MARK;
       if (isOtherTabsMark) await this.clearIfDead(slot);

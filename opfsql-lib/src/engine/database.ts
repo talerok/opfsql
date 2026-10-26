@@ -167,12 +167,12 @@ export class Database {
     }
     // Still due: a snapshot holds it back. If a tab that died holds it,
     // free its read mark so the next checkpoint can go further.
-    if (this.pager.isCheckpointDue()) this.releaseAbandonedSnapshots();
+    if (this.pager.isCheckpointDue()) this.clearDeadMarks();
   }
 
   /** In the background: the commit that got here has succeeded. */
-  private releaseAbandonedSnapshots(): void {
-    const release = this.reportFailure(this.pager.releaseAbandonedSnapshots());
+  private clearDeadMarks(): void {
+    const release = this.reportFailure(this.pager.clearDeadMarks());
     this.background.add(release);
     void this.forgetWhenDone(release);
   }

@@ -3,16 +3,17 @@ import { crc32 } from "../file/crc32.js";
 import { checkPrefix, PREFIX_SIZE, writePrefix } from "../file/file-prefix.js";
 import type { SyncFile } from "../file/sync-file.js";
 import { readUint32, writeUint32 } from "../format/bytes.js";
+import { WalIndex } from "./wal-index.js";
 
 // ---------------------------------------------------------------------------
-// The write-ahead log (docs/file-format.md, WAL file), and an index of the
-// page versions it holds.
+// The write-ahead log (docs/file-format.md, WAL file): reading, appending and
+// restarting it, and catching up with what other tabs wrote to it. What has
+// been read of it is kept in a WalIndex.
 //
 // A transaction is appended as its page frames and a commit record, written
 // and flushed at once: the flush is the commit point. Transaction ids
 // continue across WAL generations (epochs), so an id is a position in the
-// database's history and a snapshot is the latest id it sees. The index
-// keeps every version an open snapshot may still need.
+// database's history and a snapshot is the latest id it sees.
 // ---------------------------------------------------------------------------
 
 const EPOCH_OFFSET = PREFIX_SIZE;
@@ -39,16 +40,6 @@ interface WalHeader {
   readonly base: number;
 }
 
-interface Version {
-  readonly txId: number;
-  readonly page: Uint8Array;
-}
-
-interface Commit {
-  readonly txId: number;
-  readonly pageCount: number;
-}
-
 /** What a frame holds: a version of a page, or the record that commits a transaction. */
 type Frame =
   | {
@@ -64,23 +55,16 @@ type Frame =
     };
 
 export class Wal {
-  private versions = new Map<number, Version[]>();
-  /** Pages holding more than one version: the only ones pruning visits. */
-  private readonly layered = new Set<number>();
-  private commits: Commit[] = [];
-  /** No open snapshot is older than this: older versions can go. */
-  private pruneBound = Infinity;
+  private readonly index = new WalIndex();
+  /** Where the next frame goes: the end of the last commit read or written. */
+  private offset = HEADER_SIZE;
+  private epoch = 0;
   /**
    * Why a failed append could not be undone, once one could not: the tail
    * is unknown, and every later append fails with its own error, caused by
    * this (an error object is never shared between calls).
    */
   private failure: { readonly cause: unknown } | null = null;
-  private offset = HEADER_SIZE;
-  private epoch = 0;
-  private base = 0;
-  private latest = 0;
-  private frames = 0;
   /** Where the header is read to, every time: nothing read from it is kept. */
   private readonly headerBytes = new Uint8Array(HEADER_SIZE);
 
@@ -98,31 +82,34 @@ export class Wal {
     return wal;
   }
 
-  /** The latest committed transaction. */
+  // What has been read of the WAL, as the WalIndex keeps it.
+
   get latestTxId(): number {
-    return this.latest;
+    return this.index.latestTxId;
   }
 
-  /** The last transaction before this generation: all of it is in the database file. */
   get baseTxId(): number {
-    return this.base;
+    return this.index.baseTxId;
   }
 
-  /** Page frames committed in this generation, for deciding to checkpoint. */
   get frameCount(): number {
-    return this.frames;
+    return this.index.frameCount;
   }
 
-  /** The newest version of a page that a snapshot at `txId` sees, or null. */
   versionAt(pageNo: number, txId: number): Uint8Array | null {
-    const versions = this.versions.get(pageNo);
-    return versions?.findLast((version) => version.txId <= txId)?.page ?? null;
+    return this.index.versionAt(pageNo, txId);
   }
 
-  /** The page count as of `txId`, or null if it predates this generation. */
   pageCountAt(txId: number): number | null {
-    const commit = this.commits.findLast((candidate) => candidate.txId <= txId);
-    return commit?.pageCount ?? null;
+    return this.index.pageCountAt(txId);
+  }
+
+  pagesBetween(after: number, upTo: number): Map<number, Uint8Array> {
+    return this.index.pagesBetween(after, upTo);
+  }
+
+  setOldestSnapshot(oldest: number | null): void {
+    this.index.setOldestSnapshot(oldest);
   }
 
   /**
@@ -133,7 +120,7 @@ export class Wal {
    */
   append(pages: ReadonlyMap<number, Uint8Array>, pageCount: number): number {
     if (this.failure !== null) throw this.unknownTail(this.failure.cause);
-    const txId = this.latest + 1;
+    const txId = this.index.latestTxId + 1;
     const frames = transactionFrames(pages, txId, pageCount);
     const { bytes, written } = this.encodeFrames(frames);
     try {
@@ -144,14 +131,8 @@ export class Wal {
       throw fileFailure(`could not write to "${this.name}"`, error);
     }
     this.offset += bytes.length;
-    this.addTransaction(txId, written, pageCount);
+    this.index.addTransaction(txId, written, pageCount);
     return txId;
-  }
-
-  /** The oldest snapshot open (null: none); versions no snapshot sees are dropped. */
-  setOldestSnapshot(oldest: number | null): void {
-    this.pruneBound = oldest ?? Infinity;
-    for (const pageNo of this.layered) this.prune(pageNo);
   }
 
   /**
@@ -162,26 +143,15 @@ export class Wal {
    * frames off (docs/concurrency.md, Catching up).
    */
   catchUp(): boolean {
-    const { epoch, latest } = this;
+    const { epoch } = this;
+    const latest = this.index.latestTxId;
     for (;;) {
       const header = this.readHeader();
       if (header.epoch !== this.epoch) this.reset(header);
       this.readFrom(this.offset);
       if (this.readHeader().epoch === header.epoch) break;
     }
-    return this.epoch !== epoch || this.latest !== latest;
-  }
-
-  /** The newest version of every page committed after `after` and up to `upTo`. */
-  pagesBetween(after: number, upTo: number): Map<number, Uint8Array> {
-    const pages = new Map<number, Uint8Array>();
-    for (const [pageNo, versions] of this.versions) {
-      const version = versions.findLast((candidate) => candidate.txId <= upTo);
-      if (version !== undefined && version.txId > after) {
-        pages.set(pageNo, version.page);
-      }
-    }
-    return pages;
+    return this.epoch !== epoch || this.index.latestTxId !== latest;
   }
 
   /**
@@ -191,7 +161,7 @@ export class Wal {
    * under the new one the old frames' epoch rejects them.
    */
   restart(): void {
-    this.reset({ epoch: this.epoch + 1, base: this.latest });
+    this.reset({ epoch: this.epoch + 1, base: this.index.latestTxId });
     this.writeHeader();
     this.file.truncate(HEADER_SIZE);
   }
@@ -236,12 +206,12 @@ export class Wal {
   private readFrom(start: number): void {
     let pending = new Map<number, Uint8Array>();
     for (const { frame, end } of this.framesFrom(start)) {
-      if (frame.txId !== this.latest + 1) return;
+      if (frame.txId !== this.index.latestTxId + 1) return;
       if (frame.kind === "page") {
         pending.set(frame.pageNo, frame.page);
         continue;
       }
-      this.addTransaction(frame.txId, pending, frame.pageCount);
+      this.index.addTransaction(frame.txId, pending, frame.pageCount);
       this.offset = end;
       pending = new Map();
     }
@@ -285,7 +255,7 @@ export class Wal {
     const header = new Uint8Array(HEADER_SIZE);
     writePrefix(header, "wal");
     writeUint32(header, EPOCH_OFFSET, this.epoch);
-    writeUint32(header, BASE_OFFSET, this.base);
+    writeUint32(header, BASE_OFFSET, this.index.baseTxId);
     writeUint32(header, HEADER_CHECKSUM_OFFSET, headerChecksum(header));
     this.file.write(header, { at: 0 });
     this.file.flush();
@@ -332,52 +302,11 @@ export class Wal {
     );
   }
 
-  // --- The index ---------------------------------------------------------------
-
+  /** Starts reading the generation `header` describes, from its first frame. */
   private reset({ epoch, base }: WalHeader): void {
-    this.versions = new Map();
-    this.layered.clear();
-    this.commits = [];
+    this.index.reset(base);
     this.offset = HEADER_SIZE;
-    this.frames = 0;
     this.epoch = epoch;
-    this.base = base;
-    this.latest = base;
-  }
-
-  private addTransaction(
-    txId: number,
-    pages: ReadonlyMap<number, Uint8Array>,
-    pageCount: number,
-  ): void {
-    for (const [pageNo, page] of pages) this.addVersion(pageNo, { txId, page });
-    this.commits.push({ txId, pageCount });
-    this.frames += pages.size;
-    this.latest = txId;
-  }
-
-  private addVersion(pageNo: number, version: Version): void {
-    const versions = this.versions.get(pageNo);
-    if (versions === undefined) {
-      this.versions.set(pageNo, [version]);
-      return;
-    }
-    versions.push(version);
-    this.prune(pageNo);
-  }
-
-  /**
-   * Drops the versions no snapshot can see: those older than the newest one
-   * the oldest open snapshot sees.
-   */
-  private prune(pageNo: number): void {
-    const versions = this.versions.get(pageNo) ?? [];
-    const oldestVisible = versions.findLastIndex(
-      (version) => version.txId <= this.pruneBound,
-    );
-    if (oldestVisible > 0) versions.splice(0, oldestVisible);
-    if (versions.length > 1) this.layered.add(pageNo);
-    else this.layered.delete(pageNo);
   }
 }
 
