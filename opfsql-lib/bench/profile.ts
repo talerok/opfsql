@@ -8,13 +8,24 @@
 //
 // --detail lists the functions of the phases it names (compile,run by
 // default), as shares of all samples.
-// --out saves the raw .cpuprofile, which Chrome DevTools opens. Under
-// vite-node every import goes through a getter (`get` in the listings),
-// which a bundle would not have.
+// --out saves the .cpuprofile, its frames read as below, which Chrome
+// DevTools opens.
+//
+// It profiles the bundle `npm run bench:profile` builds, as `npm run bench`
+// measures one: under vite-node every imported function is a getter call V8
+// does not inline, which no user runs. The bundle is minified, so each frame
+// is read back through its sourcemap to the function's own name and source
+// file, which phase roots and listings use.
 import "opfs-mock";
 import "../test/setup/web-locks.js";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Session as Inspector } from "node:inspector/promises";
+import {
+  SourceMap,
+  type SourceMapPayload,
+  type SourceMapping,
+} from "node:module";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { Engine } from "../src/worker-entry.js";
 import { type Scenario, SCENARIOS } from "./scenarios.js";
@@ -23,6 +34,7 @@ interface CallFrame {
   readonly functionName: string;
   readonly url: string;
   readonly lineNumber: number;
+  readonly columnNumber: number;
 }
 
 interface ProfileNode {
@@ -162,7 +174,90 @@ async function profileRuns(settings: Settings): Promise<Profile> {
   const { profile } = await inspector.post("Profiler.stop");
   inspector.disconnect();
   await engine.close();
-  return profile as Profile;
+  return readable(profile as Profile);
+}
+
+/** The bundle this script runs from: its URL, code and sourcemap. */
+interface Bundle {
+  readonly url: string;
+  readonly lines: readonly string[];
+  readonly map: SourceMap;
+}
+
+/** A findEntry result, with the name Node's types leave out. */
+type Mapping = Partial<SourceMapping & { readonly name: string }>;
+
+/** The profile with the bundle's frames read through its sourcemap. */
+function readable(profile: Profile): Profile {
+  const bundle = runningBundle();
+  if (bundle === undefined) return profile;
+  const nodes = profile.nodes.map((node) => {
+    if (node.callFrame.url !== bundle.url) return node;
+    return { ...node, callFrame: originalFrame(node.callFrame, bundle) };
+  });
+  return { ...profile, nodes };
+}
+
+/** Run from the sources, there is no map, and the frames read as they are. */
+function runningBundle(): Bundle | undefined {
+  const url = import.meta.url;
+  const file = fileURLToPath(url);
+  const mapFile = `${file}.map`;
+  if (!existsSync(mapFile)) return undefined;
+  const payload = JSON.parse(readFileSync(mapFile, "utf8")) as SourceMapPayload;
+  const lines = readFileSync(file, "utf8").split("\n");
+  return { url, lines, map: new SourceMap(payload) };
+}
+
+/** Where a bundled frame's function came from: its source file and line. */
+function originalFrame(frame: CallFrame, bundle: Bundle): CallFrame {
+  // findOrigin counts from 1, and V8 from 0.
+  const origin = bundle.map.findOrigin(
+    frame.lineNumber + 1,
+    frame.columnNumber + 1,
+  );
+  if (!("fileName" in origin)) return frame;
+  return {
+    functionName: declaredName(frame, bundle),
+    url: new URL(origin.fileName, bundle.url).href,
+    lineNumber: origin.lineNumber - 1,
+    columnNumber: origin.columnNumber - 1,
+  };
+}
+
+/**
+ * The frame's name as the source spells it. V8 names a function after what
+ * declares it — its own name, its variable, its property, its class for a
+ * constructor — which is the nearest identifier of that name before the
+ * function in the bundle. When the minifier shortened it, the map has a
+ * mapping right there that names it; methods and properties keep their
+ * names, and have none.
+ */
+function declaredName(frame: CallFrame, bundle: Bundle): string {
+  const name = frame.functionName;
+  const line = bundle.lines[frame.lineNumber] ?? "";
+  const column = lastIdentifier(line, name, frame.columnNumber);
+  if (column === -1) return name;
+  const mapping: Mapping = bundle.map.findEntry(frame.lineNumber, column);
+  const isRenamed =
+    mapping.generatedLine === frame.lineNumber &&
+    mapping.generatedColumn === column;
+  return isRenamed ? (mapping.name ?? name) : name;
+}
+
+/** Where `name` last stands as a whole identifier in `line` before `end`. */
+function lastIdentifier(line: string, name: string, end: number): number {
+  if (name === "") return -1;
+  const isIdentifierAt = (index: number): boolean =>
+    /^[\w$]$/u.test(line.charAt(index));
+  let index = line.lastIndexOf(name, end - name.length);
+  while (index > -1) {
+    const isWhole =
+      !isIdentifierAt(index - 1) && !isIdentifierAt(index + name.length);
+    if (isWhole) return index;
+    index = index === 0 ? -1 : line.lastIndexOf(name, index - 1);
+  }
+  return -1;
 }
 
 /** The phase of a sample's node: V8's own, or its nearest phase root's. */
