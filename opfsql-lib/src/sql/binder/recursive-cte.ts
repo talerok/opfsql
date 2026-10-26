@@ -14,6 +14,7 @@ import {
 } from "../parser/index.js";
 import { cteColumns, type BoundCte } from "./cte-definition.js";
 import { hasAggregateCall } from "./grouping.js";
+import { exactlyOne } from "./one.js";
 import { expressionsOf, mentions, mentionsInExpression } from "./references.js";
 import type { OutputColumn } from "../plan/index.js";
 import type { BoundQuery, CteDefinition, Scope } from "./scope.js";
@@ -149,12 +150,13 @@ function checkStep(step: SelectNode, name: string): void {
   }
   const references =
     step.from === null ? [] : [...referencesIn(step.from, name, false)];
-  const [reference, other] = references;
-  if (reference === undefined || other !== undefined) {
-    throw new SemanticError(
-      `the step of recursive WITH query ${name} must name ${name} exactly once`,
-    );
-  }
+  const reference = exactlyOne(
+    references,
+    () =>
+      new SemanticError(
+        `the step of recursive WITH query ${name} must name ${name} exactly once`,
+      ),
+  );
   if (reference.isNullable) {
     throw new SemanticError(
       `the step of recursive WITH query ${name} names it on the side of an outer join that is filled with NULLs`,

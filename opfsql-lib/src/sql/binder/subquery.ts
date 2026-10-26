@@ -3,6 +3,7 @@ import type { SubqueryExpression } from "../parser/index.js";
 import type { logical, OutputColumn } from "../plan/index.js";
 import { comparedWith } from "./affinity.js";
 import type { Clause } from "./clause.js";
+import { exactlyOne } from "./one.js";
 import { comparisonOperator, not } from "./operators.js";
 import type { BoundQuery } from "./scope.js";
 import { checkComparable } from "./type-rules.js";
@@ -58,11 +59,9 @@ export function bindSubquery(
 }
 
 function onlyColumn(query: BoundQuery, what: string): OutputColumn {
-  const [column, other] = query.columns;
-  if (column === undefined || other !== undefined) {
-    throw new SemanticError(
-      `${what} must return one column, not ${String(query.columns.length)}`,
-    );
-  }
-  return column;
+  const count = String(query.columns.length);
+  return exactlyOne(
+    query.columns,
+    () => new SemanticError(`${what} must return one column, not ${count}`),
+  );
 }

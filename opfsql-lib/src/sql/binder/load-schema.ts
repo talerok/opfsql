@@ -11,6 +11,7 @@ import { asCorruption } from "./corruption.js";
 import { indexDefinition } from "./create-index.js";
 import { tableDefinition } from "./create-table.js";
 import { bindQuery } from "./query.js";
+import { exactlyOne } from "./one.js";
 import { BindContext } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -122,15 +123,13 @@ function storedStatement<Type extends StatementType>(
 ): Extract<Statement, { type: Type }> {
   const { sql } = row;
   if (sql === null) throw corrupt(row, "it has no statement");
-  const statements = loading(row, () => parse(sql));
-  const [statement, other] = statements;
-  if (
-    statement === undefined ||
-    other !== undefined ||
-    !isOfType(statement, type)
-  ) {
-    throw corrupt(row, `its statement is not one ${type}: ${sql}`);
-  }
+  const wrong = (): CorruptError =>
+    corrupt(row, `its statement is not one ${type}: ${sql}`);
+  const statement = exactlyOne(
+    loading(row, () => parse(sql)),
+    wrong,
+  );
+  if (!isOfType(statement, type)) throw wrong();
   return statement;
 }
 

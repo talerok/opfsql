@@ -10,3 +10,10 @@ export function oneOrNone<T>(items: readonly T[], many: () => Error): T | null {
   if (other !== undefined) throw many();
   return item;
 }
+
+/** The one item of `items`; for none or more, `wrong()` is thrown. */
+export function exactlyOne<T>(items: readonly T[], wrong: () => Error): T {
+  const item = oneOrNone(items, wrong);
+  if (item === null) throw wrong();
+  return item;
+}

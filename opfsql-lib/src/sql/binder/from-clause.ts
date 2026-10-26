@@ -15,6 +15,7 @@ import {
 import { bindCondition, conjunctsOf, refuse } from "./clause.js";
 import { clauseOf } from "./expression.js";
 import { columnOf, unqualifiedColumn } from "./names.js";
+import { exactlyOne } from "./one.js";
 import {
   relation,
   type CteDefinition,
@@ -183,11 +184,11 @@ function usingColumn(
     const column = unqualifiedColumn(item, name);
     return column === null ? [] : [columnOf(item, column, 0)];
   });
-  const [column, other] = found;
-  if (column === undefined || other !== undefined) {
-    throw new SemanticError(
-      `cannot join using column ${name}: it must be in exactly one table on each side`,
-    );
-  }
-  return column;
+  return exactlyOne(
+    found,
+    () =>
+      new SemanticError(
+        `cannot join using column ${name}: it must be in exactly one table on each side`,
+      ),
+  );
 }
