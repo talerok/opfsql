@@ -9,12 +9,18 @@ export interface LinkedSignal {
 /**
  * Aborts when the first of `sources` aborts, with that source's reason.
  * Dispose it when the call ends, so long-lived sources keep no listeners.
+ * One source is its own link: a call without a signal of its own runs on
+ * its session's, with no controller and no listeners to pay for.
  */
 export function linkSignals(
   sources: readonly (AbortSignal | undefined)[],
 ): LinkedSignal {
-  const controller = new AbortController();
   const present = sources.filter((source) => source !== undefined);
+  const [only, ...others] = present;
+  if (only !== undefined && others.length === 0) {
+    return { signal: only, dispose: nothingToDispose };
+  }
+  const controller = new AbortController();
   const aborted = present.find((source) => source.aborted);
   if (aborted !== undefined) {
     controller.abort(aborted.reason);
