@@ -7,6 +7,7 @@
 # Departures, documented in docs/semantics.md.
 reason bare-column semantics.md, Queries and Departures: a column neither grouped nor aggregated is an error; SQLite reads a bare column of some row
 reason compare-types semantics.md, Comparisons: operands must be comparable; TEXT or BLOB against INTEGER is a bind error, where SQLite converts by affinity
+reason assigned-twice semantics.md, Departures: assigning one column twice in an UPDATE is a bind error, where SQLite takes the rightmost assignment
 reason sum-avg-text semantics.md, Aggregates: sum and avg take numbers only; over TEXT they are a bind error, where SQLite reads the text as a number
 
 # Features opfsql does not have.
@@ -140,6 +141,9 @@ test/evidence/slt_lang_aggfunc.test:480 shift
 test/evidence/slt_lang_aggfunc.test:484 shift
 test/evidence/slt_lang_aggfunc.test:491 total
 test/evidence/slt_lang_aggfunc.test:496 total
+test/evidence/slt_lang_update.test:88 assigned-twice
+test/evidence/slt_lang_update.test:98 assigned-twice
+test/evidence/slt_lang_update.test:104 assigned-twice
 test/index/between/10/slt_good_0.test:63 desc-index
 test/index/between/10/slt_good_0.test:75 desc-index
 test/index/between/10/slt_good_0.test:93 desc-index

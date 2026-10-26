@@ -107,25 +107,24 @@ export function writableTable(name: string, context: BindContext): Table {
 }
 
 /**
- * `SET column = value, …`: columns of `table`, each value bound in
- * `clause`. A column assigned more than once takes its rightmost value, as
- * in SQLite; the others are bound too, so a mistake in them still fails,
- * and then left out.
+ * `SET column = value, …`: each column of `table`, at most once, its value
+ * bound in `clause`.
  */
 export function bindAssignments(
   assignments: readonly AssignmentNode[],
   table: Table,
   clause: Clause,
 ): Assignment<Plan>[] {
-  const bound = assignments.map((assignment) => ({
-    column: columnNamed(table, assignment.column),
-    value: clause.bind(assignment.value),
-  }));
-  return bound.filter((assignment, position) => {
-    const last = bound.findLastIndex(
-      ({ column }) => column === assignment.column,
-    );
-    return last === position;
+  const assigned = new Set<number>();
+  return assignments.map((assignment) => {
+    const column = columnNamed(table, assignment.column);
+    if (assigned.has(column)) {
+      throw new SemanticError(
+        `column ${assignment.column} is assigned more than once`,
+      );
+    }
+    assigned.add(column);
+    return { column, value: clause.bind(assignment.value) };
   });
 }
 
