@@ -20,7 +20,11 @@ import { indexKeysOf } from "./index-keys.js";
 const KEPT_VERSIONS = 8;
 
 export class SchemaCache {
+  /** In order of last use, the most recent last. */
   private readonly byVersion = new Map<number, IndexKeys>();
+
+  /** The version used last: a hit on it leaves the order as it is. */
+  private newest: number | null = null;
 
   /**
    * The schema of the committed snapshot `pages` reads. A transaction with
@@ -34,7 +38,10 @@ export class SchemaCache {
       );
     }
     const version = pages.schemaVersion;
-    const keys = this.byVersion.get(version) ?? readSchema(pages);
+    const known = this.byVersion.get(version);
+    // Nearly every load is of the version used last, already in its place.
+    if (known !== undefined && version === this.newest) return known;
+    const keys = known ?? readSchema(pages);
     this.remember(keys);
     return keys;
   }
@@ -45,6 +52,7 @@ export class SchemaCache {
     // Deleting first moves it to the end: the map is in order of last use.
     this.byVersion.delete(version);
     this.byVersion.set(version, keys);
+    this.newest = version;
     for (const kept of this.byVersion.keys()) {
       if (this.byVersion.size <= KEPT_VERSIONS) return;
       this.byVersion.delete(kept);
