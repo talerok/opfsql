@@ -1,7 +1,7 @@
 import { CorruptError } from "../../errors.js";
-import type { JsonValue, Value } from "../../values/index.js";
+import type { Value } from "../../values/index.js";
 import { canonicalJson, withoutNegativeZero } from "../../values/index.js";
-import { ByteWriter } from "./bytes.js";
+import { ByteWriter, parseStoredJson } from "./bytes.js";
 
 // ---------------------------------------------------------------------------
 // Index keys (docs/file-format.md, Index keys): values encoded so that
@@ -184,7 +184,7 @@ function readEscaped(
   if (tag === TAG.blob) return [bytes, end];
   const text = decoder.decode(bytes);
   if (tag === TAG.text) return [text, end];
-  return [JSON.parse(text) as JsonValue, end];
+  return [parseStoredJson(text), end];
 }
 
 /** The escaped bytes from `start` to their terminator, and where the value ends. */

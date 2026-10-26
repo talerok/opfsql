@@ -85,7 +85,7 @@ function entryOf(row: StoredRow): StoredSchemaEntry {
     name: textAt(row, NAME),
     tableName: textAt(row, TABLE_NAME),
     rootPage: pageAt(row, ROOT_PAGE),
-    sql: row.value(SQL) === null ? null : textAt(row, SQL),
+    sql: row.field(SQL) === null ? null : textAt(row, SQL),
   };
 }
 
@@ -95,13 +95,13 @@ function entryTypeOf(text: string, row: StoredRow): SchemaEntryType {
 }
 
 function textAt(row: StoredRow, column: number): string {
-  const value = row.value(column);
+  const value = row.field(column);
   if (typeof value !== "string") throw malformed(row, column);
   return value;
 }
 
 function pageAt(row: StoredRow, column: number): number {
-  const value = row.value(column);
+  const value = row.field(column);
   const isPageNumber = typeof value === "number" && Number.isSafeInteger(value);
   if (!isPageNumber || value <= SCHEMA_ROOT_PAGE) throw malformed(row, column);
   return value;

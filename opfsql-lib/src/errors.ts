@@ -227,8 +227,8 @@ export class StorageFullError extends OpfsqlError {
 export class CorruptError extends OpfsqlError {
   override readonly name = "CorruptError";
 
-  constructor(message: string) {
-    super("CORRUPT", message);
+  constructor(message: string, options?: ErrorOptions) {
+    super("CORRUPT", message, options);
   }
 }
 
@@ -343,15 +343,21 @@ export class AbortError extends OpfsqlError {
  */
 export function toOpfsqlError(error: unknown): OpfsqlError {
   if (error instanceof OpfsqlError) return error;
-  if (error instanceof DOMException) return platformError(error);
+  if (error instanceof DOMException) return fileFailure(error.message, error);
   const message = error instanceof Error ? error.message : String(error);
   return new InternalError(message, { cause: error });
 }
 
-function platformError(error: DOMException): OpfsqlError {
-  const options = { cause: error };
-  if (error.name === "QuotaExceededError") {
-    return new StorageFullError(error.message, options);
-  }
-  return new IoError(error.message, options);
+/**
+ * A file operation the platform failed: STORAGE_FULL when the browser
+ * refused more data, which freeing space can cure; IO_ERROR otherwise.
+ */
+export function fileFailure(
+  message: string,
+  cause: unknown,
+): StorageFullError | IoError {
+  const isQuotaExceeded =
+    cause instanceof DOMException && cause.name === "QuotaExceededError";
+  if (isQuotaExceeded) return new StorageFullError(message, { cause });
+  return new IoError(message, { cause });
 }

@@ -1,8 +1,10 @@
+import type { JsonValue } from "../../values/index.js";
 import { CorruptError } from "../../errors.js";
 
 // ---------------------------------------------------------------------------
 // Byte-level building blocks of file format 5 (docs/file-format.md): varints,
-// big-endian integers, and a growable writer for encoding keys and records.
+// big-endian integers, a growable writer for encoding keys and records, and
+// the parsing of the JSON text both store.
 // ---------------------------------------------------------------------------
 
 const TWO_32 = 2 ** 32;
@@ -276,4 +278,15 @@ function highPart(value: number): number {
 
 function lowPart(value: number): number {
   return value - highPart(value) * TWO_32;
+}
+
+/** JSON text that opfsql stored: text that does not parse means damaged files. */
+export function parseStoredJson(text: string): JsonValue {
+  try {
+    return JSON.parse(text) as JsonValue;
+  } catch (error) {
+    throw new CorruptError("a stored JSON value does not parse", {
+      cause: error,
+    });
+  }
 }

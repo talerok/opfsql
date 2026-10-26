@@ -1,9 +1,4 @@
-import {
-  CorruptError,
-  IoError,
-  type OpfsqlError,
-  StorageFullError,
-} from "../../errors.js";
+import { CorruptError, fileFailure, IoError } from "../../errors.js";
 import { crc32 } from "../file/crc32.js";
 import { checkPrefix, PREFIX_SIZE, writePrefix } from "../file/file-prefix.js";
 import type { SyncFile } from "../file/sync-file.js";
@@ -146,7 +141,7 @@ export class Wal {
       this.file.flush();
     } catch (error) {
       this.discardTail();
-      throw writeFailure(this.name, error);
+      throw fileFailure(`could not write to "${this.name}"`, error);
     }
     this.offset += bytes.length;
     this.addTransaction(txId, written, pageCount);
@@ -443,19 +438,6 @@ function checksumOf(header: Uint8Array, payload: Uint8Array): number {
 function isIntact(header: Uint8Array, payload: Uint8Array): boolean {
   const stored = readUint32(header, FRAME_CHECKSUM_OFFSET);
   return checksumOf(header, payload) === stored;
-}
-
-/**
- * Why writing `file` failed: the browser refusing more data is
- * STORAGE_FULL, which freeing space can cure; anything else, IO_ERROR.
- */
-function writeFailure(file: string, cause: unknown): OpfsqlError {
-  const isQuotaExceeded =
-    cause instanceof DOMException && cause.name === "QuotaExceededError";
-  if (isQuotaExceeded) {
-    return new StorageFullError(`no room to write to "${file}"`, { cause });
-  }
-  return new IoError(`could not write to "${file}"`, { cause });
 }
 
 /** CRC-32 of a WAL header's bytes before its checksum. */

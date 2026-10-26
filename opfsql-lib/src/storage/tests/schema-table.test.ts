@@ -84,5 +84,8 @@ describe("the schema table", () => {
 
     writeRaw(["table", "t", "t", 1, null]);
     expect(() => readEntries(pager)).toThrow(/column 3/u);
+
+    writeRaw(["table", "t"]);
+    expect(() => readEntries(pager)).toThrow(CorruptError);
   });
 });

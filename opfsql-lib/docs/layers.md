@@ -124,6 +124,12 @@ ruled out (docs/api.md, Results).
 | any            | INTERNAL: a broken contract                                                                                      |
 
 Errors from the platform — a DOMException from a file or a lock — become
-opfsql errors in one function, `toOpfsqlError` in `errors.ts`, used by the
-engine and the worker host alike. An error object is never shared between calls: one kept to be thrown
-again is thrown as the cause of a new one.
+opfsql errors in `errors.ts`: `toOpfsqlError` at the boundaries of the
+engine and the worker host, and `fileFailure` — the same translation, with a
+message naming the file — where storage reports a failed write itself. Two
+places translate what only they can tell: opening, where a refused file
+handle means another tab holds the files (DATABASE_IN_USE), and the write
+lock, where a failed lock request is the environment's failure (IO_ERROR).
+
+An error object is never shared between calls: one kept to be thrown again
+is thrown as the cause of a new one.

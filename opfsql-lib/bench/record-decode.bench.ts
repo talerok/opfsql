@@ -6,7 +6,7 @@
 import { bench, describe } from "vitest";
 import { MemoryPages } from "../src/storage/btree/tests/memory-pages.js";
 import {
-  decodeInto,
+  decodeFieldsInto,
   decodeRecord,
   encodeRecord,
   prepareField,
@@ -52,7 +52,8 @@ describe("records, 10k rows", () => {
 
   bench("price and category", () => {
     const target: RecordField[] = [];
-    for (const record of records) decodeInto(record, priceAndCategory, target);
+    for (const record of records)
+      decodeFieldsInto(record, priceAndCategory, target);
   });
 });
 

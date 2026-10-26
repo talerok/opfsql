@@ -5,10 +5,10 @@ import { CorruptError } from "../../../errors.js";
 import { areEqual } from "../../../values/index.js";
 import type { RecordField } from "../record.js";
 import {
-  decodeInto,
+  decodeFieldsInto,
   decodeRecord,
   encodeRecord,
-  OverflowValue,
+  OverflowReference,
   prepareField,
   recordSize,
 } from "../record.js";
@@ -28,8 +28,8 @@ describe("records", () => {
       expect(fields).toHaveLength(values.length);
       for (const [index, value] of values.entries()) {
         const field = fields[index] ?? null;
-        expect(field).not.toBeInstanceOf(OverflowValue);
-        if (field instanceof OverflowValue) continue;
+        expect(field).not.toBeInstanceOf(OverflowReference);
+        if (field instanceof OverflowReference) continue;
         expect(areEqual(field, value)).toBe(true);
       }
     }
@@ -57,26 +57,33 @@ describe("records", () => {
   it("decode the fields asked for into their places, skipping the others", () => {
     const record = encode(["skip me", 42, null, true]);
     const values: RecordField[] = ["default", "default"];
-    expect(decodeInto(record, [undefined, 1, undefined, 0], values)).toBe(
+    expect(decodeFieldsInto(record, [undefined, 1, undefined, 0], values)).toBe(
       false,
     );
     expect(values).toEqual([true, 42]);
   });
 
   it("say when a field decoded is in overflow pages", () => {
-    const reference = new OverflowValue("text", 70_000, 123);
+    const reference = new OverflowReference("text", 70_000, 123);
     const record = encode([1, reference]);
-    expect(decodeInto(record, [0], [])).toBe(false);
-    expect(decodeInto(record, [undefined, 0], [])).toBe(true);
+    expect(decodeFieldsInto(record, [0], [])).toBe(false);
+    expect(decodeFieldsInto(record, [undefined, 0], [])).toBe(true);
   });
 
   it("give overflow fields as references to their chains", () => {
-    const reference = new OverflowValue("text", 70_000, 123);
+    const reference = new OverflowReference("text", 70_000, 123);
     expect(decodeRecord(encode([1, reference, "x"]))).toEqual([
       1,
       reference,
       "x",
     ]);
+  });
+
+  it("refuse JSON bytes that do not parse", () => {
+    const bytes = encode([{ a: 1 }]);
+    // The JSON is the record's last bytes: `{"a":1}` becomes `{"a":1!`.
+    bytes[bytes.length - 1] = "!".codePointAt(0) ?? 0;
+    expect(() => decodeRecord(bytes)).toThrow(CorruptError);
   });
 
   it("refuse a body that does not match the header", () => {
@@ -89,7 +96,7 @@ describe("records", () => {
     const bytes = Uint8Array.of(2, 15, 0, 0, 0, 0, 0, 0, 0, 0);
     expect(() => decodeRecord(bytes)).toThrow(CorruptError);
     expect(() => decodeRecord(bytes)).toThrow("serial type 15 is reserved");
-    expect(() => decodeInto(bytes, [undefined], [])).toThrow(
+    expect(() => decodeFieldsInto(bytes, [undefined], [])).toThrow(
       "serial type 15 is reserved",
     );
   });

@@ -112,7 +112,8 @@ class StorageCheck {
   ): void {
     try {
       const row = new StoredRow(this.pages, rowid, record, guard);
-      for (const chain of row.overflowValues()) this.claimChain(owner, chain);
+      for (const chain of row.overflowReferences())
+        this.claimChain(owner, chain);
     } catch (error) {
       this.report(owner, `row ${String(rowid)}: ${messageOf(error)}`);
     }

@@ -69,7 +69,7 @@ describe("reading a tree while it changes", () => {
 
     table.replace(2, ["changed"]);
 
-    expect(() => row.value(0)).toThrow(InternalError);
-    expect(table.get(1)?.value(0)).toBe(big);
+    expect(() => row.field(0)).toThrow(InternalError);
+    expect(table.get(1)?.field(0)).toBe(big);
   });
 });

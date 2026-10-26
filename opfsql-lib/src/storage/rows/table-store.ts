@@ -1,4 +1,4 @@
-import { InternalError, RowTooLargeError } from "../../errors.js";
+import { RowTooLargeError } from "../../errors.js";
 import {
   copyValue,
   isMutable,
@@ -16,11 +16,11 @@ import type {
 } from "../format/record.js";
 import {
   decodeBytes,
-  decodeInto,
+  decodeFieldsInto,
   decodeRecord,
   encodeRecord,
   OVERFLOW_REFERENCE_SIZE,
-  OverflowValue,
+  OverflowReference,
   prepareField,
   recordSize,
 } from "../format/record.js";
@@ -108,29 +108,35 @@ export class StoredRow {
     this.fields = decodeRecord(record);
   }
 
-  /** Columns stored; columns added to the table since read as their default. */
-  get length(): number {
+  /**
+   * The value of field `index`, read from its overflow chain if it has one;
+   * undefined if the record has fewer fields — written before its table's
+   * later columns were added, or damaged.
+   */
+  field(index: number): Value | undefined {
+    const field = this.fields[index];
+    return field === undefined ? undefined : this.valueOf(field);
+  }
+
+  /** The value of every field the record holds, in field order. */
+  values(): Value[] {
+    return this.fields.map((field) => this.valueOf(field));
+  }
+
+  /** Fields the record holds. */
+  get fieldCount(): number {
     return this.fields.length;
   }
 
-  /** The value of a decoded field, read from its overflow chain if it has one. */
-  value(column: number): Value {
-    const field = this.fields[column];
-    if (field instanceof OverflowValue) {
-      this.guard.check();
-      return overflowValue(this.pages, field);
-    }
-    if (field === undefined) {
-      throw new InternalError(
-        `field ${String(column)} of row ${String(this.rowid)} was not decoded`,
-      );
-    }
-    return field;
+  /** The values of this row that live in overflow chains. */
+  overflowReferences(): OverflowReference[] {
+    return this.fields.filter((field) => field instanceof OverflowReference);
   }
 
-  /** The values of this row that live in overflow chains. */
-  overflowValues(): OverflowValue[] {
-    return this.fields.filter((field) => field instanceof OverflowValue);
+  private valueOf(field: RecordField): Value {
+    if (!(field instanceof OverflowReference)) return field;
+    this.guard.check();
+    return readOverflowValue(this.pages, field);
   }
 }
 
@@ -237,7 +243,7 @@ export class TableReader {
   ): Value[] {
     // Defaults first: a field the record lacks keeps its column's default.
     const tuple: RecordField[] = [...layout.defaults];
-    const hasOverflow = decodeInto(record, layout.places, tuple);
+    const hasOverflow = decodeFieldsInto(record, layout.places, tuple);
     for (const position of layout.rowids) tuple[position] = rowid;
     for (const [from, to] of layout.repeats) tuple[to] = tuple[from] ?? null;
     for (const [position, fallback] of layout.mutableDefaults) {
@@ -246,7 +252,9 @@ export class TableReader {
     // Without an overflow reference among them, every field is a Value.
     if (!hasOverflow) return tuple as Value[];
     return tuple.map((value) =>
-      value instanceof OverflowValue ? overflowValue(this.pages, value) : value,
+      value instanceof OverflowReference
+        ? readOverflowValue(this.pages, value)
+        : value,
     );
   }
 }
@@ -303,7 +311,7 @@ export class TableWriter extends TableReader {
   }
 
   private freeChains(row: StoredRow): void {
-    for (const value of row.overflowValues()) {
+    for (const value of row.overflowReferences()) {
       freeChain(this.pages, value);
     }
   }
@@ -356,7 +364,7 @@ function cellSize(rowid: number, fields: readonly PreparedField[]): number {
 
 function overflowField(field: InlineBytes, firstPage: number): PreparedField {
   const { holds, bytes } = field;
-  return prepareField(new OverflowValue(holds, bytes.length, firstPage));
+  return prepareField(new OverflowReference(holds, bytes.length, firstPage));
 }
 
 /**
@@ -375,6 +383,9 @@ function largestMovable(fields: readonly PreparedField[]): InlineColumn | null {
 }
 
 /** The value whose bytes an overflow chain holds. */
-function overflowValue(pages: PageReader, reference: OverflowValue): Value {
+function readOverflowValue(
+  pages: PageReader,
+  reference: OverflowReference,
+): Value {
   return decodeBytes(reference.holds, readChain(pages, reference));
 }

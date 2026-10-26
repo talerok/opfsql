@@ -21,7 +21,8 @@ export class TableRow {
 
   value(column: number): Value {
     if (column === this.table.rowidColumn) return this.stored.rowid;
-    if (column < this.stored.length) return this.stored.value(column);
+    const stored = this.stored.field(column);
+    if (stored !== undefined) return stored;
     // A BLOB, JSON object or array is copied, so that each row's is its own.
     return copyValue(defaultOf(this.table, column));
   }

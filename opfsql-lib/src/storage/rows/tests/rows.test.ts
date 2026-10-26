@@ -28,7 +28,7 @@ function setup() {
 
 function values(row: StoredRow | null): Value[] {
   if (row === null) return [];
-  return Array.from({ length: row.length }, (_, column) => row.value(column));
+  return row.values();
 }
 
 /** Counts the pages read through it. */
@@ -88,9 +88,9 @@ describe("table rows", () => {
     const row = new TableReader(counting, root).get(1);
     const readsForRow = counting.reads;
 
-    expect(row?.value(0)).toBe("title");
+    expect(row?.field(0)).toBe("title");
     expect(counting.reads).toBe(readsForRow);
-    expect(row?.value(1)).toHaveLength(50_000);
+    expect(row?.field(1)).toHaveLength(50_000);
     expect(counting.reads).toBeGreaterThan(readsForRow + 10);
   });
 

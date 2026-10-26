@@ -309,10 +309,7 @@ function rowsFrom(
 ): { rowid: number; fields: Value[] }[] {
   const batch: { rowid: number; fields: Value[] }[] = [];
   for (const row of rows.scan(from)) {
-    const fields = Array.from({ length: row.length }, (_, field) =>
-      row.value(field),
-    );
-    batch.push({ rowid: row.rowid, fields });
+    batch.push({ rowid: row.rowid, fields: row.values() });
     if (batch.length === REWRITE_BATCH) break;
   }
   return batch;
