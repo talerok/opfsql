@@ -18,26 +18,26 @@ type Source = (count: number) => readonly Tuple[] | null;
 
 /** The rows the `cte-scan`s of one CTE index read: a CTE's result, or a working set. */
 export class CteRows {
-  #spool: Spool | null = null;
+  private current: Spool | null = null;
 
   constructor(readonly name: string) {}
 
   /** From now on, the rows `source` gives, as far as scans read them. */
   spool(source: Source): void {
-    this.#spool = new Spool([], source);
+    this.current = new Spool([], source);
   }
 
   /** From now on, `rows`. */
   hold(rows: readonly Tuple[]): void {
-    this.#spool = new Spool(rows, null);
+    this.current = new Spool(rows, null);
   }
 
   /** At most `count` rows from `position` on; none past the last. */
   rowsFrom(position: number, count: number): readonly Tuple[] {
-    if (this.#spool === null) {
+    if (this.current === null) {
       throw new InternalError(`CTE ${this.name} is read before it is computed`);
     }
-    return this.#spool.rowsFrom(position, count);
+    return this.current.rowsFrom(position, count);
   }
 }
 
@@ -142,25 +142,25 @@ function* newRows(
 
 /** Rows read from a source as far as readers ask, and kept for every reader. */
 class Spool {
-  readonly #rows: Tuple[];
-  #source: Source | null;
+  private readonly rows: Tuple[];
+  private source: Source | null;
 
   constructor(rows: readonly Tuple[], source: Source | null) {
-    this.#rows = [...rows];
-    this.#source = source;
+    this.rows = [...rows];
+    this.source = source;
   }
 
   rowsFrom(position: number, count: number): readonly Tuple[] {
     this.fillTo(position + count);
-    return this.#rows.slice(position, position + count);
+    return this.rows.slice(position, position + count);
   }
 
   /** Pulls from the source until `count` rows are held or it has none left. */
   private fillTo(count: number): void {
-    while (this.#rows.length < count && this.#source !== null) {
-      const batch = this.#source(count - this.#rows.length);
-      if (batch === null) this.#source = null;
-      else this.#rows.push(...batch);
+    while (this.rows.length < count && this.source !== null) {
+      const batch = this.source(count - this.rows.length);
+      if (batch === null) this.source = null;
+      else this.rows.push(...batch);
     }
   }
 }

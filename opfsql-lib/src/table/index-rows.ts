@@ -51,7 +51,7 @@ interface KeyBounds {
 }
 
 export class IndexRows {
-  readonly #entries: IndexReader;
+  private readonly entries: IndexReader;
 
   /** `table` holds the rows of the index's table. */
   constructor(
@@ -59,12 +59,12 @@ export class IndexRows {
     readonly index: Index,
     private readonly table: TableRows,
   ) {
-    this.#entries = new IndexReader(pages, index.rootPage);
+    this.entries = new IndexReader(pages, index.rootPage);
   }
 
   /** The rowids of the entries `seek` finds, in key order or its reverse. */
   rowids(seek: KeySeek, order: KeyOrder): Generator<number> {
-    return rowidsIn(this.#entries, seek, order);
+    return rowidsIn(this.entries, seek, order);
   }
 
   /** The rows of those entries; CORRUPT for an entry whose row is missing. */
@@ -84,7 +84,7 @@ export class IndexRows {
       end: prefixEnd(encodeKey(equal)),
     };
     const order = end === "first" ? "ascending" : "descending";
-    const found = keysIn(this.#entries, bounds, order).next();
+    const found = keysIn(this.entries, bounds, order).next();
     if (found.done === true) return null;
     return decodeKey(found.value)[equal.length] ?? null;
   }

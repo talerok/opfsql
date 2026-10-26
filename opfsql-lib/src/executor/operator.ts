@@ -38,8 +38,8 @@ export type Walk = (demand: Demand) => Iterator<Tuple>;
  * again after each rescan, which also rescans the operator's children.
  */
 export class WalkOperator implements Operator {
-  #rows: Iterator<Tuple> | null = null;
-  readonly #batch = new Batch();
+  private rows: Iterator<Tuple> | null = null;
+  private readonly batch = new Batch();
 
   /** `beforeBatch` runs before each batch: a leaf's checkpoint. */
   constructor(
@@ -50,12 +50,12 @@ export class WalkOperator implements Operator {
 
   next(max: number): readonly Tuple[] | null {
     this.beforeBatch?.();
-    this.#rows ??= this.walk(this.#batch);
-    return this.#batch.fill(this.#rows, Math.min(max, BATCH_SIZE));
+    this.rows ??= this.walk(this.batch);
+    return this.batch.fill(this.rows, Math.min(max, BATCH_SIZE));
   }
 
   rescan(): void {
-    this.#rows = null;
+    this.rows = null;
     for (const child of this.children) child.rescan();
   }
 }
@@ -107,22 +107,22 @@ function upTo(count: number, rows: readonly Tuple[]): Demand {
 
 /** A batch being filled from a walk, whose demand is what the batch still wants. */
 class Batch implements Demand {
-  #rows: Tuple[] = [];
-  #size = 0;
+  private rows: Tuple[] = [];
+  private size = 0;
 
   get wanted(): number {
-    return this.#size - this.#rows.length;
+    return this.size - this.rows.length;
   }
 
-  /** Up to `size` rows from `rows`, or null if it has none left. */
-  fill(rows: Iterator<Tuple>, size: number): Tuple[] | null {
-    this.#rows = [];
-    this.#size = size;
+  /** Up to `size` rows from `source`, or null if it has none left. */
+  fill(source: Iterator<Tuple>, size: number): Tuple[] | null {
+    this.rows = [];
+    this.size = size;
     while (this.wanted > 0) {
-      const next = rows.next();
+      const next = source.next();
       if (next.done === true) break;
-      this.#rows.push(next.value);
+      this.rows.push(next.value);
     }
-    return this.#rows.length > 0 ? this.#rows : null;
+    return this.rows.length > 0 ? this.rows : null;
   }
 }

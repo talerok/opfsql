@@ -18,7 +18,7 @@ import { SEQUENCE_TABLE_NAME, Sequences } from "./sequences.js";
 
 /** How to compute rows' keys in one schema version's indexes, each compiled when first needed. */
 export class IndexKeys {
-  readonly #keyed = new Map<string, KeyedIndex>();
+  private readonly keyedByName = new Map<string, KeyedIndex>();
 
   constructor(
     readonly schema: Schema,
@@ -34,10 +34,10 @@ export class IndexKeys {
 
   private keyed(index: Index, table: Table): KeyedIndex {
     const name = nameKey(index.name);
-    const known = this.#keyed.get(name);
+    const known = this.keyedByName.get(name);
     if (known !== undefined) return known;
     const keyed = keyedIndex(index, table, this.compile);
-    this.#keyed.set(name, keyed);
+    this.keyedByName.set(name, keyed);
     return keyed;
   }
 }

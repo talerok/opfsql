@@ -142,7 +142,7 @@ function compareKey(key: SortKey, a: Value, b: Value): number {
  * last of them, replaced when an earlier row arrives.
  */
 class BoundedHeap {
-  readonly #items: SortedRow[] = [];
+  private readonly items: SortedRow[] = [];
 
   constructor(
     private readonly capacity: number,
@@ -150,19 +150,19 @@ class BoundedHeap {
   ) {}
 
   offer(row: SortedRow): void {
-    if (this.#items.length < this.capacity) {
-      this.#items.push(row);
-      this.siftUp(this.#items.length - 1);
+    if (this.items.length < this.capacity) {
+      this.items.push(row);
+      this.siftUp(this.items.length - 1);
       return;
     }
-    const last = this.#items[0];
+    const last = this.items[0];
     if (last === undefined || this.compare(row, last) >= 0) return;
-    this.#items[0] = row;
+    this.items[0] = row;
     this.siftDown(0);
   }
 
   sorted(): SortedRow[] {
-    return this.#items.toSorted(this.compare);
+    return this.items.toSorted(this.compare);
   }
 
   private siftUp(start: number): void {
@@ -189,24 +189,24 @@ class BoundedHeap {
   private lastOf(position: number): number {
     let last = position;
     for (const child of [2 * position + 1, 2 * position + 2]) {
-      const isLater = child < this.#items.length && this.isAfter(child, last);
+      const isLater = child < this.items.length && this.isAfter(child, last);
       if (isLater) last = child;
     }
     return last;
   }
 
   private isAfter(a: number, b: number): boolean {
-    const first = this.#items[a];
-    const second = this.#items[b];
+    const first = this.items[a];
+    const second = this.items[b];
     if (first === undefined || second === undefined) return false;
     return this.compare(first, second) > 0;
   }
 
   private swap(a: number, b: number): void {
-    const first = this.#items[a];
-    const second = this.#items[b];
+    const first = this.items[a];
+    const second = this.items[b];
     if (first === undefined || second === undefined) return;
-    this.#items[a] = second;
-    this.#items[b] = first;
+    this.items[a] = second;
+    this.items[b] = first;
   }
 }
