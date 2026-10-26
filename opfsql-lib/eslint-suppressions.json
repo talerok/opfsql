@@ -241,91 +241,6 @@
       "count": 1
     }
   },
-  "test/e2e/checkpoint.spec.ts": {
-    "@typescript-eslint/restrict-template-expressions": {
-      "count": 2
-    },
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
-  "test/e2e/fixture/vite.config.ts": {
-    "@typescript-eslint/naming-convention": {
-      "count": 1
-    },
-    "import-x/no-default-export": {
-      "count": 1
-    },
-    "unicorn/no-top-level-side-effects": {
-      "count": 1
-    }
-  },
-  "test/e2e/infra/config.ts": {
-    "@typescript-eslint/strict-boolean-expressions": {
-      "count": 1
-    },
-    "import-x/no-default-export": {
-      "count": 1
-    },
-    "unicorn/no-top-level-side-effects": {
-      "count": 1
-    }
-  },
-  "test/e2e/infra/fixtures.ts": {
-    "unicorn/import-style": {
-      "count": 1
-    }
-  },
-  "test/e2e/one-tab.spec.ts": {
-    "sonarjs/no-skipped-tests": {
-      "count": 1
-    }
-  },
-  "test/e2e/snapshot-across-checkpoint.spec.ts": {
-    "@typescript-eslint/restrict-template-expressions": {
-      "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 1
-    }
-  },
-  "test/setup/web-locks.test.ts": {
-    "@typescript-eslint/promise-function-async": {
-      "count": 4
-    }
-  },
-  "test/setup/web-locks.ts": {
-    "@typescript-eslint/prefer-promise-reject-errors": {
-      "count": 1
-    },
-    "@typescript-eslint/promise-function-async": {
-      "count": 1
-    },
-    "@typescript-eslint/strict-boolean-expressions": {
-      "count": 3
-    },
-    "@typescript-eslint/use-unknown-in-catch-callback-variable": {
-      "count": 1
-    },
-    "unicorn/catch-error-name": {
-      "count": 1
-    },
-    "unicorn/explicit-length-check": {
-      "count": 1
-    },
-    "unicorn/name-replacements": {
-      "count": 2
-    },
-    "unicorn/prefer-await": {
-      "count": 3
-    },
-    "unicorn/prefer-promise-try": {
-      "count": 2
-    },
-    "unicorn/prefer-then-catch": {
-      "count": 1
-    }
-  },
   "test/slt/runner.ts": {
     "@typescript-eslint/array-type": {
       "count": 1
@@ -393,14 +308,6 @@
       "count": 2
     },
     "unicorn/text-encoding-identifier-case": {
-      "count": 1
-    }
-  },
-  "vitest.config.ts": {
-    "import-x/no-default-export": {
-      "count": 1
-    },
-    "unicorn/no-top-level-side-effects": {
       "count": 1
     }
   }

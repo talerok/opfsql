@@ -26,34 +26,31 @@ test.describe("One tab per database", () => {
     await cleanOpfs(tab);
   });
 
-  test("a second tab is told the database is in use", async ({
-    context,
-    browserName,
-  }) => {
-    test.skip(
-      browserName === "chromium",
-      "Chromium lets several tabs open one database",
-    );
+  // Only where one tab may hold a database: the config leaves Chromium out.
+  test(
+    "a second tab is told the database is in use",
+    { tag: "@one-tab-only" },
+    async ({ context }) => {
+      const first = await openTab(context);
+      await initDatabase(first);
 
-    const first = await openTab(context);
-    await initDatabase(first);
+      const second = await openTab(context);
+      const outcome = await second.evaluate(async () =>
+        globalThis.opfsql.attemptOpen("e2e-test"),
+      );
+      expect(outcome).toMatchObject({
+        ok: false,
+        error: {
+          name: "DatabaseInUseError",
+          code: "DATABASE_IN_USE",
+          isItsClass: true,
+          message: expect.stringContaining("open in another tab"),
+          fields: { database: "e2e-test" },
+        },
+      });
 
-    const second = await openTab(context);
-    const outcome = await second.evaluate(async () =>
-      globalThis.opfsql.attemptOpen("e2e-test"),
-    );
-    expect(outcome).toMatchObject({
-      ok: false,
-      error: {
-        name: "DatabaseInUseError",
-        code: "DATABASE_IN_USE",
-        isItsClass: true,
-        message: expect.stringContaining("open in another tab"),
-        fields: { database: "e2e-test" },
-      },
-    });
-
-    await closeDatabase(first);
-    await cleanOpfs(first);
-  });
+      await closeDatabase(first);
+      await cleanOpfs(first);
+    },
+  );
 });

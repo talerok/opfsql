@@ -16,8 +16,8 @@ test.describe("Checkpoint between tabs", { tag: "@multi-tab" }, () => {
     await initDatabase(tabA);
     await exec(tabA, "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)");
 
-    for (let i = 1; i <= 10; i++) {
-      await exec(tabA, `INSERT INTO t VALUES (${i}, ${i * 10})`);
+    for (let id = 1; id <= 10; id++) {
+      await exec(tabA, "INSERT INTO t VALUES ($1, $2)", [id, id * 10]);
     }
 
     const tabB = await openTab(context);

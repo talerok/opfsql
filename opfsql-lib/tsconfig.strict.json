@@ -29,6 +29,7 @@
     "src/async",
     "src/engine",
     "src/worker",
+    "test/setup",
     "test/support"
   ],
   "exclude": ["src/engine/tests", "src/worker/tests"]
