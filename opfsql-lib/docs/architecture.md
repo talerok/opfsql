@@ -55,21 +55,21 @@ switch, together with `src/store`.
 
 Dependencies point down the request path and never back:
 
-| Module             | May use                                                                                                                                                               |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `values`, `errors` | nothing else                                                                                                                                                          |
-| `schema`           | `values`, `errors`                                                                                                                                                    |
-| `storage`          | `values`, `errors`                                                                                                                                                    |
-| `functions`        | `values`, `errors`                                                                                                                                                    |
-| `sql/parser`       | `values`, `errors`                                                                                                                                                    |
-| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                                                                                                             |
-| `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                                                                                                           |
-| `sql/binder`       | built on `sql/plan`: scopes, the grouping model, types through the registry, DDL to the schema model, loadSchema; the engine binds with `src/legacy` until the switch |
-| `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                                                                                                               |
-| `table`            | `storage`, `schema`, `functions`, `values`, `errors`                                                                                                                  |
-| `executor`         | `sql/plan`, `expressions`, `table`, `functions`, `schema`, `values`, `errors`                                                                                         |
-| `engine`           | all of the above                                                                                                                                                      |
-| `worker`           | `engine`, `errors`, `values`                                                                                                                                          |
+| Module             | May use                                                                       |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `values`, `errors` | nothing else                                                                  |
+| `schema`           | `values`, `errors`                                                            |
+| `storage`          | `values`, `errors`                                                            |
+| `functions`        | `values`, `errors`                                                            |
+| `sql/parser`       | `values`, `errors`                                                            |
+| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                     |
+| `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                   |
+| `sql/binder`       | `sql/parser`, `sql/plan`, `schema`, `functions`, `values`, `errors`           |
+| `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                       |
+| `table`            | `storage`, `schema`, `functions`, `values`, `errors`                          |
+| `executor`         | `sql/plan`, `expressions`, `table`, `functions`, `schema`, `values`, `errors` |
+| `engine`           | all of the above                                                              |
+| `worker`           | `engine`, `errors`, `values`                                                  |
 
 ESLint enforces the table for every module already rebuilt
 (`import-x/no-restricted-paths` in `eslint.config.js`); the rest join as they
@@ -164,7 +164,7 @@ holds the lock until this promise settles".
 | `functions`        | built: one registry for the binder and the compiler                                                                     |
 | `expressions`      | built on `sql/plan`; the old compiler stays in `src/legacy/executor/evaluate` until the switch                          |
 | `sql/plan`         | contract written; binder, optimizer and executor move to it                                                             |
-| `sql/binder`       | to build on `sql/plan`: grouping model, scopes, DDL to the schema model; the old one is in `src/legacy`                 |
+| `sql/binder`       | built on `sql/plan`: scopes, grouping, types, DDL to the schema model, loadSchema; the engine still uses `src/legacy`   |
 | `sql/optimizer`    | to build on `sql/plan`: pure passes, access paths with residuals, physical plan; the old one is in `src/legacy`         |
 | `executor`         | to build on `sql/plan` and `table`: operators with rescan, DML through the planner; the old one is in `src/legacy`      |
 | `engine`, `worker` | rebuilt: snapshots, one write lock, queues, states, the worker API (docs/api.md); still on the old storage, `src/store` |
