@@ -16,7 +16,7 @@ import type { Expression, OrderKey, Plan } from "./logical.js";
 // ---------------------------------------------------------------------------
 
 /** The plan as indented lines, one per node. */
-export function formatPlan(plan: Plan): string {
+export function formatLogicalPlan(plan: Plan): string {
   const printer = new PlanPrinter();
   printer.node(plan, 0, null);
   return printer.lines.join("\n");
@@ -53,7 +53,7 @@ class PlanPrinter {
       const name = `subquery(${String(subquery.number)}${correlated})`;
       this.node(subquery.plan, depth + 1, name);
     }
-    for (const [child, childLabel] of childrenOf(plan)) {
+    for (const [child, childLabel] of childPlansOf(plan)) {
       this.node(child, depth + 1, childLabel);
     }
   }
@@ -146,7 +146,7 @@ class PlanPrinter {
 }
 
 /** A node's children in order, labeled where the order does not say what they are. */
-function childrenOf(plan: Plan): readonly Labeled[] {
+function childPlansOf(plan: Plan): readonly Labeled[] {
   switch (plan.kind) {
     case "get":
     case "values":

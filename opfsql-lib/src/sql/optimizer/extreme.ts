@@ -25,7 +25,7 @@ import type { Planner } from "./planner.js";
 // finds exactly the entries `=` holds for (key-tests.ts). index-extreme has no
 // residual (docs/planning.md, Physical plans), so any other condition, a range
 // included, rules it out. It returns the decoded key, so never for a part that
-// may hold a JSON object or array (holds).
+// may hold a JSON object or array (isKeyedByArgument).
 // ---------------------------------------------------------------------------
 
 type Extreme = physical.IndexExtreme["extreme"];
@@ -96,9 +96,10 @@ function extremeOn(
   wanted: Wanted,
   table: Table,
 ): physical.IndexExtreme | null {
-  const equal = equalPrefixOf(keys, tests);
+  const equal = exactEqualPrefix(keys, tests);
   const part = keys.parts[tests.length];
-  const isArgument = part !== undefined && holds(part, wanted.argument);
+  const isArgument =
+    part !== undefined && isKeyedByArgument(part, wanted.argument);
   if (equal === null || !isArgument) return null;
   return {
     kind: "index-extreme",
@@ -115,7 +116,7 @@ function extremeOn(
  * The seek values of the index's leading parts, one `=` test each, every
  * test used once; null if the tests are not exactly that.
  */
-function equalPrefixOf(
+function exactEqualPrefix(
   keys: IndexKeys,
   tests: readonly KeyTest[],
 ): SeekValue[] | null {
@@ -125,7 +126,7 @@ function equalPrefixOf(
     const found = equalTestOn(part, unused);
     if (found === null) return null;
     unused = unused.filter((keyTest) => keyTest !== found);
-    equal.push(found.test.value);
+    equal.push(found.match.value);
   }
   return unused.length === 0 ? equal : null;
 }
@@ -137,7 +138,10 @@ function equalPrefixOf(
  * IndexExtreme); a JSON part holds them, and so may an ANY part, which
  * stores any value as given.
  */
-function holds(part: KeyPart, argument: logical.Expression): boolean {
+function isKeyedByArgument(
+  part: KeyPart,
+  argument: logical.Expression,
+): boolean {
   const isDecodedExactly = part.type !== "JSON" && part.type !== "ANY";
   return isDecodedExactly && isSameExpression(argument, part.expression);
 }

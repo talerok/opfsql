@@ -43,7 +43,7 @@ import type { Planner } from "./planner.js";
 type Expression = physical.Expression;
 
 /** The table asked to lead a join, and the order it is asked for. */
-export interface Lead {
+interface Lead {
   readonly tableIndex: number;
   readonly order: WantedOrder;
 }

@@ -3,7 +3,7 @@ import { scalarFunction } from "../../../functions/index.js";
 import type { Table } from "../../../schema/index.js";
 import {
   type ColumnReference,
-  formatPlan,
+  formatLogicalPlan,
   type logical,
   ROWID_COLUMN,
 } from "../index.js";
@@ -30,7 +30,7 @@ function column(columnIndex: number, depth = 0): logical.Expression {
   };
 }
 
-describe("formatPlan", () => {
+describe("formatLogicalPlan", () => {
   it("prints a node per line, its children indented, its subqueries after it", () => {
     const subquery: logical.Plan = {
       kind: "project",
@@ -73,7 +73,7 @@ describe("formatPlan", () => {
         },
       },
     };
-    expect(formatPlan(plan)).toBe(
+    expect(formatLogicalPlan(plan)).toBe(
       [
         "limit all offset 5",
         "  filter rowid#0.rowid <= subquery(1) AND json_valid(JSON '{\"a\":[1]}')",
@@ -101,7 +101,9 @@ describe("formatPlan", () => {
       rows: [[negate(minusOne), negate(negate(column(1))), negate(column(1))]],
       types: ["INTEGER", "INTEGER", "INTEGER"],
     };
-    expect(formatPlan(plan)).toBe("values #0 (-(-1), -(-c1#0.1), -c1#0.1)");
+    expect(formatLogicalPlan(plan)).toBe(
+      "values #0 (-(-1), -(-c1#0.1), -c1#0.1)",
+    );
   });
 
   it("quotes a JSON path key that is not a plain name, as physical plans do", () => {
@@ -131,7 +133,7 @@ describe("formatPlan", () => {
       ],
       types: ["JSON"],
     };
-    expect(formatPlan(plan)).toBe('values #1 (data#0.1.plain."a b"[2])');
+    expect(formatLogicalPlan(plan)).toBe('values #1 (data#0.1.plain."a b"[2])');
   });
 
   it("keeps a REAL constant's decimal point", () => {
@@ -148,6 +150,6 @@ describe("formatPlan", () => {
       ],
       types: ["REAL", "INTEGER", "TEXT", "BLOB"],
     };
-    expect(formatPlan(plan)).toBe("values #0 (2.0, 2, 'it''s', X'ab')");
+    expect(formatLogicalPlan(plan)).toBe("values #0 (2.0, 2, 'it''s', X'ab')");
   });
 });

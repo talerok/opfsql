@@ -35,7 +35,7 @@ export {
   ROWID_COLUMN,
   type ScalarSubquery,
 } from "./expression.js";
-export { formatPlan } from "./format-logical.js";
+export { formatLogicalPlan } from "./format-logical.js";
 export { columnType, relationLayout } from "./logical.js";
 export * as logical from "./logical.js";
 export {

@@ -11,7 +11,7 @@ import {
   type Table,
   type TableShape,
 } from "../../../schema/index.js";
-import { formatPlan } from "../../plan/index.js";
+import { formatLogicalPlan } from "../../plan/index.js";
 import {
   bindIndexKey,
   bindStatement,
@@ -376,7 +376,7 @@ describe("bindIndexKey", () => {
   it("binds a stored key over the table's columns, bound to the index given", () => {
     const { table } = everyDefault;
     expect(
-      formatPlan({
+      formatLogicalPlan({
         kind: "project",
         tableIndex: 1,
         child: { kind: "values", tableIndex: 0, rows: [[]], types: [] },

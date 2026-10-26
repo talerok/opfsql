@@ -125,7 +125,7 @@ export function rowidRangeEstimate(range: physical.Range): Estimate {
 }
 
 /** The shape of an index seek: what the estimate depends on. */
-export interface IndexSeek {
+interface IndexSeek {
   readonly equalParts: number;
   readonly range: physical.Range | null;
   /** Every part of a unique index is equal: one row at most. */

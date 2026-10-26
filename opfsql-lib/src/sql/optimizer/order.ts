@@ -102,7 +102,7 @@ function orderedRead(
   planner: Planner,
 ): physical.Plan | null {
   const chain = projectedReadOf(order.child);
-  const keys = chain === null ? null : keysOverTable(order.keys, chain);
+  const keys = chain === null ? null : keysThrough(order.keys, chain.projects);
   if (chain === null || keys === null) return null;
   const path = chooseAccessPath(
     {
@@ -197,14 +197,6 @@ function projectedReadOf(plan: logical.Plan): ProjectedRead | null {
   // A filter no row passes reads nothing; lowering it reads no index either.
   if (hasNeverTrue(read.conditions)) return null;
   return { projects, ...read };
-}
-
-/** The order keys over the table's columns, read through the projects; null if one cannot be. */
-function keysOverTable(
-  keys: readonly logical.OrderKey[],
-  chain: ProjectedRead,
-): logical.OrderKey[] | null {
-  return keysThrough(keys, chain.projects);
 }
 
 /** The order keys read through `projects`; null if one cannot be. */

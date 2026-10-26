@@ -207,7 +207,7 @@ function rowidListCandidate(
   keyTest: ListTest,
   read: RowidRead,
 ): Candidate<RowidAccess> {
-  const { test } = keyTest;
+  const { match: test } = keyTest;
   const values = test.kind === "equal" ? [test.value] : test.values;
   const rowids = { kind: "list", values } as const;
   return {
@@ -280,7 +280,7 @@ function equalPrefix(
   for (const part of parts) {
     const found = equalTestOn(part, tests);
     if (found === null) break;
-    prefix.values.push(found.test.value);
+    prefix.values.push(found.match.value);
     prefix.enforced.push(found.condition);
   }
   return prefix;
@@ -320,11 +320,11 @@ interface Bounds {
 
 /** The first lower bound and the first upper bound among the tests. */
 function boundsOf(ranges: readonly RangeTest[]): Bounds | null {
-  const lowerFrom = ranges.find(({ test }) => test.range.lower !== null);
-  const upperFrom = ranges.find(({ test }) => test.range.upper !== null);
+  const lowerFrom = ranges.find(({ match: test }) => test.range.lower !== null);
+  const upperFrom = ranges.find(({ match: test }) => test.range.upper !== null);
   if (lowerFrom === undefined && upperFrom === undefined) return null;
-  const lower = lowerFrom?.test.range.lower ?? null;
-  const upper = upperFrom?.test.range.upper ?? null;
+  const lower = lowerFrom?.match.range.lower ?? null;
+  const upper = upperFrom?.match.range.upper ?? null;
   return { range: { lower, upper }, lowerFrom, upperFrom };
 }
 
@@ -334,7 +334,7 @@ function enforcedBy(
   ranges: readonly RangeTest[],
 ): Expression[] {
   const isUsed = (keyTest: RangeTest): boolean => {
-    const { lower, upper } = keyTest.test.range;
+    const { lower, upper } = keyTest.match.range;
     const isLowerUsed = lower === null || keyTest === bounds.lowerFrom;
     const isUpperUsed = upper === null || keyTest === bounds.upperFrom;
     return isLowerUsed && isUpperUsed;

@@ -204,8 +204,10 @@ export interface Sort {
   readonly keys: readonly OrderKey[];
 }
 
-/** A sort and the limit above it: the first `limit` rows after `offset`. */
-/** `limit` and `offset` as LIMIT and OFFSET take them (docs/semantics.md). */
+/**
+ * A sort and the limit above it: the first `limit` rows after `offset`,
+ * which are taken as LIMIT and OFFSET take them (docs/semantics.md).
+ */
 export interface TopN {
   readonly kind: "top-n";
   readonly child: Plan;

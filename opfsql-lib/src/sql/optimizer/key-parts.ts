@@ -32,7 +32,10 @@ export interface KeyPart {
   readonly expression: logical.Expression;
   /** The type of what the part holds: the column's, or the key expression's. */
   readonly type: StaticType;
-  /** True if no entry holds NULL here, so a range below a value skips none. */
+  /**
+   * True if no entry holds NULL here, so NULLS FIRST or LAST does not matter
+   * when the part delivers an ORDER BY.
+   */
   readonly isNeverNull: boolean;
 }
 

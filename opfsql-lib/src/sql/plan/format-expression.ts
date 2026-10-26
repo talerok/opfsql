@@ -179,12 +179,20 @@ class ExpressionPrinter<Plan> {
         );
         return operands.join(` ${expression.operator} `);
       }
-      case "not":
-      case "is-null":
-      case "negate":
-      case "in-list":
+      case "not": {
+        return this.notOf(expression.operand);
+      }
+      case "is-null": {
+        return `${this.operand(expression.operand, power.equality)} IS NULL`;
+      }
+      case "negate": {
+        return `-${this.minusOperand(expression.operand)}`;
+      }
+      case "in-list": {
+        return this.inList(expression, "IN");
+      }
       case "between": {
-        return this.unary(expression);
+        return this.between(expression, "BETWEEN");
       }
     }
   }
@@ -200,33 +208,11 @@ class ExpressionPrinter<Plan> {
     return `${leftText} ${symbol} ${this.operand(right, above(level))}`;
   }
 
-  private unary(
-    expression: Extract<
-      Operation<Plan>,
-      { readonly kind: "not" | "is-null" | "negate" | "in-list" | "between" }
-    >,
-  ): string {
-    switch (expression.kind) {
-      case "not": {
-        return this.negation(expression.operand);
-      }
-      case "is-null": {
-        return `${this.operand(expression.operand, power.equality)} IS NULL`;
-      }
-      case "negate": {
-        return `-${this.negated(expression.operand)}`;
-      }
-      case "in-list": {
-        return this.inList(expression, "IN");
-      }
-      case "between": {
-        return this.between(expression, "BETWEEN");
-      }
-    }
-  }
-
-  /** NOT IN, IS NOT NULL and NOT BETWEEN as SQL writes them; any other NOT before its operand. */
-  private negation(operand: Expression<Plan>): string {
+  /**
+   * NOT IN, IS NOT NULL and NOT BETWEEN as SQL writes them — the kinds
+   * printed-power.ts's NEGATED_INFIX lists; any other NOT before its operand.
+   */
+  private notOf(operand: Expression<Plan>): string {
     if (operand.kind === "in-list") return this.inList(operand, "NOT IN");
     if (operand.kind === "between") return this.between(operand, "NOT BETWEEN");
     if (operand.kind === "is-null") {
@@ -240,7 +226,7 @@ class ExpressionPrinter<Plan> {
    * reads back as a literal of its own, and so does a second `-`, since
    * `--` starts a comment.
    */
-  private negated(operand: Expression<Plan>): string {
+  private minusOperand(operand: Expression<Plan>): string {
     const text = this.print(operand);
     const isNumber =
       operand.kind === "constant" && typeof operand.value === "number";

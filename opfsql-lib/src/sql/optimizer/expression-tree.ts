@@ -101,7 +101,7 @@ export function truth(value: boolean | null): Constant {
 }
 
 /** True for a constant FALSE or NULL: a condition no row passes. */
-export function isNeverTrue<Plan>(expression: Expression<Plan>): boolean {
+function isNeverTrue<Plan>(expression: Expression<Plan>): boolean {
   if (expression.kind !== "constant") return false;
   return expression.value === false || expression.value === null;
 }

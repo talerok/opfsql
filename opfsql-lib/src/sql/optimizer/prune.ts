@@ -83,9 +83,12 @@ function pruned(plan: Plan, wanted: Wanted): Plan {
       return prunedPassing(plan, wanted);
     }
     case "project":
-    case "hash-aggregate":
-    case "hash-distinct": {
+    case "hash-aggregate": {
       return prunedComputing(plan);
+    }
+    case "hash-distinct": {
+      // It compares whole rows: every column below it is wanted.
+      return { ...plan, child: pruneBelow(plan.child) };
     }
     case "set-operation":
     case "cte":
@@ -172,10 +175,7 @@ function optional(expression: Expression | null): Expression[] {
   return expression === null ? [] : [expression];
 }
 
-type Computing = Extract<
-  Plan,
-  { readonly kind: "project" | "hash-aggregate" | "hash-distinct" }
->;
+type Computing = Extract<Plan, { readonly kind: "project" | "hash-aggregate" }>;
 
 /** A node whose output is its own: it wants what it computes from. */
 function prunedComputing(plan: Computing): Plan {
@@ -193,9 +193,6 @@ function prunedComputing(plan: Computing): Plan {
       ];
       const needed = withReads(none, reads, layout);
       return { ...plan, child: pruned(plan.child, needed) };
-    }
-    case "hash-distinct": {
-      return { ...plan, child: pruneBelow(plan.child) };
     }
   }
 }
