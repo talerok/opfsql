@@ -173,37 +173,48 @@ function writeBody(record: ByteWriter, field: PreparedField): void {
 
 // --- Reading -------------------------------------------------------------------
 
-/** Which fields of a record to decode, by field number. */
-export type FieldMask = readonly boolean[];
+/** Where each field of a record goes, by field number; undefined to skip it. */
+export type FieldPlaces = readonly (number | undefined)[];
 
-/** A record's fields by number: undefined for a field not asked for. */
-export type DecodedFields = (RecordField | undefined)[];
+/** Every field of a record, in field order. */
+export function decodeRecord(record: Uint8Array): RecordField[] {
+  const fields: RecordField[] = [];
+  decodeInto(record, null, fields);
+  return fields;
+}
 
 /**
- * A record's fields, in one pass over its serial types and their bodies:
- * those `wanted` marks — every field, without it — decoded right away, the
- * bodies of the others skipped. A field in overflow pages comes back as the
- * OverflowValue that says where its bytes are.
+ * Decodes a record into `target`, in one pass over its serial types and
+ * their bodies: field i to position `places[i]`, or i without places; a
+ * field without a place has its body skipped. A field in overflow pages
+ * goes as the OverflowValue that says where its bytes are, and then the
+ * result is true: such a value is still to read.
  */
-export function decodeRecord(
+export function decodeInto(
   record: Uint8Array,
-  wanted: FieldMask | null = null,
-): DecodedFields {
-  const fields: DecodedFields = [];
+  places: FieldPlaces | null,
+  target: RecordField[],
+): boolean {
   const headerSize = readVarint(record, 0);
   let position = skipVarint(record, 0);
   let offset = headerSize;
+  let field = 0;
+  let hasOverflow = false;
   while (position < headerSize) {
     const serialType = readVarint(record, position);
-    const isWanted = wanted === null || wanted[fields.length] === true;
-    fields.push(isWanted ? fieldAt(record, serialType, offset) : undefined);
+    const place = places === null ? field : places[field];
+    if (place !== undefined) {
+      target[place] = fieldAt(record, serialType, offset);
+      hasOverflow ||= isOverflowType(serialType);
+    }
     offset += bodySizeOf(serialType);
     position = skipVarint(record, position);
+    field++;
   }
   if (offset !== record.length) {
     throw new CorruptError("record body does not match its header");
   }
-  return fields;
+  return hasOverflow;
 }
 
 /** The field of `serialType` whose body starts at `offset`. */
@@ -302,6 +313,10 @@ function bodySizeOf(serialType: number): number {
     throw new CorruptError(`serial type ${String(RESERVED)} is reserved`);
   }
   return inlineLengthOf(serialType);
+}
+
+function isOverflowType(serialType: number): boolean {
+  return serialType >= FIRST_OVERFLOW && serialType < RESERVED;
 }
 
 function integerWidthOf(serialType: number): IntegerWidth {

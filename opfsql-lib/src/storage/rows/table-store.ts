@@ -4,12 +4,13 @@ import { BTree, BTreeWriter } from "../btree/btree.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import { tableLeafCell, tableLeafCellSize } from "../format/btree-page.js";
 import type {
-  DecodedFields,
-  FieldMask,
+  FieldPlaces,
   PreparedField,
+  RecordField,
 } from "../format/record.js";
 import {
   decodeBytes,
+  decodeInto,
   decodeRecord,
   encodeRecord,
   OVERFLOW_REFERENCE_SIZE,
@@ -32,41 +33,52 @@ export type RowOrder = "ascending" | "descending";
 
 /** How each row is read as a tuple: where each of its values comes from. */
 export interface TupleLayout {
-  /** Per value, the field it is, or ROWID_FIELD for the rowid. */
-  readonly fields: readonly number[];
   /**
-   * Per value, what it is when the record has no such field: the row was
-   * written before the column was added.
+   * The values a tuple starts from: what each value is when the record
+   * holds no such field, written before its column was added.
    */
-  readonly missing: readonly Value[];
-  /** The fields to decode: those `fields` names. */
-  readonly wanted: FieldMask;
+  readonly defaults: readonly Value[];
+  /** Where each field goes in the tuple: its first position. */
+  readonly places: FieldPlaces;
+  /** The positions of the rowid. */
+  readonly rowids: readonly number[];
+  /** Positions that repeat a field already placed: [from, to]. */
+  readonly repeats: readonly (readonly [number, number])[];
 }
 
-/** The layout of tuples of `fields`, each `missing` its value if a record lacks it. */
+/**
+ * The layout of tuples whose values are `fields` — field numbers, or
+ * ROWID_FIELD for the rowid — each its `defaults` value if a record lacks it.
+ */
 export function tupleLayout(
   fields: readonly number[],
-  missing: readonly Value[],
+  defaults: readonly Value[],
 ): TupleLayout {
-  const wanted: boolean[] = [];
-  for (const field of fields) {
-    if (field !== ROWID_FIELD) wanted[field] = true;
+  const places: (number | undefined)[] = [];
+  const rowids: number[] = [];
+  const repeats: [number, number][] = [];
+  for (const [position, field] of fields.entries()) {
+    if (field === ROWID_FIELD) {
+      rowids.push(position);
+      continue;
+    }
+    const placed = places[field];
+    if (placed === undefined) places[field] = position;
+    else repeats.push([placed, position]);
   }
-  return { fields, missing, wanted };
+  return { defaults, places, rowids, repeats };
 }
 
 /** A stored row, its fields decoded out of the page as it is read. */
 export class StoredRow {
-  private readonly fields: DecodedFields;
+  private readonly fields: RecordField[];
 
-  /** `wanted` marks the fields to decode; every field, without it. */
   constructor(
     private readonly pages: PageReader,
     readonly rowid: number,
     record: Uint8Array,
-    wanted: FieldMask | null = null,
   ) {
-    this.fields = decodeRecord(record, wanted);
+    this.fields = decodeRecord(record);
   }
 
   /** Columns stored; columns added to the table since read as their default. */
@@ -182,16 +194,16 @@ export class TableReader {
     record: Uint8Array,
     layout: TupleLayout,
   ): Value[] {
-    const fields = decodeRecord(record, layout.wanted);
-    return layout.fields.map((field, position) => {
-      if (field === ROWID_FIELD) return rowid;
-      if (field >= fields.length) return layout.missing[position] ?? null;
-      const value = fields[field] ?? null;
-      if (value instanceof OverflowValue) {
-        return overflowValue(this.pages, value);
-      }
-      return value;
-    });
+    // Defaults first: a field the record lacks keeps its column's default.
+    const tuple: RecordField[] = [...layout.defaults];
+    const hasOverflow = decodeInto(record, layout.places, tuple);
+    for (const position of layout.rowids) tuple[position] = rowid;
+    for (const [from, to] of layout.repeats) tuple[to] = tuple[from] ?? null;
+    // Without an overflow reference among them, every field is a Value.
+    if (!hasOverflow) return tuple as Value[];
+    return tuple.map((value) =>
+      value instanceof OverflowValue ? overflowValue(this.pages, value) : value,
+    );
   }
 }
 

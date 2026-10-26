@@ -5,6 +5,7 @@ import { CorruptError } from "../../../errors.js";
 import { areEqual } from "../../../values/index.js";
 import type { RecordField } from "../record.js";
 import {
+  decodeInto,
   decodeRecord,
   encodeRecord,
   OverflowValue,
@@ -53,15 +54,20 @@ describe("records", () => {
     expect(sizes).toEqual([0, 0, 1, 1, 2, 6, 8, 8]);
   });
 
-  it("decode the fields asked for, skipping the others' bodies", () => {
+  it("decode the fields asked for into their places, skipping the others", () => {
     const record = encode(["skip me", 42, null, true]);
-    const wanted = [false, true, false, true];
-    expect(decodeRecord(record, wanted)).toEqual([
-      undefined,
-      42,
-      undefined,
-      true,
-    ]);
+    const values: RecordField[] = ["default", "default"];
+    expect(decodeInto(record, [undefined, 1, undefined, 0], values)).toBe(
+      false,
+    );
+    expect(values).toEqual([true, 42]);
+  });
+
+  it("say when a field decoded is in overflow pages", () => {
+    const reference = new OverflowValue("text", 70_000, 123);
+    const record = encode([1, reference]);
+    expect(decodeInto(record, [0], [])).toBe(false);
+    expect(decodeInto(record, [undefined, 0], [])).toBe(true);
   });
 
   it("give overflow fields as references to their chains", () => {
