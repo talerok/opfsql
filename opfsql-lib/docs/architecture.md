@@ -22,6 +22,17 @@ The design follows from what the web platform allows:
 | One thread per worker, no parallel query execution                                          | a pull-based executor that stops as soon as LIMIT or the caller does                                             |
 | A tab can disappear at any moment                                                           | every state on disk is recoverable; locks die with their tab                                                     |
 
+Tabs see each other only through the files, so anything a tab keeps across
+transactions can go stale behind its back. There is no page cache across
+transactions, on purpose: reads are cheap, and a cache turns any flaw in
+the multi-tab protocol from one wrong read into wrong reads until the WAL
+restarts. A feature that changes what a tab keeps between transactions, or
+how tabs see each other's files, is added only when measurement shows it is
+needed, and only with tests that interleave the tabs' file operations. A
+cache living within one pinned read transaction is safe by construction —
+the pages it holds cannot change while the snapshot is pinned — and is the
+first thing to reach for if profiling shows repeated reads.
+
 ## Modules
 
 ```
