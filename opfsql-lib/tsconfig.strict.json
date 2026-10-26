@@ -30,6 +30,7 @@
     "src/engine",
     "src/worker",
     "test/setup",
+    "test/slt",
     "test/support"
   ],
   "exclude": ["src/engine/tests", "src/worker/tests"]
