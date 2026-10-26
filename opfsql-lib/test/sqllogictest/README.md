@@ -46,20 +46,36 @@ Left out:
 
 ## Running it
 
-`npx vitest run test/sqllogictest` runs every chosen file, each in a fresh
-database; it is part of `npx vitest run`.
+The corpus is part of `npx vitest run`: `select.test.ts`, `select4.test.ts`,
+`select5.test.ts`, `evidence.test.ts`, `index.test.ts` and `random.test.ts`
+run the files side by side, each file in a fresh database, about 117,000
+records in some 20 seconds. `npx vitest run test/sqllogictest` runs them
+alone.
 
 `skips.txt` lists each record opfsql is expected to answer differently, by
 file and line, with the reason: a departure documented in
 docs/semantics.md, or a feature opfsql does not have. A listed record that
-starts to pass fails the run too, so the list stays exact.
+starts to pass fails the run too, and `skips.test.ts` checks that every
+listed record exists, so the list stays exact. To see what fails and is
+not listed, and what is listed and passes:
+
+```sh
+npx vite-node test/sqllogictest/triage.ts [corpus path …]
+```
 
 ## Updating the corpus
 
-1. Clone the mirror without running anything from it, into a directory of
-   its own: `git clone --depth 1 --filter=blob:none --no-checkout
-https://github.com/gregrahn/sqllogictest.git`, then `git sparse-checkout
-set --no-cone` with the paths above, and `git checkout`.
-2. For each file, `gzip -9 -n -c <path> > corpus/<path>.gz`.
-3. Record the new commit above, run the suite, and bring `skips.txt` up to
-   date: line numbers move when the files change.
+Clone the mirror into a directory of its own, without running anything
+from it, and check out only the chosen files:
+
+```sh
+git clone --depth 1 --filter=blob:none --no-checkout \
+  https://github.com/gregrahn/sqllogictest.git
+cd sqllogictest
+git sparse-checkout set --no-cone /test/select1.test /test/evidence/in1.test …
+git checkout
+```
+
+Then gzip each file into place, `gzip -9 -n -c <path> > corpus/<path>.gz`,
+record the new commit above, and bring `skips.txt` up to date with the
+triage script: line numbers move when the files change.
