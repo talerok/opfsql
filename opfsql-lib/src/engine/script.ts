@@ -1,5 +1,5 @@
 import { OpfsqlError } from "../errors.js";
-import type { Catalog } from "../store/catalog.js";
+import type { Schema } from "../schema/index.js";
 import type { Result } from "./api/index.js";
 import { changesSchema, checkParameters, type Step } from "./statements.js";
 
@@ -39,11 +39,11 @@ export async function eachStep(
   return results;
 }
 
-/** Binds a script's statements up to and including its first DDL. */
-export function bindAhead(steps: readonly Step[], catalog: Catalog): void {
+/** Plans a script's statements up to and including its first DDL. */
+export function planAhead(steps: readonly Step[], schema: Schema): void {
   for (const [index, step] of steps.entries()) {
     try {
-      checkParameters(step.bind(catalog));
+      checkParameters(step.plan(schema));
     } catch (error) {
       throw new StepFailure(index, error);
     }

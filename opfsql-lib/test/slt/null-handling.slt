@@ -182,17 +182,32 @@ NULL
 # NULL ordering
 # ============================================================================
 
-# ASC: NULLs last
+# ASC: NULLs first (docs/semantics.md, Order and equality)
 query I nosort
 SELECT a FROM t ORDER BY a ASC
+----
+NULL
+10
+40
+
+# DESC: NULLs last
+query I nosort
+SELECT a FROM t ORDER BY a DESC
+----
+40
+10
+NULL
+
+# NULLS FIRST and NULLS LAST say otherwise
+query I nosort
+SELECT a FROM t ORDER BY a ASC NULLS LAST
 ----
 10
 40
 NULL
 
-# DESC: NULLs first
 query I nosort
-SELECT a FROM t ORDER BY a DESC
+SELECT a FROM t ORDER BY a DESC NULLS FIRST
 ----
 NULL
 40

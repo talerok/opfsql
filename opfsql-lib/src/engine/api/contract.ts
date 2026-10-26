@@ -26,7 +26,7 @@ export interface TransactionOptions extends CallOptions {
 export interface OpenOptions {
   /** Milliseconds a write waits for the write lock before BUSY. Default 5000. */
   readonly busyTimeout?: number;
-  /** Page size of a new database, a power of two. Default 32768. */
+  /** Page size of a new database, a power of two from 4096 to 65536. Default 8192. */
   readonly pageSize?: number;
   /** WAL frames after which a commit triggers a checkpoint. Default 1000. */
   readonly checkpointThreshold?: number;

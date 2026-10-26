@@ -1,7 +1,5 @@
 import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { OpfsqlError } from "../../errors.js";
-import { RowTooLargeError } from "../../store/errors.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { mulberry32 } from "../../../test/support/random.js";
@@ -12,10 +10,9 @@ import { openTestEngine } from "./test-engine.js";
 //
 // Random INSERT / UPDATE / DELETE with realistic value sizes (bytes to hundreds
 // of KB), plus checkpoints and reopens at random points, checked against a
-// plain Map and engine.checkIntegrity() after every step. A statement must
-// either succeed and be reflected in the model, or fail with TOO_LARGE
-// and leave the database exactly as it was. Seeds are fixed so any failure
-// reproduces.
+// plain Map and engine.checkIntegrity() after every step. Every statement
+// succeeds and is reflected in the model: values larger than a page move to
+// overflow pages. Seeds are fixed so any failure reproduces.
 // ---------------------------------------------------------------------------
 
 interface Row {
@@ -125,15 +122,9 @@ class Fuzzer {
     statement: () => Promise<unknown>,
     applyToModel: () => void,
   ): Promise<void> {
-    try {
-      await statement();
-      applyToModel();
-      this.log.push(description);
-    } catch (err) {
-      if (!(err instanceof OpfsqlError && err.code === "TOO_LARGE")) throw err;
-      expect(err.cause).toBeInstanceOf(RowTooLargeError);
-      this.log.push(`${description} → rejected: ${err.message}`);
-    }
+    await statement();
+    applyToModel();
+    this.log.push(description);
   }
 
   private async verify(): Promise<void> {

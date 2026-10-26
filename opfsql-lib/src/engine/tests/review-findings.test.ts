@@ -6,9 +6,9 @@ import {
   MisuseError,
   SemanticError,
 } from "../../errors.js";
-import { WalStorage } from "../../store/wal/wal-storage.js";
+import { Pager } from "../../storage/pager/pager.js";
 import { Engine } from "../engine.js";
-import { openTabs } from "./tabs.js";
+import { openTab, sharedFiles } from "./tabs.js";
 import { failureOf } from "../../../test/support/failure.js";
 import {
   objectsOf,
@@ -32,21 +32,24 @@ beforeEach(() => {
 const tick = async () => new Promise((resolve) => setTimeout(resolve, 20));
 
 describe("lock and snapshot release", () => {
-  it("F1: a failing endSnapshot does not keep the write lock", async () => {
-    const [a, b] = await openTabs(`leak-${String(seq++)}`, 2, {
-      busyTimeout: 300,
-    });
-    const tabA = a.engine.connect();
-    const tabB = b.engine.connect();
+  it("F1: a failure releasing the snapshot does not keep the write lock", async () => {
+    const name = `leak-${String(seq++)}`;
+    const files = sharedFiles();
+    const marks = files.marks!;
+    const a = await openTab(name, files, { busyTimeout: 300 });
+    const b = await openTab(name, files, { busyTimeout: 300 });
+    const tabA = a.connect();
+    const tabB = b.connect();
     await tabA.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    const publish = a.wal.setOldestSnapshot.bind(a.wal);
+    const write = marks.write.bind(marks);
     let isFailing = false;
-    vi.spyOn(a.wal, "setOldestSnapshot").mockImplementation((oldest) => {
-      if (isFailing && oldest === null) {
+    // The commit is written; publishing that the snapshot is released fails.
+    vi.spyOn(marks, "write").mockImplementation((buffer, options) => {
+      if (isFailing) {
         isFailing = false;
         throw new DOMException("shm write failed", "InvalidStateError");
       }
-      publish(oldest);
+      return write(buffer, options);
     });
     await tabA.begin({ mode: "immediate" });
     await tabA.query("INSERT INTO t VALUES (1)");
@@ -76,18 +79,18 @@ describe("lock and snapshot release", () => {
     await root.removeEntry(`${name}.opfsql`);
     await root.removeEntry(`${name}.opfsql-wal`);
 
-    const isSnapshotSafe = Reflect.get<WalStorage, "isSnapshotSafe">(
-      WalStorage.prototype,
-      "isSnapshotSafe",
+    const beginRead = Reflect.get<Pager, "beginRead">(
+      Pager.prototype,
+      "beginRead",
     );
     let calls = 0;
-    vi.spyOn(WalStorage.prototype, "isSnapshotSafe").mockImplementation(
-      function guarded(this: WalStorage, snapshot: number) {
-        // A regression would hang the worker in a synchronous loop.
-        if (++calls > 10_000) throw new Error("Engine.pin spun 10000 times");
-        return isSnapshotSafe.call(this, snapshot);
-      },
-    );
+    vi.spyOn(Pager.prototype, "beginRead").mockImplementation(function guarded(
+      this: Pager,
+    ) {
+      // A regression would hang the worker in a synchronous loop.
+      if (++calls > 10_000) throw new Error("beginRead spun 10000 times");
+      return beginRead.call(this);
+    });
     engine = await Engine.open(name);
     expect(await rowsOf(engine.connect().query("SELECT 1"))).toEqual([[1]]);
     expect(calls).toBeLessThan(10);
@@ -221,7 +224,7 @@ describe("errors", () => {
 });
 
 describe("checkIntegrity", () => {
-  it("F8: waits for an open write transaction, then reports nothing for a sound database", async () => {
+  it("F8: an open write transaction's pages are not counted, before or after it commits", async () => {
     const engine = await Engine.open(`ci-${String(seq++)}`, {
       pageSize: 4096,
     });
@@ -231,10 +234,9 @@ describe("checkIntegrity", () => {
     for (let index = 0; index < 200; index++) {
       await session.query("INSERT INTO t (v) VALUES ($1)", ["x".repeat(100)]);
     }
-    const checked = engine.checkIntegrity();
-    await tick();
+    expect(await engine.checkIntegrity()).toEqual([]);
     await session.commit();
-    expect(await checked).toEqual([]);
+    expect(await engine.checkIntegrity()).toEqual([]);
     await engine.close();
   });
 });

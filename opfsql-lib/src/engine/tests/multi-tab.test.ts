@@ -1,50 +1,57 @@
-import { resetMockOPFS } from "opfs-mock";
-import { beforeEach, describe, expect, it } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
-import { MemoryFileHandle } from "../../store/wal/file-handle.js";
-import { writeOrphanMark } from "../../store/tests/helpers.js";
-import { ReadMarks } from "../../store/wal/read-marks.js";
-import { WalStorage } from "../../store/wal/wal-storage.js";
-import { createEngine, type Engine } from "../engine.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { StorageFiles } from "../../storage/index.js";
+import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
 import { mulberry32 } from "../../../test/support/random.js";
+import { openTab, sharedFiles } from "./tabs.js";
 
 // ---------------------------------------------------------------------------
 // Several engines ("tabs") on one database, coordinated the way real tabs
 // are: Web Locks for writers, read marks for snapshots. Each tab has its own
-// WAL index and catalog; only the files are shared.
+// WAL index and schema cache; only the files are shared.
 // ---------------------------------------------------------------------------
 
 interface Tab {
   engine: Engine;
   session: Session;
-  wal: WalStorage;
 }
 
-/**
- * Real tabs each open their own handles in readwrite-unsafe mode. opfs-mock
- * allows one handle per file, so the tabs share the handle objects instead —
- * the bytes every tab reads and writes are the same either way.
- */
+let opened = 0;
+
 async function openTabs(
   name: string,
   count: number,
-  shmFile = new MemoryFileHandle(),
+  files: StorageFiles = sharedFiles(),
 ): Promise<Tab[]> {
-  const main = new OPFSSyncStorage(name, { pageSize: 4096 });
-  const walFile = new MemoryFileHandle();
-  const lockName = `opfsql:${name}`;
+  const unique = `${name}-${String(opened++)}`;
   const tabs: Tab[] = [];
   for (let i = 0; i < count; i++) {
-    const marks = await ReadMarks.open(shmFile, lockName);
-    const wal = new WalStorage(main, walFile, {
-      checkpointThreshold: 8,
-      marks,
-    });
-    const engine = await createEngine(wal, { lockName });
-    tabs.push({ engine, session: engine.connect(), wal });
+    const engine = await openTab(unique, files);
+    tabs.push({ engine, session: engine.connect() });
   }
   return tabs;
+}
+
+/** Where the read-mark file keeps slot `slot`'s mark: a float64 after the header. */
+function slotOffset(slot: number): number {
+  return 24 + slot * 8;
+}
+
+/** Writes a mark as a tab that died holding `snapshot` would have left it. */
+function writeOrphanMark(
+  marks: StorageFiles["marks"],
+  slot: number,
+  snapshot: number,
+): void {
+  const bytes = new Uint8Array(8);
+  new DataView(bytes.buffer).setFloat64(0, snapshot);
+  marks!.write(bytes, { at: slotOffset(slot) });
+}
+
+function markIn(marks: StorageFiles["marks"], slot: number): number {
+  const bytes = new Uint8Array(8);
+  marks!.read(bytes, { at: slotOffset(slot) });
+  return new DataView(bytes.buffer).getFloat64(0);
 }
 
 async function rows(session: Session): Promise<unknown[]> {
@@ -53,7 +60,7 @@ async function rows(session: Session): Promise<unknown[]> {
 }
 
 beforeEach(() => {
-  resetMockOPFS();
+  vi.restoreAllMocks();
 });
 
 // Every step re-reads and integrity-checks the database from each tab, so the
@@ -173,18 +180,21 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
   }
 
   it("a tab that died with a snapshot open does not hold checkpoints back for good", async () => {
-    const shmFile = new MemoryFileHandle();
-    const [writer] = await openTabs("dead-tab", 1, shmFile);
+    const files = sharedFiles();
+    const [writer] = await openTabs("dead-tab", 1, files);
     await writer.session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
     );
-    writeOrphanMark(shmFile, 63, 1); // a tab crashed holding snapshot 1
-    const epoch = writer.wal.getEpoch();
+    writeOrphanMark(files.marks, 63, 1); // a tab crashed holding snapshot 1
+    const restarts = vi.spyOn(files.wal, "truncate");
 
     for (let id = 1; id <= 40; id++) {
       await writer.session.query("INSERT INTO t (id, v) VALUES ($1, 0)", [id]);
     }
-    expect(writer.wal.getEpoch()).toBeGreaterThan(epoch);
+    // The orphan's mark was cleared, and a checkpoint then went all the way
+    // and restarted the WAL.
+    expect(markIn(files.marks, 63)).toBe(-1);
+    expect(restarts).toHaveBeenCalledWith(0);
   });
 
   it("AUTOINCREMENT ids stay unique when tabs take turns inserting", async () => {

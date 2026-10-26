@@ -221,27 +221,27 @@ Doohickey|50
 statement ok
 INSERT INTO t VALUES (6, NULL, 20, 70.0)
 
-# ASC: NULLs last by default
+# ASC: NULLs first by default (docs/semantics.md, Order and equality)
 query T nosort
 SELECT name FROM t ORDER BY name ASC
 ----
+NULL
 Alice
 Bob
 Charlie
 Diana
 Eve
-NULL
 
-# DESC: NULLs first by default
+# DESC: NULLs last by default
 query T nosort
 SELECT name FROM t ORDER BY name DESC
 ----
-NULL
 Eve
 Diana
 Charlie
 Bob
 Alice
+NULL
 
 # ============================================================================
 # ORDER BY with EXISTS subquery

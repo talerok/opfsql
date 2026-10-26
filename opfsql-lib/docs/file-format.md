@@ -99,6 +99,13 @@ separator keys. A tree is known by its root page, which never moves: when the
 root splits, its content moves to two new pages and the root becomes their
 parent.
 
+Pages are not merged, but a delete that empties a leaf frees it: its parent
+drops the separator that led to it, and the neighbouring child takes over its
+keys. Every interior page keeps at least one separator and every leaf stays
+at one depth, so a parent with a single separator keeps an empty child until
+its other child is empty too, and then goes itself; a root left with one
+child takes that child's content, and the tree is a level less deep.
+
 ### Layout
 
 | Offset  | Size  | Field                                                |

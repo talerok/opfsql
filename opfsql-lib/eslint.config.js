@@ -292,6 +292,12 @@ export default config(
                 "sql/parser depends on nothing but sql/precedence, values and errors.",
             },
             {
+              // The engine serves the worker; it never reaches back.
+              target: "./src/engine",
+              from: "./src/worker",
+              message: "engine depends on everything but the worker.",
+            },
+            {
               target: "./src/engine/api",
               from: "./src",
               except: ["./engine/api", "./values", "./errors.ts"],

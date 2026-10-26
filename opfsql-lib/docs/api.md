@@ -65,7 +65,7 @@ await db.close();
 | --------------------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
 | `worker`              | required       | a dedicated module worker whose script calls `serveDatabase()` (any `WorkerHandle`)                             |
 | `busyTimeout`         | `5000`         | milliseconds a write waits for the write lock before failing with `BUSY`; `Infinity` waits for good             |
-| `pageSize`            | `32768`        | page size of a new database, a power of two; an existing database keeps its own                                 |
+| `pageSize`            | `8192`         | page size of a new database, a power of two from 4096 to 65536; an existing database keeps its own              |
 | `checkpointThreshold` | `1000`         | WAL frames after which a commit copies the WAL into the database file                                           |
 | `onCheckpointError`   | `console.warn` | called with the error when a background checkpoint fails; the commit that triggered it has succeeded regardless |
 
@@ -78,7 +78,9 @@ the worker's global scope, or on `scope` (anything with `postMessage` and
 
 Opening fails with `DATABASE_IN_USE` when another tab has the database open
 in a browser that lets only one tab hold its files (all but Chromium), with
-`UNSUPPORTED_FORMAT` for files of another format version, and with `INTERNAL`
+`UNSUPPORTED_FORMAT` for files of another format version — databases written
+by opfsql 0.0.x (format 4) included, which this version neither reads nor
+converts — and with `INTERNAL`
 when the worker cannot start — including when it has not answered within
 10 seconds, as a worker whose script never calls `serveDatabase()` does not.
 The page and the worker must load the same opfsql: the worker refuses a page
@@ -150,16 +152,18 @@ follows:
    outside `BEGIN … COMMIT` each statement commits on its own. When a
    statement fails, the rest are skipped and a transaction the script began
    is rolled back, so the call leaves no transaction and no lock behind.
-4. Inside a transaction begun by an earlier call, a failing statement aborts
-   that transaction (see [Transactions](#transactions)).
+4. Inside a transaction begun by an earlier call, a failing statement is
+   rolled back alone and the rest of the script is skipped; the transaction
+   stays open with what the statements before it did (see
+   [Transactions](#transactions)).
 
 The error of a statement that failed in `execute` has `statementIndex`, the
 position of that statement in the script, counting from zero.
 
 ## Prepared statements
 
-`prepare(sql)` parses and binds the statement once, so an unknown table or
-column fails at `prepare`, not at the first run.
+`prepare(sql)` parses, binds and plans the statement once, so an unknown
+table or column fails at `prepare`, not at the first run.
 
 | Member                     | Does                                                          |
 | -------------------------- | ------------------------------------------------------------- |
@@ -170,10 +174,11 @@ column fails at `prepare`, not at the first run.
 | `[Symbol.asyncDispose]()`  | `close()`                                                     |
 
 A statement runs on the connection it was prepared on, in that connection's
-order. When the schema changes — in this tab or another — the statement binds
-itself again before its next run; it never goes stale. If the change made it
-invalid (its table was dropped, say), that run fails with the error binding
-would give.
+order. It keeps its plan for as long as the schema it was planned against is
+the one its run sees. When the schema changes — in this tab or another — the
+statement binds and plans itself again before its next run; it never goes
+stale. If the change made it invalid (its table was dropped, say), that run
+fails with the error binding would give.
 
 ## Results
 
@@ -195,13 +200,21 @@ class Result {
 | `lastInsertRowid` | the rowid of the last row this statement inserted, or `null` if it inserted none            |
 | `objects()`       | the rows as objects keyed by column name; fails with `MISUSE` when two columns share a name |
 
-A column is named by its alias, else by the column it reads, else after the
-expression (`column2`, `count_star`). Write `SELECT a.id AS a_id, b.id AS b_id`
-to get distinct names for `objects()`; `rows` never loses a column.
+A result column is named by its alias (`AS`); else, when it reads a column,
+by that column's name as the table declares it, without the table's name
+(`SELECT U.ID` gives `id` for a column declared `id`, and so does `*`); else
+by the expression in opfsql's canonical spelling — lower-case function names,
+one space around operators: `COUNT(*)` gives `count(*)`, `id+1` gives
+`id + 1`. A UNION, INTERSECT or EXCEPT takes its names from its first
+SELECT. Write `SELECT a.id AS a_id, b.id AS
+b_id` to get distinct names for `objects()`; `rows` never loses a column.
+EXPLAIN returns one column, `plan`.
 
 Values are `null`, booleans, numbers, strings, `Uint8Array` (BLOB) and JSON
 objects and arrays, as [semantics.md](semantics.md) defines them. INTEGER
-values are safe integers, so they are plain numbers.
+values are safe integers, so they are plain numbers. A BLOB in a result is
+the caller's own copy: changing it changes neither the database nor another
+result.
 
 ## Transactions
 
@@ -217,17 +230,22 @@ writes after another writer has committed since its snapshot fails with
 `SERIALIZATION_FAILURE`: its reads may be stale. `BEGIN IMMEDIATE` never
 does, because it waits for the lock before taking its snapshot.
 
-When a statement in a transaction fails, the transaction is aborted: its
-changes are discarded and its lock and snapshot released at once, and every
-statement but `ROLLBACK` fails with `TRANSACTION_ABORTED`. `COMMIT` ends an
-aborted transaction too, failing with `TRANSACTION_ABORTED` so that the loss
-is never silent. `COMMIT` and `ROLLBACK` outside a transaction do nothing;
-`BEGIN` inside one fails with `MISUSE`.
+When a statement in a transaction fails, that statement is rolled back and
+nothing else is, as in SQLite: the transaction stays open, with every change
+made before the statement, and keeps its lock and snapshot. A caller can
+catch a `CONSTRAINT_VIOLATION` and carry on; a statement that fails part-way
+— an INSERT of several rows whose third breaks a UNIQUE constraint — leaves
+none of its changes. Only a failed `COMMIT` ends a transaction against the
+caller's will: then nothing of it remains. `COMMIT` and `ROLLBACK` outside a
+transaction do nothing; `BEGIN` inside one fails with `MISUSE`. A deferred
+transaction whose first write fails with `SERIALIZATION_FAILURE` stays open
+too, reading its snapshot; it can never write, so roll it back and run it
+again.
 
 `transaction(work, options?)` begins a transaction, runs `work`, and commits;
 if `work` throws, it rolls back and rethrows. A statement error that `work`
-catches and swallows still aborts the transaction, so the commit then fails
-with `TRANSACTION_ABORTED`. On a `Database` it runs on a fresh connection,
+catches and swallows rolls back that statement alone, and the commit keeps
+everything else `work` did. On a `Database` it runs on a fresh connection,
 which `work` receives and which is closed afterwards, so that other code using
 the database is never drawn into the transaction. On a `Connection`, `work`
 receives that connection. Transactions do not nest.
@@ -284,8 +302,11 @@ interface IndexInfo {
 
 A column's `type` is its type as [semantics.md](semantics.md) defines
 types, whatever name declared it: `VARCHAR(20)` is TEXT, `BIGINT` is
-INTEGER. Indexes opfsql creates for primary keys are not listed: the
-columns say `primaryKey`.
+INTEGER. A primary key over several columns shows as `primaryKey` on each of
+them. `indexes` lists the indexes `CREATE INDEX` made; those opfsql makes for
+PRIMARY KEY and UNIQUE constraints are not listed, since the columns say
+`primaryKey` and `unique`. Tables opfsql keeps for itself (`opfsql_sequence`,
+behind AUTOINCREMENT) are not listed either.
 
 ## Errors
 
@@ -294,30 +315,31 @@ the code, the message is for people. Errors cross the worker boundary intact:
 the same class (so `instanceof` works in the page), its code, message and
 fields, and its `cause`.
 
-| Code                    | Class                     | Fields             | Means                                                             |
-| ----------------------- | ------------------------- | ------------------ | ----------------------------------------------------------------- |
-| `SYNTAX_ERROR`          | `SqlSyntaxError`          | `offset`, `length` | the SQL does not parse                                            |
-| `SEMANTIC_ERROR`        | `SemanticError`           |                    | unknown names, wrong types or clauses                             |
-| `NOT_SUPPORTED`         | `NotSupportedError`       | `feature`          | valid SQL opfsql does not implement                               |
-| `CONSTRAINT_VIOLATION`  | `OpfsqlError`             |                    | a UNIQUE, PRIMARY KEY or NOT NULL constraint                      |
-| `DATATYPE_MISMATCH`     | `DatatypeMismatchError`   |                    | a value does not fit a type                                       |
-| `INTEGER_OVERFLOW`      | `IntegerOverflowError`    |                    | an integer result is not a safe integer                           |
-| `TOO_LARGE`             | `OpfsqlError`             |                    | a row, key or value is larger than opfsql stores                  |
-| `BUSY`                  | `BusyError`               | `timeout`          | the write lock was not granted within `busyTimeout`               |
-| `SERIALIZATION_FAILURE` | `SerializationError`      |                    | another writer committed since this transaction's snapshot        |
-| `TRANSACTION_ABORTED`   | `TransactionAbortedError` |                    | an earlier statement failed; only `ROLLBACK` works                |
-| `DATABASE_IN_USE`       | `DatabaseInUseError`      | `database`         | another tab has the database open, and this browser allows one    |
-| `ABORTED`               | `AbortError`              |                    | the call's signal was aborted, or its connection closed           |
-| `IO_ERROR`              | `OpfsqlError`             |                    | reading or writing the files failed                               |
-| `STORAGE_FULL`          | `OpfsqlError`             |                    | the browser refused to store more                                 |
-| `CORRUPT`               | `OpfsqlError`             |                    | the files are damaged                                             |
-| `UNSUPPORTED_FORMAT`    | `OpfsqlError`             |                    | the files have another format version                             |
-| `MISUSE`                | `MisuseError`             |                    | the API was used wrongly: a closed connection, several statements |
-| `INTERNAL`              | `InternalError`           |                    | a bug in opfsql, or the worker failed                             |
+| Code                    | Class                                       | Fields                                    | Means                                                                   |
+| ----------------------- | ------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------- |
+| `SYNTAX_ERROR`          | `SqlSyntaxError`                            | `offset`, `length`                        | the SQL does not parse                                                  |
+| `SEMANTIC_ERROR`        | `SemanticError`                             |                                           | unknown names, wrong types or clauses                                   |
+| `NOT_SUPPORTED`         | `NotSupportedError`                         | `feature`                                 | valid SQL opfsql does not implement                                     |
+| `CONSTRAINT_VIOLATION`  | `ConstraintError`                           | `constraint`, `table`, `columns`, `index` | a UNIQUE, PRIMARY KEY or NOT NULL constraint                            |
+| `DATATYPE_MISMATCH`     | `DatatypeMismatchError`                     |                                           | a value does not fit a type                                             |
+| `INTEGER_OVERFLOW`      | `IntegerOverflowError`                      |                                           | an integer result is not a safe integer                                 |
+| `TOO_LARGE`             | `IndexKeyTooLargeError`, `RowTooLargeError` | `index` or `table`, `size`, `limit`       | an index key larger than a page holds, or a row of thousands of columns |
+| `BUSY`                  | `BusyError`                                 | `timeout`                                 | the write lock was not granted within `busyTimeout`                     |
+| `SERIALIZATION_FAILURE` | `SerializationError`                        |                                           | another writer committed since this transaction's snapshot              |
+| `DATABASE_IN_USE`       | `DatabaseInUseError`                        | `database`, `reason`                      | another tab has the database open, and this browser allows one          |
+| `ABORTED`               | `AbortError`                                |                                           | the call's signal was aborted, or its connection closed                 |
+| `IO_ERROR`              | `IoError`                                   |                                           | reading or writing the files failed                                     |
+| `STORAGE_FULL`          | `StorageFullError`                          |                                           | the browser refused to store more                                       |
+| `CORRUPT`               | `CorruptError`                              |                                           | the files are damaged                                                   |
+| `UNSUPPORTED_FORMAT`    | `UnsupportedFormatError`                    | `file`, `version`, `supported`            | the files have another format version                                   |
+| `MISUSE`                | `MisuseError`                               |                                           | the API was used wrongly: a closed connection, several statements       |
+| `INTERNAL`              | `InternalError`                             |                                           | a bug in opfsql, or the worker failed                                   |
 
-Errors of statements run by `execute` also have `statementIndex`. Where a
-code has no class of its own yet, the error is an `OpfsqlError` whose `cause`
-holds the details.
+Errors of statements run by `execute` also have `statementIndex`. Every
+class is exported from `"opfsql"`. A `ConstraintError`'s `columns` name the
+columns of the constraint; for a unique index over expressions they are
+empty and `index` names it. There is no `TRANSACTION_ABORTED` any more: a
+failed statement no longer aborts its transaction.
 
 ## Closing
 
@@ -372,9 +394,10 @@ the WAL, whose page versions snapshots need. `engine.connect()` returns a `Sessi
 `rollback()` and `inTransaction`; `PreparedStatement.close()` is synchronous.
 A session that is garbage-collected unclosed is closed by its engine.
 `engine.checkpoint()` copies the WAL into the database file as far as open
-snapshots allow; `engine.checkIntegrity()` resolves to the problems it finds,
-an empty list for a sound database — it waits for the write lock, so no
-writer's uncommitted pages count. `serveDatabase()` is built from these and
+snapshots allow; `engine.checkIntegrity()` resolves to the problems it finds
+in the latest commit, an empty list for a sound database — it reads a
+snapshot, as a query does, so it never waits for a writer and a writer's
+uncommitted pages are not in it. `serveDatabase()` is built from these and
 nothing else.
 
 The engine reads every statement's schema from the snapshot the statement

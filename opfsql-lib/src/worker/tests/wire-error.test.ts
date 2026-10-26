@@ -2,19 +2,24 @@ import { describe, expect, it } from "vitest";
 import {
   AbortError,
   BusyError,
+  ConstraintError,
+  CorruptError,
   DatabaseInUseError,
   DatatypeMismatchError,
+  IndexKeyTooLargeError,
   IntegerOverflowError,
   InternalError,
+  IoError,
   MisuseError,
   NotSupportedError,
   OpfsqlError,
+  RowTooLargeError,
   SemanticError,
   SerializationError,
   SqlSyntaxError,
-  TransactionAbortedError,
+  StorageFullError,
+  UnsupportedFormatError,
 } from "../../errors.js";
-import { RowTooLargeError } from "../../store/errors.js";
 import { fromWireError, toWireError } from "../wire-error.js";
 
 /** An error's own fields, as a plain object. */
@@ -53,7 +58,13 @@ describe("errors across the worker boundary", () => {
       new NotSupportedError("WINDOW"),
       new AbortError("stop"),
       new SerializationError(),
-      new TransactionAbortedError(),
+      new ConstraintError("unique", "users", ["email"], "users_email"),
+      new RowTooLargeError("t", 5000, 2025),
+      new IndexKeyTooLargeError("t_body", 3000, 2000),
+      new IoError("could not write", { cause: new Error("disk") }),
+      new CorruptError("page 3 is damaged"),
+      new StorageFullError("no room"),
+      new UnsupportedFormatError("app.opfsql", 4, 5),
       new MisuseError("closed"),
       new SemanticError("no such table"),
       new DatatypeMismatchError("not an integer"),
@@ -69,19 +80,21 @@ describe("errors across the worker boundary", () => {
   });
 
   it("keep the cause chain, foreign errors included", () => {
-    const storage = new RowTooLargeError("t", 5000, 2025);
-    const error = new OpfsqlError("TOO_LARGE", storage.message, {
-      cause: storage,
-    });
+    class DiskError extends Error {
+      override readonly name = "DiskError";
+      constructor(readonly sector: number) {
+        super(`sector ${String(sector)} is unreadable`);
+      }
+    }
+    const disk = new DiskError(42);
+    const error = new IoError("could not read", { cause: disk });
     const received = acrossTheBoundary(error);
-    expect(received.code).toBe("TOO_LARGE");
+    expect(received).toBeInstanceOf(IoError);
     expect(received.cause).toBeInstanceOf(Error);
     expect(received.cause).toMatchObject({
-      name: "RowTooLargeError",
-      message: storage.message,
-      table: "t",
-      size: 5000,
-      limit: 2025,
+      name: "DiskError",
+      message: disk.message,
+      sector: 42,
     });
   });
 

@@ -111,7 +111,8 @@ COMMIT
 statement ok
 ROLLBACK
 
-# --- Error in middle of transaction aborts entire transaction (PostgreSQL-style) ---
+# --- A failed statement is rolled back alone; the transaction goes on, as in
+# SQLite (docs/planning.md, Execution) ---
 
 statement ok
 CREATE TABLE t (id INTEGER PRIMARY KEY)
@@ -125,23 +126,26 @@ INSERT INTO t (id) VALUES (1)
 statement error
 INSERT INTO nonexistent (id) VALUES (2)
 
-# All subsequent statements (except ROLLBACK) should fail
-statement error
+statement ok
 INSERT INTO t (id) VALUES (3)
 
-# COMMIT on aborted transaction is treated as ROLLBACK
+# A statement that fails part-way leaves none of its rows
 statement error
+INSERT INTO t (id) VALUES (4), (5), (1)
+
+statement ok
 COMMIT
 
-# Table should be empty — entire transaction was rolled back
 query I nosort
 SELECT * FROM t
 ----
+1
+3
 
 statement ok
 DROP TABLE t
 
-# --- ROLLBACK clears aborted state ---
+# --- ROLLBACK after a failed statement discards the whole transaction ---
 
 statement ok
 CREATE TABLE t2 (id INTEGER PRIMARY KEY)

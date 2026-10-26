@@ -171,11 +171,17 @@ SELECT id, info.name FROM t2
 2|Bob
 
 # ============================================================================
-# Error: CREATE INDEX on JSON column
+# A JSON column can be indexed: objects and arrays are ordered and compared
+# by their canonical text (docs/semantics.md, Order and equality)
 # ============================================================================
 
-statement error
+statement ok
 CREATE INDEX idx ON t(data)
+
+query I nosort
+SELECT id FROM t WHERE data = CAST('{"name": "Alice", "age": 31}' AS JSON)
+----
+1
 
 # ============================================================================
 # ORDER BY JSON column (lexicographic via JSON.stringify)
@@ -238,18 +244,33 @@ statement ok
 DROP TABLE t4
 
 # ============================================================================
-# Error: JSON column as PRIMARY KEY
+# A JSON column can be a key: equal values are equal by canonical text, so
+# key order in an object does not make it another key
 # ============================================================================
+
+statement ok
+CREATE TABLE json_key (data JSON PRIMARY KEY)
+
+statement ok
+INSERT INTO json_key VALUES ('{"a": 1, "b": 2}'), ('[1, 2]')
 
 statement error
-CREATE TABLE bad1 (data JSON PRIMARY KEY)
+INSERT INTO json_key VALUES ('{"b": 2, "a": 1}')
 
-# ============================================================================
-# Error: JSON column as UNIQUE
-# ============================================================================
+statement ok
+CREATE TABLE json_unique (id INTEGER, data JSON UNIQUE)
+
+statement ok
+INSERT INTO json_unique VALUES (1, '[1]'), (2, NULL), (3, NULL)
 
 statement error
-CREATE TABLE bad2 (id INTEGER, data JSON UNIQUE)
+INSERT INTO json_unique VALUES (4, '[1]')
+
+statement ok
+DROP TABLE json_key
+
+statement ok
+DROP TABLE json_unique
 
 # ============================================================================
 # Error: arithmetic on JSON

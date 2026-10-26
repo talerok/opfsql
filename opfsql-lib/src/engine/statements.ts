@@ -1,25 +1,33 @@
-import { MisuseError } from "../errors.js";
-import { execute } from "../legacy/executor/execute/index.js";
-import { outputColumnNames } from "../legacy/executor/execute/result.js";
-import type { CatalogChange } from "../legacy/executor/types.js";
-import { Binder } from "../legacy/binder/index.js";
-import type { LogicalOperator } from "../legacy/binder/types.js";
-import { optimize } from "../legacy/optimizer/index.js";
+import { InternalError, MisuseError, NotSupportedError } from "../errors.js";
+import type { WriteStatement } from "../executor/index.js";
+import type { Schema } from "../schema/index.js";
+import { type BindableStatement, bindStatement } from "../sql/binder/index.js";
+import { optimize } from "../sql/optimizer/index.js";
 import {
-  Parser,
+  type BeginStatement,
+  parse,
   type Statement,
   StatementType,
-  type BeginStatement,
 } from "../sql/parser/index.js";
-import type { Catalog } from "../store/catalog.js";
-import type { SyncIIndexManager } from "../store/types.js";
+import type {
+  physical,
+  Query,
+  Statement as PlannedStatement,
+} from "../sql/plan/index.js";
 import type { Value } from "../values/index.js";
-import { Result, type TransactionMode } from "./api/index.js";
-import { formatPlan } from "./explain.js";
-import type { RecordingTableManager } from "./rows.js";
+import type { TransactionMode } from "./api/index.js";
+import type { Ddl } from "./ddl.js";
+import { explainStatement } from "./explain.js";
+import { bindKey } from "./index-keys.js";
+
+// ---------------------------------------------------------------------------
+// Statements from text to plans: parsed once, then bound and optimized
+// against a schema (docs/planning.md, The pipeline). A plan never changes,
+// so a statement keeps it for as long as it runs against the same schema.
+// ---------------------------------------------------------------------------
 
 export function parseScript(sql: string): readonly Statement[] {
-  return new Parser().parse(sql);
+  return parse(sql);
 }
 
 /** What a statement needs from its transaction. */
@@ -71,53 +79,46 @@ export function beginMode(statement: BeginStatement): TransactionMode {
   return statement.mode === "IMMEDIATE" ? "immediate" : "deferred";
 }
 
-/**
- * A statement bound against one schema. The plan is never optimized in
- * place — optimizer passes still rewrite the trees they get, so each run
- * optimizes a copy. Once plans are immutable, the optimized plan can be
- * kept here too.
- */
-export interface BoundStatement {
-  /** The schema it was bound against; a run on another one binds again. */
-  readonly catalog: Catalog;
-  readonly plan: LogicalOperator;
-  readonly columns: readonly string[];
-  /** How many parameters it takes: the highest $n it uses. */
-  readonly parameterCount: number;
-  /** EXPLAIN: the plan is optimized and described, never run. */
-  readonly isExplain: boolean;
-}
+/** A statement bound and optimized against one schema: what a transaction runs. */
+export type Planned =
+  | { readonly kind: "query"; readonly statement: Query<physical.Plan> }
+  | { readonly kind: "write"; readonly statement: WriteStatement }
+  | { readonly kind: "ddl"; readonly statement: Ddl }
+  | {
+      readonly kind: "explain";
+      /** The plan as text: EXPLAIN's one row. */
+      readonly text: string;
+      /** The explained statement's: EXPLAIN takes its parameters, unread. */
+      readonly parameterCount: number;
+    };
 
-function bindStatement(statement: Statement, catalog: Catalog): BoundStatement {
-  const binder = new Binder(catalog);
-  const isExplain = statement.type === StatementType.EXPLAIN_STATEMENT;
-  const subject = isExplain ? statement.statement : statement;
-  const plan = binder.bindStatement(subject);
-  return {
-    catalog,
-    plan,
-    columns: columnsOf(subject, plan, isExplain),
-    parameterCount: binder.parameterCount,
-    isExplain,
-  };
-}
+/** EXPLAIN's one column. */
+const EXPLAIN_COLUMNS = ["plan"];
 
-function columnsOf(
-  statement: Statement,
-  plan: LogicalOperator,
-  isExplain: boolean,
-): readonly string[] {
-  if (isExplain) return ["plan"];
-  if (statement.type !== StatementType.SELECT_STATEMENT) return [];
-  return outputColumnNames(plan);
+/** Result column names; none for a statement that returns no rows. */
+export function columnsOf(planned: Planned): readonly string[] {
+  switch (planned.kind) {
+    case "query": {
+      return planned.statement.columns.map((column) => column.name);
+    }
+    case "explain": {
+      return EXPLAIN_COLUMNS;
+    }
+    case "write":
+    case "ddl": {
+      return [];
+    }
+  }
 }
 
 /**
- * A statement to run, with the bind of its last run: bound again only when
- * it runs against another schema. A prepared statement keeps one.
+ * A statement to run, with its plan for the schema it last ran against:
+ * planned again only when it runs against another one. A prepared
+ * statement keeps one.
  */
 export class Step {
-  private bound: BoundStatement | null = null;
+  private last: { readonly schema: Schema; readonly planned: Planned } | null =
+    null;
 
   constructor(
     readonly sql: string,
@@ -128,99 +129,90 @@ export class Step {
     return statementKind(this.statement);
   }
 
-  /** Result column names as of the last bind; empty for writes. */
+  /** Result column names as of the last plan; empty for writes. */
   get columns(): readonly string[] {
-    return this.bound?.columns ?? [];
+    return this.last === null ? [] : columnsOf(this.last.planned);
   }
 
-  bind(catalog: Catalog): BoundStatement {
-    if (this.bound?.catalog !== catalog) {
-      this.bound = bindStatement(this.statement, catalog);
+  plan(schema: Schema): Planned {
+    if (this.last?.schema !== schema) {
+      this.last = { schema, planned: planStatement(this.statement, schema) };
     }
-    return this.bound;
+    return this.last.planned;
   }
 }
 
 /** A statement must get exactly the parameters it uses, never NULL for one it lacks. */
 export function checkParameters(
-  bound: BoundStatement,
+  planned: Planned,
   parameters: readonly Value[] = [],
 ): void {
-  if (parameters.length === bound.parameterCount) return;
+  const expected = parameterCountOf(planned);
+  if (parameters.length === expected) return;
   throw new MisuseError(
-    `the statement takes ${String(bound.parameterCount)} parameters, but ${String(parameters.length)} were given`,
+    `the statement takes ${String(expected)} parameters, but ${String(parameters.length)} were given`,
   );
 }
 
-/** Where a statement reads and writes. */
-export interface Target {
-  readonly catalog: Catalog;
-  readonly rows: RecordingTableManager;
-  readonly indexes: SyncIIndexManager;
-}
-
-export interface Outcome {
-  readonly result: Result;
-  /** DDL the statement made, for its transaction's schema. */
-  readonly changes: readonly CatalogChange[];
-}
-
-export function runBound(
-  bound: BoundStatement,
-  target: Target,
-  parameters: readonly Value[] = [],
-): Outcome {
-  checkParameters(bound, parameters);
-  const plan = optimize(clonePlan(bound.plan), target.catalog);
-  if (bound.isExplain) {
-    const rows = [[formatPlan(plan)]];
-    return { result: resultOf(bound.columns, rows), changes: [] };
+function parameterCountOf(planned: Planned): number {
+  switch (planned.kind) {
+    case "query":
+    case "write": {
+      return planned.statement.parameterCount;
+    }
+    case "explain": {
+      return planned.parameterCount;
+    }
+    case "ddl": {
+      return 0;
+    }
   }
-  const output = execute(
-    plan,
-    target.rows,
-    target.catalog,
-    target.indexes,
-    parameters,
-  );
-  const result = new Result({
-    columns: bound.columns,
-    rows: output.rows,
-    changes: output.rowsAffected,
-    lastInsertRowid: target.rows.lastInsertRowid,
-  });
-  return { result, changes: output.catalogChanges };
 }
 
-function resultOf(
-  columns: readonly string[],
-  rows: readonly (readonly Value[])[],
-): Result {
-  return new Result({ columns, rows, changes: 0, lastInsertRowid: null });
+function planStatement(statement: Statement, schema: Schema): Planned {
+  if (statement.type === StatementType.TRANSACTION_STATEMENT) {
+    throw new InternalError("BEGIN, COMMIT and ROLLBACK have no plan");
+  }
+  if (statement.type === StatementType.EXPLAIN_STATEMENT) {
+    return explain(statement.statement, schema);
+  }
+  return plannedOf(optimized(statement, schema));
 }
 
-/**
- * A copy of a bound plan for the optimizer, which still changes plans in
- * place: plain objects and arrays are copied; anything else — frozen
- * function definitions, BLOB constants — is shared. It goes once plans are
- * immutable (docs/planning.md).
- */
-function clonePlan<T>(value: T): T {
-  if (Array.isArray(value))
-    return value.map((item: unknown) => clonePlan(item)) as T;
-  if (!isCopied(value)) return value;
-  const entries = Object.entries(value).map(([key, item]) => [
-    key,
-    clonePlan(item),
-  ]);
-  return Object.fromEntries(entries) as T;
+function optimized(
+  statement: BindableStatement,
+  schema: Schema,
+): PlannedStatement<physical.Plan> {
+  return optimize(bindStatement(statement, schema), schema, bindKey);
 }
 
-function isCopied(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Object.isFrozen(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
+function explain(subject: Statement, schema: Schema): Planned {
+  if (subject.type === StatementType.TRANSACTION_STATEMENT) {
+    throw new NotSupportedError("EXPLAIN of BEGIN, COMMIT or ROLLBACK");
+  }
+  if (subject.type === StatementType.EXPLAIN_STATEMENT) {
+    throw new NotSupportedError("EXPLAIN of EXPLAIN");
+  }
+  const statement = optimized(subject, schema);
+  const parameterCount = parameterCountOf(plannedOf(statement));
+  return { kind: "explain", text: explainStatement(statement), parameterCount };
+}
+
+function plannedOf(statement: PlannedStatement<physical.Plan>): Planned {
+  switch (statement.kind) {
+    case "query": {
+      return { kind: "query", statement };
+    }
+    case "insert":
+    case "update":
+    case "delete": {
+      return { kind: "write", statement };
+    }
+    case "create-table":
+    case "create-index":
+    case "drop":
+    case "alter-table": {
+      return { kind: "ddl", statement };
+    }
+  }
 }

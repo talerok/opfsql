@@ -1,64 +1,50 @@
-import { InternalError, SerializationError } from "../errors.js";
-import type { CatalogChange } from "../legacy/executor/types.js";
-import { SyncIndexManager } from "../store/index-manager.js";
-import type { SessionStore } from "../store/session-store.js";
-import type { Value } from "../values/index.js";
-import type { Result, TransactionMode } from "./api/index.js";
-import { RecordingTableManager } from "./rows.js";
+import { InternalError } from "../errors.js";
+import { runQuery, runWrite } from "../executor/index.js";
+import type { Schema } from "../schema/index.js";
+import type { ReadTransaction, WriteTransaction } from "../storage/index.js";
 import {
-  type SchemaLoader,
-  stageSchemaChanges,
-  type VersionedSchema,
-  withChanges,
-} from "./schema.js";
-import { abortErrorOf } from "./signals.js";
-import { runBound, type Step } from "./statements.js";
-import type { Lease, WriteLock } from "./write-lock.js";
+  Catalog,
+  type IndexKeys,
+  Tables,
+  WritableTables,
+} from "../table/index.js";
+import type { Value } from "../values/index.js";
+import { emptyResult, type Result, type TransactionMode } from "./api/index.js";
+import type { Database, Writer } from "./database.js";
+import { runDdl } from "./ddl.js";
+import { compileIndexKey } from "./index-keys.js";
+import { changesResult, rowsResult } from "./results.js";
+import { readSchema, type SchemaCache } from "./schemas.js";
+import { columnsOf, type Planned } from "./statements.js";
 
 /** What a transaction needs from its engine. */
 export interface TransactionHost {
-  readonly busyTimeout: number;
-  readonly lock: WriteLock;
-  readonly schemas: SchemaLoader;
-  /**
-   * Pins the latest commit in `store` and returns its position, catching up
-   * with other tabs first unless this engine holds the write lock.
-   */
-  pin(store: SessionStore, signal: AbortSignal): Promise<number>;
-  /** Copies the WAL into the database file when the WAL asks for it. */
-  checkpointIfNeeded(): void;
-}
-
-/** Where a transaction runs: its session's store and its engine. */
-export interface TransactionContext {
-  readonly store: SessionStore;
-  readonly host: TransactionHost;
+  readonly database: Database;
+  readonly schemas: SchemaCache;
 }
 
 /**
- * Active until committed or rolled back (ended); aborted by a failed
- * statement, holding nothing, until rolled back.
- */
-type TransactionState = "active" | "aborted" | "ended";
-
-/**
- * A unit of work: one pinned snapshot, the schema stored in it, and the write
- * lock once it writes. A statement outside BEGIN runs in one of its own.
+ * A unit of work: one pinned snapshot, the schema stored in it, and once it
+ * writes, the write lock and a write transaction on that snapshot. A
+ * statement outside BEGIN runs in one of its own.
+ *
+ * Each statement that writes runs in a savepoint (docs/planning.md,
+ * Execution): one that fails is rolled back to it, and the transaction goes
+ * on, as in SQLite. Only a commit that fails ends the transaction.
  */
 export class Transaction {
-  private state: TransactionState = "active";
+  private isOpen = true;
 
-  /** `base`, or `base` with this transaction's own DDL. */
-  private working: VersionedSchema;
-
-  /** This transaction's DDL in order: what its commit stores. */
-  private readonly changes: CatalogChange[] = [];
+  /** The schema the next statement sees: the snapshot's, with this transaction's DDL. */
+  private working: IndexKeys;
 
   private constructor(
-    private readonly context: TransactionContext,
+    private readonly host: TransactionHost,
+    /** What statements read: the snapshot, or once writing, the write transaction. */
+    private pages: ReadTransaction,
+    private writer: Writer | null,
     /** The schema as of the snapshot. */
-    private readonly base: VersionedSchema,
-    private lease: Lease | null,
+    private readonly base: IndexKeys,
   ) {
     this.working = base;
   }
@@ -69,153 +55,175 @@ export class Transaction {
    * and stays so.
    */
   static async begin(
-    context: TransactionContext,
+    host: TransactionHost,
     mode: TransactionMode,
     signal: AbortSignal,
   ): Promise<Transaction> {
-    const lease = mode === "immediate" ? await acquire(context, signal) : null;
+    if (mode === "immediate") {
+      const writer = await host.database.beginWrite(signal);
+      return this.over(host, writer.transaction, writer);
+    }
+    const read = await host.database.beginRead(signal);
+    return this.over(host, read, null);
+  }
+
+  /** A transaction on pages already pinned; they are released if it cannot start. */
+  private static over(
+    host: TransactionHost,
+    pages: ReadTransaction,
+    writer: Writer | null,
+  ): Transaction {
     try {
-      const position = await context.host.pin(context.store, signal);
-      const schema = context.host.schemas.load(context.store, position);
-      return new Transaction(context, schema, lease);
+      return new Transaction(host, pages, writer, host.schemas.load(pages));
     } catch (error) {
-      try {
-        context.store.endSnapshot();
-      } finally {
-        lease?.release();
-      }
+      discard(host.database, pages, writer);
       throw error;
     }
   }
 
-  get isAborted(): boolean {
-    return this.state === "aborted";
-  }
-
-  get schema(): VersionedSchema {
-    return this.working;
+  get schema(): Schema {
+    return this.working.schema;
   }
 
   /**
    * Takes the lock for a deferred transaction's first write. Writing on a
-   * snapshot that another commit has overtaken could lose that commit, so
-   * that fails instead.
+   * snapshot another commit has overtaken could lose that commit, so that
+   * fails with SERIALIZATION_FAILURE instead, and the transaction goes on
+   * reading.
    */
   async makeWritable(signal: AbortSignal): Promise<void> {
-    this.assertActive();
-    if (this.lease !== null) return;
-    this.lease = await acquire(this.context, signal);
-    if (this.context.store.isSnapshotStale()) throw new SerializationError();
+    this.ensureOpen();
+    if (this.writer !== null) return;
+    this.writer = await this.host.database.upgrade(this.pages, signal);
+    this.pages = this.writer.transaction;
   }
 
-  run(step: Step, parameters: readonly Value[] | undefined): Result {
-    this.assertActive();
-    const { catalog } = this.working;
-    const { store } = this.context;
-    const target = {
-      catalog,
-      rows: new RecordingTableManager(store, () => catalog),
-      indexes: new SyncIndexManager(store, () => catalog),
-    };
-    const outcome = runBound(step.bind(catalog), target, parameters);
-    if (outcome.changes.length > 0) {
-      this.changes.push(...outcome.changes);
-      const changed = withChanges(catalog, outcome.changes);
-      this.working = { version: this.base.version, catalog: changed };
+  /** Runs a planned statement; one that writes needs makeWritable first. */
+  run(planned: Planned, parameters: readonly Value[]): Result {
+    this.ensureOpen();
+    switch (planned.kind) {
+      case "query": {
+        const tables = new Tables(this.pages, this.working.schema);
+        const rows = runQuery(planned.statement, tables, parameters);
+        return rowsResult(columnsOf(planned), rows);
+      }
+      case "explain": {
+        return rowsResult(columnsOf(planned), [[planned.text]]);
+      }
+      case "write": {
+        const { statement } = planned;
+        return this.inSavepoint((transaction) => {
+          const tables = new WritableTables(transaction, this.working);
+          const outcome = runWrite(statement, tables, parameters);
+          return changesResult(outcome.changes, outcome.lastInsertRowid);
+        });
+      }
+      case "ddl": {
+        const { statement } = planned;
+        return this.inSavepoint((transaction) => {
+          const { schema } = this.working;
+          runDdl(
+            statement,
+            new Catalog(transaction, schema, compileIndexKey),
+            schema,
+          );
+          this.readSchemaBack(transaction);
+          return emptyResult;
+        });
+      }
     }
-    return outcome.result;
   }
 
   /** Commits; if that fails, nothing of the transaction remains. */
   commit(): void {
-    this.assertActive();
-    this.state = "ended";
-    try {
-      this.write();
-    } catch (error) {
-      this.discard();
-      throw error;
+    this.ensureOpen();
+    this.isOpen = false;
+    const writer = this.writer;
+    if (writer === null) {
+      this.pages.end();
+      return;
     }
-    this.rememberSchema();
-    this.releaseWithCheckpoint();
+    endWriter(this.host.database, writer, (transaction) => {
+      transaction.commit();
+    });
+    // The schema just committed: kept for others, as the same object.
+    if (this.working !== this.base) this.host.schemas.remember(this.working);
   }
 
   rollback(): void {
-    const wasActive = this.state === "active";
-    this.state = "ended";
-    if (wasActive) this.discard();
+    if (!this.isOpen) return;
+    this.isOpen = false;
+    discard(this.host.database, this.pages, this.writer);
   }
 
-  /** A failed statement aborts its transaction and frees what it holds at once. */
-  abort(): void {
-    if (this.state !== "active") return;
-    this.state = "aborted";
-    this.discard();
-  }
-
-  private assertActive(): void {
-    if (this.state !== "active") {
-      throw new InternalError(`the transaction is ${this.state}`);
-    }
-  }
-
-  /** The schema version this transaction's commit stores, if it changes it. */
-  private get nextVersion(): number {
-    return this.base.version + 1;
-  }
-
-  /** One commit: the schema changes staged with the pages. */
-  private write(): void {
-    if (this.changes.length > 0) {
-      stageSchemaChanges(this.context.store, this.changes, this.nextVersion);
-    }
-    this.context.store.commit();
-  }
-
-  /** The schema just stored is the working one: keep it for others to reuse. */
-  private rememberSchema(): void {
-    if (this.changes.length === 0) return;
-    const schema = { version: this.nextVersion, catalog: this.working.catalog };
-    this.context.host.schemas.remember(schema);
-  }
-
-  private discard(): void {
+  /**
+   * Runs `change` in a savepoint: if it fails, what it wrote is rolled back
+   * — the schema it changed too — and the error goes on to the caller.
+   */
+  private inSavepoint(
+    change: (transaction: WriteTransaction) => Result,
+  ): Result {
+    const transaction = this.writing();
+    const savepoint = transaction.savepoint();
+    const working = this.working;
     try {
-      this.context.store.rollback();
-    } finally {
-      this.releaseWithCheckpoint();
+      const result = change(transaction);
+      transaction.release(savepoint);
+      return result;
+    } catch (error) {
+      transaction.rollbackTo(savepoint);
+      transaction.release(savepoint);
+      this.working = working;
+      throw error;
     }
   }
 
   /**
-   * Releases the snapshot, then checkpoints if the WAL asks for it — that
-   * needs the lock, and no snapshot of ours holding it back — then releases
-   * the lock. The lock goes whatever failed before it, or every writer in
-   * every tab would wait for it until this tab died.
+   * After DDL, the schema is what the schema table now says. It stays this
+   * transaction's own until it commits: its version is not taken yet.
    */
-  private releaseWithCheckpoint(): void {
-    const lease = this.lease;
-    this.lease = null;
-    try {
-      this.context.store.endSnapshot();
-      if (lease !== null) this.context.host.checkpointIfNeeded();
-    } finally {
-      lease?.release();
+  private readSchemaBack(transaction: WriteTransaction): void {
+    const hasChanged =
+      transaction.schemaVersion !== this.working.schema.version;
+    if (hasChanged) this.working = readSchema(transaction);
+  }
+
+  private writing(): WriteTransaction {
+    if (this.writer === null) {
+      throw new InternalError("a statement wrote before taking the lock");
     }
+    return this.writer.transaction;
+  }
+
+  private ensureOpen(): void {
+    if (!this.isOpen) throw new InternalError("the transaction has ended");
   }
 }
 
-async function acquire(
-  context: TransactionContext,
-  signal: AbortSignal,
-): Promise<Lease> {
-  const lease = await context.host.lock.acquire({
-    signal,
-    timeout: context.host.busyTimeout,
-  });
-  if (signal.aborted) {
-    lease.release();
-    throw abortErrorOf(signal);
+/** Releases a transaction's pages, rolling back what it wrote. */
+function discard(
+  database: Database,
+  pages: ReadTransaction,
+  writer: Writer | null,
+): void {
+  if (writer === null) {
+    pages.end();
+    return;
   }
-  return lease;
+  endWriter(database, writer, (transaction) => {
+    transaction.rollback();
+  });
+}
+
+/** Ends a writer's transaction with `end`, then checkpoints if due and releases the lock. */
+function endWriter(
+  database: Database,
+  writer: Writer,
+  end: (transaction: WriteTransaction) => void,
+): void {
+  try {
+    end(writer.transaction);
+  } finally {
+    database.endWrite(writer);
+  }
 }

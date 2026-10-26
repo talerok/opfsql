@@ -28,14 +28,18 @@ SELECT name FROM people p q
 statement ok
 SELECT 1; SELECT 2;
 
-# EXCEPT is an operator, not an alias of the table before it
-# parses as EXCEPT; the binder does not support EXCEPT yet
-statement error
-SELECT * FROM people EXCEPT SELECT * FROM people
+# EXCEPT and INTERSECT are operators, not aliases of the table before them
+# (docs/semantics.md, Queries)
+query ITI rowsort
+SELECT * FROM people EXCEPT SELECT * FROM people WHERE id = 2
+----
+1|Alice|30
+3|Charlie|25
 
-# parses as INTERSECT; the binder does not support INTERSECT yet
-statement error
-SELECT * FROM people INTERSECT SELECT * FROM people
+query ITI rowsort
+SELECT * FROM people INTERSECT SELECT * FROM people WHERE id = 2
+----
+2|Bob|NULL
 
 # ============================================================================
 # FROM a, b is a cross join
@@ -194,9 +198,13 @@ CREATE TABLE bad_default (a INTEGER, b INTEGER DEFAULT a)
 statement error
 CREATE TABLE bad_default (a INTEGER DEFAULT (1 + 2))
 
-# parses as LIMIT -1; the binder takes only a non-negative LIMIT
-statement error
-SELECT * FROM people LIMIT -1
+# a negative LIMIT means no limit, as in SQLite (docs/semantics.md, Queries)
+query I nosort
+SELECT id FROM people ORDER BY id LIMIT -1
+----
+1
+2
+3
 
 # ============================================================================
 # CASE with an operand

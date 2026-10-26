@@ -1,6 +1,6 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OPFSSyncStorage } from "../../store/backend/opfs-storage.js";
+import { MemoryFile } from "../../storage/file/sync-file.js";
 import type { Engine } from "../index.js";
 import { createEngine as engineOn } from "../engine.js";
 import { openTestEngine } from "./test-engine.js";
@@ -265,10 +265,10 @@ describe("write lock", () => {
 describe("failed commit", () => {
   /** Opens an engine whose next commit fails the way a storage write would. */
   async function createEngineWithFailingCommit(): Promise<() => void> {
-    const backend = new OPFSSyncStorage(`session-test-${String(seq++)}`);
-    engine = await engineOn(backend);
+    const wal = new MemoryFile();
+    engine = await engineOn({ database: new MemoryFile(), wal, marks: null });
     return () => {
-      vi.spyOn(backend, "commit").mockImplementationOnce(() => {
+      vi.spyOn(wal, "write").mockImplementationOnce(() => {
         throw new Error("injected commit failure");
       });
     };
@@ -283,9 +283,10 @@ describe("failed commit", () => {
     await s.execute("INSERT INTO t VALUES (1, 'a')");
     await s.execute("INSERT INTO t VALUES (2, 'b')");
     failNextCommit();
-    await expect(s.execute("COMMIT")).rejects.toThrow(
-      "injected commit failure",
-    );
+    await expect(s.execute("COMMIT")).rejects.toMatchObject({
+      code: "IO_ERROR",
+      cause: new Error("injected commit failure"),
+    });
 
     const [empty] = await s.execute("SELECT * FROM t");
     expect(empty.objects()).toEqual([]);
@@ -294,6 +295,24 @@ describe("failed commit", () => {
     const [result] = await s.execute("SELECT * FROM t");
     expect(result.objects()).toEqual([{ id: 3, body: "c" }]);
     expect(await engine.checkIntegrity()).toEqual([]);
+    await s.close();
+  });
+
+  it("a commit the browser refuses for want of space fails with STORAGE_FULL", async () => {
+    const wal = new MemoryFile();
+    engine = await engineOn({ database: new MemoryFile(), wal, marks: null });
+    const s = engine.connect();
+    await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    vi.spyOn(wal, "write").mockImplementationOnce(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+
+    await expect(s.execute("INSERT INTO t VALUES (1)")).rejects.toMatchObject({
+      code: "STORAGE_FULL",
+    });
+    await s.execute("INSERT INTO t VALUES (2)");
+    const [result] = await s.execute("SELECT id FROM t");
+    expect(result.rows).toEqual([[2]]);
     await s.close();
   });
 
@@ -306,9 +325,10 @@ describe("failed commit", () => {
     await s.execute("CREATE TABLE u (id INTEGER PRIMARY KEY, body TEXT)");
     await s.execute("INSERT INTO u VALUES (1, 'a')");
     failNextCommit();
-    await expect(s.execute("COMMIT")).rejects.toThrow(
-      "injected commit failure",
-    );
+    await expect(s.execute("COMMIT")).rejects.toMatchObject({
+      code: "IO_ERROR",
+      cause: new Error("injected commit failure"),
+    });
 
     const other = engine.connect();
     const schema = await other.schema();

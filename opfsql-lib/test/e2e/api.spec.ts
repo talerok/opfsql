@@ -70,9 +70,16 @@ test.describe("Results and errors through the worker", () => {
     ).toMatchObject({
       ok: false,
       error: {
+        name: "ConstraintError",
         code: "CONSTRAINT_VIOLATION",
         isOpfsqlError: true,
-        fields: { statementIndex: 1 },
+        isItsClass: true,
+        fields: {
+          statementIndex: 1,
+          constraint: "primary-key",
+          table: "t",
+          columns: ["id"],
+        },
       },
     });
     const [count] = await exec(tab, "SELECT count(*) FROM t");

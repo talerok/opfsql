@@ -12,6 +12,8 @@
   },
   "include": [
     "src/errors.ts",
+    "src/index.ts",
+    "src/worker-entry.ts",
     "src/values",
     "src/functions",
     "src/schema",
@@ -24,10 +26,9 @@
     "src/sql/optimizer",
     "src/expressions",
     "src/executor",
-    "src/legacy/executor/evaluate",
-    "src/engine/api",
+    "src/engine",
     "src/worker",
     "test/support"
   ],
-  "exclude": ["src/worker/tests"]
+  "exclude": ["src/engine/tests", "src/worker/tests"]
 }

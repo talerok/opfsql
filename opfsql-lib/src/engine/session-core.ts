@@ -1,11 +1,11 @@
-import { AbortError, MisuseError, TransactionAbortedError } from "../errors.js";
+import { AbortError, MisuseError } from "../errors.js";
+import type { Schema as SchemaModel } from "../schema/index.js";
 import {
   type Statement,
   StatementType,
   type TransactionStatement,
   TransactionType,
 } from "../sql/parser/index.js";
-import type { SessionStore } from "../store/session-store.js";
 import type { Value } from "../values/index.js";
 import {
   type CallOptions,
@@ -17,21 +17,15 @@ import {
   type TransactionOptions,
 } from "./api/index.js";
 import { describeSchema } from "./describe-schema.js";
-import type { VersionedSchema } from "./schema.js";
 import { linkSignals } from "./signals.js";
-import { bindAhead, eachStep, StepFailure } from "./script.js";
+import { eachStep, planAhead, StepFailure } from "./script.js";
 import { beginMode, checkParameters, parseScript, Step } from "./statements.js";
 import { TaskQueue } from "./task-queue.js";
-import {
-  Transaction,
-  type TransactionContext,
-  type TransactionHost,
-} from "./transaction.js";
+import { Transaction, type TransactionHost } from "./transaction.js";
 import { locateStatement, toOpfsqlError } from "./translate-error.js";
 
 /** What a session needs from its engine. */
 export interface SessionHost extends TransactionHost {
-  createStore(): SessionStore;
   /** The session has closed. */
   forget(session: SessionCore): void;
 }
@@ -42,7 +36,8 @@ type ParameterValues = readonly Value[] | undefined;
  * A session's state and rules; Session is the handle callers hold. Calls run
  * one at a time through the queue. Every statement reads the snapshot of its
  * transaction and the schema stored in that snapshot; a writer takes the
- * lock before it pins anything it will write on.
+ * lock before it pins anything it will write on. A statement that fails in
+ * a transaction leaves the transaction as it was before the statement.
  */
 export class SessionCore {
   private state: "open" | "closing" | "closed" = "open";
@@ -51,8 +46,6 @@ export class SessionCore {
 
   private readonly lifetime = new AbortController();
 
-  private readonly context: TransactionContext;
-
   private transaction: Transaction | null = null;
 
   private closing: Promise<void> | null = null;
@@ -60,11 +53,9 @@ export class SessionCore {
   constructor(
     private readonly host: SessionHost,
     private readonly options: SessionOptions,
-  ) {
-    this.context = { store: host.createStore(), host };
-  }
+  ) {}
 
-  /** True between BEGIN and COMMIT or ROLLBACK, aborted or not. */
+  /** True between BEGIN and COMMIT or ROLLBACK. */
   get inTransaction(): boolean {
     return this.transaction !== null;
   }
@@ -95,12 +86,12 @@ export class SessionCore {
     });
   }
 
-  /** Parses and binds `sql`, so a statement that cannot run fails here. */
+  /** Parses and plans `sql`, so a statement that cannot run fails here. */
   async prepare(sql: string, options: CallOptions): Promise<Step> {
     return this.call(options, async (signal) => {
       const step = new Step(sql, onlyStatement(parseScript(sql), "prepare()"));
       if (step.kind !== "transaction") {
-        await this.withSchema(signal, (schema) => step.bind(schema.catalog));
+        await this.withSchema(signal, (schema) => step.plan(schema));
       }
       return step;
     });
@@ -141,7 +132,7 @@ export class SessionCore {
 
   async schema(options: CallOptions): Promise<Schema> {
     return this.call(options, async (signal) =>
-      this.withSchema(signal, (schema) => describeSchema(schema.catalog)),
+      this.withSchema(signal, (schema) => describeSchema(schema)),
     );
   }
 
@@ -237,7 +228,7 @@ export class SessionCore {
     const transaction = await this.beginForScript(steps, signal);
     try {
       const results = await eachStep(steps, (step) =>
-        transaction.run(step, undefined),
+        runPlanned(transaction, step, undefined),
       );
       transaction.commit();
       return results;
@@ -264,7 +255,7 @@ export class SessionCore {
 
   /**
    * A script that writes takes the lock before its first statement. Its
-   * statements are bound first, against the latest schema, as far as they
+   * statements are planned first, against the latest schema, as far as they
    * can be — up to the first DDL, which may change what later ones bind
    * against — so one that cannot bind fails without waiting for the lock.
    */
@@ -274,12 +265,12 @@ export class SessionCore {
   ): Promise<Transaction> {
     const isWriting = steps.some((step) => step.kind === "write");
     if (isWriting) {
-      await this.withLatestSchema(signal, ({ catalog }) => {
-        bindAhead(steps, catalog);
+      await this.withLatestSchema(signal, (schema) => {
+        planAhead(steps, schema);
       });
     }
     const mode = isWriting ? "immediate" : "deferred";
-    return Transaction.begin(this.context, mode, signal);
+    return Transaction.begin(this.host, mode, signal);
   }
 
   /** One statement, as if sent alone: query(), a prepared statement, a script's step. */
@@ -299,9 +290,9 @@ export class SessionCore {
   }
 
   /**
-   * A statement in a transaction of its own. A write is bound against the
+   * A statement in a transaction of its own. A write is planned against the
    * latest schema before it waits for the lock, so one that cannot bind
-   * fails at once; the bind after the lock is the one that counts.
+   * fails at once; the plan after the lock is the one that counts.
    */
   private async runAlone(
     step: Step,
@@ -310,15 +301,15 @@ export class SessionCore {
   ): Promise<Result> {
     const isWrite = step.kind === "write";
     if (isWrite) {
-      await this.withLatestSchema(signal, ({ catalog }) => {
-        checkParameters(step.bind(catalog), parameters);
+      await this.withLatestSchema(signal, (schema) => {
+        checkParameters(step.plan(schema), parameters);
       });
     }
     const mode = isWrite ? "immediate" : "deferred";
-    const transaction = await Transaction.begin(this.context, mode, signal);
+    const transaction = await Transaction.begin(this.host, mode, signal);
     let result: Result;
     try {
-      result = transaction.run(step, parameters);
+      result = runPlanned(transaction, step, parameters);
     } catch (error) {
       transaction.rollback();
       throw error;
@@ -329,8 +320,8 @@ export class SessionCore {
 
   /**
    * A statement in the open transaction. Its first write takes the lock —
-   * after the statement has bound, so a statement that cannot bind never
-   * waits. Any failure aborts the transaction.
+   * after the statement has planned, so a statement that cannot bind never
+   * waits. A failure leaves the transaction as it was before the statement.
    */
   private async runInTransaction(
     transaction: Transaction,
@@ -338,17 +329,11 @@ export class SessionCore {
     parameters: ParameterValues,
     signal: AbortSignal,
   ): Promise<Result> {
-    if (transaction.isAborted) throw new TransactionAbortedError();
-    try {
-      if (step.kind === "write") {
-        checkParameters(step.bind(transaction.schema.catalog), parameters);
-        await transaction.makeWritable(signal);
-      }
-      return transaction.run(step, parameters);
-    } catch (error) {
-      transaction.abort();
-      throw error;
+    if (step.kind === "write") {
+      checkParameters(step.plan(transaction.schema), parameters);
+      await transaction.makeWritable(signal);
     }
+    return runPlanned(transaction, step, parameters);
   }
 
   // -------------------------------------------------------------------------
@@ -382,19 +367,14 @@ export class SessionCore {
     if (this.transaction !== null) {
       throw new MisuseError("a transaction is already open");
     }
-    this.transaction = await Transaction.begin(this.context, mode, signal);
+    this.transaction = await Transaction.begin(this.host, mode, signal);
   }
 
+  /** A commit that fails ends the transaction all the same. */
   private commitNow(): void {
     const transaction = this.transaction;
     if (transaction === null) return;
     this.transaction = null;
-    if (transaction.isAborted) {
-      transaction.rollback();
-      throw new TransactionAbortedError(
-        "the transaction was aborted by an earlier error; COMMIT rolled it back",
-      );
-    }
     transaction.commit();
   }
 
@@ -414,10 +394,9 @@ export class SessionCore {
   /** Runs `read` on the schema this session sees: its transaction's, or the latest. */
   private async withSchema<T>(
     signal: AbortSignal,
-    read: (schema: VersionedSchema) => T,
+    read: (schema: SchemaModel) => T,
   ): Promise<T> {
     const transaction = this.transaction;
-    if (transaction?.isAborted === true) throw new TransactionAbortedError();
     if (transaction !== null) return read(transaction.schema);
     return this.withLatestSchema(signal, read);
   }
@@ -425,16 +404,26 @@ export class SessionCore {
   /** Runs `read` on the latest committed schema, pinned for the moment. */
   private async withLatestSchema<T>(
     signal: AbortSignal,
-    read: (schema: VersionedSchema) => T,
+    read: (schema: SchemaModel) => T,
   ): Promise<T> {
-    const { store } = this.context;
-    const position = await this.host.pin(store, signal);
+    const pages = await this.host.database.beginRead(signal);
     try {
-      return read(this.host.schemas.load(store, position));
+      return read(this.host.schemas.load(pages).schema);
     } finally {
-      store.endSnapshot();
+      pages.end();
     }
   }
+}
+
+/** Plans `step` against the transaction's schema and runs it. */
+function runPlanned(
+  transaction: Transaction,
+  step: Step,
+  parameters: ParameterValues,
+): Result {
+  const planned = step.plan(transaction.schema);
+  checkParameters(planned, parameters);
+  return transaction.run(planned, parameters ?? []);
 }
 
 function isControl(statement: Statement): statement is TransactionStatement {
@@ -446,7 +435,7 @@ function onlyStatement(
   what: string,
 ): Statement {
   const [statement, ...rest] = statements;
-  if (statements.length === 0 || rest.length > 0) {
+  if (statement === undefined || rest.length > 0) {
     throw new MisuseError(
       `${what} takes exactly one statement; run scripts with execute()`,
     );
