@@ -9,7 +9,7 @@ import type {
   TransactionOptions,
 } from "./api/index.js";
 import type { SessionCore } from "./session-core.js";
-import type { Step } from "./statements.js";
+import type { CachedStatement } from "./statements.js";
 
 /**
  * A connection to the database inside the worker: its own transaction, its
@@ -125,7 +125,7 @@ export class PreparedStatement implements StatementContract, Disposable {
     /** The session it runs on; kept alive while the statement is. */
     readonly session: Session,
     private readonly core: SessionCore,
-    private readonly step: Step,
+    private readonly step: CachedStatement,
   ) {}
 
   /** Result column names as of the last plan; empty for writes. */

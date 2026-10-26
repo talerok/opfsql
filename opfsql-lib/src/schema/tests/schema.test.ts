@@ -14,7 +14,7 @@ function table(
 function index(name: string, tableName: string, keyColumn: number): Index {
   return {
     name,
-    table: tableName,
+    tableName,
     keys: [{ kind: "column", column: keyColumn }],
     isUnique: false,
     rootPage: 4,

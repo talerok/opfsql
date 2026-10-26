@@ -1,8 +1,10 @@
+import type { JsonValue } from "../../values/index.js";
 import { CorruptError } from "../../errors.js";
 
 // ---------------------------------------------------------------------------
 // Byte-level building blocks of file format 5 (docs/file-format.md): varints,
-// big-endian integers, and a growable writer for encoding keys and records.
+// big-endian integers, a growable writer for encoding keys and records, and
+// the parsing of the JSON text both store.
 // ---------------------------------------------------------------------------
 
 const TWO_32 = 2 ** 32;
@@ -72,10 +74,10 @@ export function skipVarint(bytes: Uint8Array, offset: number): number {
 }
 
 // A zigzag varint (docs/file-format.md) writes `2x` for x ≥ 0 and `−2x − 1`
-// otherwise. For a safe integer that reaches 2^54 − 1, past the integers a
-// double holds: −2x − 1 is odd, and rounds. So the value is never formed:
-// its first byte, which holds the sign in its low bit, is worked out from
-// the magnitude apart from the varint of everything above it.
+// otherwise. For |x| near 2^53 that value is odd and above 2^53, so a double
+// cannot hold it, and it is never formed: the first byte — the sign in its
+// low bit, and six bits of the magnitude — is worked out from the magnitude,
+// and the rest is the plain varint of what lies above it.
 
 /** The zigzag value of `value` as its low seven bits and the integer above them. */
 function zigzagGroups(value: number): { low: number; high: number } {
@@ -276,4 +278,15 @@ function highPart(value: number): number {
 
 function lowPart(value: number): number {
   return value - highPart(value) * TWO_32;
+}
+
+/** JSON text that opfsql stored: text that does not parse means damaged files. */
+export function parseStoredJson(text: string): JsonValue {
+  try {
+    return JSON.parse(text) as JsonValue;
+  } catch (error) {
+    throw new CorruptError("a stored JSON value does not parse", {
+      cause: error,
+    });
+  }
 }

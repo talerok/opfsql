@@ -10,7 +10,7 @@ import { encodeKey, keyRowid, prefixEnd } from "../../format/key.js";
 import { IndexWriter } from "../index-store.js";
 import {
   ROWID_FIELD,
-  type RowOrder,
+  type ScanOrder,
   type StoredRow,
   TableReader,
   TableWriter,
@@ -28,7 +28,7 @@ function setup() {
 
 function values(row: StoredRow | null): Value[] {
   if (row === null) return [];
-  return Array.from({ length: row.length }, (_, column) => row.value(column));
+  return row.values();
 }
 
 /** Counts the pages read through it. */
@@ -88,9 +88,9 @@ describe("table rows", () => {
     const row = new TableReader(counting, root).get(1);
     const readsForRow = counting.reads;
 
-    expect(row?.value(0)).toBe("title");
+    expect(row?.field(0)).toBe("title");
     expect(counting.reads).toBe(readsForRow);
-    expect(row?.value(1)).toHaveLength(50_000);
+    expect(row?.field(1)).toHaveLength(50_000);
     expect(counting.reads).toBeGreaterThan(readsForRow + 10);
   });
 
@@ -169,7 +169,7 @@ describe("table tuples", () => {
 
   it("read the rows of a rowid range either way, both ends included", () => {
     const table = filled();
-    const rowids = (range: [number, number], order: RowOrder) =>
+    const rowids = (range: [number, number], order: ScanOrder) =>
       [...table.tuples(layout, range, order)].map(([, rowid]) => rowid);
     expect(rowids([3, 9], "ascending")).toEqual([4, 6, 8]);
     expect(rowids([4, 8], "descending")).toEqual([8, 6, 4]);

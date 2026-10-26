@@ -34,7 +34,7 @@ export function explainStatement(statement: Statement<physical.Plan>): string {
       return `create table ${statement.table.name}`;
     }
     case "create-index": {
-      return `create index ${statement.index.name} on ${statement.index.table}`;
+      return `create index ${statement.index.name} on ${statement.index.tableName}`;
     }
     case "drop": {
       return `drop ${statement.object} ${statement.name}`;

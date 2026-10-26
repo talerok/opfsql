@@ -171,7 +171,7 @@ any overflow page is written (`valuesToMove`).
 function translates to and from the numbers on disk.
 
 **Walks are generators.** Code that walks a structure (`framesFrom`,
-`chainPages`, `BTree.ascending`) yields results, and callers loop over them
+`chainPages`, `BTreeReader.ascending`) yields results, and callers loop over them
 instead of driving the walk themselves.
 
 **Comments say why.** Names say what code does. A comment states a

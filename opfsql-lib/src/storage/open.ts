@@ -21,7 +21,7 @@ import { Wal } from "./pager/wal.js";
 export interface StorageFiles {
   readonly database: SyncFile;
   readonly wal: SyncFile;
-  /** The read-mark file; null when no other tab shares the database. */
+  /** The read-mark file; null for memory files, which no other tab can share. */
   readonly marks: SyncFile | null;
 }
 
@@ -86,11 +86,17 @@ async function openPagerUnguarded(
   const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
   checkPageSize(pageSize);
   const { name, lockName } = options;
+  if (lockName === undefined && files.marks !== null) {
+    throw new MisuseError("a read-mark file needs a lock name");
+  }
   const openLock = lockName === undefined ? null : `${lockName}:open`;
   const { database, wal } = await whileHolding(openLock, () =>
-    openDatabaseAndWal(files, name, pageSize),
+    createOrRecover(files, name, pageSize),
   );
-  const marks = await openMarks(files.marks, lockName, name);
+  const marks =
+    lockName === undefined || files.marks === null
+      ? null
+      : await ReadMarks.open(files.marks, lockName, name);
   const checkpointThreshold =
     options.checkpointThreshold ?? DEFAULT_CHECKPOINT_THRESHOLD;
   return new Pager(database, wal, { checkpointThreshold, marks });
@@ -104,32 +110,24 @@ function checkPageSize(pageSize: number): void {
   }
 }
 
-/** Read marks are shared through their file and the tabs' Web Locks. */
-async function openMarks(
-  file: SyncFile | null,
-  lockName: string | undefined,
-  database: string,
-): Promise<ReadMarks | null> {
-  if (file === null) return null;
-  if (lockName === undefined) {
-    throw new MisuseError("a read-mark file needs a lock name");
-  }
-  return ReadMarks.open(file, lockName, database);
-}
-
 function inUse(name: string, cause: unknown): DatabaseInUseError {
   return new DatabaseInUseError(name, "one-tab-only", { cause });
 }
 
-/** Recovers the WAL, creating the database first if its file is empty. */
-function openDatabaseAndWal(
+/**
+ * What one tab at a time does while opening (docs/concurrency.md, Opening):
+ * creates whichever of the three files is empty, and recovers the WAL.
+ */
+function createOrRecover(
   files: StorageFiles,
   name: string,
   pageSize: number,
 ): { database: DatabaseFile; wal: Wal } {
   const database = openOrCreate(files.database, fileName(name), pageSize);
   const walName = fileName(name, "-wal");
-  return { database, wal: Wal.open(files.wal, database.pageSize, walName) };
+  const wal = Wal.open(files.wal, database.pageSize, walName);
+  if (files.marks !== null) ReadMarks.createIfMissing(files.marks);
+  return { database, wal };
 }
 
 function openOrCreate(

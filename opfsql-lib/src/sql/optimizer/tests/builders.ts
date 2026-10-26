@@ -3,7 +3,6 @@ import {
   aggregateFunction,
   resolveCall,
   scalarFunction,
-  type StaticType,
 } from "../../../functions/index.js";
 import {
   type Column,
@@ -11,7 +10,12 @@ import {
   Schema,
   type Table,
 } from "../../../schema/index.js";
-import type { Affinity, SqlType, Value } from "../../../values/index.js";
+import type {
+  Affinity,
+  SqlType,
+  Value,
+  StaticType,
+} from "../../../values/index.js";
 import {
   type AggregateCall,
   type ColumnReference,
@@ -75,7 +79,7 @@ function index(
   isUnique = false,
 ): Index {
   const origin = isUnique ? "unique" : "statement";
-  return { name, table: table.name, keys, isUnique, rootPage: 20, origin };
+  return { name, tableName: table.name, keys, isUnique, rootPage: 20, origin };
 }
 
 function onColumns(...positions: number[]): Index["keys"] {

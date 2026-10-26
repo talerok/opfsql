@@ -1,11 +1,11 @@
 // The contract between binder, optimizer and executor (docs/planning.md).
 
-export type { StaticType } from "../../functions/index.js";
+export type { JsonPathStep } from "../../functions/index.js";
+export type { ArithmeticOperator, StaticType } from "../../values/index.js";
 
 export {
   type AggregateCall,
   type Arithmetic,
-  type ArithmeticOperator,
   type Between,
   type Case,
   type CaseBranch,
@@ -24,7 +24,7 @@ export {
   isSameColumn,
   type IsNull,
   type JsonAccess,
-  type JsonPathStep,
+  type SubqueryExpression,
   type Negate,
   type Not,
   type OrderDirection,
@@ -35,10 +35,22 @@ export {
   ROWID_COLUMN,
   type ScalarSubquery,
 } from "./expression.js";
-export { formatPlan } from "./format-logical.js";
-export { columnType, positions } from "./logical.js";
+export { formatLogicalPlan } from "./format-logical.js";
+export { columnType, relationLayout } from "./logical.js";
 export * as logical from "./logical.js";
-export { childrenOf, nodesOf } from "./walk.js";
+export {
+  type ColumnMatch,
+  isSameColumnAnyLevel,
+  isSameColumnAtLevel,
+  isSameExpression,
+} from "./same-expression.js";
+export {
+  childrenOf,
+  isSubqueryExpression,
+  nodesOf,
+  type Rebuild,
+  rebuildChildren,
+} from "./walk.js";
 export * as physical from "./physical.js";
 export type * from "./statement.js";
 export { formatPhysicalPlan } from "./format-physical.js";

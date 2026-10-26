@@ -1,6 +1,5 @@
-import type { StaticType } from "../../functions/index.js";
 import type { logical } from "../plan/index.js";
-import type { Affinity } from "../../values/index.js";
+import type { Affinity, StaticType } from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
 // Parameter affinity (docs/semantics.md, Comparisons). Comparisons compare

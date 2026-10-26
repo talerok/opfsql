@@ -1,11 +1,11 @@
-import { InternalError, RowTooLargeError } from "../../errors.js";
+import { RowTooLargeError } from "../../errors.js";
 import {
   copyValue,
   isMutable,
   type JsonComposite,
   type Value,
 } from "../../values/index.js";
-import { BTree, BTreeWriter } from "../btree/btree.js";
+import { BTreeReader, BTreeWriter } from "../btree/btree.js";
 import type { TreeGuard } from "../btree/guard.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import { tableLeafCell, tableLeafCellSize } from "../format/btree-page.js";
@@ -16,11 +16,11 @@ import type {
 } from "../format/record.js";
 import {
   decodeBytes,
-  decodeInto,
+  decodeFieldsInto,
   decodeRecord,
   encodeRecord,
   OVERFLOW_REFERENCE_SIZE,
-  OverflowValue,
+  OverflowReference,
   prepareField,
   recordSize,
 } from "../format/record.js";
@@ -35,7 +35,7 @@ import { freeChain, readChain, writeChain } from "./overflow.js";
 export const ROWID_FIELD = -1;
 
 /** Rowid order, or its reverse. */
-export type RowOrder = "ascending" | "descending";
+export type ScanOrder = "ascending" | "descending";
 
 /** How each row is read as a tuple: where each of its values comes from. */
 export interface TupleLayout {
@@ -108,29 +108,35 @@ export class StoredRow {
     this.fields = decodeRecord(record);
   }
 
-  /** Columns stored; columns added to the table since read as their default. */
-  get length(): number {
+  /**
+   * The value of field `index`, read from its overflow chain if it has one;
+   * undefined if the record has fewer fields — written before its table's
+   * later columns were added, or damaged.
+   */
+  field(index: number): Value | undefined {
+    const field = this.fields[index];
+    return field === undefined ? undefined : this.valueOf(field);
+  }
+
+  /** The value of every field the record holds, in field order. */
+  values(): Value[] {
+    return this.fields.map((field) => this.valueOf(field));
+  }
+
+  /** Fields the record holds. */
+  get fieldCount(): number {
     return this.fields.length;
   }
 
-  /** The value of a decoded field, read from its overflow chain if it has one. */
-  value(column: number): Value {
-    const field = this.fields[column];
-    if (field instanceof OverflowValue) {
-      this.guard.check();
-      return overflowValue(this.pages, field);
-    }
-    if (field === undefined) {
-      throw new InternalError(
-        `field ${String(column)} of row ${String(this.rowid)} was not decoded`,
-      );
-    }
-    return field;
+  /** The values of this row that live in overflow chains. */
+  overflowReferences(): OverflowReference[] {
+    return this.fields.filter((field) => field instanceof OverflowReference);
   }
 
-  /** The values of this row that live in overflow chains. */
-  overflowValues(): OverflowValue[] {
-    return this.fields.filter((field) => field instanceof OverflowValue);
+  private valueOf(field: RecordField): Value {
+    if (!(field instanceof OverflowReference)) return field;
+    this.guard.check();
+    return readOverflowValue(this.pages, field);
   }
 }
 
@@ -139,7 +145,11 @@ export class TableReader {
   constructor(
     protected readonly pages: PageReader,
     readonly root: number,
-    protected readonly tree: BTree = new BTree(pages, root, "table"),
+    protected readonly tree: BTreeReader = new BTreeReader(
+      pages,
+      root,
+      "table",
+    ),
   ) {}
 
   has(rowid: number): boolean {
@@ -176,13 +186,15 @@ export class TableReader {
   /**
    * The tuples of the rows whose rowid is from `first` to `last`, both
    * included, in rowid order or its reverse; an infinite end leaves the
-   * range open. Each record is decoded where it lies, as its leaf is walked:
-   * one generator for every row.
+   * range open. Each record is decoded where it lies, as its leaf is walked.
+   * The leaves are walked here rather than through BTreeReader.ascending and
+   * descending, guard included, for speed: a scan then makes no Position
+   * and runs no generator of its own per row.
    */
   tuples(
     layout: TupleLayout,
     [first, last]: readonly [number, number],
-    order: RowOrder,
+    order: ScanOrder,
   ): Generator<Value[]> {
     if (order === "ascending") return this.tuplesUp(layout, first, last);
     return this.tuplesDown(layout, first, last);
@@ -202,11 +214,11 @@ export class TableReader {
     if (first > last) return;
     const from = first === -Infinity ? undefined : first;
     const guard = this.tree.guard();
-    for (const { page, index } of this.tree.leavesFrom(from)) {
-      for (let cell = index; cell < page.cellCount; cell++) {
-        const rowid = page.rowid(cell);
+    for (const { leaf, start } of this.tree.leavesFrom(from)) {
+      for (let cell = start; cell < leaf.cellCount; cell++) {
+        const rowid = leaf.rowid(cell);
         if (rowid > last) return;
-        yield this.tupleOf(rowid, page.record(cell), layout);
+        yield this.tupleOf(rowid, leaf.record(cell), layout);
         guard.check();
       }
     }
@@ -220,11 +232,11 @@ export class TableReader {
     if (first > last) return;
     const before = last === Infinity ? undefined : Math.floor(last) + 1;
     const guard = this.tree.guard();
-    for (const { page, index } of this.tree.leavesBefore(before)) {
-      for (let cell = index; cell >= 0; cell--) {
-        const rowid = page.rowid(cell);
+    for (const { leaf, start } of this.tree.leavesBefore(before)) {
+      for (let cell = start; cell >= 0; cell--) {
+        const rowid = leaf.rowid(cell);
         if (rowid < first) return;
-        yield this.tupleOf(rowid, page.record(cell), layout);
+        yield this.tupleOf(rowid, leaf.record(cell), layout);
         guard.check();
       }
     }
@@ -237,7 +249,7 @@ export class TableReader {
   ): Value[] {
     // Defaults first: a field the record lacks keeps its column's default.
     const tuple: RecordField[] = [...layout.defaults];
-    const hasOverflow = decodeInto(record, layout.places, tuple);
+    const hasOverflow = decodeFieldsInto(record, layout.places, tuple);
     for (const position of layout.rowids) tuple[position] = rowid;
     for (const [from, to] of layout.repeats) tuple[to] = tuple[from] ?? null;
     for (const [position, fallback] of layout.mutableDefaults) {
@@ -246,7 +258,9 @@ export class TableReader {
     // Without an overflow reference among them, every field is a Value.
     if (!hasOverflow) return tuple as Value[];
     return tuple.map((value) =>
-      value instanceof OverflowValue ? overflowValue(this.pages, value) : value,
+      value instanceof OverflowReference
+        ? readOverflowValue(this.pages, value)
+        : value,
     );
   }
 }
@@ -256,11 +270,11 @@ export class TableWriter extends TableReader {
   declare protected readonly pages: PageWriter;
   declare protected readonly tree: BTreeWriter;
 
-  /** `table` names the table in errors. */
+  /** `tableName` names the table in errors. */
   constructor(
     pages: PageWriter,
     root: number,
-    private readonly table: string,
+    private readonly tableName: string,
   ) {
     super(pages, root, new BTreeWriter(pages, root, "table"));
   }
@@ -303,7 +317,7 @@ export class TableWriter extends TableReader {
   }
 
   private freeChains(row: StoredRow): void {
-    for (const value of row.overflowValues()) {
+    for (const value of row.overflowReferences()) {
       freeChain(this.pages, value);
     }
   }
@@ -333,7 +347,11 @@ export class TableWriter extends TableReader {
     while (cellSize(rowid, planned) > limit) {
       const largest = largestMovable(planned);
       if (largest === null) {
-        throw new RowTooLargeError(this.table, cellSize(rowid, planned), limit);
+        throw new RowTooLargeError(
+          this.tableName,
+          cellSize(rowid, planned),
+          limit,
+        );
       }
       // The chain's page number does not change the cell's size.
       planned[largest.column] = overflowField(largest.field, 0);
@@ -356,7 +374,7 @@ function cellSize(rowid: number, fields: readonly PreparedField[]): number {
 
 function overflowField(field: InlineBytes, firstPage: number): PreparedField {
   const { holds, bytes } = field;
-  return prepareField(new OverflowValue(holds, bytes.length, firstPage));
+  return prepareField(new OverflowReference(holds, bytes.length, firstPage));
 }
 
 /**
@@ -375,6 +393,9 @@ function largestMovable(fields: readonly PreparedField[]): InlineColumn | null {
 }
 
 /** The value whose bytes an overflow chain holds. */
-function overflowValue(pages: PageReader, reference: OverflowValue): Value {
+function readOverflowValue(
+  pages: PageReader,
+  reference: OverflowReference,
+): Value {
   return decodeBytes(reference.holds, readChain(pages, reference));
 }

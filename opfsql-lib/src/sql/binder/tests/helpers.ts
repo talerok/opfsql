@@ -11,7 +11,7 @@ import {
 import { Schema } from "../../../schema/index.js";
 import { parse, StatementType, type Statement } from "../../parser/index.js";
 import {
-  formatPlan,
+  formatLogicalPlan,
   type logical,
   type Statement as BoundStatement,
 } from "../../plan/index.js";
@@ -65,7 +65,7 @@ export function bind(
 
 /** The plan a query binds to, printed. */
 export function plan(sql: string, schema: Schema = shop): string {
-  return formatPlan(query(sql, schema).plan);
+  return formatLogicalPlan(query(sql, schema).plan);
 }
 
 /** A query bound. */

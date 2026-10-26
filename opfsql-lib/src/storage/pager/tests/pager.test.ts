@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CorruptError,
   InternalError,
@@ -533,5 +533,29 @@ describe("Pager across tabs", () => {
     expect(fresh.resetStaleIntent()).toBe(true);
     beginRead(fresh).end();
     expect(fresh.resetStaleIntent()).toBe(false);
+  });
+
+  it("fails to open, rather than wait for good, when the browser refuses a slot's lock", async () => {
+    const refusal = new DOMException("refused", "SecurityError");
+    const locks = navigator.locks;
+    const request = locks.request.bind(locks);
+    const refuseSlots = vi
+      .spyOn(locks, "request")
+      .mockImplementation(async (name: string, ...rest: unknown[]) =>
+        name.includes(":slot:")
+          ? Promise.reject(refusal)
+          : (request as (...all: unknown[]) => Promise<unknown>)(name, ...rest),
+      );
+    try {
+      const lockName = `tabs-${String(tabsOpened++)}`;
+      const files = {
+        database: new MemoryFile(),
+        wal: new MemoryFile(),
+        marks: new MemoryFile(),
+      };
+      await expect(open(files, { lockName })).rejects.toBe(refusal);
+    } finally {
+      refuseSlots.mockRestore();
+    }
   });
 });

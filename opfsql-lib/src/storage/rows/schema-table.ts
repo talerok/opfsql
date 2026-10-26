@@ -1,6 +1,7 @@
 import { CorruptError, InternalError } from "../../errors.js";
 import type { Value } from "../../values/index.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
+import type { TreeKind } from "../btree/types.js";
 import { SCHEMA_ROOT_PAGE } from "../pager/database-file.js";
 import type { StoredRow } from "./table-store.js";
 import { TableReader, TableWriter } from "./table-store.js";
@@ -13,10 +14,9 @@ import { TableReader, TableWriter } from "./table-store.js";
 
 export const SCHEMA_TABLE_NAME = "opfsql_schema";
 
-export type SchemaEntryType = "table" | "index";
-
 export interface SchemaEntry {
-  readonly type: SchemaEntryType;
+  /** Every entry is a tree: a table's or an index's. */
+  readonly type: TreeKind;
   readonly name: string;
   /** The table an index belongs to; a table's own name for a table. */
   readonly tableName: string;
@@ -85,23 +85,23 @@ function entryOf(row: StoredRow): StoredSchemaEntry {
     name: textAt(row, NAME),
     tableName: textAt(row, TABLE_NAME),
     rootPage: pageAt(row, ROOT_PAGE),
-    sql: row.value(SQL) === null ? null : textAt(row, SQL),
+    sql: row.field(SQL) === null ? null : textAt(row, SQL),
   };
 }
 
-function entryTypeOf(text: string, row: StoredRow): SchemaEntryType {
+function entryTypeOf(text: string, row: StoredRow): TreeKind {
   if (text === "table" || text === "index") return text;
   throw malformed(row, TYPE);
 }
 
 function textAt(row: StoredRow, column: number): string {
-  const value = row.value(column);
+  const value = row.field(column);
   if (typeof value !== "string") throw malformed(row, column);
   return value;
 }
 
 function pageAt(row: StoredRow, column: number): number {
-  const value = row.value(column);
+  const value = row.field(column);
   const isPageNumber = typeof value === "number" && Number.isSafeInteger(value);
   if (!isPageNumber || value <= SCHEMA_ROOT_PAGE) throw malformed(row, column);
   return value;

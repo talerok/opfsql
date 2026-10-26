@@ -1,10 +1,11 @@
 import { SemanticError } from "../../errors.js";
-import { nameKey } from "../../schema/index.js";
+import { nameKey, type Table } from "../../schema/index.js";
 import {
   logical,
   type ColumnReference,
   type OutputColumn,
 } from "../plan/index.js";
+import { itemAt } from "./one.js";
 
 // ---------------------------------------------------------------------------
 // Columns: of a table or a statement's column list, found by nameKey and
@@ -53,11 +54,13 @@ export function readColumns(
   plan: logical.Plan,
   columns: readonly OutputColumn[],
 ): ColumnReference[] {
-  return logical.layoutOf(plan).map((binding, position) => ({
-    kind: "column",
-    binding,
-    depth: 0,
-    name: columns[position]?.name ?? String(position),
-    type: columns[position]?.type ?? "ANY",
-  }));
+  return logical.layoutOf(plan).map((binding, position) => {
+    const { name, type } = itemAt(columns, position, "a plan's columns");
+    return { kind: "column", binding, depth: 0, name, type };
+  });
+}
+
+/** The position of `table`'s column called `name`. */
+export function columnNamed(table: Table, name: string): number {
+  return columnIn(table.columns, name, table.name);
 }

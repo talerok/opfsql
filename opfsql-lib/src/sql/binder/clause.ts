@@ -13,8 +13,8 @@ import { checkCondition } from "./type-rules.js";
 
 export type AggregateRule =
   | { readonly kind: "collect"; readonly collector: AggregateCollector }
-  /** `where` completes "aggregate functions are not allowed in …". */
-  | { readonly kind: "refuse"; readonly where: string };
+  /** `place` completes "aggregate functions are not allowed in …". */
+  | { readonly kind: "refuse"; readonly place: string };
 
 export interface Clause {
   readonly scope: Scope;
@@ -29,10 +29,10 @@ export interface Clause {
 export function bindCondition(
   expression: ParsedExpression,
   clause: Clause,
-  where: string,
+  place: string,
 ): logical.Expression {
   const bound = clause.bind(expression);
-  checkCondition(bound.type, where);
+  checkCondition(bound.type, place);
   return bound;
 }
 
@@ -46,8 +46,8 @@ export function conjunctsOf(
 }
 
 /** The rule for clauses that refuse aggregates. */
-export function refuse(where: string): AggregateRule {
-  return { kind: "refuse", where };
+export function refuse(place: string): AggregateRule {
+  return { kind: "refuse", place };
 }
 
 /** The aggregate calls of one query, each once, bound to `aggregateIndex`. */

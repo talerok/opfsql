@@ -1,5 +1,10 @@
 import type { Table } from "../../schema/index.js";
-import type { AggregateCall, logical, physical } from "../plan/index.js";
+import {
+  type AggregateCall,
+  isSameExpression,
+  type logical,
+  type physical,
+} from "../plan/index.js";
 import type { IndexKeys, KeyPart } from "./key-parts.js";
 import {
   equalTestOn,
@@ -10,18 +15,17 @@ import {
 import { lowerExpressions } from "./lower-expression.js";
 import { tableReadOf } from "./plan-tree.js";
 import type { Planner } from "./planner.js";
-import { sameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
-// Pass 6, MIN and MAX from one end of an index. `SELECT MIN(x) FROM t WHERE
-// a = 1` reads one entry when an index starts with (a, x): the first entry
-// after the prefix whose x is not NULL. Eligible only when the aggregate has
-// no GROUP BY and exactly that one call, over the next key part, and every
-// filter condition is an `=` on one of the leading parts — a seek finds
-// exactly the entries `=` holds for (key-tests.ts). index-extreme has no
-// residual (docs/planning.md, Physical plans), so any other condition, a
-// range included, rules it out. It returns the decoded key, so never for a
-// part that may hold a JSON object or array (holds).
+// Lowering step, MIN and MAX from one end of an index (lower.ts). `SELECT
+// MIN(x) FROM t WHERE a = 1` reads one entry when an index starts with (a, x):
+// the first entry after the prefix whose x is not NULL. Eligible only when the
+// aggregate has no GROUP BY and exactly that one call, over the next key part,
+// and every filter condition is an `=` on one of the leading parts — a seek
+// finds exactly the entries `=` holds for (key-tests.ts). index-extreme has no
+// residual (docs/planning.md, Physical plans), so any other condition, a range
+// included, rules it out. It returns the decoded key, so never for a part that
+// may hold a JSON object or array (isKeyedByArgument).
 // ---------------------------------------------------------------------------
 
 type Extreme = physical.IndexExtreme["extreme"];
@@ -92,9 +96,10 @@ function extremeOn(
   wanted: Wanted,
   table: Table,
 ): physical.IndexExtreme | null {
-  const equal = equalPrefixOf(keys, tests);
+  const equal = exactEqualPrefix(keys, tests);
   const part = keys.parts[tests.length];
-  const isArgument = part !== undefined && holds(part, wanted.argument);
+  const isArgument =
+    part !== undefined && isKeyedByArgument(part, wanted.argument);
   if (equal === null || !isArgument) return null;
   return {
     kind: "index-extreme",
@@ -111,7 +116,7 @@ function extremeOn(
  * The seek values of the index's leading parts, one `=` test each, every
  * test used once; null if the tests are not exactly that.
  */
-function equalPrefixOf(
+function exactEqualPrefix(
   keys: IndexKeys,
   tests: readonly KeyTest[],
 ): SeekValue[] | null {
@@ -121,7 +126,7 @@ function equalPrefixOf(
     const found = equalTestOn(part, unused);
     if (found === null) return null;
     unused = unused.filter((keyTest) => keyTest !== found);
-    equal.push(found.test.value);
+    equal.push(found.match.value);
   }
   return unused.length === 0 ? equal : null;
 }
@@ -133,7 +138,10 @@ function equalPrefixOf(
  * IndexExtreme); a JSON part holds them, and so may an ANY part, which
  * stores any value as given.
  */
-function holds(part: KeyPart, argument: logical.Expression): boolean {
+function isKeyedByArgument(
+  part: KeyPart,
+  argument: logical.Expression,
+): boolean {
   const isDecodedExactly = part.type !== "JSON" && part.type !== "ANY";
-  return isDecodedExactly && sameExpression(argument, part.expression);
+  return isDecodedExactly && isSameExpression(argument, part.expression);
 }

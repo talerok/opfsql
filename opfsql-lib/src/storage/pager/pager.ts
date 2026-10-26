@@ -55,10 +55,10 @@ export class Pager {
    */
   beginRead(): ReadTransaction | null {
     this.catchUp();
-    let snapshot = this.pin();
+    let snapshot = this.tryPinLatest();
     // A checkpoint passed the snapshot meanwhile: its commits are in the
     // WAL, so catching up finds them, and a newer snapshot holds.
-    while (snapshot === null && this.catchUp()) snapshot = this.pin();
+    while (snapshot === null && this.catchUp()) snapshot = this.tryPinLatest();
     return snapshot === null ? null : new ReadTransaction(this, snapshot);
   }
 
@@ -68,7 +68,7 @@ export class Pager {
    */
   beginWrite(): WriteTransaction {
     this.resetStaleIntent();
-    const snapshot = this.pin();
+    const snapshot = this.tryPinLatest();
     if (snapshot === null) {
       throw new InternalError("the latest commit was refused under the lock");
     }
@@ -115,8 +115,12 @@ export class Pager {
     return this.wal.append(pages, pageCount);
   }
 
+  /** Releases one pin of `snapshot`, taken by beginRead or beginWrite. */
   unpin(snapshot: number): void {
-    this.release(snapshot);
+    const count = (this.pins.get(snapshot) ?? 0) - 1;
+    if (count > 0) this.pins.set(snapshot, count);
+    else this.pins.delete(snapshot);
+    this.publishOldest();
   }
 
   /**
@@ -156,8 +160,8 @@ export class Pager {
   }
 
   /** Clears read marks left by tabs that died with a snapshot open. */
-  async releaseAbandonedSnapshots(): Promise<void> {
-    await this.options.marks?.reclaimDeadSlots();
+  async clearDeadMarks(): Promise<void> {
+    await this.options.marks?.clearDeadMarks();
   }
 
   close(): void {
@@ -180,24 +184,17 @@ export class Pager {
    * intent is read, so a checkpoint that announces its target later sees it;
    * one that announced a target past the snapshot already wins.
    */
-  private pin(): number | null {
+  private tryPinLatest(): number | null {
     const snapshot = this.latestCommit();
-    this.hold(snapshot);
+    this.pin(snapshot);
     const intent = this.options.marks?.checkpointIntent() ?? 0;
     if (intent <= snapshot) return snapshot;
-    this.release(snapshot);
+    this.unpin(snapshot);
     return null;
   }
 
-  private hold(snapshot: number): void {
+  private pin(snapshot: number): void {
     this.pins.set(snapshot, (this.pins.get(snapshot) ?? 0) + 1);
-    this.publishOldest();
-  }
-
-  private release(snapshot: number): void {
-    const count = (this.pins.get(snapshot) ?? 0) - 1;
-    if (count > 0) this.pins.set(snapshot, count);
-    else this.pins.delete(snapshot);
     this.publishOldest();
   }
 
@@ -238,11 +235,13 @@ export class Pager {
 
   private restartWal(): void {
     const latest = this.latestCommit();
-    this.hold(latest);
+    // read() takes only a pinned snapshot, and the allocation map is read at
+    // the latest commit.
+    this.pin(latest);
     try {
       this.truncateFreeTail(latest);
     } finally {
-      this.release(latest);
+      this.unpin(latest);
     }
     this.wal.restart();
   }

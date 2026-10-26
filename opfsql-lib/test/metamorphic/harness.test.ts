@@ -38,7 +38,7 @@ function partitionCheck(...forms: string[]): Check {
     oracle: "planted",
     forms: forms.map((sql) => unordered(sql)),
     verdict: ([whole = [], ...split]: readonly Rows[]) =>
-      multisetDifference(whole, split.flat()),
+      multisetDifference(whole, split.flat(), ["the query", "its parts"]),
   };
 }
 
@@ -62,7 +62,7 @@ describe("the metamorphic harness", () => {
     const outcome = await runCheck(check, copies);
     expect(outcome.kind).toBe("failed");
     expect(outcome.kind === "failed" ? outcome.reason : "").toMatch(
-      /^plain copy: 3 rows against 2\n.*\nindexed copy: 3 rows against 2/su,
+      /^plain copy: 3 rows in the query against 2 in its parts\n.*\nindexed copy: 3 rows in the query against 2 in its parts/su,
     );
   });
 
@@ -93,7 +93,7 @@ describe("the metamorphic harness", () => {
       copies,
     );
     expect(outcome.kind === "failed" ? outcome.reason : "").toMatch(
-      /^SEMANTIC_ERROR/u,
+      /^plain copy: SEMANTIC_ERROR/u,
     );
   });
 });
@@ -110,7 +110,10 @@ describe("value keys", () => {
   });
 
   it("count a row as often as it comes", () => {
-    expect(multisetDifference([[1], [1]], [[1], [1]])).toBeNull();
-    expect(multisetDifference([[1], [1]], [[1]])).toMatch(/^2 rows against 1/u);
+    const sides = ["a", "b"] as const;
+    expect(multisetDifference([[1], [1]], [[1], [1]], sides)).toBeNull();
+    expect(multisetDifference([[1], [1]], [[1]], sides)).toMatch(
+      /^2 rows in a against 1 in b\n {2}only in a/u,
+    );
   });
 });

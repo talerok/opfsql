@@ -4,6 +4,7 @@ import {
   ConstraintError,
   CorruptError,
   DatatypeMismatchError,
+  InternalError,
 } from "../../errors.js";
 import type { Index, Table } from "../../schema/index.js";
 import { Schema } from "../../schema/index.js";
@@ -17,7 +18,8 @@ import {
 import { memoryFiles, read, write } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
 import type { CompileExpression } from "../index.js";
-import { checkTables, keyedIndex, Sequences, TableEditor } from "../index.js";
+import { checkTables, Sequences, TableEditor } from "../index.js";
+import { keyedIndex } from "../keys.js";
 
 // users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT NOT NULL,
 //        age INTEGER DEFAULT 0), with an index on lower(name).
@@ -57,7 +59,7 @@ async function usersTable(isAutoincrement = false): Promise<Users> {
     const indexes: Index[] = [
       {
         name: "opfsql_autoindex_users_1",
-        table: "users",
+        tableName: "users",
         keys: [{ kind: "column", column: EMAIL }],
         isUnique: true,
         rootPage: IndexWriter.create(transaction),
@@ -65,7 +67,7 @@ async function usersTable(isAutoincrement = false): Promise<Users> {
       },
       {
         name: "users_lower_name",
-        table: "users",
+        tableName: "users",
         keys: [{ kind: "expression", sql: "lower(name)", type: "TEXT" }],
         isUnique: false,
         rootPage: IndexWriter.create(transaction),
@@ -233,8 +235,10 @@ describe("TableEditor", () => {
     const users = await usersTable();
     edit(users, (editor) => {
       editor.insert([1, "a@x", "Ann", 1]);
-      expect(editor.delete(1)).toBe(true);
-      expect(editor.delete(1)).toBe(false);
+      editor.delete(1);
+      expect(() => {
+        editor.delete(1);
+      }).toThrow(InternalError);
       editor.insert([2, "a@x", "Bob", 2]);
     });
     expect(rowsOf(users)).toEqual([[2, "a@x", "Bob", 2]]);
@@ -276,7 +280,11 @@ describe("TableEditor over a damaged index", () => {
     edit(users, (editor) => editor.insert([1, "a@x", "Ann", 1]));
     damageNames(users, "delete", encodeKey(["ann", 1]));
     const missing = disagreement("it has no entry for row 1");
-    expect(failureOf(users, (editor) => editor.delete(1))).toEqual(missing);
+    expect(
+      failureOf(users, (editor) => {
+        editor.delete(1);
+      }),
+    ).toEqual(missing);
     expect(
       failureOf(users, (editor) => editor.update(1, [1, "a@x", "Bob", 1])),
     ).toEqual(missing);

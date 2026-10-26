@@ -1,10 +1,9 @@
 export { startAggregate } from "./aggregate.js";
-export { argumentTypes, commonType, staticType } from "./arguments.js";
-export { followPath, type Path, type PathStep } from "./json.js";
+export { commonType } from "./arguments.js";
+export { followPath, type JsonPathStep } from "./json.js";
 export {
   aggregateFunction,
   isAggregateFunction,
-  lookupFunction,
   resolveCall,
   scalarFunction,
   sqlFunction,
@@ -19,5 +18,4 @@ export type {
   ScalarFunction,
   Signature,
   SqlFunction,
-  StaticType,
 } from "./types.js";

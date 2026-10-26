@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatQuery, StatementType } from "../../parser/index.js";
+import { formatQuery } from "../../parser/format.js";
+import { StatementType } from "../../parser/index.js";
 import {
   lines,
   notSupported,

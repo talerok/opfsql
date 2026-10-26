@@ -1,13 +1,3 @@
-// ---------------------------------------------------------------------------
-// The printer: syntax trees back to SQL text. What it prints parses to the
-// tree it was given, so printing is idempotent: parse(format(x)) prints the
-// same. It is the canonical text of an expression — how CREATE INDEX stores
-// an expression key, and how a result column without an alias is named.
-// Names are quoted when they are not plain identifiers or are keywords;
-// parentheses go where the parser's precedence (precedence.ts) needs them.
-// ---------------------------------------------------------------------------
-
-import { InternalError } from "../../errors.js";
 import { realLiteral, sqlLiteral } from "../../values/index.js";
 import { compoundMembers } from "./compound.js";
 import { keywordOf } from "./keywords.js";
@@ -18,7 +8,6 @@ import {
   ExpressionType,
   JoinType,
   OrderByNullType,
-  OrderType,
   SetOperationType,
   TableReferenceType,
   type CaseExpression,
@@ -29,15 +18,28 @@ import {
   type JsonPathSegment,
   type LimitClause,
   type Literal,
+  type BinaryOperatorType,
+  type FunctionExpression,
   type OperatorExpression,
   type OrderByNode,
   type ParsedExpression,
+  type SelectListItem,
   type SelectNode,
   type SelectStatement,
   type SetOperationNode,
   type SubqueryExpression,
+  type WithClause,
   type TableReference,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// The printer: syntax trees back to SQL text. What it prints parses to the
+// tree it was given, so printing is idempotent: parse(format(x)) prints the
+// same. It is the canonical text of an expression — how CREATE INDEX stores
+// an expression key, and how a result column without an alias is named.
+// Names are quoted when they are not plain identifiers or are keywords;
+// parentheses go where the parser's precedence (precedence.ts) needs them.
+// ---------------------------------------------------------------------------
 
 const PLAIN_NAME = /^[A-Za-z_][\w$]*$/;
 
@@ -129,62 +131,54 @@ const COMPARISON_TEXT: Readonly<
 
 function formatOperator(expression: OperatorExpression): string {
   const level = OPERATOR_POWER[expression.type];
-  const [first, ...rest] = expression.children;
-  const subject = required(first);
   switch (expression.type) {
     case ExpressionType.OPERATOR_NOT: {
-      return `NOT ${operand(subject, level)}`;
+      return `NOT ${operand(expression.operand, level)}`;
     }
     case ExpressionType.OPERATOR_NEGATE: {
-      return `-${negated(subject)}`;
+      return `-${minusOperand(expression.operand)}`;
     }
     case ExpressionType.OPERATOR_IS_NULL: {
-      return `${operand(subject, level)} IS NULL`;
+      return `${operand(expression.operand, level)} IS NULL`;
     }
     case ExpressionType.OPERATOR_IS_NOT_NULL: {
-      return `${operand(subject, level)} IS NOT NULL`;
+      return `${operand(expression.operand, level)} IS NOT NULL`;
     }
     case ExpressionType.OPERATOR_IN: {
-      return `${operand(subject, level)} IN (${formatList(rest)})`;
+      const { needle, list } = expression;
+      return `${operand(needle, level)} IN (${formatList(list)})`;
     }
     case ExpressionType.OPERATOR_NOT_IN: {
-      return `${operand(subject, level)} NOT IN (${formatList(rest)})`;
+      const { needle, list } = expression;
+      return `${operand(needle, level)} NOT IN (${formatList(list)})`;
     }
-    case ExpressionType.OPERATOR_ADD: {
-      return binary(subject, "+", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_SUBTRACT: {
-      return binary(subject, "-", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_MULTIPLY: {
-      return binary(subject, "*", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_DIVIDE: {
-      return binary(subject, "/", required(rest[0]), level);
-    }
-    case ExpressionType.OPERATOR_MOD: {
-      return binary(subject, "%", required(rest[0]), level);
-    }
+    case ExpressionType.OPERATOR_ADD:
+    case ExpressionType.OPERATOR_SUBTRACT:
+    case ExpressionType.OPERATOR_MULTIPLY:
+    case ExpressionType.OPERATOR_DIVIDE:
+    case ExpressionType.OPERATOR_MOD:
     case ExpressionType.OPERATOR_CONCAT: {
-      return binary(subject, "||", required(rest[0]), level);
+      const { left, right, type } = expression;
+      return binary(left, BINARY_SYMBOL[type], right, level);
     }
   }
 }
 
-/** An operand the parser always builds; a tree without it is a bug. */
-function required(expression: ParsedExpression | undefined): ParsedExpression {
-  if (expression === undefined) {
-    throw new InternalError("an operator is missing an operand");
-  }
-  return expression;
-}
+const BINARY_SYMBOL: Record<BinaryOperatorType, string> = {
+  [ExpressionType.OPERATOR_ADD]: "+",
+  [ExpressionType.OPERATOR_SUBTRACT]: "-",
+  [ExpressionType.OPERATOR_MULTIPLY]: "*",
+  [ExpressionType.OPERATOR_DIVIDE]: "/",
+  [ExpressionType.OPERATOR_MOD]: "%",
+  [ExpressionType.OPERATOR_CONCAT]: "||",
+};
 
 /**
  * The operand of a prefix `-`. A number goes in parentheses, since `-5` is
  * a literal of its own, and so does a second `-`, since `--` starts a
  * comment.
  */
-function negated(expression: ParsedExpression): string {
+function minusOperand(expression: ParsedExpression): string {
   const isNumber =
     expression.expressionClass === ExpressionClass.CONSTANT &&
     (expression.type === "INTEGER" || expression.type === "REAL");
@@ -216,7 +210,7 @@ function formatList(expressions: readonly ParsedExpression[]): string {
 // --- Primaries -----------------------------------------------------------------
 
 function formatColumn(reference: ColumnReferenceExpression): string {
-  const names = reference.columnNames.map((name) => formatName(name));
+  const names = reference.names.map((name) => formatName(name));
   const path = reference.path.map((segment) => formatSegment(segment));
   return names.join(".") + path.join("");
 }
@@ -231,12 +225,7 @@ function formatLiteral(literal: Literal): string {
   return sqlLiteral(literal.value);
 }
 
-function formatCall(
-  call: Extract<
-    ParsedExpression,
-    { expressionClass: ExpressionClass.FUNCTION }
-  >,
-): string {
+function formatCall(call: FunctionExpression): string {
   const name = formatName(call.functionName);
   if (call.isStar) return `${name}(*)`;
   const distinct = call.isDistinct ? "DISTINCT " : "";
@@ -304,7 +293,7 @@ export function formatQuery(statement: SelectStatement): string {
   return parts.filter((part) => part !== "").join(" ");
 }
 
-function formatWith(clause: NonNullable<SelectStatement["with"]>): string {
+function formatWith(clause: WithClause): string {
   const recursive = clause.isRecursive ? "RECURSIVE " : "";
   const ctes = clause.ctes.map((cte) => formatCte(cte));
   return `WITH ${recursive}${ctes.join(", ")}`;
@@ -345,9 +334,9 @@ function formatSelect(node: SelectNode): string {
   return parts.join(" ");
 }
 
-function formatSelectList(items: readonly ParsedExpression[]): string {
+function formatSelectList(items: readonly SelectListItem[]): string {
   return items
-    .map((item) => formatExpression(item) + aliasText(item.alias))
+    .map((item) => formatExpression(item.expression) + aliasText(item.alias))
     .join(", ");
 }
 
@@ -390,7 +379,7 @@ function formatJoin(join: JoinReference): string {
 function formatOrderBy(orders: readonly OrderByNode[]): string {
   if (orders.length === 0) return "";
   const keys = orders.map((order) => {
-    const direction = order.type === OrderType.DESCENDING ? " DESC" : "";
+    const direction = order.direction === "descending" ? " DESC" : "";
     return `${formatExpression(order.expression)}${direction}${nullsText(order)}`;
   });
   return `ORDER BY ${keys.join(", ")}`;

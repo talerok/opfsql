@@ -4,6 +4,7 @@ import type {
   physical,
   QuantifiedComparison,
   ScalarSubquery,
+  SubqueryExpression,
 } from "../sql/plan/index.js";
 import {
   foldTruth,
@@ -17,7 +18,7 @@ import type {
   CompiledSubquery,
   Compiler,
   OuterRows,
-  QueryContext,
+  QueryLevel,
   Scope,
   Tuple,
 } from "./scope.js";
@@ -30,10 +31,7 @@ import type {
 // set aside, since its rows serve all of them.
 // ---------------------------------------------------------------------------
 
-export type Subquery = Extract<
-  physical.Expression,
-  { readonly kind: "scalar-subquery" | "exists" | "quantified-comparison" }
->;
+export type Subquery = SubqueryExpression<physical.Plan>;
 
 /** The statement's own query level, which reads no outer row. */
 const STATEMENT_LEVEL = 0;
@@ -63,6 +61,7 @@ function compileScalar(
   expression: ScalarSubquery<physical.Plan>,
   scope: Scope,
 ): CompiledExpression {
+  // Two rows are enough to tell one from several.
   const rows = compileRows(expression, scope, 2);
   return (row) => onlyValue(rows(row));
 }
@@ -113,7 +112,7 @@ function compileHashedIn(
   compiler: Compiler,
 ): CompiledExpression {
   const needle = compiler.compile(expression.needle);
-  const subquery = compilePlan(expression, compiler.scope);
+  const subquery = compileSubqueryPlan(expression, compiler.scope);
   const { outer } = compiler.scope.run;
   const contains = once(() =>
     membership(
@@ -133,7 +132,7 @@ function compileRows(
   scope: Scope,
   limit?: number,
 ): CompiledRows {
-  const subquery = compilePlan(expression, scope);
+  const subquery = compileSubqueryPlan(expression, scope);
   const { outer } = scope.run;
   if (!expression.isCorrelated) {
     return once(() => sealed(outer, () => subquery.rows(limit)));
@@ -155,12 +154,15 @@ function sealed<T>(outer: OuterRows, run: () => T): T {
  * The subquery's plan, compiled by the executor as a query level inside
  * `scope`: the rows of `scope.layout` are its depth-1 rows.
  */
-function compilePlan(expression: Subquery, scope: Scope): CompiledSubquery {
-  const context: QueryContext = {
+function compileSubqueryPlan(
+  expression: Subquery,
+  scope: Scope,
+): CompiledSubquery {
+  const level: QueryLevel = {
     run: scope.run,
     outerLayouts: [scope.layout, ...scope.outerLayouts],
   };
-  return scope.run.subqueries.compile(expression.plan, context);
+  return scope.subqueries.compile(expression.plan, level);
 }
 
 function onlyValue(rows: readonly Tuple[]): Value {

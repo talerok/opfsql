@@ -10,7 +10,7 @@ import type {
   JsonAccess,
   JsonPathStep,
 } from "../plan/index.js";
-import { oneOrNone } from "./one.js";
+import { itemAt, oneOrNone } from "./one.js";
 import type { Relation, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -35,13 +35,13 @@ export function bindColumn(
   scope: Scope,
 ): ColumnReference | JsonAccess {
   for (let query: Scope | null = scope; query !== null; query = query.outer) {
-    const found = findIn(query, reference.columnNames);
+    const found = findIn(query, reference.names);
     if (found === null) continue;
     const depth = scope.level - query.level;
     if (depth > 0) scope.noteReach(query.level);
     return referenceTo(found, depth, reference);
   }
-  throw new SemanticError(`no such column: ${reference.columnNames.join(".")}`);
+  throw new SemanticError(`no such column: ${reference.names.join(".")}`);
 }
 
 /** The relations `*` or `t.*` stands for, and the columns of each it reads. */
@@ -90,13 +90,13 @@ export function columnOf(
   column: number,
   depth: number,
 ): ColumnReference {
-  const output = item.columns[column];
+  const output = itemAt(item.columns, column, "a relation's columns");
   return {
     kind: "column",
     binding: { tableIndex: item.tableIndex, columnIndex: column },
     depth,
-    name: output?.name ?? String(column),
-    type: output?.type ?? "ANY",
+    name: output.name,
+    type: output.type,
   };
 }
 
@@ -177,7 +177,7 @@ function referenceTo(
   reference: ColumnReferenceExpression,
 ): ColumnReference | JsonAccess {
   const column = columnOf(found.relation, found.column, depth);
-  const keys = reference.columnNames.slice(found.namesUsed);
+  const keys = reference.names.slice(found.namesUsed);
   const path: JsonPathStep[] = [
     ...keys.map((key) => ({ kind: "key" as const, key })),
     ...reference.path.map((segment) => pathStep(segment)),

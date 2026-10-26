@@ -16,9 +16,6 @@ export function runDelete(
   const { table, tableIndex, source } = statement;
   const rowids = sourceRowids(source, tableIndex, context);
   const editor = tables.editor(table);
-  let changes = 0;
-  for (const rowid of rowids) {
-    if (editor.delete(rowid)) changes++;
-  }
-  return { changes, lastInsertRowid: null };
+  for (const rowid of rowids) editor.delete(rowid);
+  return { changes: rowids.length, lastInsertRowid: null };
 }

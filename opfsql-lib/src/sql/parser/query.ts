@@ -1,24 +1,24 @@
-// ---------------------------------------------------------------------------
-// Queries: WITH, SELECT, compound operators, ORDER BY and LIMIT.
-// ---------------------------------------------------------------------------
-
 import type { Cursor } from "./cursor.js";
 import { parseFrom } from "./from-clause.js";
 import {
   ExpressionClass,
   OrderByNullType,
-  OrderType,
   SetOperationType,
   StatementType,
   type CTENode,
   type LimitClause,
   type OrderByNode,
   type ParsedExpression,
+  type SelectListItem,
   type SelectNode,
   type SelectStatement,
   type SetOperationNode,
   type WithClause,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Queries: WITH, SELECT, compound operators, ORDER BY and LIMIT.
+// ---------------------------------------------------------------------------
 
 /** A whole query: WITH, a body, and the ORDER BY and LIMIT of the body. */
 export function parseQuery(cursor: Cursor): SelectStatement {
@@ -65,7 +65,7 @@ function parseCte(cursor: Cursor): CTENode {
     ? cursor.nameList("a column name")
     : [];
   cursor.expectKeyword("AS");
-  cursor.rejectWord("MATERIALIZED", "[NOT] MATERIALIZED");
+  cursor.rejectIdentifierWord("MATERIALIZED", "[NOT] MATERIALIZED");
   cursor.rejectKeyword("NOT", "[NOT] MATERIALIZED");
   return { name, columnNames, query: cursor.subquery() };
 }
@@ -138,7 +138,7 @@ function parseSelectCore(cursor: Cursor): SelectNode {
 }
 
 /** `*`, `t.*`, or an expression with an optional alias. */
-function parseSelectItem(cursor: Cursor): ParsedExpression {
+function parseSelectItem(cursor: Cursor): SelectListItem {
   if (cursor.matchSymbol("*")) return star(null);
   const isTableStar =
     cursor.isName() && cursor.isSymbol(".", 1) && cursor.isSymbol("*", 2);
@@ -149,12 +149,14 @@ function parseSelectItem(cursor: Cursor): ParsedExpression {
     return star(table);
   }
   const expression = cursor.expression();
-  const alias = cursor.optionalAlias();
-  return alias === null ? expression : { ...expression, alias };
+  return { expression, alias: cursor.optionalAlias() };
 }
 
-function star(table: string | null): ParsedExpression {
-  return { expressionClass: ExpressionClass.STAR, alias: null, table };
+function star(table: string | null): SelectListItem {
+  return {
+    expression: { expressionClass: ExpressionClass.STAR, table },
+    alias: null,
+  };
 }
 
 function parseGroupBy(cursor: Cursor): readonly ParsedExpression[] {
@@ -175,8 +177,8 @@ function parseOrderItem(cursor: Cursor): OrderByNode {
   const expression = cursor.expression();
   const isDescending = cursor.matchKeyword("DESC");
   if (!isDescending) cursor.matchKeyword("ASC");
-  const type = isDescending ? OrderType.DESCENDING : OrderType.ASCENDING;
-  return { type, nullOrder: parseNullOrder(cursor), expression };
+  const direction = isDescending ? "descending" : "ascending";
+  return { direction, nullOrder: parseNullOrder(cursor), expression };
 }
 
 /** `NULLS FIRST`, `NULLS LAST`, or null when the item does not say. */

@@ -14,19 +14,19 @@ const MAX = Number.MAX_SAFE_INTEGER;
 describe("arithmetic", () => {
   it("is NULL when either operand is NULL", () => {
     for (const mode of ["integer", "real", "dynamic"] as const) {
-      expect(arithmetic("add", mode)(null, 1)).toBeNull();
-      expect(arithmetic("divide", mode)(1, null)).toBeNull();
+      expect(arithmetic("ADD", mode)(null, 1)).toBeNull();
+      expect(arithmetic("DIVIDE", mode)(1, null)).toBeNull();
     }
   });
 
   it("divides INTEGERs toward zero and REALs exactly", () => {
-    expect(arithmetic("divide", "integer")(7, 2)).toBe(3);
-    expect(arithmetic("divide", "integer")(-7, 2)).toBe(-3);
-    expect(arithmetic("divide", "real")(7, 2)).toBe(3.5);
+    expect(arithmetic("DIVIDE", "integer")(7, 2)).toBe(3);
+    expect(arithmetic("DIVIDE", "integer")(-7, 2)).toBe(-3);
+    expect(arithmetic("DIVIDE", "real")(7, 2)).toBe(3.5);
   });
 
   it("decides by the values when the types are not known", () => {
-    const divide = arithmetic("divide", "dynamic");
+    const divide = arithmetic("DIVIDE", "dynamic");
     expect(divide(7, 2)).toBe(3);
     expect(divide(7.5, 2)).toBe(3.75);
     // Not a safe integer, so not an INTEGER: divides exactly.
@@ -34,41 +34,41 @@ describe("arithmetic", () => {
   });
 
   it("takes the sign of the dividend for %", () => {
-    expect(arithmetic("remainder", "integer")(-7, 3)).toBe(-1);
-    expect(arithmetic("remainder", "integer")(7, -3)).toBe(1);
+    expect(arithmetic("MOD", "integer")(-7, 3)).toBe(-1);
+    expect(arithmetic("MOD", "integer")(7, -3)).toBe(1);
   });
 
   it("truncates REAL operands of % to integers, as SQLite does", () => {
-    expect(arithmetic("remainder", "real")(5.5, 2)).toBe(1);
-    expect(arithmetic("remainder", "real")(5, 0.5)).toBeNull();
+    expect(arithmetic("MOD", "real")(5.5, 2)).toBe(1);
+    expect(arithmetic("MOD", "real")(5, 0.5)).toBeNull();
   });
 
   it("is NULL for division or remainder by zero", () => {
     for (const mode of ["integer", "real", "dynamic"] as const) {
-      expect(arithmetic("divide", mode)(1, 0)).toBeNull();
-      expect(arithmetic("remainder", mode)(1, 0)).toBeNull();
+      expect(arithmetic("DIVIDE", mode)(1, 0)).toBeNull();
+      expect(arithmetic("MOD", mode)(1, 0)).toBeNull();
     }
   });
 
   it("fails when an INTEGER result leaves the safe range", () => {
-    expect(() => arithmetic("add", "integer")(MAX, 1)).toThrow(
+    expect(() => arithmetic("ADD", "integer")(MAX, 1)).toThrow(
       IntegerOverflowError,
     );
-    expect(() => arithmetic("multiply", "dynamic")(MAX, 2)).toThrow(
+    expect(() => arithmetic("MULTIPLY", "dynamic")(MAX, 2)).toThrow(
       IntegerOverflowError,
     );
-    expect(arithmetic("add", "real")(MAX, 1)).toBe(MAX + 1);
+    expect(arithmetic("ADD", "real")(MAX, 1)).toBe(MAX + 1);
   });
 
   it("never returns NaN or -0", () => {
-    expect(arithmetic("subtract", "real")(Infinity, Infinity)).toBeNull();
-    expect(Object.is(arithmetic("multiply", "integer")(-3, 0), 0)).toBe(true);
+    expect(arithmetic("SUBTRACT", "real")(Infinity, Infinity)).toBeNull();
+    expect(Object.is(arithmetic("MULTIPLY", "integer")(-3, 0), 0)).toBe(true);
     expect(Object.is(negate(0), 0)).toBe(true);
   });
 
   it("takes text that is exactly a number, and nothing else", () => {
-    expect(arithmetic("add", "dynamic")("2", 3)).toBe(5);
-    expect(() => arithmetic("add", "dynamic")("two", 3)).toThrow(
+    expect(arithmetic("ADD", "dynamic")("2", 3)).toBe(5);
+    expect(() => arithmetic("ADD", "dynamic")("two", 3)).toThrow(
       DatatypeMismatchError,
     );
     expect(() => numberOperand(true)).toThrow(DatatypeMismatchError);

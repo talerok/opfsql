@@ -174,11 +174,8 @@ describe("conditional functions", () => {
   });
 });
 
-function like(text: string, pattern: string, escape?: string) {
-  return call(
-    "like",
-    escape === undefined ? [pattern, text] : [pattern, text, escape],
-  );
+function like(text: string, pattern: string) {
+  return call("like", [pattern, text]);
 }
 
 describe("LIKE", () => {
@@ -200,15 +197,6 @@ describe("LIKE", () => {
     expect(like("a.c", "a.c")).toBe(true);
     expect(like("abc", "a.c")).toBe(false);
     expect(like("(x)", "(%)")).toBe(true);
-  });
-
-  it("supports an ESCAPE character", () => {
-    expect(like("50%", String.raw`50\%`, "\\")).toBe(true);
-    expect(like("500", String.raw`50\%`, "\\")).toBe(false);
-    expect(like("a_b", "a!_b", "!")).toBe(true);
-    expect(like("axb", "a!_b", "!")).toBe(false);
-    expect(like("a", "a!", "!")).toBe(false);
-    expect(() => like("a", "a", "!!")).toThrow(SemanticError);
   });
 
   it("is NULL for NULL operands", () => {

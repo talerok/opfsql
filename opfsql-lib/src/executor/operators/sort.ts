@@ -17,7 +17,7 @@ import { compileWindow, type Window } from "./limit.js";
 // ---------------------------------------------------------------------------
 
 /** A row, its sort key values, and when it arrived, which breaks ties. */
-interface SortedRow {
+interface SortEntry {
   readonly row: Tuple;
   readonly keys: readonly Value[];
   readonly arrival: number;
@@ -25,8 +25,8 @@ interface SortedRow {
 
 /** The keys of one ORDER BY, compiled. */
 interface Ordering {
-  readonly sortedRow: (row: Tuple, arrival: number) => SortedRow;
-  readonly compare: (a: SortedRow, b: SortedRow) => number;
+  readonly entryOf: (row: Tuple, arrival: number) => SortEntry;
+  readonly compare: (a: SortEntry, b: SortEntry) => number;
 }
 
 interface SortKey {
@@ -60,9 +60,9 @@ export function topN(
 }
 
 function sortedRows(child: Operator, ordering: Ordering): Tuple[] {
-  const rows: SortedRow[] = [];
+  const rows: SortEntry[] = [];
   for (const row of drain(child)) {
-    rows.push(ordering.sortedRow(row, rows.length));
+    rows.push(ordering.entryOf(row, rows.length));
   }
   // Array sorting is stable, and the arrival order breaks ties anyway.
   return rows.toSorted(ordering.compare).map(({ row }) => row);
@@ -79,7 +79,7 @@ function firstRows(
   const heap = new BoundedHeap(offset + limit, ordering.compare);
   let arrival = 0;
   for (const row of drain(child)) {
-    heap.offer(ordering.sortedRow(row, arrival++));
+    heap.offer(ordering.entryOf(row, arrival++));
   }
   return heap
     .sorted()
@@ -94,7 +94,7 @@ function compileOrdering(
   const scope = scopeOf(context, physical.layoutOf(plan.child));
   const keys = plan.keys.map((key) => compileSortKey(key, scope));
   return {
-    sortedRow: (row, arrival) => ({
+    entryOf: (row, arrival) => ({
       row,
       keys: keys.map((key) => key.value(row)),
       arrival,
@@ -113,8 +113,8 @@ function compileSortKey(key: physical.OrderKey, scope: Scope): SortKey {
 
 function compareSorted(
   keys: readonly SortKey[],
-  a: SortedRow,
-  b: SortedRow,
+  a: SortEntry,
+  b: SortEntry,
 ): number {
   for (const [position, key] of keys.entries()) {
     const order = compareKey(
@@ -142,14 +142,14 @@ function compareKey(key: SortKey, a: Value, b: Value): number {
  * last of them, replaced when an earlier row arrives.
  */
 class BoundedHeap {
-  private readonly items: SortedRow[] = [];
+  private readonly items: SortEntry[] = [];
 
   constructor(
     private readonly capacity: number,
-    private readonly compare: (a: SortedRow, b: SortedRow) => number,
+    private readonly compare: (a: SortEntry, b: SortEntry) => number,
   ) {}
 
-  offer(row: SortedRow): void {
+  offer(row: SortEntry): void {
     if (this.items.length < this.capacity) {
       this.items.push(row);
       this.siftUp(this.items.length - 1);
@@ -161,7 +161,7 @@ class BoundedHeap {
     this.siftDown(0);
   }
 
-  sorted(): SortedRow[] {
+  sorted(): SortEntry[] {
     return this.items.toSorted(this.compare);
   }
 

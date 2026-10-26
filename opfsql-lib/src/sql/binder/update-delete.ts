@@ -1,14 +1,8 @@
 import { SemanticError } from "../../errors.js";
-import { commonType } from "../../functions/index.js";
-import {
-  isReservedName,
-  SEQUENCE_TABLE_NAME,
-  type Table,
-} from "../../schema/index.js";
+import type { Table } from "../../schema/index.js";
 import type {
   Assignment as AssignmentNode,
   DeleteStatement,
-  InsertSource,
   ParsedExpression,
   UpdateStatement,
 } from "../parser/index.js";
@@ -20,17 +14,17 @@ import {
   type Update,
 } from "../plan/index.js";
 import { bindCondition, conjunctsOf, refuse, type Clause } from "./clause.js";
-import { columnIn } from "./columns.js";
+import { columnNamed } from "./columns.js";
 import { clauseOf } from "./expression.js";
-import { relation, Scope, type BindContext, type BoundQuery } from "./scope.js";
+import { relation, Scope, type BindContext } from "./scope.js";
+import { writableTable, writtenTableReads } from "./tables.js";
 
 // ---------------------------------------------------------------------------
 // UPDATE and DELETE are planned like queries: their source reads the target
 // table — every column in column order, then the rowid — under a filter
 // with the WHERE clause, so the optimizer finds their rows as it finds a
-// SELECT's. INSERT's source is VALUES or a query. INSERT and UPDATE say
-// whether what they compute reads a table they write (statement.ts,
-// readsTarget).
+// SELECT's. UPDATE says whether what it computes reads a table it writes
+// (statement.ts, readsTarget).
 // ---------------------------------------------------------------------------
 
 type Plan = logical.Plan;
@@ -77,36 +71,6 @@ export function bindDelete(
 }
 
 /**
- * The reads, in what was bound so far, of a table that writing `table`
- * writes: `table` itself, and opfsql_sequence when it has AUTOINCREMENT,
- * whose counter a row written may raise.
- */
-export function writtenTableReads(table: Table, context: BindContext): number {
-  const own = context.readsOf(table.name);
-  if (!table.isAutoincrement) return own;
-  return own + context.readsOf(SEQUENCE_TABLE_NAME);
-}
-
-/** The table a statement names, which must exist. */
-export function tableNamed(name: string, context: BindContext): Table {
-  const table = context.schema.table(name);
-  if (table === null) throw new SemanticError(`no such table: ${name}`);
-  return table;
-}
-
-/**
- * The table INSERT, UPDATE or DELETE writes: not one of opfsql's own, which
- * a statement may read but never write (docs/semantics.md, Names).
- */
-export function writableTable(name: string, context: BindContext): Table {
-  const table = tableNamed(name, context);
-  if (isReservedName(table.name)) {
-    throw new SemanticError(`table ${table.name} may not be modified`);
-  }
-  return table;
-}
-
-/**
  * `SET column = value, …`: each column of `table`, at most once, its value
  * bound in `clause`.
  */
@@ -126,34 +90,6 @@ export function bindAssignments(
     assigned.add(column);
     return { column, value: clause.bind(assignment.value) };
   });
-}
-
-/** The position of `table`'s column called `name`. */
-export function columnNamed(table: Table, name: string): number {
-  return columnIn(table.columns, name, table.name);
-}
-
-/** INSERT's rows: VALUES, each row as long as the column list, or a query. */
-export function insertSource(
-  source: InsertSource,
-  width: number,
-  context: BindContext,
-): BoundQuery {
-  if (source.type === "VALUES") {
-    for (const row of source.rows) checkWidth(row.length, width);
-    return bindValues(source.rows, width, context);
-  }
-  const query = context.bindQuery(source.query, Scope.root(context));
-  checkWidth(query.columns.length, width);
-  return query;
-}
-
-function checkWidth(count: number, width: number): void {
-  if (count !== width) {
-    throw new SemanticError(
-      `${String(count)} values for ${String(width)} columns`,
-    );
-  }
 }
 
 // --- The target table ----------------------------------------------------------
@@ -189,26 +125,4 @@ function targetOf(
     conditions: conjunctsOf(condition),
   };
   return { table, tableIndex, scope, source };
-}
-
-// --- VALUES --------------------------------------------------------------------------
-
-/** VALUES rows: constants and expressions without columns, typed per column. */
-function bindValues(
-  rows: readonly (readonly ParsedExpression[])[],
-  width: number,
-  context: BindContext,
-): BoundQuery {
-  const clause = clauseOf(Scope.root(context), refuse("VALUES"));
-  const bound = rows.map((row) => row.map((value) => clause.bind(value)));
-  const types = Array.from({ length: width }, (_, position) =>
-    commonType(bound.map((row) => row[position]?.type ?? "NULL")),
-  );
-  const tableIndex = context.newIndex();
-  const plan: Plan = { kind: "values", tableIndex, rows: bound, types };
-  const columns = types.map((type, position) => ({
-    name: `column${String(position + 1)}`,
-    type,
-  }));
-  return { plan, columns };
 }

@@ -10,10 +10,11 @@ import {
   normalizeNumber,
   normalizeValue,
   numberFromText,
+  parseJsonText,
   truncate,
 } from "../convert.js";
 import type { SqlType } from "../types.js";
-import { isNumericType, sqlTypeOf, typeFromName } from "../types.js";
+import { typeFromName } from "../types.js";
 import type { Value } from "../value.js";
 
 const blob = new Uint8Array([0xde, 0xad]);
@@ -136,6 +137,34 @@ describe("numberFromText", () => {
       ),
     ).toEqual([null, null, null, null, null, null, null]);
   });
+
+  it("reads -0 as 0, as every value has it", () => {
+    expect(Object.is(numberFromText("-0"), 0)).toBe(true);
+    expect(Object.is(castValue("-0.0", "REAL"), 0)).toBe(true);
+  });
+});
+
+describe("parseJsonText", () => {
+  it("normalizes a document at any depth", () => {
+    const parsed = parseJsonText('{"a": [-0, {"b": -0.0}]}');
+    expect(parsed).toEqual({ a: [0, { b: 0 }] });
+    expect(Object.is((parsed as { a: number[] }).a[0], 0)).toBe(true);
+  });
+
+  it("refuses a lone surrogate written as an escape, in a value or a key", () => {
+    for (const text of [
+      String.raw`["\ud800"]`,
+      String.raw`{"\udc00": 1}`,
+      String.raw`"\ud800x"`,
+    ]) {
+      expect(() => parseJsonText(text)).toThrow(DatatypeMismatchError);
+    }
+    expect(parseJsonText(String.raw`"\ud83d\ude00"`)).toBe("😀");
+  });
+
+  it("refuses text that is not JSON", () => {
+    expect(() => parseJsonText("{")).toThrow(DatatypeMismatchError);
+  });
 });
 
 describe("hex", () => {
@@ -205,14 +234,5 @@ describe("number helpers", () => {
     expect(normalizeNumber(NaN)).toBeNull();
     expect(normalizeNumber(-0)).toBe(0);
     expect(normalizeNumber(1.5)).toBe(1.5);
-  });
-
-  it("names types, ANY for unknown names; BIGINT is numeric", () => {
-    expect(sqlTypeOf("BIGINT")).toBe("INTEGER");
-    expect(sqlTypeOf("whatever")).toBe("ANY");
-    expect(isNumericType("BIGINT")).toBe(true);
-    expect(isNumericType("REAL")).toBe(true);
-    expect(isNumericType("TEXT")).toBe(false);
-    expect(isNumericType("NULL")).toBe(false);
   });
 });

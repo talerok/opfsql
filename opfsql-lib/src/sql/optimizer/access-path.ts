@@ -2,6 +2,7 @@ import type { logical, OrderDirection, physical } from "../plan/index.js";
 import {
   afterResidual,
   type Estimate,
+  type Planned,
   indexEstimate,
   orderedCost,
   rowidListEstimate,
@@ -28,8 +29,8 @@ import { deliveredDirection, type WantedOrder } from "./order-match.js";
 import type { Planner } from "./planner.js";
 
 // ---------------------------------------------------------------------------
-// Pass 4, access paths: how a `get` reads the rows its filter conditions
-// want. The candidates, cheapest first by cost.ts:
+// Lowering step, access paths (lower.ts): how a `get` reads the rows its
+// filter conditions want. The candidates, cheapest first by cost.ts:
 //
 //   rowid-lookup   the rowid `=` or IN seek values, or a range of it;
 //   index-scan     an index's leading parts each `=` a seek value, then at
@@ -62,65 +63,24 @@ export interface ScanRequest {
   readonly order: WantedOrder | null;
 }
 
-export interface AccessPath {
-  readonly plan: physical.Plan;
-  /** True if its rows come in the order wanted. */
-  readonly isOrdered: boolean;
-  /** The rows that pass every condition, and what reading them costs. */
-  readonly estimate: Estimate;
-}
-
-/** A read of a table's rows, which a residual can sit on. */
-export type Scan =
-  | physical.TableScan
-  | physical.RowidLookup
-  | physical.IndexScan
-  | physical.IndexUnion;
-
-export function isScan(plan: physical.Plan): plan is Scan {
-  switch (plan.kind) {
-    case "table-scan":
-    case "rowid-lookup":
-    case "index-scan":
-    case "index-union": {
-      return true;
-    }
-    case "index-extreme":
-    case "filter":
-    case "project":
-    case "hash-join":
-    case "nested-loop-join":
-    case "lookup-join":
-    case "hash-aggregate":
-    case "sort":
-    case "top-n":
-    case "limit":
-    case "hash-distinct":
-    case "set-operation":
-    case "cte":
-    case "cte-scan":
-    case "recursive-cte":
-    case "values": {
-      return false;
-    }
-  }
-}
-
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-/** A scan without what every scan of the get has. */
-type Access = DistributiveOmit<
-  Scan,
-  "tableIndex" | "table" | "columns" | "residual"
+/** How a scan reads the rows: the scan without what every scan of the get has. */
+type AccessMethod = DistributiveOmit<physical.Scan, keyof physical.TableAccess>;
+export type RowidAccess = Extract<
+  AccessMethod,
+  { readonly kind: "rowid-lookup" }
 >;
-export type RowidAccess = Extract<Access, { readonly kind: "rowid-lookup" }>;
-export type IndexAccess = Extract<Access, { readonly kind: "index-scan" }>;
+export type IndexAccess = Extract<
+  AccessMethod,
+  { readonly kind: "index-scan" }
+>;
 
 /** One way to read the rows. */
-export interface Candidate<Kind extends Access = Access> {
-  readonly access: Kind;
+export interface Candidate<M extends AccessMethod = AccessMethod> {
+  readonly access: M;
   /** Conditions it enforces exactly, which the residual leaves out. */
   readonly enforced: readonly Expression[];
   readonly estimate: Estimate;
@@ -130,7 +90,7 @@ export interface Candidate<Kind extends Access = Access> {
 export function chooseAccessPath(
   request: ScanRequest,
   planner: Planner,
-): AccessPath {
+): Planned {
   const { get, conditions, order } = request;
   const tests = keyTestsAmong(conditions);
   const indexes = planner.indexes.indexesOf(get);
@@ -173,23 +133,19 @@ export function cheapestBy<C>(
   return best;
 }
 
-function buildScan(candidate: Candidate, request: ScanRequest): Scan {
-  return { ...accessOf(candidate, request), ...candidate.access };
-}
-
-/** A seek's scan: a rowid lookup or an index scan. */
-export function buildSeek(
-  candidate: Candidate<RowidAccess | IndexAccess>,
+/** The scan a candidate reads the get's rows with. */
+export function buildScan<M extends AccessMethod>(
+  candidate: Candidate<M>,
   request: ScanRequest,
-): physical.RowidLookup | physical.IndexScan {
-  return { ...accessOf(candidate, request), ...candidate.access };
+): physical.TableAccess & M {
+  return { ...tableAccessOf(candidate, request), ...candidate.access };
 }
 
 /** What every scan of the get has: its columns, and the conditions the path leaves. */
-function accessOf(
+function tableAccessOf(
   candidate: Candidate,
   request: ScanRequest,
-): Omit<physical.TableScan, "kind" | "direction"> {
+): physical.TableAccess {
   const { tableIndex, table, columns } = request.get;
   const residual = request.conditions.filter(
     (condition) => !candidate.enforced.includes(condition),
@@ -251,7 +207,7 @@ function rowidListCandidate(
   keyTest: ListTest,
   read: RowidRead,
 ): Candidate<RowidAccess> {
-  const { test } = keyTest;
+  const { match: test } = keyTest;
   const values = test.kind === "equal" ? [test.value] : test.values;
   const rowids = { kind: "list", values } as const;
   return {
@@ -324,7 +280,7 @@ function equalPrefix(
   for (const part of parts) {
     const found = equalTestOn(part, tests);
     if (found === null) break;
-    prefix.values.push(found.test.value);
+    prefix.values.push(found.match.value);
     prefix.enforced.push(found.condition);
   }
   return prefix;
@@ -364,11 +320,11 @@ interface Bounds {
 
 /** The first lower bound and the first upper bound among the tests. */
 function boundsOf(ranges: readonly RangeTest[]): Bounds | null {
-  const lowerFrom = ranges.find(({ test }) => test.range.lower !== null);
-  const upperFrom = ranges.find(({ test }) => test.range.upper !== null);
+  const lowerFrom = ranges.find(({ match: test }) => test.range.lower !== null);
+  const upperFrom = ranges.find(({ match: test }) => test.range.upper !== null);
   if (lowerFrom === undefined && upperFrom === undefined) return null;
-  const lower = lowerFrom?.test.range.lower ?? null;
-  const upper = upperFrom?.test.range.upper ?? null;
+  const lower = lowerFrom?.match.range.lower ?? null;
+  const upper = upperFrom?.match.range.upper ?? null;
   return { range: { lower, upper }, lowerFrom, upperFrom };
 }
 
@@ -378,7 +334,7 @@ function enforcedBy(
   ranges: readonly RangeTest[],
 ): Expression[] {
   const isUsed = (keyTest: RangeTest): boolean => {
-    const { lower, upper } = keyTest.test.range;
+    const { lower, upper } = keyTest.match.range;
     const isLowerUsed = lower === null || keyTest === bounds.lowerFrom;
     const isUpperUsed = upper === null || keyTest === bounds.upperFrom;
     return isLowerUsed && isUpperUsed;

@@ -50,7 +50,7 @@ they guard.
 | A page is read only at a pinned snapshot                                                                                          | by check: `Pager.read`                                                                                                                                                                                           |
 | A transaction is used only while open                                                                                             | by check: MISUSE after it ends                                                                                                                                                                                   |
 | A page read is shared and never changed; only pages from `write()` or `allocate()` are written                                    | by construction: pages are read through read-only views (B-tree pages, the map and overflow readers), only `write()` and `allocate()` pages reach an editor, and the WAL keeps its own copies of committed pages |
-| A cursor, a row or an overflow reference read from a tree lives until that tree is changed or rolled back in the same transaction | by check: a change count per tree, which cursors and rows compare                                                                                                                                                |
+| A cursor, a row or an overflow reference read from a tree lives until that tree is changed or rolled back in the same transaction | by check: a version per tree, which every change and rollback moves and cursors and rows compare (`TreeGuard`)                                                                                                   |
 | The allocation map never frees a free page nor hands out one in use                                                               | by check: CORRUPT                                                                                                                                                                                                |
 | Each statement of a write transaction runs in a savepoint; a failure rolls back to it (docs/planning.md, Execution)               | by construction, in the engine                                                                                                                                                                                   |
 | The schema cache holds committed schemas only                                                                                     | by check: a transaction with changes of its own (`hasChanges()`) is refused                                                                                                                                      |
@@ -72,7 +72,7 @@ they guard.
 | Rows change only through the table's editor, with every index of the table                                                                                     | by construction: `WritableTables.editor` is the only way to one |
 | The editor decides a change in full before it writes anything                                                                                                  | by construction                                                 |
 | What the editor writes agrees with what it decided: an entry it found absent is inserted, one it found present is deleted                                      | by check: a contradiction is CORRUPT                            |
-| A statement reads every row it needs from a tree before it writes that tree; an INSERT streams its source only when the source reads no tree the insert writes | by check: the change count per tree                             |
+| A statement reads every row it needs from a tree before it writes that tree; an INSERT streams its source only when the source reads no tree the insert writes | by check: the version per tree                                  |
 | `Tables` serve one statement; index keys are compiled once per schema version                                                                                  | by construction                                                 |
 
 The trees an INSERT writes are its table's and its indexes', and
@@ -84,7 +84,7 @@ The trees an INSERT writes are its table's and its indexes', and
 | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | A row or key too large is refused before a byte is written                                                            | by check                                                            |
 | The catalog leaves the schema loadable: no column dropped that a key reads, column or expression                      | by check, in the catalog itself, whatever the binder checked before |
-| A record's values leave the page as it is read; an overflow value is read when asked for, under the change-count rule | by construction                                                     |
+| A record's values leave the page as it is read; an overflow value is read when asked for, under the tree-version rule | by construction                                                     |
 
 ## Expressions ↔ executor
 
@@ -113,17 +113,23 @@ ruled out (docs/api.md, Results).
 
 ## Errors
 
-| Layer          | Raises                                                                                                           |
-| -------------- | ---------------------------------------------------------------------------------------------------------------- |
-| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE                                  |
-| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                                         |
-| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT                    |
-| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows), MISUSE                                  |
-| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE; IO_ERROR when a lock request fails                                 |
-| worker         | WORKER_ERROR (a worker that crashed or did not start, a message that could not be read or sent), MISUSE, ABORTED |
-| any            | INTERNAL: a broken contract                                                                                      |
+| Layer          | Raises                                                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE                                                                                                            |
+| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                                                                                                                   |
+| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT                                                                                              |
+| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows, a malformed JSON path), MISUSE                                                                                     |
+| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE; IO_ERROR when a lock request fails                                                                                                           |
+| worker         | WORKER_ERROR (a worker that crashed or did not start, a message from it that could not be read, a reply it could not send), MISUSE (a call with a value structured clone refuses), ABORTED |
+| any            | INTERNAL: a broken contract                                                                                                                                                                |
 
 Errors from the platform — a DOMException from a file or a lock — become
-opfsql errors in one function, `toOpfsqlError` in `errors.ts`, used by the
-engine and the worker host alike. An error object is never shared between calls: one kept to be thrown
-again is thrown as the cause of a new one.
+opfsql errors in `errors.ts`: `toOpfsqlError` at the boundaries of the
+engine and the worker host, and `fileFailure` — the same translation, with a
+message naming the file — where storage reports a failed write itself. Two
+places translate what only they can tell: opening, where a refused file
+handle means another tab holds the files (DATABASE_IN_USE), and the write
+lock, where a failed lock request is the environment's failure (IO_ERROR).
+
+An error object is never shared between calls: one kept to be thrown again
+is thrown as the cause of a new one.

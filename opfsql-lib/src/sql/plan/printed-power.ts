@@ -1,9 +1,6 @@
+import type { ArithmeticOperator } from "../../values/index.js";
 import { power } from "../precedence.js";
-import type {
-  ArithmeticOperator,
-  ComparisonOperator,
-  Expression,
-} from "./expression.js";
+import type { ComparisonOperator, Expression } from "./expression.js";
 
 // ---------------------------------------------------------------------------
 // How tightly a printed bound expression holds together, in the binding

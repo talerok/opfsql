@@ -1,9 +1,15 @@
 import type {
   AggregateFunction,
+  JsonPathStep,
   ScalarFunction,
-  StaticType,
 } from "../../functions/index.js";
-import type { Affinity, SqlType, Value } from "../../values/index.js";
+import type {
+  Affinity,
+  ArithmeticOperator,
+  SqlType,
+  StaticType,
+  Value,
+} from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
 // Bound expressions (docs/planning.md). `Plan` is the kind of plan a
@@ -49,9 +55,6 @@ export function positionIn(
 
 export type ComparisonOperator =
   "EQUAL" | "NOT_EQUAL" | "LESS" | "GREATER" | "LESS_EQUAL" | "GREATER_EQUAL";
-
-export type ArithmeticOperator =
-  "ADD" | "SUBTRACT" | "MULTIPLY" | "DIVIDE" | "MOD";
 
 export interface ColumnReference {
   readonly kind: "column";
@@ -190,10 +193,6 @@ export interface Cast<Plan> {
   readonly type: SqlType;
 }
 
-export type JsonPathStep =
-  | { readonly kind: "key"; readonly key: string }
-  | { readonly kind: "index"; readonly index: number };
-
 /** `column.key[0]…`: a value inside a JSON column. */
 export interface JsonAccess {
   readonly kind: "json-access";
@@ -240,6 +239,10 @@ export interface QuantifiedComparison<Plan> extends SubqueryPart<Plan> {
   readonly quantifier: "ANY" | "ALL";
   readonly type: "BOOLEAN";
 }
+
+/** An expression that holds a subquery's plan. */
+export type SubqueryExpression<Plan> =
+  ScalarSubquery<Plan> | Exists<Plan> | QuantifiedComparison<Plan>;
 
 export type Expression<Plan> =
   | ColumnReference

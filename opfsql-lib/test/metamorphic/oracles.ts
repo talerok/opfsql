@@ -1,9 +1,4 @@
-import {
-  type Check,
-  ordered as orderedForm,
-  partitions,
-  unordered,
-} from "./check.js";
+import { type Check, ordered, partitions, unordered } from "./check.js";
 import {
   distinctRows,
   multisetDifference,
@@ -30,6 +25,9 @@ import { selectList, tlpChecks } from "./tlp.js";
 // and must return the same there: index invariance.
 // ---------------------------------------------------------------------------
 
+/** The parameters oracle's name, which the reducer treats apart. */
+export const PARAMETERS_ORACLE = "parameters";
+
 export function checksOf(queryCase: QueryCase): Check[] {
   return [
     ...tlpChecks(queryCase),
@@ -51,7 +49,7 @@ function noRec(queryCase: QueryCase): Check {
     verdict: ([count = [], sum = []]) => {
       // The sum over no rows is NULL, where the count is 0.
       const total = sum[0]?.[0] ?? 0;
-      return multisetDifference(count, [[total]]);
+      return multisetDifference(count, [[total]], ["count(*)", "the sum"]);
     },
   };
 }
@@ -74,11 +72,14 @@ function limited(queryCase: QueryCase): Check {
   return {
     oracle: "LIMIT … OFFSET",
     forms: [
-      orderedForm(query),
-      orderedForm(`${query} LIMIT ${String(limit)} OFFSET ${String(offset)}`),
+      ordered(query),
+      ordered(`${query} LIMIT ${String(limit)} OFFSET ${String(offset)}`),
     ],
     verdict: ([all = [], slice = []]) =>
-      sequenceDifference(all.slice(offset, offset + limit), slice),
+      sequenceDifference(all.slice(offset, offset + limit), slice, [
+        "the full order's slice",
+        "LIMIT and OFFSET",
+      ]),
   };
 }
 
@@ -108,12 +109,15 @@ function setOperations(queryCase: QueryCase): Check {
         (row) => !inPart.has(rowKey(row)),
       );
       return (
-        labelled("UNION", multisetDifference(distinctRows(whole), union)) ??
-        labelled(
-          "INTERSECT",
-          multisetDifference(distinctRows(part), intersect),
-        ) ??
-        labelled("EXCEPT", multisetDifference(outside, except))
+        multisetDifference(distinctRows(whole), union, [
+          "the query",
+          "the UNION",
+        ]) ??
+        multisetDifference(distinctRows(part), intersect, [
+          "the partition",
+          "the INTERSECT",
+        ]) ??
+        multisetDifference(outside, except, ["the rest", "the EXCEPT"])
       );
     },
   };
@@ -131,7 +135,7 @@ function parameters(queryCase: QueryCase): Check {
   const written = `${query}${withLiterals(print(expression), others)}`;
   const otherValues = others.map((sql) => constant("untyped", sql).value);
   return {
-    oracle: "parameters",
+    oracle: PARAMETERS_ORACLE,
     forms: [
       unordered(`${query}${print(queryCase.condition)}`),
       unordered(prepared, values),
@@ -144,8 +148,14 @@ function parameters(queryCase: QueryCase): Check {
       otherConstants = [],
       otherBound = [],
     ]) =>
-      labelled("first values", multisetDifference(constants, bound)) ??
-      labelled("next values", multisetDifference(otherConstants, otherBound)),
+      multisetDifference(constants, bound, [
+        "the constants",
+        "the first parameters",
+      ]) ??
+      multisetDifference(otherConstants, otherBound, [
+        "the other constants",
+        "the next parameters",
+      ]),
   };
 }
 
@@ -154,8 +164,4 @@ function withLiterals(sql: string, literals: readonly string[]): string {
   return sql.replaceAll(/\$(\d+)/gu, (parameter, number: string) => {
     return literals[Number(number) - 1] ?? parameter;
   });
-}
-
-function labelled(label: string, difference: string | null): string | null {
-  return difference === null ? null : `${label}: ${difference}`;
 }

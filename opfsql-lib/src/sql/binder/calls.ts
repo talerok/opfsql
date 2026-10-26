@@ -48,14 +48,15 @@ function bindAggregate(
   const rule = clause.aggregates;
   if (rule.kind === "refuse") {
     throw new SemanticError(
-      `aggregate functions are not allowed in ${rule.where}`,
+      `aggregate functions are not allowed in ${rule.place}`,
     );
   }
   const inner = clause.withAggregates(
     refuse("the arguments of an aggregate function"),
   );
   const argumentList = call.children.map((child) => inner.bind(child));
-  // As in SQLite: DISTINCT compares one value, group_concat's and no other.
+  // As in SQLite, an aggregate with DISTINCT takes exactly one argument,
+  // group_concat included.
   if (call.isDistinct && argumentList.length !== 1) {
     throw new SemanticError(
       `${call.functionName}(DISTINCT …) takes exactly one argument`,

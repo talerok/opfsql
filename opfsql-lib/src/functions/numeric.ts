@@ -1,13 +1,13 @@
-import { withoutNegativeZero } from "../values/index.js";
+import { withoutNegativeZero, type StaticType } from "../values/index.js";
 import {
   eager,
   firstArgumentType,
-  integer,
-  number,
+  integerArgument,
+  numberArgument,
   returns,
   strict,
 } from "./arguments.js";
-import type { ScalarFunction, StaticType } from "./types.js";
+import type { ScalarFunction } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Numeric functions, as SQLite defines them.
@@ -24,7 +24,7 @@ const abs: ScalarFunction = {
   name: "abs",
   signature: { required: ["number"] },
   returnType: firstArgumentType,
-  implement: () => strict(([value]) => Math.abs(number(value))),
+  implement: () => strict(([value]) => Math.abs(numberArgument(value))),
 };
 
 const sign: ScalarFunction = {
@@ -33,7 +33,7 @@ const sign: ScalarFunction = {
   signature: { required: ["number"] },
   returnType: returns("INTEGER"),
   implement: () =>
-    strict(([value]) => withoutNegativeZero(Math.sign(number(value)))),
+    strict(([value]) => withoutNegativeZero(Math.sign(numberArgument(value)))),
 };
 
 /** ROUND(x [, digits]): half away from zero, as SQLite rounds; a REAL. */
@@ -45,8 +45,8 @@ const round: ScalarFunction = {
   implement: () =>
     strict(([value, digits]) =>
       roundHalfAwayFromZero(
-        number(value),
-        digits === undefined ? 0 : integer(digits),
+        numberArgument(value),
+        digits === undefined ? 0 : integerArgument(digits),
       ),
     ),
 };
@@ -90,7 +90,7 @@ const floor: ScalarFunction = {
   signature: { required: ["number"] },
   returnType: integralType,
   implement: () =>
-    strict(([value]) => withoutNegativeZero(Math.floor(number(value)))),
+    strict(([value]) => withoutNegativeZero(Math.floor(numberArgument(value)))),
 };
 
 const ceil: ScalarFunction = {
@@ -99,7 +99,7 @@ const ceil: ScalarFunction = {
   signature: { required: ["number"] },
   returnType: integralType,
   implement: () =>
-    strict(([value]) => withoutNegativeZero(Math.ceil(number(value)))),
+    strict(([value]) => withoutNegativeZero(Math.ceil(numberArgument(value)))),
 };
 
 /** RANDOM(): a random INTEGER from -2^52 to 2^52, new for every row. */

@@ -12,16 +12,15 @@ import {
   type CreateIndexStatement,
   type ParsedExpression,
 } from "../parser/index.js";
-import type { CreateIndex, logical } from "../plan/index.js";
+import { type CreateIndex, type logical, nodesOf } from "../plan/index.js";
 import { refuse } from "./clause.js";
 import { asCorruption } from "./corruption.js";
 import { checkNewName } from "./create-table.js";
-import { tableNamed } from "./dml.js";
+import { tableNamed } from "./tables.js";
 import { clauseOf } from "./expression.js";
 import { bindQuery } from "./query.js";
 import { BindContext, relation, Scope } from "./scope.js";
 import { storedType } from "./type-rules.js";
-import { partsOf } from "./walk.js";
 
 // ---------------------------------------------------------------------------
 // CREATE INDEX. A key is a column of the table, or an expression over its
@@ -62,9 +61,9 @@ export function indexDefinition(
   const scope = tableScope(table, context.newIndex(), context);
   return {
     name: statement.name,
-    table: table.name,
+    tableName: table.name,
     keys: statement.expressions.map((expression) =>
-      indexKey(expression, scope),
+      indexKeyOf(expression, scope),
     ),
     isUnique: statement.isUnique,
     origin: "statement",
@@ -77,27 +76,27 @@ export function indexDefinition(
  * the engine compiles to compute the key of a row. A key that does not
  * parse or bind is a CorruptError.
  */
-export function bindIndexKey(
+export function bindStoredIndexKey(
   sql: string,
   table: Table,
   tableIndex: number,
 ): Expression {
   return asCorruption(
-    () => bindKeyText(sql, table, tableIndex),
+    () => bindIndexKeyText(sql, table, tableIndex),
     (problem) =>
       `the index key ${sql} of table ${table.name} does not bind: ${problem}`,
   );
 }
 
 /** An expression key's text bound over `table`; its errors are a statement's. */
-export function bindKeyText(
+export function bindIndexKeyText(
   sql: string,
   table: Table,
   tableIndex: number,
 ): Expression {
   const context = new BindContext(Schema.empty, bindQuery);
   const scope = tableScope(table, tableIndex, context);
-  return bindKeyExpression(parseExpression(sql), scope);
+  return bindIndexKeyExpression(parseExpression(sql), scope);
 }
 
 function tableScope(
@@ -110,8 +109,8 @@ function tableScope(
   return scope;
 }
 
-function indexKey(expression: ParsedExpression, scope: Scope): IndexKey {
-  const bound = bindKeyExpression(expression, scope);
+function indexKeyOf(expression: ParsedExpression, scope: Scope): IndexKey {
+  const bound = bindIndexKeyExpression(expression, scope);
   if (bound.kind === "column") {
     return { kind: "column", column: bound.binding.columnIndex };
   }
@@ -119,7 +118,7 @@ function indexKey(expression: ParsedExpression, scope: Scope): IndexKey {
   return { kind: "expression", sql, type: storedType(bound.type) };
 }
 
-function bindKeyExpression(
+function bindIndexKeyExpression(
   expression: ParsedExpression,
   scope: Scope,
 ): Expression {
@@ -130,24 +129,17 @@ function bindKeyExpression(
 
 /** A key's value depends on its row alone. */
 function checkDeterministic(expression: Expression): void {
-  if (SUBQUERIES.has(expression.kind)) {
-    throw new SemanticError("subqueries are not allowed in an index");
+  for (const node of nodesOf(expression)) {
+    if (SUBQUERIES.has(node.kind)) {
+      throw new SemanticError("subqueries are not allowed in an index");
+    }
+    if (node.kind === "parameter") {
+      throw new SemanticError("parameters are not allowed in an index");
+    }
+    if (node.kind === "function" && node.function.isVolatile === true) {
+      throw new SemanticError(
+        `${node.name}() is not allowed in an index: it gives another value each call`,
+      );
+    }
   }
-  if (expression.kind === "parameter") {
-    throw new SemanticError("parameters are not allowed in an index");
-  }
-  const isVolatile =
-    expression.kind === "function" && expression.function.isVolatile === true;
-  if (isVolatile) {
-    throw new SemanticError(
-      `${formatCall(expression)} is not allowed in an index: it gives another value each call`,
-    );
-  }
-  for (const part of partsOf(expression)) {
-    if (part !== null) checkDeterministic(part);
-  }
-}
-
-function formatCall(expression: Expression): string {
-  return expression.kind === "function" ? `${expression.name}()` : "it";
 }

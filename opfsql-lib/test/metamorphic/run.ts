@@ -61,7 +61,7 @@ async function runCase(site: CaseSite, tally: Tally): Promise<void> {
     if (outcome.kind !== "failed") continue;
     const shouldReduce = tally.failureCount() === 0;
     const failing = { site, queryCase, check, reason: outcome.reason };
-    tally.fail(await describe(failing, shouldReduce));
+    tally.fail(await describeFailing(failing, shouldReduce));
   }
 }
 
@@ -72,7 +72,7 @@ interface Failing {
   readonly reason: string;
 }
 
-async function describe(
+async function describeFailing(
   failing: Failing,
   shouldReduce: boolean,
 ): Promise<string> {

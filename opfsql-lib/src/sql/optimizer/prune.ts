@@ -3,7 +3,7 @@ import { columnsOf, holdsCorrelatedSubquery } from "./expression-tree.js";
 import { seekValuesOf } from "./lookup.js";
 
 // ---------------------------------------------------------------------------
-// Pass 8, column pruning (docs/planning.md, Physical plans): a scan reads
+// Pass 4, column pruning (docs/planning.md, Physical plans): a scan reads
 // only the columns some node above it uses, and the rowid only when one
 // does; the table layer then decodes only those. The binder lists every
 // column of a table read; this pass, over the finished physical plan, walks
@@ -83,9 +83,12 @@ function pruned(plan: Plan, wanted: Wanted): Plan {
       return prunedPassing(plan, wanted);
     }
     case "project":
-    case "hash-aggregate":
-    case "hash-distinct": {
+    case "hash-aggregate": {
       return prunedComputing(plan);
+    }
+    case "hash-distinct": {
+      // It compares whole rows: every column below it is wanted.
+      return { ...plan, child: pruneBelow(plan.child) };
     }
     case "set-operation":
     case "cte":
@@ -100,15 +103,8 @@ function pruned(plan: Plan, wanted: Wanted): Plan {
   }
 }
 
-type Scan = Extract<
-  Plan,
-  {
-    readonly kind: "table-scan" | "rowid-lookup" | "index-scan" | "index-union";
-  }
->;
-
 /** A scan's columns that are wanted or that its residual reads, in order. */
-function prunedScan<S extends Scan>(scan: S, wanted: Wanted): S {
+function prunedScan<S extends physical.Scan>(scan: S, wanted: Wanted): S {
   const needed = withReads(wanted, scan.residual, physical.layoutOf(scan));
   const columns = scan.columns.filter((columnIndex) =>
     needed.has(keyOf({ tableIndex: scan.tableIndex, columnIndex })),
@@ -179,10 +175,7 @@ function optional(expression: Expression | null): Expression[] {
   return expression === null ? [] : [expression];
 }
 
-type Computing = Extract<
-  Plan,
-  { readonly kind: "project" | "hash-aggregate" | "hash-distinct" }
->;
+type Computing = Extract<Plan, { readonly kind: "project" | "hash-aggregate" }>;
 
 /** A node whose output is its own: it wants what it computes from. */
 function prunedComputing(plan: Computing): Plan {
@@ -200,9 +193,6 @@ function prunedComputing(plan: Computing): Plan {
       ];
       const needed = withReads(none, reads, layout);
       return { ...plan, child: pruned(plan.child, needed) };
-    }
-    case "hash-distinct": {
-      return { ...plan, child: pruneBelow(plan.child) };
     }
   }
 }

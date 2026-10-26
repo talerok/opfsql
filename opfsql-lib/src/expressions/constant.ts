@@ -8,11 +8,12 @@ import { createRun, type Scope } from "./scope.js";
 const CONSTANT_SCOPE: Scope = {
   layout: [],
   outerLayouts: [],
-  run: createRun(NO_PARAMETERS, {
+  run: createRun(NO_PARAMETERS),
+  subqueries: {
     compile: () => {
       throw new InternalError("a constant expression compiled a subquery");
     },
-  }),
+  },
 };
 
 /**

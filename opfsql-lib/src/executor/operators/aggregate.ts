@@ -12,9 +12,9 @@ import { type Context, scopeOf } from "../context.js";
 import { drain, type Operator, WalkOperator } from "../operator.js";
 
 /**
- * Groups keyed by rowKey — so two group values fall in one group exactly
- * when ORDER BY calls them equal, NULLs together — and the aggregates of
- * each. Without groups there is one group, even over no rows.
+ * One group: its GROUP BY values, and its aggregates. Groups are keyed by
+ * rowKey, so two rows fall in one group exactly when ORDER BY calls their
+ * group values equal, NULLs together.
  */
 interface Group {
   readonly values: readonly Value[];

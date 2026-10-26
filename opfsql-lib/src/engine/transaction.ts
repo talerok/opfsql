@@ -2,29 +2,24 @@ import { InternalError } from "../errors.js";
 import { runQuery, runWrite } from "../executor/index.js";
 import type { Schema } from "../schema/index.js";
 import type { ReadTransaction, WriteTransaction } from "../storage/index.js";
-import {
-  Catalog,
-  type IndexKeys,
-  Tables,
-  WritableTables,
-} from "../table/index.js";
+import { Catalog, Tables, WritableTables } from "../table/index.js";
 import type { ParameterValues } from "../values/index.js";
 import { emptyResult, type Result, type TransactionMode } from "./api/index.js";
-import type { Database, Writer } from "./database.js";
+import type { TransactionManager, Writer } from "./transaction-manager.js";
 import { runDdl } from "./ddl.js";
 import { compileIndexKey } from "./index-keys.js";
 import { changesResult, rowsResult } from "./results.js";
-import { readSchema, type SchemaCache } from "./schemas.js";
+import { type LoadedSchema, readSchema, type SchemaCache } from "./schemas.js";
 import {
   checkParameters,
   columnsOf,
   type Planned,
-  type Step,
+  type CachedStatement,
 } from "./statements.js";
 
 /** What a transaction needs from its engine. */
 export interface TransactionHost {
-  readonly database: Database;
+  readonly transactions: TransactionManager;
   readonly schemas: SchemaCache;
 }
 
@@ -41,7 +36,7 @@ export class Transaction {
   private isOpen = true;
 
   /** The schema the next statement sees: the snapshot's, with this transaction's DDL. */
-  private working: IndexKeys;
+  private working: LoadedSchema;
 
   private constructor(
     private readonly host: TransactionHost,
@@ -49,7 +44,7 @@ export class Transaction {
     private pages: ReadTransaction,
     private writer: Writer | null,
     /** The schema as of the snapshot. */
-    private readonly base: IndexKeys,
+    private readonly base: LoadedSchema,
   ) {
     this.working = base;
   }
@@ -65,10 +60,10 @@ export class Transaction {
     signal: AbortSignal,
   ): Promise<Transaction> {
     if (mode === "immediate") {
-      const writer = await host.database.beginWrite(signal);
+      const writer = await host.transactions.beginWrite(signal);
       return this.over(host, writer.transaction, writer);
     }
-    const read = await host.database.beginRead(signal);
+    const read = await host.transactions.beginRead(signal);
     return this.over(host, read, null);
   }
 
@@ -81,7 +76,7 @@ export class Transaction {
     try {
       return new Transaction(host, pages, writer, host.schemas.load(pages));
     } catch (error) {
-      discard(host.database, pages, writer);
+      discard(host.transactions, pages, writer);
       throw error;
     }
   }
@@ -99,7 +94,7 @@ export class Transaction {
   async makeWritable(signal: AbortSignal): Promise<void> {
     this.ensureOpen();
     if (this.writer !== null) return;
-    this.writer = await this.host.database.upgrade(this.pages, signal);
+    this.writer = await this.host.transactions.upgrade(this.pages, signal);
     this.pages = this.writer.transaction;
   }
 
@@ -108,7 +103,7 @@ export class Transaction {
    * thing that can pair a plan with the schema it runs on. One that writes
    * needs makeWritable first.
    */
-  run(step: Step, parameters: ParameterValues): Result {
+  run(step: CachedStatement, parameters: ParameterValues): Result {
     this.ensureOpen();
     const planned = step.plan(this.working.schema);
     checkParameters(planned, parameters);
@@ -124,9 +119,7 @@ export class Transaction {
       this.pages.end();
       return;
     }
-    endWriter(this.host.database, writer, (transaction) => {
-      transaction.commit();
-    });
+    this.host.transactions.commitWriter(writer);
     // The schema just committed: kept for others, as the same object.
     if (this.working !== this.base) this.host.schemas.remember(this.working);
   }
@@ -134,7 +127,7 @@ export class Transaction {
   rollback(): void {
     if (!this.isOpen) return;
     this.isOpen = false;
-    discard(this.host.database, this.pages, this.writer);
+    discard(this.host.transactions, this.pages, this.writer);
   }
 
   private runPlanned(planned: Planned, parameters: ParameterValues): Result {
@@ -147,7 +140,7 @@ export class Transaction {
       case "explain": {
         return rowsResult(columnsOf(planned), [[planned.text]]);
       }
-      case "write": {
+      case "dml": {
         const { statement } = planned;
         return this.inSavepoint((transaction) => {
           const tables = new WritableTables(transaction, this.working);
@@ -217,7 +210,7 @@ export class Transaction {
 
 /** Releases a transaction's pages, rolling back what it wrote. */
 function discard(
-  database: Database,
+  transactions: TransactionManager,
   pages: ReadTransaction,
   writer: Writer | null,
 ): void {
@@ -225,20 +218,5 @@ function discard(
     pages.end();
     return;
   }
-  endWriter(database, writer, (transaction) => {
-    transaction.rollback();
-  });
-}
-
-/** Ends a writer's transaction with `end`, then checkpoints if due and releases the lock. */
-function endWriter(
-  database: Database,
-  writer: Writer,
-  end: (transaction: WriteTransaction) => void,
-): void {
-  try {
-    end(writer.transaction);
-  } finally {
-    database.endWrite(writer);
-  }
+  transactions.rollbackWriter(writer);
 }

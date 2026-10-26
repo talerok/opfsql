@@ -55,21 +55,21 @@ function countOf(
   return { kind: "constant", value, type: "INTEGER" };
 }
 
-/** A constant count converted as an INTEGER column converts it; NULL is no count. */
-function integerOf(value: Value, clause: string): number {
-  const converted = assignedInteger(value, clause);
+/** A constant count converted as an INTEGER column converts it; NULL is refused. */
+function integerOf(value: Value, place: string): number {
+  const converted = assignedInteger(value, place);
   if (typeof converted !== "number") {
-    throw new DatatypeMismatchError(`${clause} must be an integer, not NULL`);
+    throw new DatatypeMismatchError(`${place} must be an integer, not NULL`);
   }
   return converted;
 }
 
-function assignedInteger(value: Value, clause: string): Value {
+function assignedInteger(value: Value, place: string): Value {
   try {
     return assignValue(value, "INTEGER");
   } catch (error) {
     if (!(error instanceof DatatypeMismatchError)) throw error;
-    throw new DatatypeMismatchError(`${clause}: ${error.message}`, {
+    throw new DatatypeMismatchError(`${place}: ${error.message}`, {
       cause: error,
     });
   }

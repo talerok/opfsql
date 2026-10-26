@@ -3,6 +3,7 @@ import {
   compilePredicate,
   type Layout,
   type Run,
+  type SubqueryCompiler,
   type Tuple,
 } from "../../../expressions/index.js";
 import type { Index, Table } from "../../../schema/index.js";
@@ -35,6 +36,7 @@ export interface Context {
   readonly tables: Tables;
   readonly run: Run;
   readonly outerLayouts: readonly Layout[];
+  readonly subqueries: SubqueryCompiler;
   readonly ctes: Map<number, readonly Tuple[]>;
   readonly bindKey: KeyBinder;
   /** For the right scan of a lookup join, the left row; otherwise none. */
@@ -53,8 +55,13 @@ export function compiled(
   layout: Layout,
   context: Context,
 ): (row: Tuple) => Value {
-  const { outerLayouts, run } = context;
-  return compileExpression(expression, { layout, outerLayouts, run });
+  const { outerLayouts, run, subqueries } = context;
+  return compileExpression(expression, {
+    layout,
+    outerLayouts,
+    run,
+    subqueries,
+  });
 }
 
 /**
@@ -71,8 +78,9 @@ export function fixed(
 
 /** The rows a scan returns, its residual checked. */
 export function scanned(plan: Scan, context: Context): readonly Tuple[] {
-  const { outerLayouts, run } = context;
-  const scope = { layout: physical.layoutOf(plan), outerLayouts, run };
+  const { outerLayouts, run, subqueries } = context;
+  const layout = physical.layoutOf(plan);
+  const scope = { layout, outerLayouts, run, subqueries };
   const tests = plan.residual.map((condition) =>
     compilePredicate(condition, scope),
   );

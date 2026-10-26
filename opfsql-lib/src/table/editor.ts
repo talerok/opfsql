@@ -61,14 +61,15 @@ export interface Conflict {
   readonly refused: readonly Value[];
 }
 
-interface IndexEditor {
+/** An index of the table: its key, and the writer of its entries. */
+interface IndexTarget {
   readonly keyed: KeyedIndex;
-  readonly entries: IndexWriter;
+  readonly writer: IndexWriter;
 }
 
 /** A row's key in one index, and the entry that holds it. */
 interface IndexedKey {
-  readonly index: IndexEditor;
+  readonly target: IndexTarget;
   readonly key: readonly Value[];
   readonly entry: Uint8Array;
 }
@@ -83,7 +84,7 @@ interface RowState {
 export class TableEditor extends TableRows {
   // The reader's rows, typed for writing.
   declare protected readonly stored: TableWriter;
-  private readonly indexes: readonly IndexEditor[];
+  private readonly indexes: readonly IndexTarget[];
 
   /**
    * `indexes` are every index of the table; `sequences` is needed when the
@@ -98,7 +99,7 @@ export class TableEditor extends TableRows {
     super(pages, table, new TableWriter(pages, table.rootPage, table.name));
     this.indexes = indexes.map((keyed) => ({
       keyed,
-      entries: new IndexWriter(pages, keyed.index.rootPage, keyed.index.name),
+      writer: new IndexWriter(pages, keyed.index.rootPage, keyed.index.name),
     }));
   }
 
@@ -117,7 +118,7 @@ export class TableEditor extends TableRows {
 
   /** Replaces row `rowid` with `values`, and returns its rowid, which may change. */
   update(rowid: number, values: readonly Value[]): number {
-    return this.replace(rowid, this.require(rowid), values);
+    return this.replace(rowid, this.rowValues(rowid), values);
   }
 
   /**
@@ -129,18 +130,15 @@ export class TableEditor extends TableRows {
     rowid: number,
     change: (old: readonly Value[]) => readonly Value[],
   ): number {
-    const old = this.require(rowid);
+    const old = this.rowValues(rowid);
     return this.replace(rowid, old, change(old));
   }
 
-  /** Removes row `rowid`. False if there is none. */
-  delete(rowid: number): boolean {
-    const values = this.get(rowid)?.values();
-    if (values === undefined) return false;
-    const old = this.stateOf(rowid, values);
+  /** Removes row `rowid`, which the caller read. */
+  delete(rowid: number): void {
+    const old = this.stateOf(rowid, this.rowValues(rowid));
     this.deleteRow(rowid);
     for (const indexed of old.indexed) deleteEntry(indexed, rowid);
-    return true;
   }
 
   /**
@@ -155,6 +153,15 @@ export class TableEditor extends TableRows {
     target: ConflictConstraint | null = null,
   ): Conflict | null {
     return this.conflictOf(this.newRow(values), null, target);
+  }
+
+  /** The values of row `rowid`, which the caller read: it must be there. */
+  rowValues(rowid: number): Value[] {
+    const row = this.get(rowid);
+    if (row === null) {
+      throw new InternalError(`${this.table.name} has no row ${String(rowid)}`);
+    }
+    return row.values();
   }
 
   // --- Replacing a row -----------------------------------------------------------
@@ -186,9 +193,9 @@ export class TableEditor extends TableRows {
   /** `row` under `rowid`, with its key and its checked entry in every index. */
   private stateOf(rowid: number, values: readonly Value[]): RowState {
     const row = this.withRowid(values, rowid);
-    const indexed = this.indexes.map((index) => {
-      const key = index.keyed.keyOf(row);
-      return { index, key, entry: checkedEntry(index, key, rowid) };
+    const indexed = this.indexes.map((target) => {
+      const key = target.keyed.keyOf(row);
+      return { target, key, entry: checkedEntry(target, key, rowid) };
     });
     return { rowid, row, indexed };
   }
@@ -214,14 +221,6 @@ export class TableEditor extends TableRows {
       throw new ConstraintError("not-null", this.table.name, [column.name]);
     }
     return assigned;
-  }
-
-  private require(rowid: number): Value[] {
-    const row = this.get(rowid);
-    if (row === null) {
-      throw new InternalError(`${this.table.name} has no row ${String(rowid)}`);
-    }
-    return row.values();
   }
 
   // --- Writing a decided row -----------------------------------------------------
@@ -393,10 +392,10 @@ export class TableEditor extends TableRows {
   ): number | null {
     if (constraint === "rowid") return this.rowidHolder(state, replacing);
     const indexed = state.indexed.find(
-      ({ index }) => index.keyed.index === constraint,
+      ({ target }) => target.keyed.index === constraint,
     );
     if (indexed === undefined) return null;
-    for (const holder of rowidsWithKey(indexed.index.entries, indexed.key)) {
+    for (const holder of rowidsWithKey(indexed.target.writer, indexed.key)) {
       if (holder !== replacing) return holder;
     }
     return null;
@@ -443,14 +442,14 @@ function assignNamed(table: string, column: Column, value: Value): Value {
 
 /** A row's entry in an index, refused before anything is written if too long. */
 function checkedEntry(
-  { keyed, entries }: IndexEditor,
+  { keyed, writer }: IndexTarget,
   key: readonly Value[],
   rowid: number,
 ): Uint8Array {
   const entry = encodeKey([...key, rowid]);
-  if (entry.length > entries.maxKeySize) {
+  if (entry.length > writer.maxKeySize) {
     const { name } = keyed.index;
-    throw new IndexKeyTooLargeError(name, entry.length, entries.maxKeySize);
+    throw new IndexKeyTooLargeError(name, entry.length, writer.maxKeySize);
   }
   return entry;
 }
@@ -459,10 +458,10 @@ function checkedEntry(
  * Adds row `rowid`'s entry for a key the table's row did not have: an entry
  * already there means the index disagrees with its table.
  */
-function insertEntry({ index, entry }: IndexedKey, rowid: number): void {
-  if (index.entries.insert(entry)) return;
+function insertEntry({ target, entry }: IndexedKey, rowid: number): void {
+  if (target.writer.insert(entry)) return;
   throw indexDisagreement(
-    index,
+    target,
     `it already has the entry for row ${String(rowid)}`,
   );
 }
@@ -471,13 +470,13 @@ function insertEntry({ index, entry }: IndexedKey, rowid: number): void {
  * Removes row `rowid`'s entry for the key read from the table's row: no
  * entry means the index disagrees with its table.
  */
-function deleteEntry({ index, entry }: IndexedKey, rowid: number): void {
-  if (index.entries.delete(entry)) return;
-  throw indexDisagreement(index, `it has no entry for row ${String(rowid)}`);
+function deleteEntry({ target, entry }: IndexedKey, rowid: number): void {
+  if (target.writer.delete(entry)) return;
+  throw indexDisagreement(target, `it has no entry for row ${String(rowid)}`);
 }
 
-function indexDisagreement(index: IndexEditor, problem: string): CorruptError {
-  const { name } = index.keyed.index;
+function indexDisagreement(target: IndexTarget, problem: string): CorruptError {
+  const { name } = target.keyed.index;
   return new CorruptError(`index ${name} disagrees with its table: ${problem}`);
 }
 

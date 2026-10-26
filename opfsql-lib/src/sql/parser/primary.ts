@@ -1,13 +1,8 @@
-// ---------------------------------------------------------------------------
-// What an expression starts with: literals, parameters, names and calls,
-// prefix operators, parentheses, subqueries, CASE and CAST.
-// ---------------------------------------------------------------------------
-
 import { NotSupportedError } from "../../errors.js";
 import { hexToBytes } from "../../values/index.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
-import { constantNode, notNode, operatorNode, subqueryNode } from "./nodes.js";
+import { constantNode, notNode, subqueryNode, unaryNode } from "./nodes.js";
 import { power } from "../precedence.js";
 import type { SymbolText, Token } from "./tokens.js";
 import { parseTypeName } from "./type-name.js";
@@ -23,6 +18,11 @@ import {
   type ParameterExpression,
   type ParsedExpression,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// What an expression starts with: literals, parameters, names and calls,
+// prefix operators, parentheses, subqueries, CASE and CAST.
+// ---------------------------------------------------------------------------
 
 export function parsePrefix(cursor: Cursor): ParsedExpression {
   const token = cursor.peek();
@@ -109,7 +109,7 @@ function hexValue(cursor: Cursor, token: Token): number {
 
 function parseParameter(cursor: Cursor): ParameterExpression {
   const index = cursor.parameterIndex(cursor.next());
-  return { expressionClass: ExpressionClass.PARAMETER, alias: null, index };
+  return { expressionClass: ExpressionClass.PARAMETER, index };
 }
 
 // --- Keywords and symbols ----------------------------------------------------
@@ -187,7 +187,7 @@ function parseSigned(cursor: Cursor): ParsedExpression {
   if (isNumber) return parseNumber(cursor, sign);
   const operand = cursor.expression(power.unary);
   if (sign.value === "+") return operand;
-  return operatorNode(ExpressionType.OPERATOR_NEGATE, [operand]);
+  return unaryNode(ExpressionType.OPERATOR_NEGATE, operand);
 }
 
 /** `NOT x`; `NOT EXISTS (…)` is one node. */
@@ -228,7 +228,6 @@ function parseCase(cursor: Cursor): CaseExpression {
   cursor.expectKeyword("END");
   return {
     expressionClass: ExpressionClass.CASE,
-    alias: null,
     operand,
     caseChecks,
     elseExpression,
@@ -252,7 +251,6 @@ function parseCast(cursor: Cursor): CastExpression {
   cursor.expectSymbol(")");
   return {
     expressionClass: ExpressionClass.CAST,
-    alias: null,
     child,
     castType,
   };
@@ -266,12 +264,11 @@ function parseName(cursor: Cursor): ParsedExpression {
   if (cursor.isSymbol("(")) return parseCall(cursor, name);
   const columnNames = [name];
   while (cursor.matchSymbol(".")) {
-    columnNames.push(cursor.label("a name after '.'"));
+    columnNames.push(cursor.nameAfterDot("a name after '.'"));
   }
   return {
     expressionClass: ExpressionClass.COLUMN_REF,
-    alias: null,
-    columnNames,
+    names: columnNames,
     path: parseJsonPath(cursor),
   };
 }
@@ -291,7 +288,7 @@ function parseJsonPath(cursor: Cursor): JsonPathSegment[] {
 /** `.field` or `[index]`, or undefined at the end of the path. */
 function parsePathSegment(cursor: Cursor): JsonPathSegment | undefined {
   if (cursor.matchSymbol(".")) {
-    return { type: "field", name: cursor.label("a field name") };
+    return { type: "field", name: cursor.nameAfterDot("a field name") };
   }
   if (!cursor.matchSymbol("[")) return undefined;
   if (cursor.peek().kind !== "integer") cursor.fail("an array index");
@@ -310,7 +307,6 @@ function parseCall(cursor: Cursor, name: string): FunctionExpression {
   cursor.rejectKeyword("FILTER", "FILTER");
   return {
     expressionClass: ExpressionClass.FUNCTION,
-    alias: null,
     functionName,
     children,
     isDistinct,

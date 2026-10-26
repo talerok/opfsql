@@ -11,7 +11,7 @@ import {
   type Insert,
   type OnConflict,
   type physical,
-  positions,
+  relationLayout,
 } from "../../sql/plan/index.js";
 import {
   type Conflict,
@@ -61,7 +61,7 @@ export function runInsert(
 ): WriteOutcome {
   const { table, onConflict } = statement;
   const source = compilePlan(statement.source, context);
-  const newRow = compileNewRow(table, statement.columns);
+  const newRow = compileTableRow(table, statement.columns);
   const editor = tables.editor(table);
   const insertRow = compileRowInsert(onConflict, editor, context);
   // A source that reads the target table is read whole first, so that it
@@ -94,7 +94,7 @@ function insertEach(
  * rest. A BLOB or JSON default is the schema's own value: each row takes a
  * copy of it.
  */
-function compileNewRow(
+function compileTableRow(
   table: Table,
   columns: readonly number[],
 ): (source: Tuple) => Value[] {
@@ -107,7 +107,13 @@ function compileNewRow(
     const values = [...defaults];
     for (const [column, value] of copied) values[column] = copyValue(value);
     for (const [position, column] of columns.entries()) {
-      values[column] = source[position] ?? null;
+      const value = source[position];
+      if (value === undefined) {
+        throw new InternalError(
+          `a source row of ${String(source.length)} values fills ${String(columns.length)} columns`,
+        );
+      }
+      values[column] = value;
     }
     return values;
   };
@@ -169,7 +175,7 @@ function compileConflictUpdate(
   const assign = compileAssignments(action.assignments, scope);
   const holds = compileCondition(action.condition, scope);
   return ({ rowid, refused }) => {
-    const existing = rowValues(editor, rowid);
+    const existing = editor.rowValues(rowid);
     const pair = [...existing, ...refused];
     if (!holds(pair)) return SKIPPED;
     editor.update(rowid, assign(existing, pair));
@@ -181,8 +187,8 @@ function compileConflictUpdate(
 function conflictLayout(action: ConflictUpdate, table: Table): Layout {
   const width = table.columns.length;
   return [
-    ...positions(action.targetIndex, width),
-    ...positions(action.excludedIndex, width),
+    ...relationLayout(action.targetIndex, width),
+    ...relationLayout(action.excludedIndex, width),
   ];
 }
 
@@ -197,12 +203,4 @@ function compileCondition(
 
 function inserted(rowid: number): RowOutcome {
   return { kind: "inserted", rowid };
-}
-
-function rowValues(editor: TableEditor, rowid: number): Value[] {
-  const row = editor.get(rowid);
-  if (row === null) {
-    throw new InternalError(`the conflicting row ${String(rowid)} is gone`);
-  }
-  return row.values();
 }

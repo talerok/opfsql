@@ -1,5 +1,9 @@
-import type { AggregateCall, logical, physical } from "../plan/index.js";
-import { rebuildChildren } from "./expression-tree.js";
+import {
+  type AggregateCall,
+  type logical,
+  type physical,
+  rebuildChildren,
+} from "../plan/index.js";
 import type { Planner } from "./planner.js";
 
 // ---------------------------------------------------------------------------

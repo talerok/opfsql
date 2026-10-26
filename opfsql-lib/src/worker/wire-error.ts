@@ -1,10 +1,13 @@
 import * as taxonomy from "../errors.js";
 import { type ErrorCode, OpfsqlError, toOpfsqlError } from "../errors.js";
 
+// ---------------------------------------------------------------------------
 // Errors cross the worker boundary as plain data and come back as the same
 // class: an OpfsqlError subclass keeps its code, message, own fields (offset,
-// timeout, statementIndex, a constraint's columns, …) and its cause; a
-// DOMException stays one.
+// timeout, statementIndex, a constraint's columns, …) and its cause. A
+// DOMException in a chain of causes stays one; a thrown error that is not an
+// OpfsqlError comes back as the one toOpfsqlError makes of it.
+// ---------------------------------------------------------------------------
 
 type WireValue = string | number | boolean | null;
 
@@ -22,7 +25,11 @@ export interface WireError {
 
 type ErrorClass = new (...parameters: never[]) => OpfsqlError;
 
-/** Every OpfsqlError class errors.ts exports, by name. */
+/**
+ * Every OpfsqlError class errors.ts exports, by its export name. A wire
+ * error finds its class by the error's `name`, which every class sets to
+ * its export name (errors.ts); the test of every class's round trip checks it.
+ */
 const classes = new Map<string, ErrorClass>(
   Object.entries(taxonomy as Record<string, unknown>).filter(
     (entry): entry is [string, ErrorClass] => isErrorClass(entry[1]),

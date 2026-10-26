@@ -313,7 +313,7 @@ function notesIndexed(): Index {
   return data.database.createIndex(
     {
       name: "orders_note_amount",
-      table: "orders",
+      tableName: "orders",
       keys: [
         { kind: "column", column: 3 },
         { kind: "column", column: 2 },

@@ -112,7 +112,7 @@ describe("the storage check", () => {
     const { pager, tableRoot } = await usersDatabase();
     const chain = read(pager, (transaction) => {
       const row = new TableReader(transaction, tableRoot).get(50);
-      return row?.overflowValues()[0];
+      return row?.overflowReferences()[0];
     });
     if (chain === undefined) throw new Error("row 50 has no overflow chain");
     write(pager, (transaction) => {

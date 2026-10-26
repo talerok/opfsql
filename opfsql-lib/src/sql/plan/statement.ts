@@ -1,4 +1,4 @@
-import type { StaticType } from "../../functions/index.js";
+import type { StaticType } from "../../values/index.js";
 import type {
   Column,
   Index,

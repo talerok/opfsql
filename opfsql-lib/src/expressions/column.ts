@@ -1,9 +1,8 @@
 import { InternalError } from "../errors.js";
-import { followPath, type PathStep } from "../functions/index.js";
+import { followPath } from "../functions/index.js";
 import {
   type ColumnReference,
   type JsonAccess,
-  type JsonPathStep,
   positionIn,
 } from "../sql/plan/index.js";
 import type { CompiledExpression, Layout, Scope, Tuple } from "./scope.js";
@@ -49,7 +48,7 @@ export function compileJsonAccess(
   scope: Scope,
 ): CompiledExpression {
   const column = compileColumn(expression.column, scope);
-  const path = expression.path.map((step) => pathStep(step));
+  const { path } = expression;
   return (row) => {
     const value = column(row);
     // A BLOB is no JSON value; JSON null and a missing value are NULL.
@@ -78,10 +77,4 @@ function outerLayout(scope: Scope, reference: ColumnReference): Layout {
 
 function describe({ name, binding }: ColumnReference): string {
   return `${name} (${String(binding.tableIndex)}.${String(binding.columnIndex)})`;
-}
-
-/** A step of the bound path as the JSON functions take it. */
-function pathStep(step: JsonPathStep): PathStep {
-  if (step.kind === "key") return { type: "key", key: step.key };
-  return { type: "index", index: step.index, fromEnd: false };
 }

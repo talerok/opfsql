@@ -12,7 +12,7 @@ import { Cursor, descendToKey } from "./cursor.js";
 import type { PageReader, PageWriter } from "./page-store.js";
 import type { NodeContent, SplitStyle } from "./split.js";
 import { contentOf, cut, withCell, withChild } from "./split.js";
-import type { Position, TreeKey, TreeKind } from "./types.js";
+import type { LeafStart, Position, TreeKey, TreeKind } from "./types.js";
 import { INTERIOR_TYPE, LEAF_TYPE } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ interface Halves {
   readonly right: number;
 }
 
-export class BTree {
+export class BTreeReader {
   protected readonly pageAt = (pageNo: number): BTreePage =>
     new BTreePage(this.pages.read(pageNo));
 
@@ -42,7 +42,7 @@ export class BTree {
   /** The leaf cell with `key`, or null. */
   find(key: TreeKey): Position | null {
     const { leaf, index } = this.descend(key);
-    return leaf.holds(index, key) ? { page: leaf, index } : null;
+    return leaf.hasKeyAt(index, key) ? { page: leaf, index } : null;
   }
 
   /** A guard against reading on after this tree changes. */
@@ -53,8 +53,8 @@ export class BTree {
   /** Leaf cells in key order, from the first whose key is at least `from`. */
   *ascending(from?: TreeKey): Generator<Position> {
     const guard = this.guard();
-    for (const leaf of this.leavesFrom(from)) {
-      for (const position of cellsUpFrom(leaf.page, leaf.index)) {
+    for (const { leaf, start } of this.leavesFrom(from)) {
+      for (const position of cellsUpFrom(leaf, start)) {
         yield position;
         guard.check();
       }
@@ -64,8 +64,8 @@ export class BTree {
   /** Leaf cells in reverse key order, from the last whose key is below `before`. */
   *descending(before?: TreeKey): Generator<Position> {
     const guard = this.guard();
-    for (const leaf of this.leavesBefore(before)) {
-      for (const position of cellsDownFrom(leaf.page, leaf.index)) {
+    for (const { leaf, start } of this.leavesBefore(before)) {
+      for (const position of cellsDownFrom(leaf, start)) {
         yield position;
         guard.check();
       }
@@ -76,10 +76,10 @@ export class BTree {
    * The leaves in key order, each with the cell to start at: the first whose
    * key is at least `from` in the first leaf, the first cell in the others.
    */
-  *leavesFrom(from?: TreeKey): Generator<Position> {
+  *leavesFrom(from?: TreeKey): Generator<LeafStart> {
     const cursor = this.cursorFrom(from);
     do {
-      yield { page: cursor.page, index: cursor.index };
+      yield { leaf: cursor.page, start: cursor.index };
     } while (cursor.moveToLeaf("next"));
   }
 
@@ -88,10 +88,10 @@ export class BTree {
    * last whose key is below `before` in the first leaf, the last in the
    * others.
    */
-  *leavesBefore(before?: TreeKey): Generator<Position> {
+  *leavesBefore(before?: TreeKey): Generator<LeafStart> {
     const cursor = this.cursorBefore(before);
     do {
-      yield { page: cursor.page, index: cursor.index };
+      yield { leaf: cursor.page, start: cursor.index };
     } while (cursor.moveToLeaf("previous"));
   }
 
@@ -123,7 +123,7 @@ export class BTree {
   }
 }
 
-export class BTreeWriter extends BTree {
+export class BTreeWriter extends BTreeReader {
   constructor(
     private readonly writer: PageWriter,
     root: number,
@@ -143,7 +143,7 @@ export class BTreeWriter extends BTree {
   insert(key: TreeKey, cell: Uint8Array): boolean {
     this.checkCellSize(cell);
     const descent = this.descend(key);
-    if (descent.leaf.holds(descent.index, key)) return false;
+    if (descent.leaf.hasKeyAt(descent.index, key)) return false;
     this.writer.noteChange(this.root);
     this.insertCell(descent, cell);
     return true;
@@ -153,7 +153,7 @@ export class BTreeWriter extends BTree {
   replace(key: TreeKey, cell: Uint8Array): boolean {
     this.checkCellSize(cell);
     const descent = this.descend(key);
-    if (!descent.leaf.holds(descent.index, key)) return false;
+    if (!descent.leaf.hasKeyAt(descent.index, key)) return false;
     this.writer.noteChange(this.root);
     this.edit(descent.leafPageNo).removeCell(descent.index);
     this.insertCell(descent, cell);
@@ -163,7 +163,7 @@ export class BTreeWriter extends BTree {
   /** Removes the cell under `key`, freeing a leaf it empties. False if there is none. */
   delete(key: TreeKey): boolean {
     const { path, leafPageNo, leaf, index } = this.descend(key);
-    if (!leaf.holds(index, key)) return false;
+    if (!leaf.hasKeyAt(index, key)) return false;
     this.writer.noteChange(this.root);
     const editor = this.edit(leafPageNo);
     editor.removeCell(index);
@@ -174,12 +174,12 @@ export class BTreeWriter extends BTree {
   /** Frees every page of the tree, the root included. */
   drop(): void {
     this.writer.noteChange(this.root);
-    this.free(this.root);
+    this.freeSubtree(this.root);
   }
 
-  private free(pageNo: number): void {
+  private freeSubtree(pageNo: number): void {
     const children = childrenOf(this.pageAt(pageNo));
-    for (const child of children) this.free(child);
+    for (const child of children) this.freeSubtree(child);
     this.writer.free(pageNo);
   }
 
@@ -235,7 +235,7 @@ export class BTreeWriter extends BTree {
       // The next child now holds the emptied child's keys too.
       editor.removeCell(parent.index);
     }
-    this.free(child);
+    this.freeSubtree(child);
   }
 
   /**
@@ -243,13 +243,14 @@ export class BTreeWriter extends BTree {
    * does; the root becomes an empty leaf if that child is empty too.
    */
   private collapseRoot(root: number, remaining: number, emptied: number): void {
-    this.free(emptied);
+    this.freeSubtree(emptied);
     if (this.isEmpty(remaining)) {
-      this.free(remaining);
+      this.freeSubtree(remaining);
       BTreePageEditor.initialize(this.writer.write(root), LEAF_TYPE[this.kind]);
       return;
     }
     this.writer.write(root).set(this.pages.read(remaining));
+    // One page, not its subtree: its children now belong to the root.
     this.writer.free(remaining);
   }
 

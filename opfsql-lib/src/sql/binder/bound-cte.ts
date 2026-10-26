@@ -2,6 +2,13 @@ import { SemanticError } from "../../errors.js";
 import type { CTENode } from "../parser/index.js";
 import type { logical, OutputColumn } from "../plan/index.js";
 import type { CteDefinition } from "./scope.js";
+import { itemAt } from "./one.js";
+
+// ---------------------------------------------------------------------------
+// A WITH query once bound: what names in the query it serves see of it
+// (its CteDefinition, kept in scope.ts with the rest of name lookup), the
+// plan it materializes, and the names and types of its columns.
+// ---------------------------------------------------------------------------
 
 /** A WITH query bound: how names see it, and the plan it materializes. */
 export interface BoundCte {
@@ -22,7 +29,7 @@ export function cteColumns(
     );
   }
   return columns.map((column, position) => ({
-    name: names[position] ?? column.name,
+    name: itemAt(names, position, "the WITH query's column names"),
     type: column.type,
   }));
 }

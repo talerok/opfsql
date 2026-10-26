@@ -27,7 +27,7 @@ export function runDdl(statement: Ddl, catalog: Catalog, schema: Schema): void {
       if (isThere && statement.isIfNotExists) return;
       catalog.createIndex(
         statement.index,
-        tableNamed(schema, statement.index.table),
+        tableNamed(schema, statement.index.tableName),
       );
       return;
     }

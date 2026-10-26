@@ -1,18 +1,13 @@
-// ---------------------------------------------------------------------------
-// Expressions, by precedence climbing (a Pratt parser). Each infix operator
-// is a rule with a binding power from precedence.ts; one chain applies them,
-// so `a + b + c` is parsed iteratively, and the right side of every operator
-// is parsed at the level just above its own. Prefix forms live in primary.ts.
-// ---------------------------------------------------------------------------
-
 import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
 import {
   comparisonNode,
+  binaryNode,
+  inListNode,
   notNode,
-  operatorNode,
   quantifiedNode,
+  unaryNode,
 } from "./nodes.js";
 import { above, power } from "../precedence.js";
 import { parsePrefix } from "./primary.js";
@@ -22,12 +17,20 @@ import {
   ExpressionType,
   type ComparisonType,
   type ConjunctionType,
-  type OperatorType,
+  type BinaryOperatorType,
   type ParsedExpression,
+  type UnaryOperatorType,
 } from "./types.js";
 
+// ---------------------------------------------------------------------------
+// Expressions, by precedence climbing (a Pratt parser). Each infix operator
+// is a rule with a binding power from precedence.ts; one chain applies them,
+// so `a + b + c` is parsed iteratively, and the right side of every operator
+// is parsed at the level just above its own. Prefix forms live in primary.ts.
+// ---------------------------------------------------------------------------
+
 /** An expression whose operators all bind at least as tightly as `minimum`. */
-export function parseExpression(
+export function parseExpressionFrom(
   cursor: Cursor,
   minimum: number,
 ): ParsedExpression {
@@ -62,12 +65,12 @@ function infixRule(cursor: Cursor): InfixRule | undefined {
 
 // --- Binary operators ----------------------------------------------------------
 
-function binary(type: OperatorType, level: number): InfixRule {
+function binary(type: BinaryOperatorType, level: number): InfixRule {
   return {
     power: level,
     parse(cursor, left) {
       cursor.next();
-      return operatorNode(type, [left, cursor.expression(above(level))]);
+      return binaryNode(type, left, cursor.expression(above(level)));
     },
   };
 }
@@ -92,7 +95,8 @@ function comparison(type: ComparisonType, level: number): InfixRule {
 function quantifierAt(cursor: Cursor): "ANY" | "ALL" | undefined {
   if (!cursor.isSymbol("(", 1)) return undefined;
   if (cursor.isKeyword("ALL")) return "ALL";
-  const isAny = cursor.isWord("ANY") || cursor.isWord("SOME");
+  const isAny =
+    cursor.isIdentifierWord("ANY") || cursor.isIdentifierWord("SOME");
   return isAny ? "ANY" : undefined;
 }
 
@@ -112,7 +116,6 @@ function conjunction(
       } while (cursor.isKeyword(keyword));
       return {
         expressionClass: ExpressionClass.CONJUNCTION,
-        alias: null,
         type,
         children,
       };
@@ -121,12 +124,12 @@ function conjunction(
 }
 
 /** `a ISNULL`, `a NOTNULL`, and NULL in `a NOT NULL`. */
-function postfix(type: OperatorType): InfixRule {
+function postfix(type: UnaryOperatorType): InfixRule {
   return {
     power: power.equality,
     parse(cursor, left) {
       cursor.next();
-      return operatorNode(type, [left]);
+      return unaryNode(type, left);
     },
   };
 }
@@ -157,7 +160,7 @@ const NULL_TEST_RULE: InfixRule = {
     const type = isNegated
       ? ExpressionType.OPERATOR_IS_NOT_NULL
       : ExpressionType.OPERATOR_IS_NULL;
-    return operatorNode(type, [left]);
+    return unaryNode(type, left);
   },
 };
 
@@ -180,7 +183,7 @@ const IN_RULE: InfixRule = {
     const isEmpty = cursor.isSymbol(")");
     const values = isEmpty ? [] : cursor.list(() => cursor.expression());
     cursor.expectSymbol(")");
-    return operatorNode(ExpressionType.OPERATOR_IN, [left, ...values]);
+    return inListNode(ExpressionType.OPERATOR_IN, left, values);
   },
 };
 
@@ -206,7 +209,6 @@ const BETWEEN_RULE: InfixRule = {
     const upper = cursor.expression(above(power.equality));
     return {
       expressionClass: ExpressionClass.BETWEEN,
-      alias: null,
       input: left,
       lower,
       upper,
@@ -215,24 +217,24 @@ const BETWEEN_RULE: InfixRule = {
 };
 
 /** `a NOT <rule>`: NOT, then the rule's own words, then NOT around it all. */
-function negated(rule: InfixRule): InfixRule {
+function withNotPrefix(rule: InfixRule): InfixRule {
   return {
     power: rule.power,
     parse(cursor, left) {
       cursor.next();
-      return negation(rule.parse(cursor, left));
+      return wrapInNot(rule.parse(cursor, left));
     },
   };
 }
 
 /** NOT around a node; NOT IN and IS NOT NULL are operators of their own. */
-function negation(node: ParsedExpression): ParsedExpression {
-  const isOperator = node.expressionClass === ExpressionClass.OPERATOR;
-  if (isOperator && node.type === ExpressionType.OPERATOR_IN) {
-    return operatorNode(ExpressionType.OPERATOR_NOT_IN, node.children);
+function wrapInNot(node: ParsedExpression): ParsedExpression {
+  if (node.expressionClass !== ExpressionClass.OPERATOR) return notNode(node);
+  if (node.type === ExpressionType.OPERATOR_IN) {
+    return inListNode(ExpressionType.OPERATOR_NOT_IN, node.needle, node.list);
   }
-  if (isOperator && node.type === ExpressionType.OPERATOR_IS_NULL) {
-    return operatorNode(ExpressionType.OPERATOR_IS_NOT_NULL, node.children);
+  if (node.type === ExpressionType.OPERATOR_IS_NULL) {
+    return unaryNode(ExpressionType.OPERATOR_IS_NOT_NULL, node.operand);
   }
   return notNode(node);
 }
@@ -295,10 +297,10 @@ const KEYWORD_RULES: ReadonlyMap<Keyword, InfixRule> = new Map<
 
 /** Operators written with NOT before their own word: `NOT IN`, `NOT NULL`. */
 const NOT_RULES: ReadonlyMap<Keyword, InfixRule> = new Map<Keyword, InfixRule>([
-  ["IN", negated(IN_RULE)],
-  ["LIKE", negated(LIKE_RULE)],
-  ["BETWEEN", negated(BETWEEN_RULE)],
-  ["NULL", negated(postfix(ExpressionType.OPERATOR_IS_NULL))],
+  ["IN", withNotPrefix(IN_RULE)],
+  ["LIKE", withNotPrefix(LIKE_RULE)],
+  ["BETWEEN", withNotPrefix(BETWEEN_RULE)],
+  ["NULL", withNotPrefix(postfix(ExpressionType.OPERATOR_IS_NULL))],
   ["GLOB", GLOB_RULE],
   ["REGEXP", REGEXP_RULE],
   ["MATCH", MATCH_RULE],

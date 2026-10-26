@@ -20,6 +20,7 @@ export {
   normalizeNumber,
   normalizeValue,
   numberFromText,
+  parseJsonText,
   truncate,
   withoutNegativeZero,
 } from "./convert.js";
@@ -33,10 +34,7 @@ export {
 export {
   and,
   compareSql,
-  CONJUNCTIONS,
   foldTruth,
-  isIn,
-  isSame,
   membership,
   not,
   or,
@@ -50,12 +48,7 @@ export {
   compareValues,
   areEqual,
 } from "./order.js";
-export {
-  isNumericType,
-  type SqlType,
-  sqlTypeOf,
-  typeFromName,
-} from "./types.js";
+export { type SqlType, type StaticType, typeFromName } from "./types.js";
 export {
   copyValue,
   isJsonComposite,

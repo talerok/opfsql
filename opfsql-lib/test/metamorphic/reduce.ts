@@ -7,15 +7,15 @@ import {
   replacements,
   withChild,
 } from "./expression.js";
-import { checksOf } from "./oracles.js";
+import { checksOf, PARAMETERS_ORACLE } from "./oracles.js";
 import type { QueryCase } from "./query.js";
 import { runCheck } from "./run-check.js";
 import type { DatabaseSpec } from "./schema.js";
 
 // ---------------------------------------------------------------------------
-// Reducing a failure, greedily and within a budget of attempts: each
-// condition to one of its parts while the oracle still isStillFailing, the select
-// list to fewer columns, then each table to fewer rows.
+// Reducing a failure, greedily and within a budget of attempts: each condition
+// to one of its parts while the oracle still fails, the select list to fewer
+// columns, then each table to fewer rows.
 // ---------------------------------------------------------------------------
 
 /** Times a reduction runs the check, at most. */
@@ -30,7 +30,7 @@ export interface Reduction {
 
 type RowsByTable = ReadonlyMap<string, readonly Row[]>;
 
-/** A smaller case that isStillFailing `oracle` as `queryCase` does, or null if none was found. */
+/** A smaller case that fails `oracle` as `queryCase` does, or null if none was found. */
 export async function reduceFailure(
   spec: DatabaseSpec,
   copies: Copies,
@@ -54,11 +54,11 @@ class Reducer {
 
   async reduceQuery(queryCase: QueryCase, copies: Copies): Promise<QueryCase> {
     const isStillFailing = async (candidate: QueryCase): Promise<boolean> =>
-      (await this.failure(candidate, copies)) !== null;
+      (await this.attempt(candidate, copies)) !== null;
     let current = queryCase;
     // The parameters' form is the condition with chosen constants: reducing
     // one without the other would compare two different conditions.
-    if (this.oracle !== "parameters") {
+    if (this.oracle !== PARAMETERS_ORACLE) {
       const condition = await smallest(current.condition, async (candidate) =>
         isStillFailing({ ...current, condition: candidate }),
       );
@@ -91,7 +91,7 @@ class Reducer {
   ): Promise<Reduction | null> {
     const copies = await loadCopies(this.spec, rows, this.pageSize);
     try {
-      const failure = await this.failure(queryCase, copies, false);
+      const failure = await this.failureOf(queryCase, copies);
       return failure === null ? null : { queryCase, rows, ...failure };
     } finally {
       await closeCopies(copies);
@@ -151,23 +151,31 @@ class Reducer {
     queryCase: QueryCase,
     rows: RowsByTable,
   ): Promise<boolean> {
+    // Spent: not even worth loading the copies.
     if (this.attempts >= MAX_ATTEMPTS) return false;
     const copies = await loadCopies(this.spec, rows, this.pageSize);
     try {
-      return (await this.failure(queryCase, copies)) !== null;
+      return (await this.attempt(queryCase, copies)) !== null;
     } finally {
       await closeCopies(copies);
     }
   }
 
-  /** How the oracle isStillFailing on `queryCase`, or null if it does not or the budget is spent. */
-  private async failure(
+  /** failureOf, as one attempt of the budget: null once it is spent. */
+  private async attempt(
     queryCase: QueryCase,
     copies: Copies,
-    isCounted = true,
   ): Promise<{ check: Check; reason: string } | null> {
-    if (isCounted && this.attempts >= MAX_ATTEMPTS) return null;
-    if (isCounted) this.attempts++;
+    if (this.attempts >= MAX_ATTEMPTS) return null;
+    this.attempts++;
+    return this.failureOf(queryCase, copies);
+  }
+
+  /** How the oracle fails on `queryCase`, or null if it does not. */
+  private async failureOf(
+    queryCase: QueryCase,
+    copies: Copies,
+  ): Promise<{ check: Check; reason: string } | null> {
     const check = checksOf(queryCase).find(
       (each) => each.oracle === this.oracle,
     );
@@ -177,7 +185,7 @@ class Reducer {
   }
 }
 
-/** The smallest part of `expression` that still `isStillFailing`, one step at a time. */
+/** The smallest part of `expression` that still fails, one step at a time. */
 async function smallest(
   expression: Expression,
   isStillFailing: (candidate: Expression) => Promise<boolean>,

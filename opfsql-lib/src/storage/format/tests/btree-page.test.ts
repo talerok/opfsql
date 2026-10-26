@@ -41,7 +41,7 @@ function toggleRow(
   row: ModelRow,
 ): void {
   const index = leaf.lowerBound(row.rowid);
-  if (leaf.holds(index, row.rowid)) {
+  if (leaf.hasKeyAt(index, row.rowid)) {
     leaf.removeCell(index);
     model.splice(index, 1);
     return;
@@ -68,7 +68,7 @@ describe("B-tree pages", () => {
     expect(leaf.record(2)).toEqual(record(300, 7));
     expect(leaf.lowerBound(10)).toBe(1);
     expect(leaf.lowerBound(11)).toBe(2);
-    expect(leaf.holds(1, 10)).toBe(true);
+    expect(leaf.hasKeyAt(1, 10)).toBe(true);
     expect(leaf.layoutProblems()).toEqual([]);
   });
 

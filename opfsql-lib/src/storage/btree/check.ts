@@ -1,13 +1,15 @@
 import { CorruptError } from "../../errors.js";
 import { compareBytes } from "../../values/index.js";
-import { BTreePage, interiorCellKey } from "../format/btree-page.js";
+import { BTreePage } from "../format/btree-page.js";
 import type { PageReader } from "./page-store.js";
 import type { TreeKey, TreeKind } from "./types.js";
 import { pageTypeOf } from "./types.js";
 
+// ---------------------------------------------------------------------------
 // Structural check of one B-tree: what the integrity check reports for it.
 // A corrupt tree may point back at its own pages or nest without end, so the
 // walk never reads a page twice and stops at a depth no real tree reaches.
+// ---------------------------------------------------------------------------
 
 export interface TreeReport {
   /** Every page of the tree, for the page accounting. */
@@ -101,7 +103,8 @@ class TreeChecker {
     try {
       return new BTreePage(this.pages.read(pageNo));
     } catch (error) {
-      this.report(pageNo, messageOf(error));
+      if (!(error instanceof CorruptError)) throw error;
+      this.report(pageNo, error.message);
       return null;
     }
   }
@@ -120,7 +123,7 @@ class TreeChecker {
       );
     }
     this.entries += page.cellCount;
-    this.checkKeys(pageNo, this.keysOf(page), bounds);
+    this.checkKeys(pageNo, keysOf(page), bounds);
   }
 
   private checkInterior(
@@ -132,9 +135,7 @@ class TreeChecker {
     if (page.cellCount === 0) {
       this.report(pageNo, "interior page without cells");
     }
-    const keys = Array.from({ length: page.cellCount }, (_, index) =>
-      interiorCellKey(page.type, page.cell(index)),
-    );
+    const keys = keysOf(page);
     this.checkKeys(pageNo, keys, bounds);
     // Child i holds keys from separator i − 1 up to separator i; the first
     // and last children inherit the parent's own bounds.
@@ -144,12 +145,6 @@ class TreeChecker {
         high: keys[index] ?? bounds.high,
       });
     }
-  }
-
-  private keysOf(page: BTreePage): TreeKey[] {
-    return Array.from({ length: page.cellCount }, (_, index) =>
-      this.kind === "table" ? page.rowid(index) : page.key(index),
-    );
   }
 
   /** Keys ascend and stay within [low, high) from the parent's separators. */
@@ -179,12 +174,14 @@ class TreeChecker {
   }
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function isWithin(key: TreeKey, { low, high }: Bounds): boolean {
   const isAboveLow = low === undefined || compareKeys(key, low) >= 0;
   const isBelowHigh = high === undefined || compareKeys(key, high) < 0;
   return isAboveLow && isBelowHigh;
+}
+
+function keysOf(page: BTreePage): TreeKey[] {
+  return Array.from({ length: page.cellCount }, (_, index) =>
+    page.keyAt(index),
+  );
 }

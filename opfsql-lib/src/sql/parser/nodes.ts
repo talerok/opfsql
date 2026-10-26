@@ -7,31 +7,46 @@ import {
   type ComparisonType,
   type ConstantExpression,
   type Literal,
-  type OperatorExpression,
-  type OperatorType,
+  type BinaryOperatorExpression,
+  type BinaryOperatorType,
+  type InListExpression,
+  type InListType,
   type ParsedExpression,
   type SelectStatement,
   type SubqueryExpression,
+  type UnaryOperatorExpression,
+  type UnaryOperatorType,
 } from "./types.js";
 
 export function constantNode(literal: Literal): ConstantExpression {
-  return { expressionClass: ExpressionClass.CONSTANT, alias: null, ...literal };
+  return { expressionClass: ExpressionClass.CONSTANT, ...literal };
 }
 
-export function operatorNode(
-  type: OperatorType,
-  children: readonly ParsedExpression[],
-): OperatorExpression {
-  return {
-    expressionClass: ExpressionClass.OPERATOR,
-    alias: null,
-    type,
-    children,
-  };
+export function unaryNode(
+  type: UnaryOperatorType,
+  operand: ParsedExpression,
+): UnaryOperatorExpression {
+  return { expressionClass: ExpressionClass.OPERATOR, type, operand };
 }
 
-export function notNode(child: ParsedExpression): OperatorExpression {
-  return operatorNode(ExpressionType.OPERATOR_NOT, [child]);
+export function binaryNode(
+  type: BinaryOperatorType,
+  left: ParsedExpression,
+  right: ParsedExpression,
+): BinaryOperatorExpression {
+  return { expressionClass: ExpressionClass.OPERATOR, type, left, right };
+}
+
+export function inListNode(
+  type: InListType,
+  needle: ParsedExpression,
+  list: readonly ParsedExpression[],
+): InListExpression {
+  return { expressionClass: ExpressionClass.OPERATOR, type, needle, list };
+}
+
+export function notNode(operand: ParsedExpression): UnaryOperatorExpression {
+  return unaryNode(ExpressionType.OPERATOR_NOT, operand);
 }
 
 export function comparisonNode(
@@ -41,7 +56,6 @@ export function comparisonNode(
 ): ComparisonExpression {
   return {
     expressionClass: ExpressionClass.COMPARISON,
-    alias: null,
     type,
     left,
     right,
@@ -55,7 +69,6 @@ export function subqueryNode(
 ): SubqueryExpression {
   return {
     expressionClass: ExpressionClass.SUBQUERY,
-    alias: null,
     subqueryType,
     subquery,
   };
@@ -70,7 +83,6 @@ export function quantifiedNode(
 ): SubqueryExpression {
   return {
     expressionClass: ExpressionClass.SUBQUERY,
-    alias: null,
     subqueryType,
     subquery,
     child,

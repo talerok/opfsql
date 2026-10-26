@@ -12,14 +12,15 @@ import { abortErrorOf } from "../async/index.js";
 import { type Lease, WriteLock } from "./write-lock.js";
 
 // ---------------------------------------------------------------------------
-// One engine's database: its pager, and the write lock it shares with the
-// other tabs. Transactions begin and end here. A reader pins the latest
-// commit; a writer takes the lock first, so it writes on top of the latest
-// commit and no one commits under it. The pager reads other tabs' commits
-// itself before each of these.
+// Where one engine's transactions begin and end: its pager, and the write
+// lock it shares with the other tabs. A reader pins the latest commit; a
+// writer takes the lock first, so it writes on top of the latest commit and
+// no one commits under it, and ends by committing or rolling back here, so
+// the lock is released, after a checkpoint if one is due, whatever failed.
+// The pager reads other tabs' commits itself before each of these.
 // ---------------------------------------------------------------------------
 
-export interface DatabaseOptions {
+export interface TransactionManagerOptions {
   /** Prefix of the Web Locks the engines sharing these files use. */
   readonly lockName: string;
   /** Milliseconds a writer waits for the lock before BUSY. */
@@ -34,14 +35,14 @@ export interface Writer {
   readonly lease: Lease;
 }
 
-export class Database {
+export class TransactionManager {
   private readonly lock: WriteLock;
   /** Work still running after the call that started it: close() waits for it. */
   private readonly background = new Set<Promise<void>>();
 
   constructor(
     private readonly pager: Pager,
-    private readonly options: DatabaseOptions,
+    private readonly options: TransactionManagerOptions,
   ) {
     this.lock = new WriteLock(`${options.lockName}:write`);
   }
@@ -87,17 +88,18 @@ export class Database {
     throw new SerializationError();
   }
 
-  /**
-   * After a write transaction has ended: checkpoints if the WAL has grown
-   * enough — that needs the lock — then releases the lock. The lock goes
-   * whatever failed, or every writer in every tab would wait for it.
-   */
-  endWrite(writer: Writer): void {
-    try {
-      this.checkpointIfDue();
-    } finally {
-      writer.lease.release();
-    }
+  /** Commits the writer's transaction, and ends it as endWriter does. */
+  commitWriter(writer: Writer): void {
+    this.endWriter(writer, () => {
+      writer.transaction.commit();
+    });
+  }
+
+  /** Rolls back the writer's transaction, and ends it as endWriter does. */
+  rollbackWriter(writer: Writer): void {
+    this.endWriter(writer, () => {
+      writer.transaction.rollback();
+    });
   }
 
   /**
@@ -107,18 +109,9 @@ export class Database {
    * the engine runs this.
    */
   async checkpoint(signal: AbortSignal): Promise<void> {
-    // Safe only because everything below the engine is synchronous: nothing
-    // of the holder's runs between this check and the checkpoint.
-    if (this.lock.isHeld) {
+    await this.underLock(signal, () => {
       this.pager.checkpoint();
-      return;
-    }
-    const lease = await this.acquire(signal);
-    try {
-      this.pager.checkpoint();
-    } finally {
-      lease.release();
-    }
+    });
   }
 
   /**
@@ -130,16 +123,47 @@ export class Database {
     this.pager.close();
   }
 
+  /**
+   * Ends a write transaction with `end`, then checkpoints if the WAL has
+   * grown enough — that needs the lock — then releases the lock. The lock
+   * goes whatever failed, or every writer in every tab would wait for it.
+   */
+  private endWriter(writer: Writer, end: () => void): void {
+    try {
+      end();
+    } finally {
+      try {
+        this.checkpointIfDue();
+      } finally {
+        writer.lease.release();
+      }
+    }
+  }
+
   /** Lowers a stale checkpoint intent, under the lock. */
   private async resetStaleIntent(signal: AbortSignal): Promise<void> {
-    // As in checkpoint(): the holder cannot run between check and reset.
-    if (this.lock.isHeld) {
+    await this.underLock(signal, () => {
       this.pager.resetStaleIntent();
+    });
+  }
+
+  /**
+   * Runs `work` under the write lock: at once when this engine holds it
+   * already, or after taking it. Running at once is safe only because
+   * everything below the engine is synchronous: nothing of the holder's
+   * runs between this check and `work`.
+   */
+  private async underLock(
+    signal: AbortSignal,
+    work: () => void,
+  ): Promise<void> {
+    if (this.lock.isHeld) {
+      work();
       return;
     }
     const lease = await this.acquire(signal);
     try {
-      this.pager.resetStaleIntent();
+      work();
     } finally {
       lease.release();
     }
@@ -167,12 +191,12 @@ export class Database {
     }
     // Still due: a snapshot holds it back. If a tab that died holds it,
     // free its read mark so the next checkpoint can go further.
-    if (this.pager.isCheckpointDue()) this.releaseAbandonedSnapshots();
+    if (this.pager.isCheckpointDue()) this.clearDeadMarks();
   }
 
   /** In the background: the commit that got here has succeeded. */
-  private releaseAbandonedSnapshots(): void {
-    const release = this.reportFailure(this.pager.releaseAbandonedSnapshots());
+  private clearDeadMarks(): void {
+    const release = this.reportFailure(this.pager.clearDeadMarks());
     this.background.add(release);
     void this.forgetWhenDone(release);
   }

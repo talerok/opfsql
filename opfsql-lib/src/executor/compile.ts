@@ -2,7 +2,7 @@ import { InternalError } from "../errors.js";
 import {
   type CompiledSubquery,
   createRun,
-  type QueryContext,
+  type QueryLevel,
   type Scope,
   type SubqueryCompiler,
   type Tuple,
@@ -30,7 +30,9 @@ import { tableScan } from "./scans/table-scan.js";
 // Compiling a physical plan into operators, once per run (docs/planning.md,
 // Execution): each node's expressions are compiled for its input's layout,
 // and each subquery in them is compiled here too, once, as a query level of
-// its own, with the CTEs in scope where it is written.
+// its own, with the CTEs in scope where it is written. The operator of each
+// kind of node is built by the function named after that kind (`filter`,
+// `hashJoin`, `tableScan`), in operators/ and scans/.
 // ---------------------------------------------------------------------------
 
 type ScanPlan = Extract<
@@ -59,9 +61,8 @@ export function statementContext(
   parameters: ParameterValues,
   checkpoint?: () => void,
 ): Context {
-  const ctes: CteScope = new Map();
-  const run = createRun(parameters, subqueriesIn(ctes, tables), checkpoint);
-  return contextIn({ run, outerLayouts: [] }, ctes, tables);
+  const run = createRun(parameters, checkpoint);
+  return contextIn({ run, outerLayouts: [] }, new Map(), tables);
 }
 
 export function compilePlan(plan: physical.Plan, context: Context): Operator {
@@ -238,25 +239,16 @@ function withCte(context: Context, cteIndex: number, rows: CteRows): Context {
 }
 
 /**
- * A query level with `ctes` in scope, whose run compiles the subqueries
- * written in it with the same CTEs in scope: the one place a context is
- * made, so the two cannot differ.
+ * Query level `level` with `ctes` in scope, whose subqueries compile with
+ * the same CTEs in scope: the one place a context is made, so the two
+ * cannot differ.
  */
-function contextIn(
-  query: QueryContext,
-  ctes: CteScope,
-  tables: Tables,
-): Context {
-  const run = { ...query.run, subqueries: subqueriesIn(ctes, tables) };
-  return { query: { ...query, run }, ctes, tables };
-}
-
-/** Compiles the subqueries written where `ctes` are in scope. */
-function subqueriesIn(ctes: CteScope, tables: Tables): SubqueryCompiler {
-  return {
-    compile: (plan, query) =>
-      compiledSubquery(plan, contextIn(query, ctes, tables)),
+function contextIn(level: QueryLevel, ctes: CteScope, tables: Tables): Context {
+  const subqueries: SubqueryCompiler = {
+    compile: (plan, inner) =>
+      compiledSubquery(plan, contextIn(inner, ctes, tables)),
   };
+  return { query: { ...level, subqueries }, ctes, tables };
 }
 
 /**

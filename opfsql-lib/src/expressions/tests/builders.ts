@@ -2,7 +2,6 @@ import {
   resolveCall,
   type ScalarFunction,
   scalarFunction,
-  type StaticType,
 } from "../../functions/index.js";
 import type {
   ArithmeticOperator,
@@ -19,7 +18,12 @@ import type {
   QuantifiedComparison,
   ScalarSubquery,
 } from "../../sql/plan/index.js";
-import type { Affinity, SqlType, Value } from "../../values/index.js";
+import type {
+  Affinity,
+  SqlType,
+  Value,
+  StaticType,
+} from "../../values/index.js";
 
 // Small builders for expression trees, so that a test reads as the SQL it
 // stands for: compare(c0, "=", parameter(0)) is `c0 = $1`.

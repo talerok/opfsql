@@ -45,10 +45,10 @@ export interface Options {
 
 /** A scope of a run with the options' parameters, for `LAYOUT` by default. */
 export function scopeOf(options: Options = {}): Scope {
-  const subqueries = options.subqueries ?? fakeExecutor();
   return {
-    run: createRun(parametersOf(options.parameters), subqueries),
+    run: createRun(parametersOf(options.parameters)),
     outerLayouts: [],
+    subqueries: options.subqueries ?? fakeExecutor(),
     layout: options.layout ?? LAYOUT,
   };
 }
@@ -93,12 +93,12 @@ type Producer = () => Tuple[];
 export function fakeExecutor(): FakeExecutor {
   const compiled: physical.Plan[] = [];
   const limits: (number | undefined)[] = [];
-  return {
+  const executor: FakeExecutor = {
     compiled,
     limits,
-    compile: (plan, context) => {
+    compile: (plan, level) => {
       compiled.push(plan);
-      const produce = producerOf(plan, context);
+      const produce = producerOf(plan, { ...level, subqueries: executor });
       return {
         rows: (limit) => {
           limits.push(limit);
@@ -108,6 +108,7 @@ export function fakeExecutor(): FakeExecutor {
       };
     },
   };
+  return executor;
 }
 
 function producerOf(plan: physical.Plan, context: QueryContext): Producer {

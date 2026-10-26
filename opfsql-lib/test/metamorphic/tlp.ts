@@ -1,5 +1,5 @@
 import { type Check, partitions, unordered } from "./check.js";
-import { distinctRows, multisetDifference } from "./compare.js";
+import { distinctRows, multisetDifference, type Sides } from "./compare.js";
 import { print } from "./expression.js";
 import type { QueryCase } from "./query.js";
 
@@ -10,6 +10,8 @@ import type { QueryCase } from "./query.js";
 // for aggregates — combined from the partitions' in SQL — for groups, and
 // for HAVING on groups.
 // ---------------------------------------------------------------------------
+
+const PARTS: Sides = ["the query", "its partitions"];
 
 export function tlpChecks(queryCase: QueryCase): Check[] {
   return [
@@ -37,7 +39,7 @@ function tlpRows(queryCase: QueryCase, isDistinct: boolean): Check {
     verdict: ([whole = [], ...split]) => {
       const together = split.flat();
       const expected = isDistinct ? distinctRows(together) : together;
-      return multisetDifference(whole, expected);
+      return multisetDifference(whole, expected, PARTS);
     },
   };
 }
@@ -75,7 +77,8 @@ function tlpAggregates(queryCase: QueryCase): Check {
   return {
     oracle: "TLP aggregates",
     forms: [unordered(query), unordered(`SELECT ${combined} FROM ${union}`)],
-    verdict: ([whole = [], split = []]) => multisetDifference(whole, split),
+    verdict: ([whole = [], split = []]) =>
+      multisetDifference(whole, split, PARTS),
   };
 }
 
@@ -91,7 +94,8 @@ function tlpGroups(queryCase: QueryCase): Check {
       unordered(`${query}${grouping}`),
       unordered(`SELECT g, ${combined} FROM ${union} GROUP BY g`),
     ],
-    verdict: ([whole = [], split = []]) => multisetDifference(whole, split),
+    verdict: ([whole = [], split = []]) =>
+      multisetDifference(whole, split, PARTS),
   };
 }
 
@@ -111,6 +115,6 @@ function tlpHaving(queryCase: QueryCase): Check {
       unordered(sql),
     ),
     verdict: ([whole = [], ...split]) =>
-      multisetDifference(whole, split.flat()),
+      multisetDifference(whole, split.flat(), PARTS),
   };
 }

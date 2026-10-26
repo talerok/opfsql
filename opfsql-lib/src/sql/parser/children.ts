@@ -18,9 +18,14 @@ export function childExpressions(
       return [expression.left, expression.right];
     }
     case ExpressionClass.CONJUNCTION:
-    case ExpressionClass.OPERATOR:
     case ExpressionClass.FUNCTION: {
       return expression.children;
+    }
+    case ExpressionClass.OPERATOR: {
+      if ("operand" in expression) return [expression.operand];
+      if ("needle" in expression)
+        return [expression.needle, ...expression.list];
+      return [expression.left, expression.right];
     }
     case ExpressionClass.BETWEEN: {
       return [expression.input, expression.lower, expression.upper];

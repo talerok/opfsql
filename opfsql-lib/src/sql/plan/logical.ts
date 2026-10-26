@@ -1,12 +1,12 @@
-import type { StaticType } from "../../functions/index.js";
+import type { StaticType } from "../../values/index.js";
 import type { Table } from "../../schema/index.js";
-import type {
-  AggregateCall,
-  ColumnBinding,
-  Expression as GenericExpression,
-  OrderKey as GenericOrderKey,
+import {
+  type AggregateCall,
+  type ColumnBinding,
+  type Expression as GenericExpression,
+  type OrderKey as GenericOrderKey,
+  ROWID_COLUMN,
 } from "./expression.js";
-import { ROWID_COLUMN } from "./expression.js";
 
 // ---------------------------------------------------------------------------
 // Logical plans (docs/planning.md, Logical plans): what to compute, never
@@ -171,15 +171,15 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
       }));
     }
     case "values": {
-      return positions(plan.tableIndex, plan.types.length);
+      return relationLayout(plan.tableIndex, plan.types.length);
     }
     case "project": {
-      return positions(plan.tableIndex, plan.expressions.length);
+      return relationLayout(plan.tableIndex, plan.expressions.length);
     }
     case "aggregate": {
       return [
-        ...positions(plan.groupIndex, plan.groups.length),
-        ...positions(plan.aggregateIndex, plan.aggregates.length),
+        ...relationLayout(plan.groupIndex, plan.groups.length),
+        ...relationLayout(plan.aggregateIndex, plan.aggregates.length),
       ];
     }
     case "join": {
@@ -192,16 +192,16 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
       return layoutOf(plan.child);
     }
     case "set-operation": {
-      return positions(plan.tableIndex, layoutOf(plan.left).length);
+      return relationLayout(plan.tableIndex, layoutOf(plan.left).length);
     }
     case "cte": {
       return layoutOf(plan.body);
     }
     case "cte-scan": {
-      return positions(plan.tableIndex, plan.types.length);
+      return relationLayout(plan.tableIndex, plan.types.length);
     }
     case "recursive-cte": {
-      return positions(plan.tableIndex, layoutOf(plan.anchor).length);
+      return relationLayout(plan.tableIndex, layoutOf(plan.anchor).length);
     }
   }
 }
@@ -249,7 +249,10 @@ export function columnType(table: Table, column: number): StaticType {
 }
 
 /** Columns 0 to count − 1 of one relation. */
-export function positions(tableIndex: number, count: number): ColumnBinding[] {
+export function relationLayout(
+  tableIndex: number,
+  count: number,
+): ColumnBinding[] {
   return Array.from({ length: count }, (_, columnIndex) => ({
     tableIndex,
     columnIndex,

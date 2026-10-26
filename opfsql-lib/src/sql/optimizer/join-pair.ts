@@ -1,6 +1,6 @@
 import { physical } from "../plan/index.js";
 import {
-  type Estimate,
+  type Planned,
   hashJoinEstimate,
   keyMatches,
   lookupJoinEstimate,
@@ -45,15 +45,6 @@ import { lowerExpressions } from "./lower-expression.js";
 
 type Expression = physical.Expression;
 
-/** A plan as join planning weighs it. */
-export interface Planned {
-  readonly plan: physical.Plan;
-  /** The rows it gives, and what giving them costs. */
-  readonly estimate: Estimate;
-  /** True if its rows come in the order its lead was asked for. */
-  readonly isOrdered: boolean;
-}
-
 /** A join's right side as written: a table read a seek can find rows of, if it is one. */
 export interface Side {
   readonly read: TableRead | null;
@@ -67,7 +58,7 @@ interface EqualityKey {
 }
 
 /** A join to plan: its type, its sides, and the conditions it checks. */
-export interface Pair {
+interface Pair {
   readonly joinType: "inner" | "left";
   readonly left: Planned;
   readonly right: Side;
@@ -77,12 +68,14 @@ export interface Pair {
 /** The left side joined to the right, the cheapest way. */
 export function joinPair(pair: Pair, planner: Planner): Planned {
   const lookup = lookupOf(pair, planner);
-  const looked = lookup === null ? null : lookupJoin(pair, lookup);
+  const lookupJoined = lookup === null ? null : lookupJoin(pair, lookup);
   // Only a lookup join keeps the order the left side leads in.
-  if (looked !== null && pair.left.isOrdered) return looked;
-  const read = fullRead(pair, pair.right.alone(), lookup);
-  if (looked === null || read.estimate.cost < looked.estimate.cost) return read;
-  return looked;
+  if (lookupJoined !== null && pair.left.isOrdered) return lookupJoined;
+  const bothRead = hashOrNestedLoopJoin(pair, pair.right.alone(), lookup);
+  const isLookupCheaper =
+    lookupJoined !== null &&
+    lookupJoined.estimate.cost <= bothRead.estimate.cost;
+  return isLookupCheaper ? lookupJoined : bothRead;
 }
 
 function lookupOf(pair: Pair, planner: Planner): Lookup | null {
@@ -119,7 +112,11 @@ function lookupJoin(pair: Pair, lookup: Lookup): Planned {
  * without any. Each left row meets as many right rows as the lookup would
  * have found, or as the keys leave of the right side.
  */
-function fullRead(pair: Pair, right: Planned, lookup: Lookup | null): Planned {
+function hashOrNestedLoopJoin(
+  pair: Pair,
+  right: Planned,
+  lookup: Lookup | null,
+): Planned {
   const { joinType, left, conditions } = pair;
   const { keys, residual } = splitKeys(left.plan, right.plan, conditions);
   if (keys.length === 0) {

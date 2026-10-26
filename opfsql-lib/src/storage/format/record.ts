@@ -1,9 +1,11 @@
+import type { Value } from "../../values/index.js";
 import { CorruptError } from "../../errors.js";
-import type { JsonValue, Value } from "../../values/index.js";
+import type { ChainReference } from "../rows/overflow.js";
 import type { IntegerWidth } from "./bytes.js";
 import {
   ByteWriter,
   integerWidth,
+  parseStoredJson,
   readFloat64,
   readInteger,
   readUint32,
@@ -17,15 +19,18 @@ import {
 // behind a header of serial types, so one column decodes without the others.
 //
 // A serial type is a number standing for a field's shape: what it holds and
-// how many bytes. Writing works with shapes, which serialTypeOf() turns into
-// numbers; reading works on the numbers, through the functions of the
-// "Serial types" section, which read them back.
+// how many bytes. Writing derives it from a prepared field (serialTypeOf);
+// reading works on the number, through the functions of the "Serial types"
+// section.
 // ---------------------------------------------------------------------------
 
 export type ByteKind = "text" | "blob" | "json";
 
-/** A value whose bytes live in a chain of overflow pages. */
-export class OverflowValue {
+/**
+ * Where a field's bytes are when they live in a chain of overflow pages, in
+ * place of the value: the chain, and what kind of bytes it holds.
+ */
+export class OverflowReference implements ChainReference {
   constructor(
     readonly holds: ByteKind,
     readonly length: number,
@@ -33,21 +38,9 @@ export class OverflowValue {
   ) {}
 }
 
-export type RecordField = Value | OverflowValue;
+export type RecordField = Value | OverflowReference;
 
-/** A field's shape, as its serial type says. */
-type Shape =
-  | { readonly kind: "constant"; readonly value: null | boolean | 0 | 1 }
-  | { readonly kind: "integer"; readonly width: IntegerWidth }
-  | { readonly kind: "float" }
-  | {
-      readonly kind: "bytes";
-      readonly holds: ByteKind;
-      readonly length: number;
-    }
-  | { readonly kind: "overflow"; readonly holds: ByteKind };
-
-/** A field ready to write: its shape's kind, and its value. */
+/** A field ready to write: its shape, and its value. */
 export type PreparedField =
   | { readonly kind: "constant"; readonly value: null | boolean | 0 | 1 }
   | {
@@ -61,7 +54,7 @@ export type PreparedField =
       readonly holds: ByteKind;
       readonly bytes: Uint8Array;
     }
-  | { readonly kind: "overflow"; readonly reference: OverflowValue };
+  | { readonly kind: "overflow"; readonly reference: OverflowReference };
 
 // Serial types, as docs/file-format.md lists them.
 const CONSTANTS = [null, false, true, 0, 1] as const;
@@ -96,7 +89,7 @@ export function prepareField(field: RecordField): PreparedField {
   if (field instanceof Uint8Array) {
     return { kind: "bytes", holds: "blob", bytes: field };
   }
-  if (field instanceof OverflowValue) {
+  if (field instanceof OverflowReference) {
     return { kind: "overflow", reference: field };
   }
   const json = encoder.encode(JSON.stringify(field));
@@ -105,14 +98,13 @@ export function prepareField(field: RecordField): PreparedField {
 
 /** Bytes the prepared fields take as a record. */
 export function recordSize(fields: readonly PreparedField[]): number {
-  const shapes = fields.map((field) => shapeOf(field));
-  const typesSize = sum(shapes, (shape) => varintSize(serialTypeOf(shape)));
-  return headerSizeFor(typesSize) + sum(shapes, bodySize);
+  const typesSize = sum(fields, (field) => varintSize(serialTypeOf(field)));
+  return headerSizeFor(typesSize) + sum(fields, bodySize);
 }
 
 export function encodeRecord(fields: readonly PreparedField[]): Uint8Array {
   const types = new ByteWriter();
-  for (const field of fields) types.varint(serialTypeOf(shapeOf(field)));
+  for (const field of fields) types.varint(serialTypeOf(field));
 
   const record = new ByteWriter(recordSize(fields));
   record.varint(headerSizeFor(types.length));
@@ -125,26 +117,6 @@ function prepareNumber(value: number): PreparedField {
   if (value === 0 || value === 1) return { kind: "constant", value };
   if (!Number.isSafeInteger(value)) return { kind: "float", value };
   return { kind: "integer", width: integerWidth(value), value };
-}
-
-function shapeOf(field: PreparedField): Shape {
-  switch (field.kind) {
-    case "constant": {
-      return field;
-    }
-    case "integer": {
-      return { kind: "integer", width: field.width };
-    }
-    case "float": {
-      return { kind: "float" };
-    }
-    case "bytes": {
-      return { kind: "bytes", holds: field.holds, length: field.bytes.length };
-    }
-    case "overflow": {
-      return { kind: "overflow", holds: field.reference.holds };
-    }
-  }
 }
 
 function writeBody(record: ByteWriter, field: PreparedField): void {
@@ -179,18 +151,28 @@ export type FieldPlaces = readonly (number | undefined)[];
 /** Every field of a record, in field order. */
 export function decodeRecord(record: Uint8Array): RecordField[] {
   const fields: RecordField[] = [];
-  decodeInto(record, null, fields);
+  decodeFields(record, null, fields);
   return fields;
 }
 
 /**
- * Decodes a record into `target`, in one pass over its serial types and
- * their bodies: field i to position `places[i]`, or i without places; a
- * field without a place has its body skipped. A field in overflow pages
- * goes as the OverflowValue that says where its bytes are, and then the
- * result is true: such a value is still to read.
+ * Decodes the fields `places` names into `target`: field i to position
+ * `places[i]`; a field without a place has its body skipped. Returns
+ * whether one of them is an OverflowReference, a value still to read.
  */
-export function decodeInto(
+export function decodeFieldsInto(
+  record: Uint8Array,
+  places: FieldPlaces,
+  target: RecordField[],
+): boolean {
+  return decodeFields(record, places, target);
+}
+
+/**
+ * One pass over a record's serial types and their bodies: field i goes to
+ * `places[i]`, or to i when there are no places.
+ */
+function decodeFields(
   record: Uint8Array,
   places: FieldPlaces | null,
   target: RecordField[],
@@ -203,7 +185,7 @@ export function decodeInto(
   while (position < headerSize) {
     const serialType = readVarint(record, position);
     // Sized before it is read, so that a reserved type fails as itself.
-    const size = bodySizeOf(serialType);
+    const size = serialTypeBodySize(serialType);
     const place = places === null ? field : places[field];
     if (place !== undefined) {
       target[place] = fieldAt(record, serialType, offset);
@@ -262,11 +244,11 @@ function overflowAt(
   record: Uint8Array,
   serialType: number,
   offset: number,
-): OverflowValue {
+): OverflowReference {
   const holds = byteKind(serialType - FIRST_OVERFLOW);
   const length = readUint32(record, offset);
   const firstPage = readUint32(record, offset + 4);
-  return new OverflowValue(holds, length, firstPage);
+  return new OverflowReference(holds, length, firstPage);
 }
 
 /** The value a TEXT, BLOB or JSON field's bytes hold, inline or read back from overflow pages. */
@@ -279,36 +261,36 @@ export function decodeBytes(kind: ByteKind, bytes: Uint8Array): Value {
       return decoder.decode(bytes);
     }
     case "json": {
-      return JSON.parse(decoder.decode(bytes)) as JsonValue;
+      return parseStoredJson(decoder.decode(bytes));
     }
   }
 }
 
 // --- Serial types ----------------------------------------------------------------
 
-function serialTypeOf(shape: Shape): number {
-  switch (shape.kind) {
+function serialTypeOf(field: PreparedField): number {
+  switch (field.kind) {
     case "constant": {
-      return CONSTANTS.indexOf(shape.value);
+      return CONSTANTS.indexOf(field.value);
     }
     case "integer": {
-      return FIRST_INTEGER + INTEGER_WIDTHS.indexOf(shape.width);
+      return FIRST_INTEGER + INTEGER_WIDTHS.indexOf(field.width);
     }
     case "float": {
       return FLOAT;
     }
     case "bytes": {
-      const kind = BYTE_KINDS.indexOf(shape.holds);
-      return FIRST_INLINE + shape.length * BYTE_KINDS.length + kind;
+      const kind = BYTE_KINDS.indexOf(field.holds);
+      return FIRST_INLINE + field.bytes.length * BYTE_KINDS.length + kind;
     }
     case "overflow": {
-      return FIRST_OVERFLOW + BYTE_KINDS.indexOf(shape.holds);
+      return FIRST_OVERFLOW + BYTE_KINDS.indexOf(field.reference.holds);
     }
   }
 }
 
 /** Bytes the body of a field of `serialType` takes. */
-function bodySizeOf(serialType: number): number {
+function serialTypeBodySize(serialType: number): number {
   if (serialType < FIRST_INTEGER) return 0;
   if (serialType < FLOAT) return integerWidthOf(serialType);
   if (serialType === FLOAT) return FLOAT_SIZE;
@@ -335,19 +317,20 @@ function inlineKindOf(serialType: number): ByteKind {
   return byteKind((serialType - FIRST_INLINE) % BYTE_KINDS.length);
 }
 
-function bodySize(shape: Shape): number {
-  switch (shape.kind) {
+/** Bytes the body of a prepared field takes. */
+function bodySize(field: PreparedField): number {
+  switch (field.kind) {
     case "constant": {
       return 0;
     }
     case "integer": {
-      return shape.width;
+      return field.width;
     }
     case "float": {
       return FLOAT_SIZE;
     }
     case "bytes": {
-      return shape.length;
+      return field.bytes.length;
     }
     case "overflow": {
       return OVERFLOW_REFERENCE_SIZE;

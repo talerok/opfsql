@@ -2,13 +2,13 @@ import { CorruptError } from "../../errors.js";
 import type { Tuple } from "../../expressions/index.js";
 import { type physical, ROWID_COLUMN } from "../../sql/plan/index.js";
 import type { ColumnReader, TableRows } from "../../table/index.js";
-import { type Context, fixedScope } from "../context.js";
+import { type Context, startScope } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
 import { compileRowidSet, type RowidSelection } from "./rowids.js";
 import { compileKeySeek, NO_ROW } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
 
-/** A branch compiled: the rowids it finds in one run, each of an existing row. */
+/** A branch compiled: the rowids it finds each time it starts, each of an existing row. */
 type Branch = () => Iterable<number>;
 
 /**
@@ -38,11 +38,11 @@ function compileBranch(
   switch (branch.kind) {
     case "index": {
       const index = context.tables.index(branch.index);
-      const seek = compileKeySeek(branch.keys, fixedScope(context));
+      const seek = compileKeySeek(branch.keys, startScope(context));
       return () => index.rowids(seek(NO_ROW), "ascending");
     }
     case "rowids": {
-      const selection = compileRowidSet(branch.rowids, fixedScope(context));
+      const selection = compileRowidSet(branch.rowids, startScope(context));
       const rowidOnly = rows.columns([ROWID_COLUMN]);
       return () => existingRowids(selection(NO_ROW), rows, rowidOnly);
     }

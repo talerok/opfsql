@@ -112,8 +112,8 @@ function findSequence(
 }
 
 function sequenceRowOf(row: StoredRow): SequenceRow {
-  const name = row.value(NAME);
-  const seq = row.value(SEQ);
+  const name = row.field(NAME);
+  const seq = row.field(SEQ);
   if (typeof name !== "string" || typeof seq !== "number") {
     throw new CorruptError(
       `${SEQUENCE_TABLE_NAME} row ${String(row.rowid)} is malformed`,

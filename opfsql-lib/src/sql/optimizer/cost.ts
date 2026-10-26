@@ -52,6 +52,15 @@ export interface Estimate {
   readonly cost: number;
 }
 
+/** A plan as planning weighs it: what it gives, and in what order. */
+export interface Planned {
+  readonly plan: physical.Plan;
+  /** The rows it gives, and what giving them costs. */
+  readonly estimate: Estimate;
+  /** True if its rows come in the order asked for. */
+  readonly isOrdered: boolean;
+}
+
 export function tableScanEstimate(): Estimate {
   return { rows: ASSUMED_TABLE_ROWS, cost: ASSUMED_TABLE_ROWS * ROW_COST };
 }
@@ -116,7 +125,7 @@ export function rowidRangeEstimate(range: physical.Range): Estimate {
 }
 
 /** The shape of an index seek: what the estimate depends on. */
-export interface IndexSeek {
+interface IndexSeek {
   readonly equalParts: number;
   readonly range: physical.Range | null;
   /** Every part of a unique index is equal: one row at most. */

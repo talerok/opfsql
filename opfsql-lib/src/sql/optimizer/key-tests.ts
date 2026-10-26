@@ -1,15 +1,15 @@
-import type {
-  Between,
-  ColumnReference,
-  Comparison,
-  ComparisonOperator,
-  Constant,
-  InList,
-  Parameter,
-  physical,
+import {
+  type Between,
+  type ColumnReference,
+  type Comparison,
+  type ComparisonOperator,
+  type Constant,
+  type InList,
+  type Parameter,
+  type physical,
+  isSameExpression,
 } from "../plan/index.js";
 import type { KeyPart } from "./key-parts.js";
-import { sameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
 // Conditions an access path can seek with: a conjunct that compares one
@@ -40,7 +40,7 @@ type Expression = physical.Expression;
 /** A seek value: the same for every row of one scan. */
 export type SeekValue = Constant | Parameter | ColumnReference;
 
-export interface SeekBound {
+interface SeekBound {
   readonly value: SeekValue;
   readonly isInclusive: boolean;
 }
@@ -51,7 +51,7 @@ export interface SeekRange {
   readonly upper: SeekBound | null;
 }
 
-export type Test =
+export type KeyMatch =
   | { readonly kind: "equal"; readonly value: SeekValue }
   | { readonly kind: "in"; readonly values: readonly SeekValue[] }
   | { readonly kind: "range"; readonly range: SeekRange };
@@ -60,29 +60,29 @@ export interface KeyTest {
   /** The conjunct it was read from. */
   readonly condition: Expression;
   readonly subject: Expression;
-  readonly test: Test;
+  readonly match: KeyMatch;
 }
 
-/** A key test of the kinds named. */
-type TestOf<Kind extends Test["kind"]> = KeyTest & {
-  readonly test: Extract<Test, { readonly kind: Kind }>;
+/** A key test of the kinds of match named. */
+type KeyTestOf<Kind extends KeyMatch["kind"]> = KeyTest & {
+  readonly match: Extract<KeyMatch, { readonly kind: Kind }>;
 };
 
 /** A test that lists the values it seeks: `=` or IN. */
-export type ListTest = TestOf<"equal" | "in">;
-export type EqualTest = TestOf<"equal">;
-export type RangeTest = TestOf<"range">;
+export type ListTest = KeyTestOf<"equal" | "in">;
+type EqualTest = KeyTestOf<"equal">;
+export type RangeTest = KeyTestOf<"range">;
 
 export function isListTest(keyTest: KeyTest): keyTest is ListTest {
-  return keyTest.test.kind !== "range";
+  return keyTest.match.kind !== "range";
 }
 
 export function isRangeTest(keyTest: KeyTest): keyTest is RangeTest {
-  return keyTest.test.kind === "range";
+  return keyTest.match.kind === "range";
 }
 
 function isEqualTest(keyTest: KeyTest): keyTest is EqualTest {
-  return keyTest.test.kind === "equal";
+  return keyTest.match.kind === "equal";
 }
 
 /** No tables of this query whose columns are fixed: a scan of its own. */
@@ -159,11 +159,14 @@ function comparedWith(
   operator: ComparisonOperator,
   value: SeekValue,
 ): KeyTest | null {
-  const test = testFor(operator, value);
-  return test === null ? null : { condition, subject, test };
+  const test = matchFor(operator, value);
+  return test === null ? null : { condition, subject, match: test };
 }
 
-function testFor(operator: ComparisonOperator, value: SeekValue): Test | null {
+function matchFor(
+  operator: ComparisonOperator,
+  value: SeekValue,
+): KeyMatch | null {
   const inclusive = { value, isInclusive: true };
   const exclusive = { value, isInclusive: false };
   switch (operator) {
@@ -221,7 +224,7 @@ function betweenTest(
     lower: { value: lower, isInclusive: true },
     upper: { value: upper, isInclusive: true },
   };
-  return { condition, subject: input, test: { kind: "range", range } };
+  return { condition, subject: input, match: { kind: "range", range } };
 }
 
 function inListTest(
@@ -232,10 +235,10 @@ function inListTest(
   const values = list.filter((item) => isFixed(item));
   const isFixedList = values.length > 0 && values.length === list.length;
   if (!isFixedList || isFixed(needle)) return null;
-  return { condition, subject: needle, test: { kind: "in", values } };
+  return { condition, subject: needle, match: { kind: "in", values } };
 }
 
 /** True if the test can seek on `part`: its subject is what the part holds. */
 export function fitsPart(keyTest: KeyTest, part: KeyPart): boolean {
-  return sameExpression(keyTest.subject, part.expression);
+  return isSameExpression(keyTest.subject, part.expression);
 }

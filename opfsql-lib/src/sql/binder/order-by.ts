@@ -1,15 +1,12 @@
 import { SemanticError } from "../../errors.js";
-import { nameKey } from "../../schema/index.js";
 import {
-  ExpressionClass,
   OrderByNullType,
-  OrderType,
   type OrderByNode,
   type ParsedExpression,
 } from "../parser/index.js";
 import type { logical } from "../plan/index.js";
-import { oneOrNone } from "./one.js";
 import { isSameExpression } from "./same-expression.js";
+import { aliasPosition, bareName, literalPosition } from "./select-list.js";
 
 // ---------------------------------------------------------------------------
 // ORDER BY. A key is an output column of the query: an integer literal is a
@@ -72,44 +69,13 @@ export function orderColumns(
 export function keyOrder(
   order: OrderByNode,
 ): Pick<KeyColumn, "direction" | "nulls"> {
-  const isAscending = order.type === OrderType.ASCENDING;
-  const direction = isAscending ? "ascending" : "descending";
+  const { direction } = order;
+  const isAscending = direction === "ascending";
   if (order.nullOrder === null) {
     return { direction, nulls: isAscending ? "first" : "last" };
   }
   const isFirst = order.nullOrder === OrderByNullType.NULLS_FIRST;
   return { direction, nulls: isFirst ? "first" : "last" };
-}
-
-/**
- * The 0-based column an integer literal names in `clause`, or null for
- * any other expression; out of range is an error.
- */
-export function literalPosition(
-  expression: ParsedExpression,
-  count: number,
-  clause: string,
-): number | null {
-  const isInteger =
-    expression.expressionClass === ExpressionClass.CONSTANT &&
-    expression.type === "INTEGER";
-  if (!isInteger) return null;
-  const position = expression.value;
-  if (position < 1 || position > count) {
-    throw new SemanticError(
-      `${clause} position ${String(position)} is not between 1 and ${String(count)}`,
-    );
-  }
-  return position - 1;
-}
-
-/** The single name `expression` is, if it is a bare name. */
-export function bareName(expression: ParsedExpression): string | null {
-  const isName =
-    expression.expressionClass === ExpressionClass.COLUMN_REF &&
-    expression.columnNames.length === 1 &&
-    expression.path.length === 0;
-  return isName ? (expression.columnNames[0] ?? null) : null;
 }
 
 /** What a key sorts by: a column already there, or an expression to add. */
@@ -153,26 +119,4 @@ function outputAliased(
   if (name === null) return null;
   const aliases = outputs.map((output) => output.alias);
   return aliasPosition("ORDER BY", name, aliases);
-}
-
-/**
- * The position of the one item whose alias is `name`, in GROUP BY or ORDER
- * BY; null if no item has it. An alias names one item: two items with it
- * make the name ambiguous, whatever they compute.
- */
-export function aliasPosition(
-  clause: string,
-  name: string,
-  aliases: readonly (string | null)[],
-): number | null {
-  const key = nameKey(name);
-  const positions = aliases
-    .map((alias, position) =>
-      alias !== null && nameKey(alias) === key ? position : -1,
-    )
-    .filter((position) => position !== -1);
-  return oneOrNone(
-    positions,
-    () => new SemanticError(`${clause} ${name} is ambiguous`),
-  );
 }

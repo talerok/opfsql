@@ -44,7 +44,7 @@ function droppedIndex(name: string, schema: Schema): string | null {
   if (index === null) return null;
   if (index.origin !== "statement") {
     throw new SemanticError(
-      `index ${index.name} belongs to a PRIMARY KEY or UNIQUE constraint of ${index.table} and cannot be dropped`,
+      `index ${index.name} belongs to a PRIMARY KEY or UNIQUE constraint of ${index.tableName} and cannot be dropped`,
     );
   }
   return index.name;

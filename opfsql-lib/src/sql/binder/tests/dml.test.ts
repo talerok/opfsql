@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatPlan } from "../../plan/index.js";
+import { formatLogicalPlan } from "../../plan/index.js";
 import {
   bind,
   boundAs,
@@ -35,7 +35,7 @@ describe("INSERT", () => {
     );
     expect(bound.columns).toEqual([0, 1, 2, 3, 4]);
     expect(bound.parameterCount).toBe(1);
-    expect(formatPlan(bound.source)).toBe(
+    expect(formatLogicalPlan(bound.source)).toBe(
       "values #0 (1, 'a', 30, 'x@y', NULL), (2, 'b', $1, NULL, '{}')",
     );
     expect(bound.source).toMatchObject({
@@ -49,7 +49,7 @@ describe("INSERT", () => {
     );
     expect(bound.columns).toEqual([2, 1]);
     expect(bound.parameterCount).toBe(2);
-    expect(formatPlan(bound.source)).toBe(
+    expect(formatLogicalPlan(bound.source)).toBe(
       lines(
         "project #1 (age#0.2, id#0.0)",
         "  filter age#0.2 > $2",
@@ -253,7 +253,7 @@ describe("UPDATE", () => {
     );
     expect(bound.tableIndex).toBe(0);
     expect(bound.parameterCount).toBe(1);
-    expect(formatPlan(bound.source)).toBe(
+    expect(formatLogicalPlan(bound.source)).toBe(
       lines(
         "filter id#0.0 = $1",
         "  get #0 users (id, name, age, email, data, rowid)",
@@ -332,13 +332,13 @@ describe("UPDATE", () => {
 describe("DELETE", () => {
   it("reads the rows its WHERE selects, with their rowids", () => {
     const bound = remove("DELETE FROM orders WHERE total > 5 AND status = 'x'");
-    expect(formatPlan(bound.source)).toBe(
+    expect(formatLogicalPlan(bound.source)).toBe(
       lines(
         "filter total#0.2 > 5 AND status#0.3 = 'x'",
         "  get #0 orders (id, user_id, total, status, rowid)",
       ),
     );
-    expect(formatPlan(remove("DELETE FROM orders").source)).toBe(
+    expect(formatLogicalPlan(remove("DELETE FROM orders").source)).toBe(
       "get #0 orders (id, user_id, total, status, rowid)",
     );
     expect(semanticError("DELETE FROM orders WHERE total")).toBe(

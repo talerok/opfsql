@@ -65,7 +65,7 @@ describe("CREATE TABLE", () => {
     expect(constraints).toEqual([
       {
         name: "opfsql_autoindex_t_1",
-        table: "t",
+        tableName: "t",
         keys: [{ kind: "column", column: 1 }],
         isUnique: true,
         origin: "unique",
@@ -198,7 +198,7 @@ describe("CREATE INDEX", () => {
       ).index,
     ).toEqual({
       name: "i",
-      table: "users",
+      tableName: "users",
       keys: [
         { kind: "column", column: 2 },
         { kind: "column", column: 3 },

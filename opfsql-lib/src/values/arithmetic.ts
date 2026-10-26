@@ -14,8 +14,9 @@ import type { Value } from "./value.js";
 // NULL out; INTEGER results must stay safe integers; dividing by zero is NULL.
 // ---------------------------------------------------------------------------
 
+/** The binary arithmetic operators, `+ - * / %`, as plans name them. */
 export type ArithmeticOperator =
-  "add" | "subtract" | "multiply" | "divide" | "remainder";
+  "ADD" | "SUBTRACT" | "MULTIPLY" | "DIVIDE" | "MOD";
 
 /**
  * How operands are treated, by the static type of the result: `integer`
@@ -33,31 +34,45 @@ const multiply: Operation = (a, b) => a * b;
 /** `a % b` with the sign of the dividend; NULL for a zero divisor. */
 const remainder: Operation = (a, b) => (b === 0 ? null : a % b);
 
-/** Each operator on two INTEGERs and on numbers that are not. */
-const OPERATIONS: Record<
-  ArithmeticOperator,
-  { readonly integer: Operation; readonly real: Operation }
-> = {
-  add: { integer: add, real: add },
-  subtract: { integer: subtract, real: subtract },
-  multiply: { integer: multiply, real: multiply },
-  divide: {
-    integer: (a, b) => (b === 0 ? null : truncate(a / b)),
-    real: (a, b) => (b === 0 ? null : a / b),
-  },
-  remainder: {
-    integer: remainder,
-    // As in SQLite, both operands are truncated to integers first.
-    real: (a, b) => remainder(truncate(a), truncate(b)),
-  },
-};
+interface Operations {
+  readonly integer: Operation;
+  readonly real: Operation;
+}
+
+/** `operator` on two INTEGERs, and on numbers that are not. */
+function operationsOf(operator: ArithmeticOperator): Operations {
+  switch (operator) {
+    case "ADD": {
+      return { integer: add, real: add };
+    }
+    case "SUBTRACT": {
+      return { integer: subtract, real: subtract };
+    }
+    case "MULTIPLY": {
+      return { integer: multiply, real: multiply };
+    }
+    case "DIVIDE": {
+      return {
+        integer: (a, b) => (b === 0 ? null : truncate(a / b)),
+        real: (a, b) => (b === 0 ? null : a / b),
+      };
+    }
+    case "MOD": {
+      return {
+        integer: remainder,
+        // As in SQLite, both operands are truncated to integers first.
+        real: (a, b) => remainder(truncate(a), truncate(b)),
+      };
+    }
+  }
+}
 
 /** The binary operator for `mode`, chosen once and applied per row. */
 export function arithmetic(
   operator: ArithmeticOperator,
   mode: NumericMode,
 ): (left: Value, right: Value) => Value {
-  const { integer, real } = OPERATIONS[operator];
+  const { integer, real } = operationsOf(operator);
   return (left, right) => {
     if (left === null || right === null) return null;
     const a = numberOperand(left);

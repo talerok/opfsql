@@ -12,11 +12,11 @@ import {
 } from "../parser/index.js";
 import type { AlterAction, AlterTable, logical } from "../plan/index.js";
 import { declareColumn } from "./column-definition.js";
-import { findColumn } from "./columns.js";
+import { findColumn, columnNamed } from "./columns.js";
 import { isStatementError } from "./corruption.js";
-import { bindIndexKey, bindKeyText } from "./create-index.js";
+import { bindStoredIndexKey, bindIndexKeyText } from "./create-index.js";
 import { isSameExpression } from "./same-expression.js";
-import { columnNamed, tableNamed } from "./dml.js";
+import { tableNamed } from "./tables.js";
 import type { BindContext } from "./scope.js";
 import { columnsReadBy } from "./walk.js";
 
@@ -27,6 +27,9 @@ import { columnsReadBy } from "./walk.js";
 // A dropped column cannot be the rowid, nor in an index or constraint, nor
 // the table's last.
 // ---------------------------------------------------------------------------
+
+/** The table index an index key is bound over here: the table is alone. */
+const KEY_TABLE = 0;
 
 export function bindAlterTable(
   statement: AlterTableStatement,
@@ -61,7 +64,7 @@ function addColumn(
   if (findColumn(table.columns, column.name) !== -1) {
     throw new SemanticError(`duplicate column name: ${column.name}`);
   }
-  if (declared.primaryKeys > 0 || declared.isAutoincrement) {
+  if (declared.primaryKeyCount > 0 || declared.isAutoincrement) {
     throw new SemanticError("cannot add a PRIMARY KEY column");
   }
   if (declared.isUnique) {
@@ -100,11 +103,15 @@ function checkKeysKeepMeaning(
   }
 }
 
-/** True if the key `sql` reads the same over `widened` as over `table`. */
+/**
+ * True if the key `sql` reads the same over `widened` as over `table`. The
+ * key as stored must bind — failing is damage — while over the widened
+ * table it may fail like any statement: then it does not read the same.
+ */
 function bindsAlike(sql: string, table: Table, widened: Table): boolean {
-  const before = bindIndexKey(sql, table, 0);
+  const before = bindStoredIndexKey(sql, table, KEY_TABLE);
   try {
-    return isSameExpression(before, bindKeyText(sql, widened, 0));
+    return isSameExpression(before, bindIndexKeyText(sql, widened, KEY_TABLE));
   } catch (error) {
     if (isStatementError(error)) return false;
     throw error;
@@ -139,7 +146,7 @@ function dropColumn(
 function usesColumn(index: Index, table: Table, column: number): boolean {
   return index.keys.some((key) => {
     if (key.kind === "column") return key.column === column;
-    return readsColumn(bindIndexKey(key.sql, table, 0), column);
+    return readsColumn(bindStoredIndexKey(key.sql, table, KEY_TABLE), column);
   });
 }
 

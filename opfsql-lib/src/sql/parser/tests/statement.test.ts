@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Parser, parse } from "../index.js";
+import { parse } from "../index.js";
 import {
   AlterType,
   DropType,
@@ -88,10 +88,6 @@ describe("statement boundaries", () => {
     expect(printed("SELECT * FROM t1 EXCEPT SELECT * FROM t2")).toBe(
       "(EXCEPT (SELECT * FROM t1) (SELECT * FROM t2))",
     );
-  });
-
-  it("keeps the Parser class for callers that hold one", () => {
-    expect(new Parser().parse("SELECT 1; SELECT 2")).toHaveLength(2);
   });
 });
 
@@ -467,7 +463,7 @@ describe("CREATE TABLE", () => {
       "a INT PRIMARY KEY PRIMARY KEY",
       "b INT",
     ]);
-    expect(table.primaryKeys).toEqual([["a", "b"], ["b"]]);
+    expect(table.tablePrimaryKeys).toEqual([["a", "b"], ["b"]]);
   });
 
   it.each([

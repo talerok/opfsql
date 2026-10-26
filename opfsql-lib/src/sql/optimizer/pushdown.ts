@@ -80,6 +80,7 @@ function partition<T>(
 function place(plan: Plan, conditions: readonly Expression[]): Plan {
   switch (plan.kind) {
     case "filter": {
+      // Conditions above a filter no row passes are dropped: none reaches them.
       if (hasNeverTrue(plan.conditions)) return plan;
       return pushInto(plan.child, [...plan.conditions, ...conditions]);
     }
@@ -129,7 +130,8 @@ interface Placement {
 
 /**
  * Each condition rewritten for below a node by `rewrite`, or kept above when
- * it gives null. A rewrite that brings in a volatile call stays above.
+ * it gives null. A rewrite that is pinned (isPinned: a volatile call, or a
+ * correlated subquery) stays above.
  */
 function split(
   conditions: readonly Expression[],

@@ -1,3 +1,4 @@
+import { InternalError } from "../errors.js";
 import type { Run, Tuple } from "../expressions/index.js";
 
 // ---------------------------------------------------------------------------
@@ -12,8 +13,9 @@ import type { Run, Tuple } from "../expressions/index.js";
 export interface Operator {
   /**
    * The next batch of at most `max` rows, never empty, or null when there
-   * are no more. `max` is what the caller can still use: Infinity when it
-   * takes every row.
+   * are no more. `max` is what the caller can still use, at least 1:
+   * Infinity when it takes every row. A caller that can use no more rows
+   * stops pulling instead.
    */
   next(max: number): readonly Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
@@ -36,6 +38,15 @@ export interface Demand {
  * a write's source and a query's result pull by.
  */
 export const EVERY_ROW: Demand = { wanted: Infinity };
+
+/** A demand that `wanted` works out each time it is read. */
+export function demandOf(wanted: () => number): Demand {
+  return {
+    get wanted() {
+      return wanted();
+    },
+  };
+}
 
 /** An operator's rows from the start, its children pulled as `demand` wants. */
 export type Walk = (demand: Demand) => Iterator<Tuple>;
@@ -115,11 +126,7 @@ function* batchesOf(
 
 /** A demand for what `rows` lack of `count`. */
 function upTo(count: number, rows: readonly Tuple[]): Demand {
-  return {
-    get wanted() {
-      return count - rows.length;
-    },
-  };
+  return demandOf(() => count - rows.length);
 }
 
 /**
@@ -137,6 +144,10 @@ class Batch implements Demand {
 
   /** Up to `max` rows from `source`, at most a batch; null if it has none left. */
   fill(source: Iterator<Tuple>, max: number): Tuple[] | null {
+    if (max < 1) {
+      // Null would read as "no rows left", which a source may not be.
+      throw new InternalError(`an operator was asked for ${String(max)} rows`);
+    }
     this.rows = [];
     this.max = max;
     const size = Math.min(max, BATCH_SIZE);

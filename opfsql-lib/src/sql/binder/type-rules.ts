@@ -1,13 +1,16 @@
 import { SemanticError } from "../../errors.js";
-import type { StaticType } from "../../functions/index.js";
-import { typeFromName, type SqlType } from "../../values/index.js";
+import {
+  typeFromName,
+  type SqlType,
+  type StaticType,
+} from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
 // Static types of what is not a function call (functions type their calls
 // in the registry). One rule each, and they agree with the expression
-// compiler: typed operands of different kinds are a bind error; a side whose
-// type is known only at run time (ANY) takes the other side's affinity
-// there, and a JSON value compares as it is (docs/semantics.md, Comparisons).
+// compiler: typed operands of different kinds are a bind error; a parameter
+// takes the other side's affinity (affinity.ts); an ANY column or a JSON
+// value compares as it is stored (docs/semantics.md, Comparisons).
 // ---------------------------------------------------------------------------
 
 /** Types that say nothing about the value: it may be anything. */
@@ -90,9 +93,9 @@ export function concatenationType(
  * A condition — WHERE, ON, HAVING, a searched CASE's WHEN, an operand of
  * AND, OR and NOT — is BOOLEAN; an untyped value is checked per row.
  */
-export function checkCondition(type: StaticType, where: string): void {
+export function checkCondition(type: StaticType, place: string): void {
   if (!CONDITIONS.has(type)) {
-    throw new SemanticError(`${where} must be BOOLEAN, not ${type}`);
+    throw new SemanticError(`${place} must be BOOLEAN, not ${type}`);
   }
 }
 

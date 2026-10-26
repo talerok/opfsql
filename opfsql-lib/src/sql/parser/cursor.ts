@@ -1,12 +1,3 @@
-// ---------------------------------------------------------------------------
-// The parser's position in the token list, and everything the grammar files
-// share: matching keywords and symbols, names, optional clauses, subqueries,
-// errors, unsupported syntax, the nesting limit and parameter numbers. The
-// grammar's two recursive entry points, expressions and queries, are reached
-// through the cursor so that the files implementing them need not import
-// each other.
-// ---------------------------------------------------------------------------
-
 import {
   InternalError,
   NotSupportedError,
@@ -16,6 +7,15 @@ import { isReserved, upperAscii, type Keyword } from "./keywords.js";
 import { power } from "../precedence.js";
 import { describe, type SymbolText, type Token } from "./tokens.js";
 import type { ParsedExpression, SelectStatement } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// The parser's position in the token list, and everything the grammar files
+// share: matching keywords and symbols, names, optional clauses, subqueries,
+// errors, unsupported syntax, the nesting limit and parameter numbers. The
+// grammar's two recursive entry points, expressions and queries, are reached
+// through the cursor so that the files implementing them need not import
+// each other.
+// ---------------------------------------------------------------------------
 
 /**
  * How deeply expressions and queries may nest, counting each parenthesis,
@@ -29,7 +29,11 @@ import type { ParsedExpression, SelectStatement } from "./types.js";
  */
 export const MAX_DEPTH = 200;
 
-/** The keywords a query starts with; VALUES is refused where it would. */
+/**
+ * The keywords a query starts with. VALUES is among them so that a query
+ * starting with it reaches parseSelectCore, which reports it as not
+ * supported.
+ */
 const QUERY_KEYWORDS: ReadonlySet<Keyword> = new Set<Keyword>([
   "SELECT",
   "WITH",
@@ -175,14 +179,14 @@ export class Cursor {
   }
 
   /** An identifier's word in upper case, if it is ASCII; for non-keywords. */
-  wordAt(offset = 0): string | undefined {
+  identifierWordAt(offset = 0): string | undefined {
     const token = this.peek(offset);
     return token.kind === "identifier" ? upperAscii(token.value) : undefined;
   }
 
   /** True if the token is an identifier spelling `word` (in upper case). */
-  isWord(word: string, offset = 0): boolean {
-    return this.wordAt(offset) === word;
+  isIdentifierWord(word: string, offset = 0): boolean {
+    return this.identifierWordAt(offset) === word;
   }
 
   /** The SQL text between two offsets, as written. */
@@ -222,7 +226,7 @@ export class Cursor {
   }
 
   /** A name after a dot, where even a reserved keyword is a name. */
-  label(what: string): string {
+  nameAfterDot(what: string): string {
     const isLabel = this.peek().kind === "keyword" || this.isName();
     if (!isLabel) this.fail(what);
     return nameOf(this.next());
@@ -282,16 +286,16 @@ export class Cursor {
   }
 
   /** As rejectKeyword, for a word that is not a keyword (`VIEW`, `PRAGMA`). */
-  rejectWord(word: string, feature: string): void {
-    if (this.isWord(word)) throw new NotSupportedError(feature);
+  rejectIdentifierWord(word: string, feature: string): void {
+    if (this.isIdentifierWord(word)) throw new NotSupportedError(feature);
   }
 
-  /** As rejectWord, for any of `words`; `feature` names the one found. */
-  rejectWordIn(
+  /** As rejectIdentifierWord, for any of `words`; `feature` names the one found. */
+  rejectIdentifierWordIn(
     words: ReadonlySet<string>,
     feature: (word: string) => string,
   ): void {
-    const word = this.wordAt();
+    const word = this.identifierWordAt();
     const isRejected = word !== undefined && words.has(word);
     if (isRejected) throw new NotSupportedError(feature(word));
   }

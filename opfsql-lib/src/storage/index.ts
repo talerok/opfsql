@@ -19,14 +19,13 @@ export {
   readSchemaTable,
   SCHEMA_TABLE_NAME,
   type SchemaEntry,
-  type SchemaEntryType,
   type SchemaPages,
   SchemaTableWriter,
   type StoredSchemaEntry,
 } from "./rows/schema-table.js";
 export {
   ROWID_FIELD,
-  type RowOrder,
+  type ScanOrder,
   StoredRow,
   TableReader,
   TableWriter,

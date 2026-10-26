@@ -66,7 +66,7 @@ const usersShape: TableShape = {
 
 const uniqueEmail: IndexShape = {
   name: constraintIndexName("users", 1),
-  table: "users",
+  tableName: "users",
   keys: [{ kind: "column", column: 3 }],
   isUnique: true,
   origin: "unique",
@@ -128,7 +128,7 @@ export async function fixture(): Promise<Fixture> {
 function usersIndex(indexName: string, keys: IndexShape["keys"]): IndexShape {
   return {
     name: indexName,
-    table: "users",
+    tableName: "users",
     keys,
     isUnique: false,
     origin: "statement",

@@ -41,7 +41,7 @@ const MAGIC_BYTES: Record<FileKind, Uint8Array> = {
 };
 
 export function writePrefix(header: Uint8Array, kind: FileKind): void {
-  header.set(encoder.encode(MAGIC[kind]), 0);
+  header.set(MAGIC_BYTES[kind], 0);
   writeUint32(header, VERSION_OFFSET, FORMAT_VERSION);
 }
 

@@ -132,3 +132,18 @@ WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 10) SEL
 query I nosort
 WITH RECURSIVE r(n) AS (SELECT id FROM tree WHERE id = 999 UNION ALL SELECT n + 1 FROM r WHERE n < 5) SELECT n FROM r
 ----
+
+# ============================================================================
+# A nearer WITH that defines the same name shadows the recursive query, as
+# in SQLite: such a query does not name itself, and is not recursive.
+# ============================================================================
+
+query I nosort
+WITH RECURSIVE t AS (WITH t AS (SELECT 1 AS x) SELECT x FROM t) SELECT * FROM t
+----
+1
+
+query I nosort
+WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM (WITH t AS (SELECT 5 AS n) SELECT n FROM t) WHERE n < 3) SELECT * FROM t
+----
+1

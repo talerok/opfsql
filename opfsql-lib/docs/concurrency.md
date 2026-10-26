@@ -134,9 +134,10 @@ Under the write lock, after catching up: if `I > L`, set `I := L`.
 ### Opening
 
 Under the open lock: create the database file if it is empty, open or
-create the WAL, and recover it by reading its frames — reading only.
-Then claim a free mark slot by taking its lock, clear the slot's old mark,
-and clear the marks of slots whose lock is free (tabs that died).
+create the WAL and recover it by reading its frames — reading only — and
+write an empty read-mark file if there is none. Then claim a free mark slot
+by taking its lock, clear the slot's old mark, and clear the marks of slots
+whose lock is free (tabs that died).
 
 ### A tab dying
 

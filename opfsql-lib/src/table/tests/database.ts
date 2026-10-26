@@ -27,11 +27,11 @@ import type { CompileExpression } from "../index.js";
 import {
   Catalog,
   checkTables,
-  keyedIndex,
   Sequences,
   TableEditor,
   TableRows,
 } from "../index.js";
+import { keyedIndex } from "../keys.js";
 
 export { column } from "../../../test/support/schema.js";
 
@@ -56,7 +56,7 @@ export const usersShape: TableShape = {
 
 export const uniqueEmail: IndexShape = {
   name: constraintIndexName("users", 1),
-  table: "users",
+  tableName: "users",
   keys: [{ kind: "column", column: 2 }],
   isUnique: true,
   origin: "unique",

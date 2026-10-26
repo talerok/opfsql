@@ -1,13 +1,13 @@
+import { NotSupportedError, SqlSyntaxError } from "../../errors.js";
+import { keywordOf } from "./keywords.js";
+import type { SymbolText, Token, TokenValue } from "./tokens.js";
+
 // ---------------------------------------------------------------------------
 // The lexer: SQL text to tokens, as SQLite's tokenizer reads it. Every token
 // keeps its offsets and its text as written. A number that runs into a
 // letter (`1e3x`, `0x1g`, `1_000`) is an error, never two tokens. As in
 // SQLite, a block comment left open runs to the end of the text.
 // ---------------------------------------------------------------------------
-
-import { NotSupportedError, SqlSyntaxError } from "../../errors.js";
-import { keywordOf } from "./keywords.js";
-import type { SymbolText, Token, TokenValue } from "./tokens.js";
 
 /** A sticky regular expression, matched at a given offset. */
 class Pattern {

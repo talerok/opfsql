@@ -67,7 +67,7 @@ export type IndexOrigin =
 export interface Index {
   readonly name: string;
   /** The name of the table it indexes. */
-  readonly table: string;
+  readonly tableName: string;
   readonly keys: readonly IndexKey[];
   readonly isUnique: boolean;
   /** The root page of the index's B-tree, which never moves. */

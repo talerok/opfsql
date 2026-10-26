@@ -16,50 +16,58 @@ import type { SyncFile } from "../file/sync-file.js";
 // tab's mark is never lost.
 // ---------------------------------------------------------------------------
 
-const INTENT_OFFSET = 16;
-const SLOTS_OFFSET = 24;
+/** Each value — the intent and every mark — is an aligned f64. */
+const VALUE_SIZE = 8;
+/** The prefix, padded to the alignment of the values after it. */
+const INTENT_OFFSET = Math.ceil(PREFIX_SIZE / VALUE_SIZE) * VALUE_SIZE;
+const SLOTS_OFFSET = INTENT_OFFSET + VALUE_SIZE;
 const SLOT_COUNT = 64;
-const FILE_SIZE = SLOTS_OFFSET + SLOT_COUNT * 8;
+const FILE_SIZE = SLOTS_OFFSET + SLOT_COUNT * VALUE_SIZE;
 const NO_MARK = -1;
 
 function slotOffset(slot: number): number {
-  return SLOTS_OFFSET + slot * 8;
+  return SLOTS_OFFSET + slot * VALUE_SIZE;
 }
 
 export class ReadMarks {
-  /** One mark, as it is read from and written to the file. */
-  private readonly markBytes = new Uint8Array(8);
-  private readonly view = new DataView(this.markBytes.buffer);
+  /** One value, as it is read from and written to the file. */
+  private readonly valueBytes = new Uint8Array(VALUE_SIZE);
+  private readonly view = new DataView(this.valueBytes.buffer);
 
   private constructor(
-    private readonly handle: SyncFile,
+    private readonly file: SyncFile,
     private readonly lockName: string,
     private readonly slot: number,
     private readonly releaseSlot: () => void,
   ) {}
 
   /**
-   * Opens the shared file (initializing it if needed) and claims a slot.
-   * Takes ownership of `handle`: it is closed with the marks, or right away
-   * if opening fails.
+   * Writes an empty read-mark file unless `file` already is one. Only while
+   * holding the open lock: another tab's marks would be wiped.
+   */
+  static createIfMissing(file: SyncFile): void {
+    if (!isReadMarkFile(file)) writeEmpty(file);
+  }
+
+  /**
+   * Claims a free slot of the file, which createIfMissing has made. The
+   * marks then own `file` and close it; if claiming fails, it stays the
+   * caller's.
    */
   static async open(
-    handle: SyncFile,
+    file: SyncFile,
     lockName: string,
     database: string,
   ): Promise<ReadMarks> {
+    const { slot, release } = await claimSlot(lockName, database);
+    const marks = new ReadMarks(file, lockName, slot, release);
     try {
-      await navigator.locks.request(`${lockName}:shm-init`, () => {
-        if (!isInitialized(handle)) initialize(handle);
-      });
-      const { slot, release } = await claimSlot(lockName, database);
-      const marks = new ReadMarks(handle, lockName, slot, release);
       // Clears a mark that a dead previous owner of the slot left.
       marks.publish(null);
-      await marks.reclaimDeadSlots();
+      await marks.clearDeadMarks();
       return marks;
     } catch (error) {
-      handle.close();
+      release();
       throw error;
     }
   }
@@ -84,7 +92,7 @@ export class ReadMarks {
   }
 
   /** Clears marks left by tabs that died with a snapshot open. */
-  async reclaimDeadSlots(): Promise<void> {
+  async clearDeadMarks(): Promise<void> {
     for (const [slot, mark] of this.marks().entries()) {
       const isOtherTabsMark = slot !== this.slot && mark !== NO_MARK;
       if (isOtherTabsMark) await this.clearIfDead(slot);
@@ -94,7 +102,7 @@ export class ReadMarks {
   close(): void {
     this.publish(null);
     this.releaseSlot();
-    this.handle.close();
+    this.file.close();
   }
 
   /** The mark in every slot, NO_MARK included. */
@@ -113,13 +121,13 @@ export class ReadMarks {
   }
 
   private read(offset: number): number {
-    this.handle.read(this.markBytes, { at: offset });
+    this.file.read(this.valueBytes, { at: offset });
     return this.view.getFloat64(0);
   }
 
   private write(offset: number, value: number): void {
     this.view.setFloat64(0, value);
-    this.handle.write(this.markBytes, { at: offset });
+    this.file.write(this.valueBytes, { at: offset });
   }
 }
 
@@ -127,24 +135,24 @@ function slotLock(lockName: string, slot: number): string {
   return `${lockName}:slot:${String(slot)}`;
 }
 
-function isInitialized(handle: SyncFile): boolean {
-  if (handle.getSize() < FILE_SIZE) return false;
+function isReadMarkFile(file: SyncFile): boolean {
+  if (file.getSize() < FILE_SIZE) return false;
   const prefix = new Uint8Array(PREFIX_SIZE);
-  handle.read(prefix, { at: 0 });
+  file.read(prefix, { at: 0 });
   return hasPrefix(prefix, "shm");
 }
 
-function initialize(handle: SyncFile): void {
-  const file = new Uint8Array(FILE_SIZE);
-  const view = new DataView(file.buffer);
-  writePrefix(file, "shm");
+function writeEmpty(file: SyncFile): void {
+  const bytes = new Uint8Array(FILE_SIZE);
+  const view = new DataView(bytes.buffer);
+  writePrefix(bytes, "shm");
   view.setFloat64(INTENT_OFFSET, 0);
   for (let slot = 0; slot < SLOT_COUNT; slot++) {
     view.setFloat64(slotOffset(slot), NO_MARK);
   }
-  handle.truncate(0);
-  handle.write(file, { at: 0 });
-  handle.flush();
+  file.truncate(0);
+  file.write(bytes, { at: 0 });
+  file.flush();
 }
 
 /** The first free slot, held until `release` is called. */
@@ -159,10 +167,26 @@ async function claimSlot(
   throw new DatabaseInUseError(database, "too-many-tabs");
 }
 
-/** Takes the lock if it is free and holds it until the returned function is called. */
+/**
+ * Takes the lock if it is free and holds it until the returned function is
+ * called. Fails if the browser refuses the request.
+ */
 async function holdIfAvailable(name: string): Promise<(() => void) | null> {
-  return new Promise((resolve) => {
-    void navigator.locks.request(name, { ifAvailable: true }, async (lock) => {
+  const { promise, resolve, reject } = Promise.withResolvers<
+    (() => void) | null
+  >();
+  void holdUntilReleased(name, resolve, reject);
+  return promise;
+}
+
+/** Gives `resolve` the lock's release, or null; gives `reject` a refusal. */
+async function holdUntilReleased(
+  name: string,
+  resolve: (release: (() => void) | null) => void,
+  reject: (error: unknown) => void,
+): Promise<void> {
+  try {
+    await navigator.locks.request(name, { ifAvailable: true }, async (lock) => {
       if (lock === null) {
         resolve(null);
         return;
@@ -172,5 +196,7 @@ async function holdIfAvailable(name: string): Promise<(() => void) | null> {
         resolve(release);
       });
     });
-  });
+  } catch (error) {
+    reject(error);
+  }
 }

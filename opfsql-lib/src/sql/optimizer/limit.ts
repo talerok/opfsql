@@ -15,7 +15,7 @@ import { projectsOf, throughProjects } from "./plan-tree.js";
 // ---------------------------------------------------------------------------
 
 /** A limit placed as low as projects allow, and the projects to put back above it. */
-export interface PlacedLimit {
+interface PlacedLimit {
   /** Outermost first, as they were. */
   readonly projects: readonly logical.Project[];
   readonly limit: logical.Limit;

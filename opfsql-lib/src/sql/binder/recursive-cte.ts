@@ -12,9 +12,9 @@ import {
   type SetOperationNode,
   type TableReference,
 } from "../parser/index.js";
-import { cteColumns, type BoundCte } from "./cte-definition.js";
+import { cteColumns, type BoundCte } from "./bound-cte.js";
 import { hasAggregateCall } from "./grouping.js";
-import { exactlyOne } from "./one.js";
+import { exactlyOne, itemAt } from "./one.js";
 import { expressionsOf, mentions, mentionsInExpression } from "./references.js";
 import type { OutputColumn } from "../plan/index.js";
 import type { BoundQuery, CteDefinition, Scope } from "./scope.js";
@@ -120,7 +120,7 @@ function bindStep(
     name: column.name,
     type: commonType([
       column.type,
-      query.columns[position]?.type ?? column.type,
+      itemAt(query.columns, position, "the step's columns").type,
     ]),
   }));
   const isStable = widened.every(
@@ -145,7 +145,7 @@ function checkStep(step: SelectNode, name: string): void {
 function checkStepComputes(step: SelectNode): void {
   if (step.groupBy.length > 0) throw refusal("GROUP BY");
   if (step.having !== null) throw refusal("HAVING");
-  if (step.selectList.some((item) => hasAggregateCall(item))) {
+  if (step.selectList.some((item) => hasAggregateCall(item.expression))) {
     throw refusal("an aggregate");
   }
   if (step.isDistinct) throw refusal("DISTINCT");

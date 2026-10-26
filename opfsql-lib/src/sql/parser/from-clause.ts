@@ -1,8 +1,3 @@
-// ---------------------------------------------------------------------------
-// FROM: tables, subqueries and joins. Commas and JOINs chain left to right,
-// so `FROM a, b JOIN c ON …` is `(a CROSS JOIN b) JOIN c ON …`.
-// ---------------------------------------------------------------------------
-
 import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
@@ -13,6 +8,11 @@ import {
   type JoinReference,
   type TableReference,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// FROM: tables, subqueries and joins. Commas and JOINs chain left to right,
+// so `FROM a, b JOIN c ON …` is `(a CROSS JOIN b) JOIN c ON …`.
+// ---------------------------------------------------------------------------
 
 export function parseFrom(cursor: Cursor): TableReference {
   return cursor.chain(

@@ -1,4 +1,3 @@
-import { InternalError } from "../../errors.js";
 import { resolveCall, scalarFunction } from "../../functions/index.js";
 import {
   ExpressionType,
@@ -70,42 +69,43 @@ export function bindOperator(
   expression: OperatorExpression,
   clause: Clause,
 ): Expression {
-  const [first, ...rest] = expression.children;
-  const subject = clause.bind(required(first));
   switch (expression.type) {
     case ExpressionType.OPERATOR_NOT: {
-      return not(conditionOf(subject));
+      return not(conditionOf(clause.bind(expression.operand)));
     }
     case ExpressionType.OPERATOR_IS_NULL: {
-      return nullTest(subject);
+      return nullTest(clause.bind(expression.operand));
     }
     case ExpressionType.OPERATOR_IS_NOT_NULL: {
-      return not(nullTest(subject));
+      return not(nullTest(clause.bind(expression.operand)));
     }
     case ExpressionType.OPERATOR_IN: {
-      return inList(subject, rest, clause);
+      return inList(clause.bind(expression.needle), expression.list, clause);
     }
     case ExpressionType.OPERATOR_NOT_IN: {
-      return not(inList(subject, rest, clause));
+      const needle = clause.bind(expression.needle);
+      return not(inList(needle, expression.list, clause));
     }
     case ExpressionType.OPERATOR_NEGATE: {
-      const type = negationType(subject.type);
-      return { kind: "negate", operand: subject, type };
+      const operand = clause.bind(expression.operand);
+      return { kind: "negate", operand, type: negationType(operand.type) };
     }
     case ExpressionType.OPERATOR_CONCAT: {
-      const right = clause.bind(required(rest[0]));
-      const type = concatenationType(subject.type, right.type);
-      return { kind: "concatenate", left: subject, right, type };
+      const left = clause.bind(expression.left);
+      const right = clause.bind(expression.right);
+      const type = concatenationType(left.type, right.type);
+      return { kind: "concatenate", left, right, type };
     }
     case ExpressionType.OPERATOR_ADD:
     case ExpressionType.OPERATOR_SUBTRACT:
     case ExpressionType.OPERATOR_MULTIPLY:
     case ExpressionType.OPERATOR_DIVIDE:
     case ExpressionType.OPERATOR_MOD: {
-      const right = clause.bind(required(rest[0]));
+      const left = clause.bind(expression.left);
+      const right = clause.bind(expression.right);
       const operator = arithmeticOperator(expression.type);
-      const type = arithmeticType(subject.type, right.type);
-      return { kind: "arithmetic", operator, left: subject, right, type };
+      const type = arithmeticType(left.type, right.type);
+      return { kind: "arithmetic", operator, left, right, type };
     }
   }
 }
@@ -226,12 +226,4 @@ function inList(
     list: list.map((item) => comparedWith(item, [needle.type])),
     type: "BOOLEAN",
   };
-}
-
-/** An operand the parser always builds; a tree without it is a bug. */
-function required(expression: ParsedExpression | undefined): ParsedExpression {
-  if (expression === undefined) {
-    throw new InternalError("an operator is missing an operand");
-  }
-  return expression;
 }

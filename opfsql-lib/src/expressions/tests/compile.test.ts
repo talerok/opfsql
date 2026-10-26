@@ -404,7 +404,7 @@ describe("functions", () => {
     expect(implement).toHaveBeenCalledOnce();
     expect(implement).toHaveBeenCalledWith({
       argumentTypes: ["ANY", "TEXT"],
-      constants: ["h%", undefined],
+      fixedValues: ["h%", undefined],
     });
   });
 });

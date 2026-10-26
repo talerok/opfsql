@@ -1,6 +1,9 @@
-import type { OrderDirection, physical } from "../plan/index.js";
+import {
+  isSameExpression,
+  type OrderDirection,
+  type physical,
+} from "../plan/index.js";
 import type { KeyPart } from "./key-parts.js";
-import { sameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
 // Whether an index scan delivers an ORDER BY (docs/planning.md, rule 3).
@@ -48,6 +51,6 @@ function keysMatchFrom(
     const part = parts[start + position];
     if (part === undefined || key.direction !== direction) return false;
     const isPlaced = key.nulls === nulls || part.isNeverNull;
-    return isPlaced && sameExpression(key.expression, part.expression);
+    return isPlaced && isSameExpression(key.expression, part.expression);
   });
 }

@@ -1,11 +1,10 @@
-import type { Value } from "../../values/index.js";
+import type { Value, StaticType } from "../../values/index.js";
 import {
   aggregateFunction,
   resolveCall,
   scalarFunction,
   startAggregate,
 } from "../index.js";
-import type { StaticType } from "../types.js";
 
 /** The static type a test value would have as a literal. */
 export function typeOf(value: Value): StaticType {
@@ -35,7 +34,7 @@ export function call(
   resolveCall(definition, types);
   const implementation = definition.implement({
     argumentTypes: types,
-    constants: values.map((value) =>
+    fixedValues: values.map((value) =>
       options.constant === true ? value : undefined,
     ),
   });

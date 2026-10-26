@@ -55,13 +55,13 @@ function* linesOf(
   describer: NodeDescriber,
 ): Generator<string> {
   yield INDENT.repeat(depth) + describer.describe(plan);
-  for (const child of childPlans(plan)) {
+  for (const child of childPlansOf(plan)) {
     yield* linesOf(child, depth + 1, describer);
   }
 }
 
 /** A node's children, in the order they print. */
-function childPlans(plan: Plan): readonly Plan[] {
+function childPlansOf(plan: Plan): readonly Plan[] {
   switch (plan.kind) {
     case "table-scan":
     case "rowid-lookup":

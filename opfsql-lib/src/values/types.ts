@@ -23,6 +23,12 @@ const TYPES_BY_NAME: ReadonlyMap<string, SqlType> = new Map<string, SqlType>([
 ]);
 
 /**
+ * The type an expression has before it runs: a SQL type, or NULL for one
+ * that is always NULL (the NULL literal).
+ */
+export type StaticType = SqlType | "NULL";
+
+/**
  * The type a declared name stands for — `varchar(255)` is TEXT — or null if
  * the name is not a type opfsql knows.
  */
@@ -30,20 +36,6 @@ export function typeFromName(name: string): SqlType | null {
   const parameters = name.indexOf("(");
   const base = parameters === -1 ? name : name.slice(0, parameters);
   return TYPES_BY_NAME.get(asciiUpperCase(base.trim())) ?? null;
-}
-
-/** The type a name stands for, ANY for a name opfsql does not know. */
-export function sqlTypeOf(name: string): SqlType {
-  return typeFromName(name) ?? "ANY";
-}
-
-/**
- * True for the names of INTEGER and REAL types (`BIGINT` included), which
- * compare and convert as numbers.
- */
-export function isNumericType(name: string): boolean {
-  const type = typeFromName(name);
-  return type === "INTEGER" || type === "REAL";
 }
 
 /** Type names are keywords: only ASCII letters change case, as in SQLite. */

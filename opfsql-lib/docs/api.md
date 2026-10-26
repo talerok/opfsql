@@ -344,26 +344,26 @@ the code, the message is for people. Errors cross the worker boundary intact:
 the same class (so `instanceof` works in the page), its code, message and
 fields, and its `cause`.
 
-| Code                    | Class                                       | Fields                                    | Means                                                                             |
-| ----------------------- | ------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
-| `SYNTAX_ERROR`          | `SqlSyntaxError`                            | `offset`, `length`                        | the SQL does not parse                                                            |
-| `SEMANTIC_ERROR`        | `SemanticError`                             |                                           | unknown names, wrong types or clauses                                             |
-| `NOT_SUPPORTED`         | `NotSupportedError`                         | `feature`                                 | valid SQL opfsql does not implement                                               |
-| `CONSTRAINT_VIOLATION`  | `ConstraintError`                           | `constraint`, `table`, `columns`, `index` | a UNIQUE, PRIMARY KEY or NOT NULL constraint                                      |
-| `DATATYPE_MISMATCH`     | `DatatypeMismatchError`                     |                                           | a value does not fit a type                                                       |
-| `INTEGER_OVERFLOW`      | `IntegerOverflowError`                      |                                           | an integer result is not a safe integer                                           |
-| `TOO_LARGE`             | `IndexKeyTooLargeError`, `RowTooLargeError` | `index` or `table`, `size`, `limit`       | an index key larger than a page holds, or a row of thousands of columns           |
-| `BUSY`                  | `BusyError`                                 | `timeout`                                 | the write lock was not granted within `busyTimeout`                               |
-| `SERIALIZATION_FAILURE` | `SerializationError`                        |                                           | another writer committed since this transaction's snapshot                        |
-| `DATABASE_IN_USE`       | `DatabaseInUseError`                        | `database`, `reason`                      | another tab has the database open and this browser allows one, or 64 tabs do      |
-| `ABORTED`               | `AbortError`                                |                                           | the call's signal was aborted, or its connection closed                           |
-| `IO_ERROR`              | `IoError`                                   |                                           | reading or writing the files failed, or a lock request did                        |
-| `STORAGE_FULL`          | `StorageFullError`                          |                                           | the browser refused to store more                                                 |
-| `CORRUPT`               | `CorruptError`                              |                                           | the files are damaged                                                             |
-| `UNSUPPORTED_FORMAT`    | `UnsupportedFormatError`                    | `file`, `version`, `supported`            | the files have another format version                                             |
-| `MISUSE`                | `MisuseError`                               |                                           | the API was used wrongly: a closed connection, several statements                 |
-| `WORKER_ERROR`          | `WorkerError`                               |                                           | the worker crashed or did not start, or a message to or from it could not be read |
-| `INTERNAL`              | `InternalError`                             |                                           | a bug in opfsql: a contract inside it was broken                                  |
+| Code                    | Class                                       | Fields                                    | Means                                                                                                    |
+| ----------------------- | ------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `SYNTAX_ERROR`          | `SqlSyntaxError`                            | `offset`, `length`                        | the SQL does not parse                                                                                   |
+| `SEMANTIC_ERROR`        | `SemanticError`                             |                                           | unknown names, wrong types or clauses                                                                    |
+| `NOT_SUPPORTED`         | `NotSupportedError`                         | `feature`                                 | valid SQL opfsql does not implement                                                                      |
+| `CONSTRAINT_VIOLATION`  | `ConstraintError`                           | `constraint`, `table`, `columns`, `index` | a UNIQUE, PRIMARY KEY or NOT NULL constraint                                                             |
+| `DATATYPE_MISMATCH`     | `DatatypeMismatchError`                     |                                           | a value does not fit a type                                                                              |
+| `INTEGER_OVERFLOW`      | `IntegerOverflowError`                      |                                           | an integer result is not a safe integer                                                                  |
+| `TOO_LARGE`             | `IndexKeyTooLargeError`, `RowTooLargeError` | `index` or `table`, `size`, `limit`       | an index key larger than a page holds, or a row of thousands of columns                                  |
+| `BUSY`                  | `BusyError`                                 | `timeout`                                 | the write lock was not granted within `busyTimeout`                                                      |
+| `SERIALIZATION_FAILURE` | `SerializationError`                        |                                           | another writer committed since this transaction's snapshot                                               |
+| `DATABASE_IN_USE`       | `DatabaseInUseError`                        | `database`, `reason`                      | another tab has the database open and this browser allows one, or 64 tabs do                             |
+| `ABORTED`               | `AbortError`                                |                                           | the call's signal was aborted, or its connection closed                                                  |
+| `IO_ERROR`              | `IoError`                                   |                                           | reading or writing the files failed, or a lock request did                                               |
+| `STORAGE_FULL`          | `StorageFullError`                          |                                           | the browser refused to store more                                                                        |
+| `CORRUPT`               | `CorruptError`                              |                                           | the files are damaged                                                                                    |
+| `UNSUPPORTED_FORMAT`    | `UnsupportedFormatError`                    | `file`, `version`, `supported`            | the files have another format version                                                                    |
+| `MISUSE`                | `MisuseError`                               |                                           | the API was used wrongly: a closed connection, several statements                                        |
+| `WORKER_ERROR`          | `WorkerError`                               |                                           | the worker crashed or did not start, a message from it could not be read, or it could not send its reply |
+| `INTERNAL`              | `InternalError`                             |                                           | a bug in opfsql: a contract inside it was broken                                                         |
 
 Errors of statements run by `execute` also have `statementIndex`. Every
 class is exported from `"opfsql"`. A `ConstraintError`'s `columns` name the

@@ -1,6 +1,6 @@
 import type { Scope, Tuple } from "../../expressions/index.js";
 import type { physical } from "../../sql/plan/index.js";
-import { type Context, fixedScope } from "../context.js";
+import { type Context, startScope } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
 import { compileKeySeek, NO_ROW } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
@@ -10,7 +10,7 @@ export function indexScan(
   plan: physical.IndexScan,
   context: Context,
 ): Operator {
-  const rowsFor = indexScanRows(plan, context, fixedScope(context));
+  const rowsFor = indexScanRows(plan, context, startScope(context));
   return leafOperator(() => rowsFor(NO_ROW), context.query.run);
 }
 

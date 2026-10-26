@@ -1,5 +1,7 @@
+// ---------------------------------------------------------------------------
 // The file operations opfsql needs: the synchronous OPFS access handle
 // (FileSystemSyncAccessHandle) in a worker, a byte array in tests.
+// ---------------------------------------------------------------------------
 
 export interface SyncFile {
   read(buffer: Uint8Array, options: { at: number }): number;
@@ -10,7 +12,7 @@ export interface SyncFile {
   close(): void;
 }
 
-/** A file in memory, for tests and for databases that need no persistence. */
+/** A file in memory, for tests. */
 export class MemoryFile implements SyncFile {
   private bytes = new Uint8Array(4096);
   private size = 0;

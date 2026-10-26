@@ -24,7 +24,7 @@ const users: Table = {
 
 const byNameAge: Index = {
   name: "users_name_age",
-  table: "users",
+  tableName: "users",
   keys: [
     { kind: "column", column: 1 },
     { kind: "column", column: 2 },
@@ -36,7 +36,7 @@ const byNameAge: Index = {
 
 const byLowerName: Index = {
   name: "users_lower_name",
-  table: "users",
+  tableName: "users",
   keys: [{ kind: "expression", sql: "lower(name)", type: "TEXT" }],
   isUnique: false,
   rootPage: 5,

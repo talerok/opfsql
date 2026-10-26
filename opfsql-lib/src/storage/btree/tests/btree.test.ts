@@ -7,7 +7,7 @@ import {
   tableLeafCell,
 } from "../../format/btree-page.js";
 import { encodeKey } from "../../format/key.js";
-import type { BTree } from "../btree.js";
+import type { BTreeReader } from "../btree.js";
 import { BTreeWriter } from "../btree.js";
 import { checkTree } from "../check.js";
 import type { TreeKind } from "../types.js";
@@ -26,7 +26,7 @@ function record(rowid: number, size: number): Uint8Array {
   return new Uint8Array(size).fill(rowid % 251);
 }
 
-function rowids(tree: BTree, from?: number): number[] {
+function rowids(tree: BTreeReader, from?: number): number[] {
   return [...tree.ascending(from)].map(({ page, index }) => page.rowid(index));
 }
 
@@ -67,7 +67,7 @@ function distinctRandom(
   return [...values];
 }
 
-describe("BTree", () => {
+describe("BTreeReader and BTreeWriter", () => {
   it("keeps its root on the same page as it grows", () => {
     const { pages, root, tree } = setup();
     insertAscending(tree, 3000, 20);
@@ -261,7 +261,10 @@ function applyRandomChange(
   }
 }
 
-function expectSameContent(tree: BTree, model: Map<number, number>): void {
+function expectSameContent(
+  tree: BTreeReader,
+  model: Map<number, number>,
+): void {
   const sorted = [...model.keys()].toSorted((a, b) => a - b);
   expect(rowids(tree)).toEqual(sorted);
   for (const rowid of sorted.slice(0, 20)) {

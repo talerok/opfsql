@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CorruptError } from "../../../errors.js";
 import { mulberry32 } from "../../../../test/support/random.js";
 import { randomValue } from "../../../../test/support/values.js";
 import type { Value } from "../../../values/index.js";
@@ -60,6 +61,13 @@ describe("index keys", () => {
     expect(compareBytes(prefix, inside)).toBeLessThan(0);
     expect(compareBytes(inside, prefixEnd(prefix))).toBeLessThan(0);
     expect(compareBytes(prefixEnd(prefix), after)).toBeLessThan(0);
+  });
+
+  it("refuse JSON bytes that do not parse", () => {
+    const key = encodeKey([[1, 2]]);
+    // The canonical text `[1,2]` sits between the tag and the terminator.
+    key[key.indexOf("]".codePointAt(0) ?? 0)] = "!".codePointAt(0) ?? 0;
+    expect(() => decodeKey(key)).toThrow(CorruptError);
   });
 
   it("end with the rowid", () => {

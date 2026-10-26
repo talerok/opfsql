@@ -66,19 +66,26 @@ export type ComparisonType =
 export type ConjunctionType =
   ExpressionType.CONJUNCTION_AND | ExpressionType.CONJUNCTION_OR;
 
-export type OperatorType =
+/** The operators of one operand: NOT, IS [NOT] NULL, and a minus sign. */
+export type UnaryOperatorType =
   | ExpressionType.OPERATOR_NOT
   | ExpressionType.OPERATOR_IS_NULL
   | ExpressionType.OPERATOR_IS_NOT_NULL
-  | ExpressionType.OPERATOR_IN
-  | ExpressionType.OPERATOR_NOT_IN
+  | ExpressionType.OPERATOR_NEGATE;
+
+/** The operators of two operands: arithmetic and `||`. */
+export type BinaryOperatorType =
   | ExpressionType.OPERATOR_ADD
   | ExpressionType.OPERATOR_SUBTRACT
   | ExpressionType.OPERATOR_MULTIPLY
   | ExpressionType.OPERATOR_DIVIDE
   | ExpressionType.OPERATOR_MOD
-  | ExpressionType.OPERATOR_NEGATE
   | ExpressionType.OPERATOR_CONCAT;
+
+export type InListType =
+  ExpressionType.OPERATOR_IN | ExpressionType.OPERATOR_NOT_IN;
+
+export type OperatorType = UnaryOperatorType | BinaryOperatorType | InListType;
 
 /** A step into a JSON value after a column: `.field` or `[index]`. */
 export type JsonPathSegment =
@@ -92,8 +99,7 @@ export type JsonPathSegment =
  */
 export interface ColumnReferenceExpression {
   readonly expressionClass: ExpressionClass.COLUMN_REF;
-  readonly alias: string | null;
-  readonly columnNames: readonly string[];
+  readonly names: readonly string[];
   readonly path: readonly JsonPathSegment[];
 }
 
@@ -114,7 +120,6 @@ export type LiteralValue = Literal["value"];
 
 export type ConstantExpression = {
   readonly expressionClass: ExpressionClass.CONSTANT;
-  readonly alias: string | null;
 } & Literal;
 
 /**
@@ -123,13 +128,11 @@ export type ConstantExpression = {
  */
 export interface ParameterExpression {
   readonly expressionClass: ExpressionClass.PARAMETER;
-  readonly alias: string | null;
   readonly index: number;
 }
 
 export interface ComparisonExpression {
   readonly expressionClass: ExpressionClass.COMPARISON;
-  readonly alias: string | null;
   readonly type: ComparisonType | ExpressionType.COMPARE_LIKE;
   readonly left: ParsedExpression;
   readonly right: ParsedExpression;
@@ -138,26 +141,42 @@ export interface ComparisonExpression {
 /** A chain of ANDs or of ORs, flattened: `a AND b AND c` has three children. */
 export interface ConjunctionExpression {
   readonly expressionClass: ExpressionClass.CONJUNCTION;
-  readonly alias: string | null;
   readonly type: ConjunctionType;
   readonly children: readonly ParsedExpression[];
 }
 
 /**
- * Arithmetic, NOT, IS [NOT] NULL, and [NOT] IN with a list (the left side
- * first). NOT IN and IS NOT NULL are operators of their own because the
- * binder and the optimizer treat them so; every other negation is NOT.
+ * NOT, IS [NOT] NULL, arithmetic, `||` and [NOT] IN with a list, each with
+ * the operands its type has. NOT IN and IS NOT NULL keep shapes of their
+ * own, as NOT EXISTS does, so that printed text — index keys, column names
+ * — reads as written; the binder makes each a NOT around the positive form.
  */
-export interface OperatorExpression {
+export type OperatorExpression =
+  UnaryOperatorExpression | BinaryOperatorExpression | InListExpression;
+
+export interface UnaryOperatorExpression {
   readonly expressionClass: ExpressionClass.OPERATOR;
-  readonly alias: string | null;
-  readonly type: OperatorType;
-  readonly children: readonly ParsedExpression[];
+  readonly type: UnaryOperatorType;
+  readonly operand: ParsedExpression;
+}
+
+export interface BinaryOperatorExpression {
+  readonly expressionClass: ExpressionClass.OPERATOR;
+  readonly type: BinaryOperatorType;
+  readonly left: ParsedExpression;
+  readonly right: ParsedExpression;
+}
+
+/** `needle [NOT] IN (list)`. */
+export interface InListExpression {
+  readonly expressionClass: ExpressionClass.OPERATOR;
+  readonly type: InListType;
+  readonly needle: ParsedExpression;
+  readonly list: readonly ParsedExpression[];
 }
 
 export interface BetweenExpression {
   readonly expressionClass: ExpressionClass.BETWEEN;
-  readonly alias: string | null;
   readonly input: ParsedExpression;
   readonly lower: ParsedExpression;
   readonly upper: ParsedExpression;
@@ -166,7 +185,6 @@ export interface BetweenExpression {
 /** A call; `count(*)` has `isStar` and no children. Names are lower case. */
 export interface FunctionExpression {
   readonly expressionClass: ExpressionClass.FUNCTION;
-  readonly alias: string | null;
   readonly functionName: string;
   readonly children: readonly ParsedExpression[];
   readonly isDistinct: boolean;
@@ -180,7 +198,6 @@ export interface FunctionExpression {
  */
 export type SubqueryExpression = {
   readonly expressionClass: ExpressionClass.SUBQUERY;
-  readonly alias: string | null;
   readonly subquery: SelectStatement;
 } & (
   | { readonly subqueryType: "SCALAR" | "EXISTS" | "NOT_EXISTS" }
@@ -202,7 +219,6 @@ export interface CaseCheck {
  */
 export interface CaseExpression {
   readonly expressionClass: ExpressionClass.CASE;
-  readonly alias: string | null;
   readonly operand: ParsedExpression | null;
   readonly caseChecks: readonly CaseCheck[];
   readonly elseExpression: ParsedExpression | null;
@@ -210,7 +226,6 @@ export interface CaseExpression {
 
 export interface CastExpression {
   readonly expressionClass: ExpressionClass.CAST;
-  readonly alias: string | null;
   readonly child: ParsedExpression;
   /** The type as written, such as `varchar(10)`. */
   readonly castType: string;
@@ -219,7 +234,6 @@ export interface CastExpression {
 /** `*` or `t.*`; the parser builds it only as an item of a select list. */
 export interface StarExpression {
   readonly expressionClass: ExpressionClass.STAR;
-  readonly alias: string | null;
   readonly table: string | null;
 }
 
@@ -286,10 +300,8 @@ export type TableReference =
 // Queries
 // ============================================================================
 
-export enum OrderType {
-  ASCENDING = "ASCENDING",
-  DESCENDING = "DESCENDING",
-}
+/** ASC or DESC, as the plan names the directions too. */
+export type OrderDirection = "ascending" | "descending";
 
 export enum OrderByNullType {
   NULLS_FIRST = "NULLS_FIRST",
@@ -297,7 +309,7 @@ export enum OrderByNullType {
 }
 
 export interface OrderByNode {
-  readonly type: OrderType;
+  readonly direction: OrderDirection;
   /** NULLS FIRST or LAST as written; null when the query does not say. */
   readonly nullOrder: OrderByNullType | null;
   readonly expression: ParsedExpression;
@@ -322,10 +334,16 @@ export interface WithClause {
   readonly ctes: readonly CTENode[];
 }
 
+/** An item of a select list: an expression, and its AS name if it has one. */
+export interface SelectListItem {
+  readonly expression: ParsedExpression;
+  readonly alias: string | null;
+}
+
 export interface SelectNode {
   readonly type: "SELECT_NODE";
   readonly isDistinct: boolean;
-  readonly selectList: readonly ParsedExpression[];
+  readonly selectList: readonly SelectListItem[];
   readonly from: TableReference | null;
   readonly where: ParsedExpression | null;
   readonly groupBy: readonly ParsedExpression[];
@@ -447,7 +465,7 @@ export interface CreateTableStatement {
   readonly ifNotExists: boolean;
   readonly columns: readonly ColumnDefinition[];
   /** The columns of each table-level `PRIMARY KEY (…)`, as written. */
-  readonly primaryKeys: readonly (readonly string[])[];
+  readonly tablePrimaryKeys: readonly (readonly string[])[];
 }
 
 export interface CreateIndexStatement {

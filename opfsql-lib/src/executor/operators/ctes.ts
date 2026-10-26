@@ -9,8 +9,8 @@ import { type Demand, type Operator, pull, WalkOperator } from "../operator.js";
 // read: a CTE nothing reads never runs, and `LIMIT 10` over an endless
 // recursive CTE stops. Its definition is pulled with its own level's outer
 // rows on the stack, so a subquery may read it as lazily as its own query.
-// A recursive CTE runs its step on the rows the run before added, its
-// working set, until a step adds none.
+// A recursive CTE runs its step on the rows the step before added, its
+// working set — the anchor's, for the first step — until a step adds none.
 // ---------------------------------------------------------------------------
 
 /** What a source gives when asked for at most `count` rows: a batch, or null at the end. */
@@ -41,7 +41,7 @@ export class CteRows {
   }
 }
 
-/** Where a CTE belongs: the depth of its query level, and the run. */
+/** Where a CTE belongs: its query level (see levelOf), and the run. */
 export interface CteLevel {
   readonly level: number;
   readonly run: Run;
@@ -49,7 +49,7 @@ export interface CteLevel {
 
 /** What a recursive CTE needs besides its anchor and step. */
 export interface Recursion {
-  /** The rows the run before added, which the step reads. */
+  /** The rows the step before added, which the next step reads. */
   readonly workingSet: CteRows;
   /** UNION ALL keeps duplicates; UNION adds only rows not seen yet. */
   readonly isUnionAll: boolean;
@@ -77,8 +77,8 @@ export function cteScan(rows: CteRows): Operator {
 }
 
 /**
- * The anchor's rows, then each step's on the rows the run before added,
- * until a step adds none: each run's rows pulled as they are wanted.
+ * The anchor's rows, then each step's on the rows the step before added,
+ * until a step adds none: each step's rows pulled as they are wanted.
  */
 export function recursiveCte(
   anchor: Operator,

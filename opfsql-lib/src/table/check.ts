@@ -61,9 +61,9 @@ function recordProblems(pages: PageReader, table: Table): string[] {
   const problems: string[] = [];
   const rows = new TableReader(pages, table.rootPage).scan();
   for (const row of rows) {
-    if (row.length > table.columns.length) {
+    if (row.fieldCount > table.columns.length) {
       problems.push(
-        `table ${table.name}: row ${String(row.rowid)} has ${String(row.length)} values for ${String(table.columns.length)} columns`,
+        `table ${table.name}: row ${String(row.rowid)} has ${String(row.fieldCount)} values for ${String(table.columns.length)} columns`,
       );
     }
   }

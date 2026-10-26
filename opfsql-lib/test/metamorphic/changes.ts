@@ -26,11 +26,22 @@ const CHANGES = 8;
 /** Seeds of changes, apart from those of query cases. */
 const FIRST_CHANGE = 100_000;
 
-type Change =
+/** How a change went on one copy. */
+type ChangeOutcome =
   | { readonly kind: "done"; readonly changes: number }
   | { readonly kind: "failed"; readonly code: string }
   /** Failed with an error no change should: an internal one, say. */
   | { readonly kind: "broken"; readonly reason: string };
+
+/**
+ * How a change went on both copies. They part when it fails at run time on
+ * one only, which plans may do — errors are not results, and each copy's
+ * plan evaluates its own rows — after which their rows may differ.
+ */
+type BothOutcome =
+  | { readonly kind: "agreed" }
+  | { readonly kind: "parted" }
+  | { readonly kind: "differ"; readonly difference: string };
 
 export interface ChangesReport {
   readonly failures: readonly string[];
@@ -52,10 +63,11 @@ export async function runChanges(
     const sql = generateChange(random, spec, table);
     history.push(sql);
     const outcome = await changeBoth(copies, table, sql);
-    hasParted = outcome === "parted";
-    if (hasParted) break;
-    if (outcome === null) continue;
-    failures.push(describeChanges(seed, spec, history, outcome));
+    if (outcome.kind === "agreed") continue;
+    hasParted = outcome.kind === "parted";
+    if (outcome.kind === "differ") {
+      failures.push(describeChanges(seed, spec, history, outcome.difference));
+    }
     break;
   }
   const problems = await integrityProblems(copies);
@@ -65,21 +77,25 @@ export async function runChanges(
   return { failures, hasParted };
 }
 
-/**
- * Makes the change on both copies: null when they agree, "parted" when one
- * failed where the other did not, else what tells them apart.
- */
+/** Makes the change on both copies, and says how they compare after it. */
 async function changeBoth(
   copies: Copies,
   table: TableSpec,
   sql: string,
-): Promise<string | null> {
+): Promise<BothOutcome> {
   const plain = await apply(copies.plain, sql);
   const indexed = await apply(copies.indexed, sql);
-  if (plain.kind === "broken") return `plain copy: ${plain.reason}`;
-  if (indexed.kind === "broken") return `indexed copy: ${indexed.reason}`;
-  if (plain.kind !== indexed.kind) return "parted";
-  return changeDifference(copies, table, [plain, indexed]);
+  const differ = (difference: string): BothOutcome => ({
+    kind: "differ",
+    difference,
+  });
+  if (plain.kind === "broken") return differ(`plain copy: ${plain.reason}`);
+  if (indexed.kind === "broken") {
+    return differ(`indexed copy: ${indexed.reason}`);
+  }
+  if (plain.kind !== indexed.kind) return { kind: "parted" };
+  const difference = await changeDifference(copies, table, [plain, indexed]);
+  return difference === null ? { kind: "agreed" } : differ(difference);
 }
 
 function generateChange(
@@ -143,7 +159,7 @@ function assigned(
   }
 }
 
-async function apply(copy: Copy, sql: string): Promise<Change> {
+async function apply(copy: Copy, sql: string): Promise<ChangeOutcome> {
   try {
     const result = await copy.session.query(sql);
     return { kind: "done", changes: result.changes };
@@ -162,7 +178,7 @@ async function apply(copy: Copy, sql: string): Promise<Change> {
 async function changeDifference(
   copies: Copies,
   table: TableSpec,
-  [plain, indexed]: readonly [Change, Change],
+  [plain, indexed]: readonly [ChangeOutcome, ChangeOutcome],
 ): Promise<string | null> {
   if (
     plain.kind === "done" &&
@@ -174,7 +190,10 @@ async function changeDifference(
   const query = `SELECT * FROM ${table.name}`;
   const plainRows = await copies.plain.session.query(query);
   const indexedRows = await copies.indexed.session.query(query);
-  const difference = multisetDifference(plainRows.rows, indexedRows.rows);
+  const difference = multisetDifference(plainRows.rows, indexedRows.rows, [
+    "the plain copy",
+    "the indexed copy",
+  ]);
   return difference === null ? null : `${table.name} after it: ${difference}`;
 }
 
@@ -197,7 +216,7 @@ function describeChanges(
   difference: string,
 ): string {
   return [
-    `seed ${String(seed)}, changes: the copies disagree`,
+    `seed ${String(seed)}, changes failed`,
     difference,
     ...describeSchema(spec),
     "changes, after the queries:",

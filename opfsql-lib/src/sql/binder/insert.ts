@@ -1,6 +1,8 @@
 import { SemanticError } from "../../errors.js";
+import { commonType } from "../../functions/index.js";
 import type { Index, Table } from "../../schema/index.js";
 import type {
+  InsertSource,
   InsertStatement,
   OnConflictAction,
   OnConflictClause,
@@ -13,23 +15,18 @@ import type {
   OnConflict,
 } from "../plan/index.js";
 import { bindCondition, refuse, type Clause } from "./clause.js";
-import {
-  bindAssignments,
-  columnNamed,
-  insertSource,
-  writableTable,
-  writtenTableReads,
-} from "./dml.js";
-import { firstRepeated } from "./columns.js";
+import { bindAssignments } from "./update-delete.js";
+import { columnNamed, firstRepeated } from "./columns.js";
+import { writableTable, writtenTableReads } from "./tables.js";
 import { clauseOf } from "./expression.js";
-import { relation, Scope, type BindContext } from "./scope.js";
+import { relation, Scope, type BindContext, type BoundQuery } from "./scope.js";
 
 // ---------------------------------------------------------------------------
 // INSERT: the columns its source fills (all, unless listed; each once), the
 // source, and ON CONFLICT. Columns it leaves out get their defaults when the
 // executor writes the row. ON CONFLICT names a unique constraint by its
-// columns; DO UPDATE reads the row in the way as the table's own name and
-// the refused row as `excluded`.
+// columns; DO UPDATE reads the existing, conflicting row under the table's
+// name and the refused row as `excluded`.
 // ---------------------------------------------------------------------------
 
 type Plan = logical.Plan;
@@ -102,12 +99,12 @@ function conflictTarget(
 function namedOnce(
   names: readonly string[],
   table: Table,
-  clause: string,
+  place: string,
 ): number[] {
   const columns = names.map((name) => columnNamed(table, name));
   const repeated = names[firstRepeated(columns)];
   if (repeated !== undefined) {
-    throw new SemanticError(`column ${repeated} is listed twice in ${clause}`);
+    throw new SemanticError(`column ${repeated} is listed twice in ${place}`);
   }
   return columns;
 }
@@ -150,4 +147,49 @@ function conflictAction(
   const assignments = bindAssignments(action.assignments, table, clause);
   const condition = bindOptionalCondition(action.where, clause);
   return { kind: "update", targetIndex, excludedIndex, assignments, condition };
+}
+
+// --- The source --------------------------------------------------------------------
+
+/** INSERT's rows: VALUES, each row as long as the column list, or a query. */
+export function insertSource(
+  source: InsertSource,
+  width: number,
+  context: BindContext,
+): BoundQuery {
+  if (source.type === "VALUES") {
+    for (const row of source.rows) checkWidth(row.length, width);
+    return bindValues(source.rows, width, context);
+  }
+  const query = context.bindQuery(source.query, Scope.root(context));
+  checkWidth(query.columns.length, width);
+  return query;
+}
+
+function checkWidth(count: number, width: number): void {
+  if (count !== width) {
+    throw new SemanticError(
+      `${String(count)} values for ${String(width)} columns`,
+    );
+  }
+}
+
+/** VALUES rows: constants and expressions without columns, typed per column. */
+function bindValues(
+  rows: readonly (readonly ParsedExpression[])[],
+  width: number,
+  context: BindContext,
+): BoundQuery {
+  const clause = clauseOf(Scope.root(context), refuse("VALUES"));
+  const bound = rows.map((row) => row.map((value) => clause.bind(value)));
+  const types = Array.from({ length: width }, (_, position) =>
+    commonType(bound.map((row) => row[position]?.type ?? "NULL")),
+  );
+  const tableIndex = context.newIndex();
+  const plan: Plan = { kind: "values", tableIndex, rows: bound, types };
+  const columns = types.map((type, position) => ({
+    name: `column${String(position + 1)}`,
+    type,
+  }));
+  return { plan, columns };
 }

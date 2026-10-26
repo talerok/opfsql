@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { compoundMembers, MAX_DEPTH, parse } from "../index.js";
+import { MAX_DEPTH } from "../cursor.js";
+import { compoundMembers, parse } from "../index.js";
 import { StatementType } from "../types.js";
 import {
   expression,
   items,
   notSupported,
-  render,
+  renderItem,
   syntaxError,
 } from "./helpers.js";
 
@@ -312,7 +313,7 @@ describe("parameters", () => {
       if (statement.type !== StatementType.SELECT_STATEMENT) return [];
       const { body } = statement;
       if (body.type !== "SELECT_NODE") return [];
-      return body.selectList.map((item) => render(item));
+      return body.selectList.map((item) => renderItem(item));
     });
     expect(selectLists).toEqual([["$1"], ["$1"]]);
   });

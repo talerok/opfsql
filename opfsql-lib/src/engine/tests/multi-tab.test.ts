@@ -244,11 +244,11 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     writeOrphanMark(files.marks);
     const events: string[] = [];
     const gate = Promise.withResolvers<undefined>();
-    const release = Reflect.get<Pager, "releaseAbandonedSnapshots">(
+    const release = Reflect.get<Pager, "clearDeadMarks">(
       Pager.prototype,
-      "releaseAbandonedSnapshots",
+      "clearDeadMarks",
     );
-    vi.spyOn(Pager.prototype, "releaseAbandonedSnapshots").mockImplementation(
+    vi.spyOn(Pager.prototype, "clearDeadMarks").mockImplementation(
       async function released(this: Pager) {
         await gate.promise;
         await release.call(this);

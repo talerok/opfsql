@@ -107,7 +107,7 @@ interface BusyTimer {
 function busyTimer(timeout: number): BusyTimer {
   const controller = new AbortController();
   if (timeout === Infinity) {
-    return { signal: controller.signal, dispose: neverStarted };
+    return { signal: controller.signal, dispose: nothingToDispose };
   }
   const handle = setTimeout(() => {
     controller.abort();
@@ -120,7 +120,7 @@ function busyTimer(timeout: number): BusyTimer {
   };
 }
 
-function neverStarted(): void {
+function nothingToDispose(): void {
   // a timer that never runs has nothing to clear
 }
 
