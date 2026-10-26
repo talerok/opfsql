@@ -198,17 +198,19 @@ export class Catalog {
   // --- Rows ----------------------------------------------------------------------
 
   /**
-   * Rewrites every row without field `column`. Every row is read before any
-   * is rewritten, so none moves under the scan that finds it.
+   * Rewrites every row without field `column`, a batch at a time. A batch is
+   * read in full, its overflow values too, before any of it is rewritten,
+   * and the next one is found past it by a new scan: what is read from a
+   * tree is current only until the tree changes (docs/layers.md).
    */
   private rewriteRows(table: Table, column: number): void {
     const rows = new TableWriter(this.pages, table.rootPage, table.name);
-    const all = [...rows.scan()];
-    for (const row of all) {
-      const fields = Array.from({ length: row.length }, (_, field) =>
-        row.value(field),
-      );
-      rows.replace(row.rowid, fields.toSpliced(column, 1));
+    let batch = rowsFrom(rows);
+    while (batch.length > 0) {
+      for (const { rowid, fields } of batch) {
+        rows.replace(rowid, fields.toSpliced(column, 1));
+      }
+      batch = rowsFrom(rows, (batch.at(-1)?.rowid ?? 0) + 1);
     }
   }
 
@@ -295,4 +297,23 @@ function withKeysAfter(index: IndexShape, dropped: number): IndexShape {
 /** Where a column at `position` is once column `dropped` is gone. */
 function positionAfter(position: number, dropped: number): number {
   return position < dropped ? position : position - 1;
+}
+
+/** Rows read in full, then rewritten, at a time. */
+const REWRITE_BATCH = 256;
+
+/** Up to REWRITE_BATCH rows from rowid `from` on (or the first), every field read. */
+function rowsFrom(
+  rows: TableWriter,
+  from?: number,
+): { rowid: number; fields: Value[] }[] {
+  const batch: { rowid: number; fields: Value[] }[] = [];
+  for (const row of rows.scan(from)) {
+    const fields = Array.from({ length: row.length }, (_, field) =>
+      row.value(field),
+    );
+    batch.push({ rowid: row.rowid, fields });
+    if (batch.length === REWRITE_BATCH) break;
+  }
+  return batch;
 }

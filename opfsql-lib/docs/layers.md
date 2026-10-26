@@ -129,8 +129,6 @@ again is thrown as the cause of a new one.
 Found by an audit of every boundary (2026-10-26). Each item goes when its
 fix lands; the labels stay as they were.
 
-- **G3. No change count per tree.** Open cursors and lazily read overflow values
-  are not checked against writes and rollbacks in the same transaction.
 - **G5. Parameters are not checked.** Typed arrays other than `Uint8Array`,
   `ArrayBuffer`, `Date`, `Map`, BigInt and `undefined` slip through or fail
   as INTERNAL.

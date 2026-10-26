@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MisuseError } from "../../../errors.js";
+import { InternalError, MisuseError } from "../../../errors.js";
+import { BTreeWriter } from "../../btree/btree.js";
+import { tableLeafCell } from "../../format/btree-page.js";
 import { openPager } from "../../open.js";
 import { beginRead, memoryFiles } from "../../tests/pager-support.js";
 import type { Pager } from "../pager.js";
@@ -43,6 +45,22 @@ async function withPages(): Promise<{
 }
 
 describe("savepoints", () => {
+  it("make whatever was read from any tree stale when rolled back to", async () => {
+    const { transaction } = await withPages();
+    const root = BTreeWriter.create(transaction, "table");
+    const tree = new BTreeWriter(transaction, root, "table");
+    tree.insert(1, tableLeafCell(1, new Uint8Array([1])));
+    tree.insert(2, tableLeafCell(2, new Uint8Array([2])));
+    const savepoint = transaction.savepoint();
+    const cursor = tree.ascending();
+    cursor.next();
+
+    transaction.rollbackTo(savepoint);
+
+    expect(() => cursor.next()).toThrow(InternalError);
+    transaction.rollback();
+  });
+
   it("undo writes, allocations, frees and the schema version made since", async () => {
     const { pager, transaction } = await withPages();
     mark(transaction, 3, 1);

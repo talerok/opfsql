@@ -15,6 +15,11 @@ const compileLower: CompileExpression = (sql, table) => {
   };
 };
 
+/** A value too long for its row's page, held in overflow pages. */
+function long(index: number): string {
+  return `${String(index)}:${"x".repeat(5000)}`;
+}
+
 describe("Catalog", () => {
   it("creates a table and its constraint's index, with statements from the model", async () => {
     const { database } = await withUsers();
@@ -91,6 +96,23 @@ describe("Catalog", () => {
     expect(database.entries()[0]?.sql).toBe(
       'CREATE TABLE "users" ("id" INTEGER PRIMARY KEY, "email" TEXT UNIQUE)',
     );
+    expect(database.problems()).toEqual([]);
+  });
+
+  it("drops a column from more rows than one batch, overflow values kept", async () => {
+    // No index on email: its values are too long for a key.
+    const { database, users } = await withUsers(usersShape, []);
+    const rows = Array.from({ length: 600 }, (_, index) => [
+      null,
+      `name ${String(index)}`,
+      long(index),
+    ]);
+    database.insert(users, rows);
+
+    const changed = database.change((catalog) => catalog.dropColumn(users, 1));
+
+    const expected = rows.map((_, index) => [index + 1, long(index)]);
+    expect(database.rows(changed)).toEqual(expected);
     expect(database.problems()).toEqual([]);
   });
 
