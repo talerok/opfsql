@@ -9,8 +9,8 @@ import type {
   ColumnReference,
   JsonAccess,
   JsonPathStep,
-  OutputColumn,
 } from "../plan/index.js";
+import { oneOrNone } from "./one.js";
 import type { Relation, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ export function starColumns(
 /** True if an unqualified `name` finds a column in this query's own FROM. */
 export function hasColumn(scope: Scope, name: string): boolean {
   return scope.relations.some(
-    (item) => visibleColumns(item, name, false).length > 0,
+    (item) => unqualifiedMatches(item, name).length > 0,
   );
 }
 
@@ -81,9 +81,7 @@ export function relationNamed(scope: Scope, name: string): Relation | null {
 
 /** The column `name` of `item`, which an unqualified name can find; null if none. */
 export function unqualifiedColumn(item: Relation, name: string): number | null {
-  const [column = null, other] = visibleColumns(item, name, false);
-  if (other !== undefined) throw ambiguous(name);
-  return column;
+  return oneOrNone(unqualifiedMatches(item, name), () => ambiguous(name));
 }
 
 /** A reference to column `column` of `item`, `depth` levels out. */
@@ -104,58 +102,67 @@ export function columnOf(
 
 // --- One query level -----------------------------------------------------------
 
+/**
+ * `a.b` or `a` in this query's FROM: column b of item a, else column a. A
+ * qualified name whose item lacks the column is an error, not a path.
+ */
 function findIn(scope: Scope, names: readonly string[]): Found | null {
   const [first, second] = names;
   if (first === undefined) return null;
-  const qualifier = second === undefined ? null : relationNamed(scope, first);
-  if (qualifier !== null && second !== undefined) {
-    const column = qualifiedColumn(qualifier, second);
-    if (column !== null) {
-      return { relation: qualifier, column, namesUsed: 2 };
-    }
-  }
-  const found = unqualified(scope, first);
-  if (found !== null) return found;
-  if (qualifier !== null) {
+  const found =
+    qualifiedMatch(scope, first, second) ?? unqualifiedMatch(scope, first);
+  const isQualifiedMiss =
+    found === null &&
+    second !== undefined &&
+    relationNamed(scope, first) !== null;
+  if (isQualifiedMiss) {
     throw new SemanticError(`no such column: ${names.join(".")}`);
   }
-  return null;
+  return found;
 }
 
-function unqualified(scope: Scope, name: string): Found | null {
+/** `t.c`: column c of this query's FROM item t, if it has one. */
+function qualifiedMatch(
+  scope: Scope,
+  qualifier: string,
+  name: string | undefined,
+): Found | null {
+  const item = name === undefined ? null : relationNamed(scope, qualifier);
+  if (item === null || name === undefined) return null;
+  const column = oneOrNone(qualifiedMatches(item, name), () =>
+    ambiguous(`${qualifier}.${name}`),
+  );
+  return column === null ? null : { relation: item, column, namesUsed: 2 };
+}
+
+/** `c`: the column c of exactly one FROM item of this query, if any has one. */
+function unqualifiedMatch(scope: Scope, name: string): Found | null {
   const matches = scope.relations.flatMap((item) =>
-    visibleColumns(item, name, false).map((column) => ({
+    unqualifiedMatches(item, name).map((column) => ({
       relation: item,
       column,
       namesUsed: 1,
     })),
   );
-  const [found = null, other] = matches;
-  if (other !== undefined) throw ambiguous(name);
-  return found;
+  return oneOrNone(matches, () => ambiguous(name));
 }
 
-function qualifiedColumn(item: Relation, name: string): number | null {
-  const [column = null, other] = visibleColumns(item, name, true);
-  if (other !== undefined) throw ambiguous(`${item.name ?? "?"}.${name}`);
-  return column;
-}
-
-/** The columns of `item` named `name` that a name, qualified or not, can see. */
-function visibleColumns(
-  item: Relation,
-  name: string,
-  isQualified: boolean,
-): number[] {
-  if (!isQualified && item.isQualifiedOnly) return [];
+/** The columns of `item` called `name` that a qualified name finds: all. */
+function qualifiedMatches(item: Relation, name: string): number[] {
   const key = nameKey(name);
-  const isFound = (column: OutputColumn, position: number): boolean => {
-    const isVisible = isQualified || !item.hidden.has(position);
-    return isVisible && nameKey(column.name) === key;
-  };
   return item.columns
-    .map((column, position) => (isFound(column, position) ? position : -1))
+    .map((column, position) => (nameKey(column.name) === key ? position : -1))
     .filter((position) => position !== -1);
+}
+
+/**
+ * The columns of `item` called `name` that an unqualified name finds: not
+ * those USING hides, and none of an item only a qualified name reads.
+ */
+function unqualifiedMatches(item: Relation, name: string): number[] {
+  if (item.isQualifiedOnly) return [];
+  const matches = qualifiedMatches(item, name);
+  return matches.filter((position) => !item.hidden.has(position));
 }
 
 function ambiguous(name: string): SemanticError {
