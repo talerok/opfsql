@@ -7,13 +7,13 @@ for web apps that keep their data on the user's device and want to query it
 with SQL.
 
 Try it in the [demo](https://talerok.github.io/opfsql/client/): a SQL
-console on opfsql, built from [`client/`](client).
+console on opfsql, built from [`client/`](https://github.com/talerok/opfsql/tree/main/client).
 
 **Status:** version 0.1.0, before 1.0. The file format is version 5. The
 API, the semantics and the file format may still change before 1.0. opfsql
 cannot open databases written by 0.0.x: opening one fails with
 `UNSUPPORTED_FORMAT`, and nothing converts it. See
-[CHANGELOG.md](CHANGELOG.md).
+[CHANGELOG.md](https://github.com/talerok/opfsql/blob/main/CHANGELOG.md).
 
 ## How it is verified
 
@@ -33,7 +33,7 @@ All of them pass. The commands run from `opfsql-lib`.
   same queries over tables with and without indexes. Of the 122,118 records
   (8,627 statements and 113,491 queries), 121,248 give SQLite's result. The
   other 870 are listed in
-  [`skips.txt`](opfsql-lib/test/sqllogictest/skips.txt) with a reason
+  [`skips.txt`](https://github.com/talerok/opfsql/blob/main/opfsql-lib/test/sqllogictest/skips.txt) with a reason
   each, and the suite fails if one of them starts to pass:
   - 808 use features opfsql does not have: descending index keys (695),
     `x IN table` (72), parentheses around FROM items (29), `INDEXED BY`
@@ -41,7 +41,7 @@ All of them pass. The commands run from `opfsql-lib`.
   - 49 read a column that is neither grouped nor aggregated;
   - 13 hit another documented departure from SQLite.
 
-  [test/sqllogictest/README.md](opfsql-lib/test/sqllogictest/README.md) says
+  [test/sqllogictest/README.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/test/sqllogictest/README.md) says
   which files were chosen and why.
 
 - **opfsql's own tests** cover each layer, from bytes on a page to the
@@ -61,7 +61,7 @@ All of them pass. The commands run from `opfsql-lib`.
 
 ## Supported
 
-[docs/semantics.md](opfsql-lib/docs/semantics.md) defines what each of
+[docs/semantics.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/semantics.md) defines what each of
 these does.
 
 | Area         | Supported                                                                                                                                                                                                                                                                                                                                       |
@@ -88,7 +88,7 @@ these does.
 Each of these fails with `NOT_SUPPORTED` before anything runs, unless the
 list says otherwise. Nothing is parsed and then ignored. docs/semantics.md
 has the list under
-[Not supported](opfsql-lib/docs/semantics.md#not-supported).
+[Not supported](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/semantics.md#not-supported).
 
 - **Foreign keys.** A `CREATE TABLE` with `REFERENCES` or `FOREIGN KEY`
   fails, and the table is not created. Nothing is enforced, because nothing
@@ -124,7 +124,7 @@ has the list under
 
 opfsql follows SQLite with STRICT tables, except where JavaScript makes
 another choice clearly better. The
-[Departures table](opfsql-lib/docs/semantics.md#departures-from-sqlite) in
+[Departures table](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/semantics.md#departures-from-sqlite) in
 docs/semantics.md lists every difference. These are the ones that most
 often surprise people who know SQLite:
 
@@ -168,7 +168,7 @@ consistent. It uses a WAL, a write lock through Web Locks, and a small
 third file, `name.opfsql-shm`. In that file each tab records the oldest
 snapshot it is still reading, so another tab's checkpoint does not
 overwrite pages that the snapshot needs.
-[docs/concurrency.md](opfsql-lib/docs/concurrency.md) has the details.
+[docs/concurrency.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/concurrency.md) has the details.
 
 This is a deliberate choice. opfsql does not send other tabs' queries
 through a "leader" tab: then every query would cross tabs as a message, and
@@ -208,7 +208,7 @@ about 89 kB gzipped in all. The page never loads the engine.
 ## Performance
 
 These figures come from the scenarios in
-[bench/scenarios.ts](opfsql-lib/bench/scenarios.ts), each the median of 15
+[bench/scenarios.ts](https://github.com/talerok/opfsql/blob/main/opfsql-lib/bench/scenarios.ts), each the median of 15
 runs after 5 warmup runs. They were taken on an Apple M4 (10 cores) on
 2026-10-26, while other work ran on the machine (1-minute load average
 13–25). In those conditions, the median of one scenario moved by up to 2×
@@ -219,7 +219,7 @@ magnitude.
   (`npm run bench`). It measures the CPU path: planning, executing and
   B-tree work.
 - **Chromium** runs it in a worker on real OPFS, in a persistent profile
-  (`npm run bench:browser`). [bench/README.md](opfsql-lib/bench/README.md)
+  (`npm run bench:browser`). [bench/README.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/bench/README.md)
   has the full table.
 
 | Operation                                      | Node, memory files | Chromium, OPFS |
@@ -302,7 +302,7 @@ await db.close();
 ```
 
 Each of the database's calls is described in
-[docs/api.md](opfsql-lib/docs/api.md):
+[docs/api.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/api.md):
 
 | Call                  | Does                                                    |
 | --------------------- | ------------------------------------------------------- |
@@ -322,19 +322,19 @@ already runs in a worker can use the engine without messages:
 
 ## Documentation
 
-- [docs/api.md](opfsql-lib/docs/api.md): the API, transactions, errors and
+- [docs/api.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/api.md): the API, transactions, errors and
   every export.
-- [docs/semantics.md](opfsql-lib/docs/semantics.md): values, types,
+- [docs/semantics.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/semantics.md): values, types,
   comparisons, functions, what is not supported, and the departures from
   SQLite.
-- [docs/concurrency.md](opfsql-lib/docs/concurrency.md): how tabs share a
+- [docs/concurrency.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/concurrency.md): how tabs share a
   database.
-- [docs/layers.md](opfsql-lib/docs/layers.md): what each layer of the code
+- [docs/layers.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/layers.md): what each layer of the code
   guarantees the one above it.
-- [docs/architecture.md](opfsql-lib/docs/architecture.md) and
-  [docs/file-format.md](opfsql-lib/docs/file-format.md): the code and the
+- [docs/architecture.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/architecture.md) and
+  [docs/file-format.md](https://github.com/talerok/opfsql/blob/main/opfsql-lib/docs/file-format.md): the code and the
   files.
-- [CHANGELOG.md](CHANGELOG.md): what changed since 0.0.2.
+- [CHANGELOG.md](https://github.com/talerok/opfsql/blob/main/CHANGELOG.md): what changed since 0.0.2.
 
 ## License
 
