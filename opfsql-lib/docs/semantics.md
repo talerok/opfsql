@@ -167,6 +167,7 @@ parameter, a JSON value) must be a boolean when it runs. NULL is "unknown":
   column; anything else is an expression. After DISTINCT or a compound
   operator (UNION, INTERSECT, EXCEPT), ORDER BY can only name result columns.
   GROUP BY takes positions too, and an alias that no column of the FROM has.
+  An alias names one item; two items with the same alias make it ambiguous.
 - LIMIT and OFFSET are integer constants or parameters. A negative LIMIT
   means no limit, and a negative OFFSET skips none, as in SQLite.
 

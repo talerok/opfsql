@@ -8,6 +8,7 @@ import {
   type ParsedExpression,
 } from "../parser/index.js";
 import type { logical } from "../plan/index.js";
+import { oneOrNone } from "./one.js";
 import { isSameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
@@ -150,27 +151,19 @@ function outputAliased(
 ): number | null {
   const name = bareName(expression);
   if (name === null) return null;
-  const isSame = (a: number, b: number): boolean => {
-    const left = outputs[a]?.expression;
-    const right = outputs[b]?.expression;
-    return (
-      left !== undefined && right !== undefined && isSameExpression(left, right)
-    );
-  };
   const aliases = outputs.map((output) => output.alias);
-  return aliasPosition("ORDER BY", name, aliases, isSame);
+  return aliasPosition("ORDER BY", name, aliases);
 }
 
 /**
- * The position of the item `name` is the alias of, in GROUP BY or ORDER BY;
- * null if none. Two items of that alias must be the same, else the name is
- * ambiguous.
+ * The position of the one item whose alias is `name`, in GROUP BY or ORDER
+ * BY; null if no item has it. An alias names one item: two items with it
+ * make the name ambiguous, whatever they compute.
  */
 export function aliasPosition(
   clause: string,
   name: string,
   aliases: readonly (string | null)[],
-  isSame: (a: number, b: number) => boolean,
 ): number | null {
   const key = nameKey(name);
   const positions = aliases
@@ -178,10 +171,8 @@ export function aliasPosition(
       alias !== null && nameKey(alias) === key ? position : -1,
     )
     .filter((position) => position !== -1);
-  const [first] = positions;
-  if (first === undefined) return null;
-  if (positions.some((position) => !isSame(first, position))) {
-    throw new SemanticError(`${clause} ${name} is ambiguous`);
-  }
-  return first;
+  return oneOrNone(
+    positions,
+    () => new SemanticError(`${clause} ${name} is ambiguous`),
+  );
 }

@@ -39,10 +39,48 @@ describe("ORDER BY", () => {
     expect(
       semanticError("SELECT name AS x, age AS x FROM users ORDER BY x"),
     ).toBe("ORDER BY x is ambiguous");
-    expect(plan("SELECT name AS x, name AS x FROM users ORDER BY x")).toBe(
+    expect(
+      semanticError("SELECT name AS x, name AS x FROM users ORDER BY x"),
+    ).toBe("ORDER BY x is ambiguous");
+  });
+
+  it("reads the alias of a subquery, correlated or not, as that output", () => {
+    expect(
+      plan(
+        "SELECT u.name, (SELECT count(*) FROM orders o) AS n FROM users u ORDER BY n",
+      ),
+    ).toBe(
       lines(
-        "order name#1.0 ASC NULLS FIRST",
-        "  project #1 (name#0.1, name#0.1)",
+        "order column2#5.1 ASC NULLS FIRST",
+        "  project #5 (name#0.1, subquery(1))",
+        "    subquery(1): project #4 (count(*)#3.0)",
+        "      aggregate #2 () #3 (count(*))",
+        "        get #1 orders (id, user_id, total, status)",
+        "    get #0 users (id, name, age, email, data)",
+      ),
+    );
+    expect(
+      plan(
+        "SELECT u.name, (SELECT count(*) FROM orders o WHERE o.user_id = u.id) AS n FROM users u ORDER BY n DESC",
+      ),
+    ).toBe(
+      lines(
+        "order column2#5.1 DESC NULLS LAST",
+        "  project #5 (name#0.1, subquery(1))",
+        "    subquery(1, correlated): project #4 (count(*)#3.0)",
+        "      aggregate #2 () #3 (count(*))",
+        "        filter (user_id#1.1 = id#0.0^1)",
+        "          get #1 orders (id, user_id, total, status)",
+        "    get #0 users (id, name, age, email, data)",
+      ),
+    );
+  });
+
+  it("sorts by a volatile output's column, computed once per row", () => {
+    expect(plan("SELECT name, random() AS r FROM users ORDER BY r")).toBe(
+      lines(
+        "order column2#1.1 ASC NULLS FIRST",
+        "  project #1 (name#0.1, random())",
         "    get #0 users (id, name, age, email, data)",
       ),
     );
