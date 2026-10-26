@@ -59,7 +59,10 @@ export function checkNewName(
   const existing = kindNamed(name, schema);
   if (existing === null) return;
   if (isIfNotExists && existing === kind) return;
-  throw new SemanticError(`there is already a ${existing} named ${name}`);
+  const article = existing === "index" ? "an" : "a";
+  throw new SemanticError(
+    `there is already ${article} ${existing} named ${name}`,
+  );
 }
 
 function kindNamed(name: string, schema: Schema): "table" | "index" | null {
