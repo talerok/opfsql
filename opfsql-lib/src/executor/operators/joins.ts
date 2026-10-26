@@ -54,7 +54,7 @@ export function hashJoin(
     const table = hashTableOf(right, rightKey);
     for (const row of rowsOf(left)) {
       const key = leftKey(row);
-      const candidates = key === null ? NO_ROWS : table.get(key);
+      const candidates = key === null ? undefined : table.get(key);
       yield* pairsOf(row, candidates ?? NO_ROWS, pairing);
     }
   }

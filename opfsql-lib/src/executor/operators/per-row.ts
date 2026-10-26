@@ -1,5 +1,6 @@
 import { compileExpression, type Tuple } from "../../expressions/index.js";
 import { physical } from "../../sql/plan/index.js";
+import { firstSighting } from "../../values/index.js";
 import { compileConditions, type Context, scopeOf } from "../context.js";
 import {
   nextNonEmpty,
@@ -7,7 +8,6 @@ import {
   rowsOf,
   WalkOperator,
 } from "../operator.js";
-import { firstSighting } from "../../values/index.js";
 
 // Operators that decide or compute row by row: filter, project and
 // hash-distinct.
