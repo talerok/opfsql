@@ -137,3 +137,33 @@ query I nosort
 SELECT id FROM t WHERE name = 'b2'
 ----
 30
+
+# --- Rowids at the ends of the safe range keep their sign and value ---
+
+statement ok
+CREATE TABLE far (id INTEGER PRIMARY KEY, v INTEGER)
+
+statement ok
+INSERT INTO far VALUES (-9007199254740991, 1), (-4503599627370497, 2), (5, 3), (9007199254740991, 4)
+
+query II nosort
+SELECT * FROM far
+----
+-9007199254740991|1
+-4503599627370497|2
+5|3
+9007199254740991|4
+
+query I nosort
+SELECT v FROM far WHERE id = -9007199254740991
+----
+1
+
+statement ok
+UPDATE far SET id = -9007199254740990 WHERE v = 2
+
+query II nosort
+SELECT * FROM far WHERE id < 0
+----
+-9007199254740991|1
+-9007199254740990|2

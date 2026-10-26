@@ -30,9 +30,9 @@ UTF-8 without changing it.
 Names of tables, columns and indexes are kept as written and compared
 without regard to the case of ASCII letters, as in SQLite: `Users` and
 `USERS` are the same table, while `Été` and `été` are two. Tables and indexes
-share one namespace. Names starting with `opfsql_` are reserved: the
-tables opfsql keeps under them can be read, never written, created or dropped
-by a statement.
+share one namespace. Names starting with `opfsql_` are reserved for opfsql:
+no statement creates a table or an index under one, or writes or drops one
+of opfsql's own tables.
 
 ## Column types
 
@@ -165,9 +165,14 @@ parameter, a JSON value) must be a boolean when it runs. NULL is "unknown":
 
 `+`, `-`, `*`, `/`, `%` return NULL when either operand is NULL.
 
-- INTEGER `/` INTEGER truncates toward zero (`7 / 2` is `3`); with a REAL
-  operand, division is exact. Operands without a static type (ANY, JSON)
-  divide as integers when both hold integral values.
+- The result is INTEGER for two INTEGERs, and REAL when an operand is REAL,
+  whatever the other one is: an ANY or JSON operand beside it must still
+  hold a number when it runs. Otherwise an operand without a static type
+  (ANY, JSON, a parameter) leaves the result without one too.
+- INTEGER `/` INTEGER truncates toward zero (`7 / 2` is `3`); a REAL result
+  divides exactly, so `(r + $1) / 2` is `1.5` for a REAL `r` holding 1 and
+  `$1` = 2. Without a static type, the values decide: two integral values
+  divide as integers.
 - `%` takes the sign of the dividend; as in SQLite, REAL operands are
   truncated to integers first (`5.5 % 2` is `1`).
 - Division or remainder by zero is NULL.
@@ -240,8 +245,9 @@ points) in text and bytes in BLOBs.
 The result of `coalesce`, `ifnull`, `iif` and CASE, and each column of a
 UNION, INTERSECT, EXCEPT or VALUES, has the type its values share; INTEGER
 with REAL is REAL; any other mix has no static type, and arithmetic on it
-decides by the value. So `CASE WHEN x THEN 1 ELSE 'a' END` is allowed, and
-`SELECT 1 UNION SELECT '1'` gives two rows.
+decides by the value, unless the other operand is REAL (see
+[Arithmetic](#arithmetic)). So `CASE WHEN x THEN 1 ELSE 'a' END` is
+allowed, and `SELECT 1 UNION SELECT '1'` gives two rows.
 
 A JSON argument is a JSON value when its static type is JSON, and JSON
 text to parse when it is TEXT; malformed text fails with
@@ -314,7 +320,7 @@ anything runs. Among it:
 | BOOLEAN is its own type; `true` ≠ `1`                                                | booleans are the integers 1 and 0        | JavaScript has booleans, and callers get back what they stored                                |
 | JSON is a column type holding parsed values                                          | JSON is text handled by functions        | JavaScript works with objects                                                                 |
 | INTEGER is limited to safe integers                                                  | 64-bit integers                          | a JavaScript number cannot hold more without losing precision                                 |
-| `7.0 / 2` with untyped operands is `3`                                               | `3.5`                                    | JavaScript cannot tell `7.0` from `7`; typed REAL operands divide exactly                     |
+| `7.0 / 2` with untyped operands is `3`                                               | `3.5`                                    | JavaScript cannot tell `7.0` from `7`; a REAL operand makes division exact                    |
 | numbers print as JavaScript prints them (`1`, not `1.0`)                             | `%!.15g`                                 | round-trips through JavaScript exactly                                                        |
 | invalid casts fail                                                                   | invalid casts give 0 or a prefix         | a guessed value hides a bug                                                                   |
 | WHERE requires a BOOLEAN                                                             | any value, by truthiness                 | as in PostgreSQL; catches mistakes at bind time                                               |

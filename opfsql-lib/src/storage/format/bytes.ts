@@ -71,14 +71,39 @@ export function skipVarint(bytes: Uint8Array, offset: number): number {
   throw new CorruptError(`unterminated varint at byte ${String(offset)}`);
 }
 
-/** Maps a signed integer to an unsigned one, small magnitudes to small values. */
-export function zigzag(value: number): number {
-  return value >= 0 ? value * 2 : -value * 2 - 1;
+// A zigzag varint (docs/file-format.md) writes `2x` for x ≥ 0 and `−2x − 1`
+// otherwise. For a safe integer that reaches 2^54 − 1, past the integers a
+// double holds: −2x − 1 is odd, and rounds. So the value is never formed:
+// its first byte, which holds the sign in its low bit, is worked out from
+// the magnitude apart from the varint of everything above it.
+
+/** The zigzag value of `value` as its low seven bits and the integer above them. */
+function zigzagGroups(value: number): { low: number; high: number } {
+  const isNegative = value < 0;
+  const magnitude = Math.abs(value);
+  // 2·magnitude − sign = 128·quotient + (2·remainder − sign).
+  const quotient = Math.floor(magnitude / 64);
+  const low = 2 * (magnitude % 64) - (isNegative ? 1 : 0);
+  return low < 0
+    ? { low: low + 0x80, high: quotient - 1 }
+    : { low, high: quotient };
 }
 
-export function unzigzag(value: number): number {
-  const half = Math.floor(value / 2);
-  return value % 2 === 0 ? half : -half - 1;
+/** Bytes the zigzag varint of `value` takes. */
+export function zigzagVarintSize(value: number): number {
+  const { high } = zigzagGroups(value);
+  return high === 0 ? 1 : 1 + varintSize(high);
+}
+
+/** Reads the zigzag varint at `offset`: a safe integer, whatever its sign. */
+export function readZigzagVarint(bytes: Uint8Array, offset: number): number {
+  const first = bytes[offset] ?? 0;
+  const low = first & 0x7f;
+  const high = first < 0x80 ? 0 : readVarint(bytes, offset + 1);
+  const sign = low & 1;
+  // 128·high + low = 2·magnitude − sign.
+  const magnitude = high * 64 + (low + sign) / 2;
+  return sign === 1 ? -magnitude : magnitude;
 }
 
 /** Appends bytes to a buffer that grows as needed. */
@@ -120,6 +145,16 @@ export class ByteWriter {
       rest = Math.floor(rest / 0x80);
     }
     this.buffer[this.size++] = rest;
+  }
+
+  zigzagVarint(value: number): void {
+    const { low, high } = zigzagGroups(value);
+    if (high === 0) {
+      this.byte(low);
+      return;
+    }
+    this.byte(low | 0x80);
+    this.varint(high);
   }
 
   uint32(value: number): void {

@@ -47,9 +47,11 @@ export function checkComparable(left: StaticType, right: StaticType): void {
 }
 
 /**
- * `left <op> right` for + - * / %: INTEGER for two INTEGERs, REAL with a
- * REAL, ANY when an operand's type is known only at run time (the values
- * decide then); a NULL operand leaves the other's type.
+ * `left <op> right` for + - * / %: REAL with a REAL operand, whatever the
+ * other — its result is REAL or NULL, as in SQLite, and an ANY or JSON
+ * operand is still checked per row to be a number. Otherwise INTEGER for
+ * two INTEGERs, ANY when an operand's type is known only at run time (the
+ * values decide then); a NULL operand leaves the other's type.
  */
 export function arithmeticType(
   left: StaticType,
@@ -57,13 +59,14 @@ export function arithmeticType(
 ): StaticType {
   checkNumeric(left);
   checkNumeric(right);
+  if (left === "REAL" || right === "REAL") return "REAL";
   const isDynamic = [left, right].some(
     (type) => type === "ANY" || type === "JSON",
   );
   if (isDynamic) return "ANY";
   if (left === "NULL") return right;
-  if (right === "NULL") return left;
-  return left === "INTEGER" && right === "INTEGER" ? "INTEGER" : "REAL";
+  // Two INTEGERs, or an INTEGER and NULL.
+  return left;
 }
 
 /** `-x`: a number keeps its type; an untyped value is decided per row. */

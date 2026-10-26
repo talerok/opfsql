@@ -31,7 +31,8 @@
     "src/worker",
     "test/setup",
     "test/slt",
-    "test/support"
+    "test/support",
+    "test/metamorphic"
   ],
   "exclude": []
 }

@@ -1015,6 +1015,20 @@ describe("parameters: count and conversion", () => {
     ).rejects.toMatchObject({ code: "MISUSE" });
   });
 
+  it("computes arithmetic with a REAL operand as REAL, a parameter beside it or a constant", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE n (r REAL, i INTEGER)");
+    await session.execute("INSERT INTO n VALUES (1, 2), (2.75, 100)");
+    const result = await session.query(
+      "SELECT (r + $1) / i, (r * $2) / i, typeof(r + $1), (r % $3) / i, (r % 1000) / i FROM n",
+      [2, 1, 1000],
+    );
+    expect(result.rows).toEqual([
+      [1.5, 0.5, "real", 0.5, 0.5],
+      [0.0475, 0.0275, "real", 0.02, 0.02],
+    ]);
+  });
+
   it("converts a text parameter compared with a number column", async () => {
     await parameterTable();
     const byScan = await session.query("SELECT id FROM t WHERE m = $1", ["10"]);

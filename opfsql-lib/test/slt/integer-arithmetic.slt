@@ -54,6 +54,22 @@ SELECT r + i FROM n WHERE id = 2
 ----
 9007199254740994
 
+# A REAL operand makes the result REAL beside an ANY one too, so it
+# divides exactly; an INTEGER beside an ANY is decided by the values
+statement ok
+CREATE TABLE m (r REAL, i INTEGER, a ANY)
+
+statement ok
+INSERT INTO m VALUES (1, 2, 2), (1, 2, 'x')
+
+query RTI nosort
+SELECT (r + a) / i, typeof(r + a), (i + a) / i FROM m WHERE typeof(a) = 'integer'
+----
+1.5|real|2
+
+statement error
+SELECT r + a FROM m
+
 query T nosort
 SELECT 'a' || 1 || 1.5 || true || NULL
 ----
