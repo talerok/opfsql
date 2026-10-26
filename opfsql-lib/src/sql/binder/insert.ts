@@ -18,6 +18,7 @@ import {
   insertSource,
   writableTable,
 } from "./dml.js";
+import { firstRepeated } from "./column-names.js";
 import { clauseOf } from "./expression.js";
 import { relation, Scope, type BindContext } from "./scope.js";
 
@@ -54,14 +55,7 @@ export function bindInsert(
 
 function targetColumns(names: readonly string[], table: Table): number[] {
   if (names.length === 0) return table.columns.map((_, position) => position);
-  const columns = names.map((name) => columnNamed(table, name));
-  const repeated = names.find(
-    (_, position) => columns.indexOf(columns[position] ?? -1) !== position,
-  );
-  if (repeated !== undefined) {
-    throw new SemanticError(`column ${repeated} is listed twice in INSERT`);
-  }
-  return columns;
+  return namedOnce(names, table, "INSERT");
 }
 
 function bindOnConflict(
@@ -82,14 +76,16 @@ function conflictTarget(
   table: Table,
   context: BindContext,
 ): Index | "rowid" {
-  const columns = new Set(names.map((name) => columnNamed(table, name)));
+  const columns = namedOnce(names, table, "ON CONFLICT");
   const { rowidColumn } = table;
   const isRowid =
-    columns.size === 1 && rowidColumn !== null && columns.has(rowidColumn);
+    rowidColumn !== null &&
+    columns.length === 1 &&
+    columns.includes(rowidColumn);
   if (isRowid) return "rowid";
   const index = context.schema
     .indexesOf(table.name)
-    .find((candidate) => isOnColumns(candidate, columns, names.length));
+    .find((candidate) => isOnColumns(candidate, columns));
   if (index === undefined) {
     throw new SemanticError(
       "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint",
@@ -98,20 +94,29 @@ function conflictTarget(
   return index;
 }
 
-/** A unique index over exactly `columns`, each once, in any order. */
-function isOnColumns(
-  index: Index,
-  columns: ReadonlySet<number>,
-  count: number,
-): boolean {
+/** The positions of the columns `names` list, each listed once. */
+function namedOnce(
+  names: readonly string[],
+  table: Table,
+  clause: string,
+): number[] {
+  const columns = names.map((name) => columnNamed(table, name));
+  const repeated = names[firstRepeated(columns)];
+  if (repeated !== undefined) {
+    throw new SemanticError(`column ${repeated} is listed twice in ${clause}`);
+  }
+  return columns;
+}
+
+/** A unique index over exactly `columns`, in any order. */
+function isOnColumns(index: Index, columns: readonly number[]): boolean {
   const keyColumns = index.keys
     .filter((key) => key.kind === "column")
     .map((key) => key.column);
   const isSameSet =
     keyColumns.length === index.keys.length &&
-    keyColumns.length === count &&
-    columns.size === count &&
-    keyColumns.every((column) => columns.has(column));
+    keyColumns.length === columns.length &&
+    keyColumns.every((column) => columns.includes(column));
   return index.isUnique && isSameSet;
 }
 

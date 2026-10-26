@@ -139,6 +139,19 @@ describe("ON CONFLICT", () => {
     ).toBe(message);
   });
 
+  it("refuses a column the target lists twice, the rowid too", () => {
+    expect(
+      semanticError(
+        "INSERT INTO users (id) VALUES (1) ON CONFLICT (id, ID) DO NOTHING",
+      ),
+    ).toBe("column ID is listed twice in ON CONFLICT");
+    expect(
+      semanticError(
+        "INSERT INTO users (id) VALUES (1) ON CONFLICT (email, email) DO NOTHING",
+      ),
+    ).toBe("column email is listed twice in ON CONFLICT");
+  });
+
   it("binds DO UPDATE over the row in the way and the refused row, `excluded`", () => {
     const bound = insert(
       "INSERT INTO items VALUES (1, 'a', 2) ON CONFLICT (order_id, sku) DO UPDATE SET qty = qty + excluded.qty WHERE items.qty < 10",
