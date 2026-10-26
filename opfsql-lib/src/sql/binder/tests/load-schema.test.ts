@@ -40,16 +40,16 @@ interface Stored {
   readonly constraints: readonly Index[];
 }
 
-let nextPage = 10;
-
+/** A table on page `page`, its constraint indexes on the pages after it. */
 function stored(
+  page: number,
   shape: TableShape,
   constraints: readonly IndexShape[] = [],
 ): Stored {
-  const table = { ...shape, rootPage: nextPage++ };
-  const indexes = constraints.map((index) => ({
+  const table = { ...shape, rootPage: page };
+  const indexes = constraints.map((index, position) => ({
     ...index,
-    rootPage: nextPage++,
+    rootPage: page + position + 1,
   }));
   return { table, constraints: indexes };
 }
@@ -105,6 +105,7 @@ function rowsOf(
 }
 
 const everyDefault = stored(
+  10,
   {
     name: "defaults",
     columns: [
@@ -140,6 +141,7 @@ const everyDefault = stored(
 );
 
 const compositeKey = stored(
+  20,
   {
     name: "lines",
     columns: [
@@ -160,6 +162,7 @@ const compositeKey = stored(
 );
 
 const keyedByText = stored(
+  30,
   {
     name: "Odd Names",
     columns: [
@@ -179,6 +182,7 @@ const keyedByText = stored(
 );
 
 const rowidUnique = stored(
+  40,
   {
     name: "plain",
     columns: [
@@ -192,7 +196,7 @@ const rowidUnique = stored(
   [constraint("plain", 1, "unique", [0])],
 );
 
-const noKey = stored({
+const noKey = stored(50, {
   name: "loose",
   columns: [column("a", "ANY"), column("b", "BOOLEAN")],
   rowidColumn: null,
@@ -200,7 +204,7 @@ const noKey = stored({
 });
 
 /** opfsql's own counters: a reserved name the loader accepts. */
-const sequence = stored({
+const sequence = stored(60, {
   name: "opfsql_sequence",
   columns: [column("name", "TEXT"), column("seq", "INTEGER")],
   rowidColumn: null,
@@ -223,10 +227,10 @@ function statementIndexes(schema: Schema): Index[] {
     "CREATE UNIQUE INDEX by_json ON plain (data.city, data.tags[0], json_extract(data, '$.a'))",
     `CREATE INDEX odd ON "Odd Names" ("Été" / 2.0, -"say ""hi""", CASE WHEN "select" IS NULL THEN 'none' ELSE 'some' END)`,
     "CREATE INDEX casts ON loose (CAST(a AS INTEGER), b, NOT b, a || 'x', coalesce(a, 1))",
-  ].map((sql) => {
+  ].map((sql, position) => {
     const bound = bindStatement(only(sql), schema);
     if (bound.kind !== "create-index") throw new TypeError(sql);
-    return { ...bound.index, rootPage: nextPage++ };
+    return { ...bound.index, rootPage: 100 + position };
   });
 }
 
@@ -249,7 +253,7 @@ describe("loadSchema", () => {
   });
 
   it("gives back a JSON column's string default", () => {
-    const text = stored({
+    const text = stored(10, {
       name: "texts",
       columns: [column("j", "JSON", { defaultValue: "it's text" })],
       rowidColumn: null,
@@ -265,10 +269,10 @@ describe("loadSchema", () => {
       "CREATE TABLE c (k TEXT UNIQUE PRIMARY KEY, j JSON DEFAULT '[1, {\"z\": 2}]', f REAL DEFAULT 1)",
       "CREATE TABLE d (u INTEGER UNIQUE, v INTEGER, PRIMARY KEY (v))",
     ];
-    const bound = sql.map((statement) => {
+    const bound = sql.map((statement, position) => {
       const result = bindStatement(only(statement), Schema.empty);
       if (result.kind !== "create-table") throw new TypeError(statement);
-      return stored(result.table, result.constraints);
+      return stored(10 * (position + 1), result.table, result.constraints);
     });
     const loaded = loadSchema(1, rowsOf(bound, []));
     expect(loaded.tables).toEqual(bound.map((item) => item.table));
@@ -325,6 +329,7 @@ describe("loadSchema", () => {
       "the schema of index i does not load: its table gone has no row",
     );
     const keyed = stored(
+      10,
       { ...table, name: "keyed", columns: [column("a", "TEXT")] },
       [constraint("keyed", 1, "unique", [0])],
     );

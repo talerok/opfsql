@@ -69,13 +69,43 @@ export function plan(sql: string, schema: Schema = shop): string {
 }
 
 /** A query bound. */
-export function query(
+export function query(sql: string, schema: Schema = shop): BoundOf<"query"> {
+  return boundAs(sql, "query", schema);
+}
+
+type Bound = BoundStatement<logical.Plan>;
+
+/** The bound statement of one kind. */
+export type BoundOf<Kind extends Bound["kind"]> = Extract<
+  Bound,
+  { kind: Kind }
+>;
+
+/** `sql` bound, which must be a statement of `kind`. */
+export function boundAs<Kind extends Bound["kind"]>(
   sql: string,
+  kind: Kind,
   schema: Schema = shop,
-): Extract<BoundStatement<logical.Plan>, { kind: "query" }> {
+): BoundOf<Kind> {
   const bound = bind(sql, schema);
-  if (bound.kind !== "query") throw new TypeError(`not a query: ${sql}`);
+  if (!isOfKind(bound, kind)) {
+    throw new TypeError(`expected ${kind} from ${sql}, got ${bound.kind}`);
+  }
   return bound;
+}
+
+function isOfKind<Kind extends Bound["kind"]>(
+  bound: Bound,
+  kind: Kind,
+): bound is BoundOf<Kind> {
+  return bound.kind === kind;
+}
+
+/** The subqueries of a query's plan, in print order, and which are correlated. */
+export function subqueries(sql: string, schema: Schema = shop): string[] {
+  return [
+    ...plan(sql, schema).matchAll(/subquery\(\d+(?:, correlated)?\)(?=:)/g),
+  ].map((match) => match[0]);
 }
 
 /** Lines of a printed plan, written as an array so a test can indent them. */

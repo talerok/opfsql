@@ -1,26 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { DatatypeMismatchError } from "../../../errors.js";
-import type { logical, Statement } from "../../plan/index.js";
 import {
   bind,
+  boundAs,
   notSupported,
   schemaOf,
   semanticError,
   thrown,
+  type BoundOf,
 } from "./helpers.js";
 
-type Bound = Statement<logical.Plan>;
-
-function createTable(sql: string): Extract<Bound, { kind: "create-table" }> {
-  const bound = bind(sql);
-  if (bound.kind !== "create-table") throw new TypeError(sql);
-  return bound;
+function createTable(sql: string): BoundOf<"create-table"> {
+  return boundAs(sql, "create-table");
 }
 
-function createIndex(sql: string): Extract<Bound, { kind: "create-index" }> {
-  const bound = bind(sql);
-  if (bound.kind !== "create-index") throw new TypeError(sql);
-  return bound;
+function createIndex(sql: string): BoundOf<"create-index"> {
+  return boundAs(sql, "create-index");
 }
 
 /** A CREATE TABLE's constraint indexes, each as `name: origin columns`. */

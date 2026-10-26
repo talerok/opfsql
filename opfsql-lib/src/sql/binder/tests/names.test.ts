@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { lines, plan, query, schemaOf, semanticError } from "./helpers.js";
+import {
+  lines,
+  plan,
+  query,
+  schemaOf,
+  semanticError,
+  subqueries,
+} from "./helpers.js";
 
 describe("names", () => {
   it("bind a column to its FROM item's table index and its position", () => {
@@ -210,10 +217,10 @@ describe("CTEs read in subqueries", () => {
       ),
     ).toBe(nested);
     expect(
-      plan(
+      subqueries(
         "SELECT (WITH c AS (SELECT u.age AS a), d AS (SELECT a FROM c) SELECT (SELECT a FROM d)) FROM users u",
       ),
-    ).toContain("subquery(2, correlated): project #9 (a#8.0)");
+    ).toEqual(["subquery(1, correlated)", "subquery(2, correlated)"]);
   });
 
   it("correlate a nested subquery reading a CTE of the subquery around it", () => {
@@ -264,8 +271,10 @@ describe("CTEs read in subqueries", () => {
       ),
     );
     expect(
-      plan("WITH c AS (SELECT 1 AS a) SELECT (SELECT a FROM c) FROM users"),
-    ).toContain("subquery(1): project #5 (a#4.0)");
+      subqueries(
+        "WITH c AS (SELECT 1 AS a) SELECT (SELECT a FROM c) FROM users",
+      ),
+    ).toEqual(["subquery(1)"]);
   });
 });
 

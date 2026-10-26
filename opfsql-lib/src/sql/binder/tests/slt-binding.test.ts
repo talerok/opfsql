@@ -96,8 +96,9 @@ class FileRun {
 function parsed(sql: string): BindableStatement[] {
   try {
     return bindable(sql);
-  } catch {
-    return [];
+  } catch (error) {
+    if (error instanceof OpfsqlError) return [];
+    throw error;
   }
 }
 

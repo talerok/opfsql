@@ -1,25 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { formatPlan, type logical, type Statement } from "../../plan/index.js";
-import { bind, lines, semanticError, shop } from "./helpers.js";
+import { formatPlan } from "../../plan/index.js";
+import {
+  bind,
+  boundAs,
+  lines,
+  semanticError,
+  shop,
+  type BoundOf,
+} from "./helpers.js";
 
-type Bound = Statement<logical.Plan>;
-
-function insert(sql: string): Extract<Bound, { kind: "insert" }> {
-  const bound = bind(sql);
-  if (bound.kind !== "insert") throw new TypeError(`not an INSERT: ${sql}`);
-  return bound;
+function insert(sql: string): BoundOf<"insert"> {
+  return boundAs(sql, "insert");
 }
 
-function update(sql: string): Extract<Bound, { kind: "update" }> {
-  const bound = bind(sql);
-  if (bound.kind !== "update") throw new TypeError(`not an UPDATE: ${sql}`);
-  return bound;
+function update(sql: string): BoundOf<"update"> {
+  return boundAs(sql, "update");
 }
 
-function remove(sql: string): Extract<Bound, { kind: "delete" }> {
-  const bound = bind(sql);
-  if (bound.kind !== "delete") throw new TypeError(`not a DELETE: ${sql}`);
-  return bound;
+function remove(sql: string): BoundOf<"delete"> {
+  return boundAs(sql, "delete");
 }
 
 describe("INSERT", () => {

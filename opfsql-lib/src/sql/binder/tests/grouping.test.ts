@@ -72,7 +72,7 @@ describe("the aggregate node", () => {
 
   it("aggregates for an aggregate in ORDER BY alone", () => {
     expect(semanticError("SELECT age FROM users ORDER BY count(*)")).toBe(
-      "column age must appear in the GROUP BY clause or be used in an aggregate function",
+      message("age"),
     );
   });
 });
@@ -145,9 +145,7 @@ describe("expressions above the aggregate", () => {
       semanticError(
         "SELECT (SELECT u.age FROM orders) FROM users u GROUP BY u.id",
       ),
-    ).toBe(
-      "column age must appear in the GROUP BY clause or be used in an aggregate function",
-    );
+    ).toBe(message("age"));
   });
 
   it("compare an aggregate with a subquery", () => {
@@ -234,9 +232,7 @@ describe("GROUP BY", () => {
   it("prefers a column of the FROM to an alias", () => {
     expect(
       semanticError("SELECT age AS name, count(*) FROM users GROUP BY name"),
-    ).toBe(
-      "column age must appear in the GROUP BY clause or be used in an aggregate function",
-    );
+    ).toBe(message("age"));
   });
 
   it("refuses aggregates, also through a position", () => {

@@ -163,7 +163,20 @@ describe("WITH RECURSIVE", () => {
       plan(
         "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT r.n FROM r LEFT JOIN users ON r.n = users.id) SELECT * FROM r",
       ),
-    ).toContain("join left on (n#3.0 = id#4.0)");
+    ).toBe(
+      lines(
+        "cte #7 r",
+        "  definition: recursive-cte #2 r #6 union all",
+        "    anchor: project #1 (1)",
+        "      values #0 ()",
+        "    step: project #5 (n#3.0)",
+        "      join left on (n#3.0 = id#4.0)",
+        "        cte-scan #3 of #2",
+        "        get #4 users (id, name, age, email, data)",
+        "  body: project #9 (n#8.0)",
+        "    cte-scan #8 of #7",
+      ),
+    );
   });
 
   it("refuses other shapes", () => {
