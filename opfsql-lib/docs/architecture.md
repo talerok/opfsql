@@ -34,6 +34,9 @@ cache living within one pinned read transaction is safe by construction —
 the pages it holds cannot change while the snapshot is pinned — and is the
 first thing to reach for if profiling shows repeated reads.
 
+What each layer guarantees the one above it, and how each guarantee is
+enforced, is docs/layers.md.
+
 ## Modules
 
 ```
