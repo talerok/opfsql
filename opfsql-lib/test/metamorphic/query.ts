@@ -12,8 +12,9 @@ import { ExpressionGenerator } from "./generate-expression.js";
 import type { Random } from "./random.js";
 import { anotherLiteral } from "./data.js";
 import { seekableCondition } from "./seekable.js";
+import { generateSource, type Source } from "./sources.js";
 import { AliasSource, keyLeaf, seekKeys, tableLeaves } from "./scope.js";
-import type { DatabaseSpec, TableSpec } from "./schema.js";
+import type { DatabaseSpec } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // One case: a FROM clause — a table, or a chain of up to three joins — and
@@ -190,29 +191,35 @@ function generateGroupCondition(
 // --- FROM ------------------------------------------------------------------------
 
 function generateFrom(random: Random, database: DatabaseSpec): FromClause {
-  const tableCount = random.pick([1, 1, 2, 2, 3]);
-  const first = random.pick(database.tables);
-  const keysOf = (table: TableSpec, alias: string) =>
-    seekKeys(database, table, false).map((key) => keyLeaf(key, alias));
-  let sql = `${first.name} AS a`;
-  let leaves = tableLeaves(first, "a");
+  const sourceCount = random.pick([1, 1, 2, 2, 3]);
+  const keysOf = (source: Source, alias: string) =>
+    source.isTable
+      ? seekKeys(database, source.table, false).map((key) =>
+          keyLeaf(key, alias),
+        )
+      : [];
+  const first = generateSource(random, database, 0);
+  let sql = `${first.sql} AS a`;
+  let leaves = tableLeaves(first.table, "a");
   let keys = keysOf(first, "a");
-  let pairs = first.rowCount + 1;
-  for (const alias of TABLE_ALIASES.slice(1, tableCount)) {
-    const table = random.pick(database.tables);
-    pairs *= table.rowCount + 1;
+  let pairs = first.maxRows + 1;
+  for (const [position, alias] of TABLE_ALIASES.slice(
+    1,
+    sourceCount,
+  ).entries()) {
+    const source = generateSource(random, database, position + 1);
+    pairs *= source.maxRows + 1;
     if (pairs > MAX_JOINED_ROWS) break;
-    const joined = joinOf(random, { database, table, alias, leaves });
-    sql += ` ${joined.sql}`;
-    leaves = [...leaves, ...tableLeaves(table, alias)];
-    keys = [...keys, ...keysOf(table, alias)];
+    sql += ` ${joinOf(random, { database, source, alias, leaves })}`;
+    leaves = [...leaves, ...tableLeaves(source.table, alias)];
+    keys = [...keys, ...keysOf(source, alias)];
   }
   return { sql, leaves, keys };
 }
 
 interface JoinSite {
   readonly database: DatabaseSpec;
-  readonly table: TableSpec;
+  readonly source: Source;
   readonly alias: string;
   /** What the tables already joined offer. */
   readonly leaves: readonly Leaf[];
@@ -224,9 +231,9 @@ interface JoinSite {
  * so that a lookup join can seek it — with a comparable value of the
  * tables before, and sometimes adds a condition of its own.
  */
-function joinOf(random: Random, site: JoinSite): { sql: string } {
-  const target = `${site.table.name} AS ${site.alias}`;
-  if (random.chance(0.1)) return { sql: `CROSS JOIN ${target}` };
+function joinOf(random: Random, site: JoinSite): string {
+  const target = `${site.source.sql} AS ${site.alias}`;
+  if (random.chance(0.1)) return `CROSS JOIN ${target}`;
   const kind = random.chance(0.5) ? "JOIN" : "LEFT JOIN";
   const key = joinKey(random, site);
   const partners = site.leaves.filter((each) =>
@@ -236,7 +243,10 @@ function joinOf(random: Random, site: JoinSite): { sql: string } {
     partners.length > 0 ? random.pick(partners) : leaf(key.type, "NULL");
   let on = `${print(partner)} = ${print(key)}`;
   if (random.chance(0.3)) {
-    const leaves = [...site.leaves, ...tableLeaves(site.table, site.alias)];
+    const leaves = [
+      ...site.leaves,
+      ...tableLeaves(site.source.table, site.alias),
+    ];
     const generator = new ExpressionGenerator(
       random,
       { leaves, database: null },
@@ -244,14 +254,17 @@ function joinOf(random: Random, site: JoinSite): { sql: string } {
     );
     on += ` AND ${print(generator.condition(1))}`;
   }
-  return { sql: `${kind} ${target} ON ${on}` };
+  return `${kind} ${target} ON ${on}`;
 }
 
 /** A key of the new table: often one a seek can use, else any column. */
 function joinKey(random: Random, site: JoinSite): Expression {
-  const keys = seekKeys(site.database, site.table, true);
+  const { source } = site;
+  const keys = source.isTable
+    ? seekKeys(site.database, source.table, true)
+    : [];
   const column = {
-    column: random.pick(site.table.columns),
+    column: random.pick(source.table.columns),
     form: "column" as const,
   };
   const isSeekable = keys.length > 0 && random.chance(0.7);
