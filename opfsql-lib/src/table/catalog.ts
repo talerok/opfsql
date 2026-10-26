@@ -37,12 +37,12 @@ import { Sequences } from "./sequences.js";
 // the AUTOINCREMENT counters. Whether a change makes sense — names free, a
 // dropped column unused — is the binder's to check, with messages for the
 // user; the catalog assumes it, and refuses with an InternalError what would
-// leave the database inconsistent. The schema changes once a statement's
-// changes are read back.
+// leave the database inconsistent. The catalog changes the stored schema
+// only: the engine loads the Schema model again after the statement.
 // ---------------------------------------------------------------------------
 
 export class Catalog {
-  private readonly entries: SchemaTableWriter;
+  private readonly schemaTable: SchemaTableWriter;
 
   /** `schema` is the schema as of the transaction's last statement. */
   constructor(
@@ -50,7 +50,7 @@ export class Catalog {
     private readonly schema: Schema,
     private readonly compile: CompileExpression,
   ) {
-    this.entries = new SchemaTableWriter(pages);
+    this.schemaTable = new SchemaTableWriter(pages);
   }
 
   /** Creates a table and the indexes of its constraints. */
@@ -59,7 +59,7 @@ export class Catalog {
     constraints: readonly IndexShape[],
   ): { table: Table; indexes: Index[] } {
     const table: Table = { ...shape, rootPage: TableWriter.create(this.pages) };
-    this.entries.add(tableEntry(table, constraints));
+    this.schemaTable.add(tableEntry(table, constraints));
     // A constraint's index has no statement of its own: the table's has it.
     const indexes = constraints.map((index) => this.addIndex(index, null));
     if (table.isAutoincrement) this.ensureSequences();
@@ -79,7 +79,7 @@ export class Catalog {
       this.removeIndex(index);
     }
     new TableWriter(this.pages, table.rootPage, table.name).drop();
-    this.entries.remove(this.entryRowid(table.name));
+    this.schemaTable.remove(this.entryRowid(table.name));
     if (table.isAutoincrement) this.sequences()?.remove(table.name);
   }
 
@@ -156,7 +156,7 @@ export class Catalog {
 
   private removeIndex(index: Index): void {
     new IndexWriter(this.pages, index.rootPage, index.name).drop();
-    this.entries.remove(this.entryRowid(index.name));
+    this.schemaTable.remove(this.entryRowid(index.name));
   }
 
   private addIndex(shape: IndexShape, sql: string | null): Index {
@@ -164,10 +164,10 @@ export class Catalog {
       ...shape,
       rootPage: IndexWriter.create(this.pages),
     };
-    this.entries.add({
+    this.schemaTable.add({
       type: "index",
       name: index.name,
-      tableName: index.table,
+      tableName: index.tableName,
       rootPage: index.rootPage,
       sql,
     });
@@ -218,7 +218,7 @@ export class Catalog {
 
   private rewriteEntry(table: Table, constraints: readonly IndexShape[]): void {
     const rowid = this.entryRowid(table.name);
-    this.entries.replace(rowid, tableEntry(table, constraints));
+    this.schemaTable.replace(rowid, tableEntry(table, constraints));
   }
 
   /** The rowid of the schema table's row for `name`. */

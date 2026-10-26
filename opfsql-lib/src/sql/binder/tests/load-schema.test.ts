@@ -62,7 +62,7 @@ function constraint(
 ): IndexShape {
   return {
     name: constraintIndexName(table, ordinal),
-    table,
+    tableName: table,
     keys: columns.map((position) => ({ kind: "column", column: position })),
     isUnique: true,
     origin,
@@ -85,18 +85,18 @@ function rowsOf(
     ...constraints.map((index): SchemaRow => ({
       type: "index",
       name: index.name,
-      tableName: index.table,
+      tableName: index.tableName,
       rootPage: index.rootPage,
       sql: null,
     })),
   ]);
   const indexRows = indexes.map((index): SchemaRow => {
-    const table = tables.find((item) => item.table.name === index.table);
-    if (table === undefined) throw new TypeError(`no table ${index.table}`);
+    const table = tables.find((item) => item.table.name === index.tableName);
+    if (table === undefined) throw new TypeError(`no table ${index.tableName}`);
     return {
       type: "index",
       name: index.name,
-      tableName: index.table,
+      tableName: index.tableName,
       rootPage: index.rootPage,
       sql: createIndexSql(index, table.table),
     };

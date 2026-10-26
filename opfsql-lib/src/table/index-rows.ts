@@ -1,12 +1,13 @@
 import { CorruptError } from "../errors.js";
 import type { Index } from "../schema/index.js";
-import type { PageReader } from "../storage/index.js";
 import {
   decodeKey,
   encodeKey,
   IndexReader,
   keyRowid,
+  type PageReader,
   prefixEnd,
+  type ScanOrder,
 } from "../storage/index.js";
 import { compareBytes, type Value } from "../values/index.js";
 import type { ColumnReader } from "./rows.js";
@@ -38,14 +39,11 @@ export interface KeySeek {
   readonly range: KeyRange | null;
 }
 
-/** Key order, or its reverse. */
-export type KeyOrder = "ascending" | "descending";
-
 /** Which end of an index MIN and MAX read from. */
 export type IndexEnd = "first" | "last";
 
 /** Entries from `start`, included, up to `end`, excluded. */
-interface KeyBounds {
+interface EntrySpan {
   readonly start: Uint8Array;
   readonly end: Uint8Array;
 }
@@ -61,7 +59,7 @@ export class IndexRows {
   }
 
   /** The rowids of the entries `seek` finds, in key order or its reverse. */
-  rowids(seek: KeySeek, order: KeyOrder): Generator<number> {
+  rowids(seek: KeySeek, order: ScanOrder): Generator<number> {
     return rowidsIn(this.entries, seek, order);
   }
 
@@ -71,7 +69,7 @@ export class IndexRows {
    */
   *rows(
     seek: KeySeek,
-    order: KeyOrder,
+    order: ScanOrder,
     reader: ColumnReader,
   ): Generator<Value[]> {
     for (const rowid of this.rowids(seek, order)) {
@@ -110,9 +108,9 @@ export class IndexRows {
 export function* rowidsIn(
   entries: IndexReader,
   seek: KeySeek,
-  order: KeyOrder,
+  order: ScanOrder,
 ): Generator<number> {
-  const bounds = boundsOf(seek);
+  const bounds = spanOf(seek);
   if (bounds === null) return;
   for (const key of keysIn(entries, bounds, order)) yield keyRowid(key);
 }
@@ -120,8 +118,8 @@ export function* rowidsIn(
 /** The entries within `bounds`, in key order or its reverse. */
 function* keysIn(
   entries: IndexReader,
-  bounds: KeyBounds,
-  order: KeyOrder,
+  bounds: EntrySpan,
+  order: ScanOrder,
 ): Generator<Uint8Array> {
   if (order === "ascending") {
     for (const key of entries.keysFrom(bounds.start)) {
@@ -137,7 +135,7 @@ function* keysIn(
 }
 
 /** The entries a seek finds, as bytes; null if it can find none. */
-function boundsOf(seek: KeySeek): KeyBounds | null {
+function spanOf(seek: KeySeek): EntrySpan | null {
   if (!canMatch(seek)) return null;
   const { equal, range } = seek;
   if (range === null) {

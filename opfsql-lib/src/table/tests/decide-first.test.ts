@@ -26,7 +26,7 @@ const castNick: CompileExpression = () => nickAsInteger;
 
 const nickNumber: IndexShape = {
   name: "users_nick_number",
-  table: "users",
+  tableName: "users",
   keys: [{ kind: "expression", sql: "CAST(nick AS INTEGER)", type: "INTEGER" }],
   isUnique: false,
   origin: "statement",
@@ -34,7 +34,7 @@ const nickNumber: IndexShape = {
 
 const byNick: IndexShape = {
   name: "users_nick",
-  table: "users",
+  tableName: "users",
   keys: [{ kind: "column", column: 1 }],
   isUnique: false,
   origin: "statement",

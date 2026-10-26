@@ -35,7 +35,7 @@ import { freeChain, readChain, writeChain } from "./overflow.js";
 export const ROWID_FIELD = -1;
 
 /** Rowid order, or its reverse. */
-export type RowOrder = "ascending" | "descending";
+export type ScanOrder = "ascending" | "descending";
 
 /** How each row is read as a tuple: where each of its values comes from. */
 export interface TupleLayout {
@@ -194,7 +194,7 @@ export class TableReader {
   tuples(
     layout: TupleLayout,
     [first, last]: readonly [number, number],
-    order: RowOrder,
+    order: ScanOrder,
   ): Generator<Value[]> {
     if (order === "ascending") return this.tuplesUp(layout, first, last);
     return this.tuplesDown(layout, first, last);

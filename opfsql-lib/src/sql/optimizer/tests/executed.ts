@@ -32,8 +32,9 @@ export class SampleDatabase {
       database.tables.push(table);
     }
     for (const shape of schema.indexes) {
-      const table = database.schema.table(shape.table);
-      if (table === null) throw new InternalError(`no table ${shape.table}`);
+      const table = database.schema.table(shape.tableName);
+      if (table === null)
+        throw new InternalError(`no table ${shape.tableName}`);
       const statement = { ...shape, origin: "statement" } as const;
       const index = database.change((catalog) =>
         catalog.createIndex(statement, table),

@@ -25,7 +25,7 @@ export {
 } from "./rows/schema-table.js";
 export {
   ROWID_FIELD,
-  type RowOrder,
+  type ScanOrder,
   StoredRow,
   TableReader,
   TableWriter,

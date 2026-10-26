@@ -1,9 +1,20 @@
 import { InternalError } from "../errors.js";
 import { ROWID_COLUMN, type Table } from "../schema/index.js";
-import type { PageReader, StoredRow, TupleLayout } from "../storage/index.js";
+import type {
+  PageReader,
+  ScanOrder,
+  StoredRow,
+  TupleLayout,
+} from "../storage/index.js";
 import { ROWID_FIELD, TableReader, tupleLayout } from "../storage/index.js";
 import { copyValue, type Value } from "../values/index.js";
-import type { KeyOrder } from "./index-rows.js";
+
+// ---------------------------------------------------------------------------
+// A table's rows as the layers above read them, through its schema: whole
+// rows (TableRow), or chosen columns as tuples for a scan (ColumnReader).
+// The rowid column reads the rowid, and a column added after a row was
+// written reads its default.
+// ---------------------------------------------------------------------------
 
 /**
  * A stored row as its table sees it: the rowid column holds the rowid, and
@@ -57,7 +68,7 @@ export class ColumnReader {
   between(
     first: number,
     last: number,
-    order: KeyOrder = "ascending",
+    order: ScanOrder = "ascending",
   ): Generator<Value[]> {
     return this.stored.tuples(this.layout, [first, last], order);
   }

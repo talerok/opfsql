@@ -30,7 +30,7 @@ export class Schema {
   /** The indexes of table `name`, in the order they were created. */
   indexesOf(name: string): Index[] {
     const key = nameKey(name);
-    return this.indexes.filter((index) => nameKey(index.table) === key);
+    return this.indexes.filter((index) => nameKey(index.tableName) === key);
   }
 
   /**
@@ -46,9 +46,9 @@ export class Schema {
   }
 
   private indexProblems(index: Index): string[] {
-    const table = this.table(index.table);
+    const table = this.table(index.tableName);
     if (table === null) {
-      return [`index ${index.name} is on a missing table ${index.table}`];
+      return [`index ${index.name} is on a missing table ${index.tableName}`];
     }
     return index.keys
       .filter((key) => key.kind === "column")

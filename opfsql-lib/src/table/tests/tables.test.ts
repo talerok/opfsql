@@ -17,7 +17,7 @@ import { Database, usersShape } from "./database.js";
 
 const lowerNick: IndexShape = {
   name: "users_lower_nick",
-  table: "users",
+  tableName: "users",
   keys: [{ kind: "expression", sql: "lower(nick)", type: "TEXT" }],
   isUnique: false,
   origin: "statement",

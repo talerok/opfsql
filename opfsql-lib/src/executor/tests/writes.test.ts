@@ -81,7 +81,7 @@ const itemsShape: TableShape = {
 
 const uniqueCode: IndexShape = {
   name: constraintIndexName("items", 1),
-  table: "items",
+  tableName: "items",
   keys: [{ kind: "column", column: 3 }],
   isUnique: true,
   origin: "unique",
@@ -99,7 +99,7 @@ beforeEach(async () => {
   byQty = database.createIndex(
     {
       name: "items_qty",
-      table: "items",
+      tableName: "items",
       keys: [{ kind: "column", column: 2 }],
       isUnique: false,
       origin: "statement",
@@ -298,7 +298,11 @@ async function computedAtFirstWrite(
   const from = fresh.createTable(labelledShape("src"));
   const to = fresh.createTable(labelledShape("dst"));
   const label: IndexKey = { kind: "expression", sql: "label", type: "TEXT" };
-  const byLabel = { name: "dst_label", table: "dst", keys: [label] } as const;
+  const byLabel = {
+    name: "dst_label",
+    tableName: "dst",
+    keys: [label],
+  } as const;
   fresh.createIndex({ ...byLabel, isUnique: false, origin: "statement" }, to);
   const labelled = Array.from({ length: COPIED_ROWS }, (_, index) => [
     index + 1,
@@ -524,7 +528,7 @@ async function updateCounted(
     isAutoincrement: false,
   });
   const x: IndexKey = { kind: "expression", sql: "x", type: "INTEGER" };
-  const byX = { name: "t_x", table: "t", keys: [x] } as const;
+  const byX = { name: "t_x", tableName: "t", keys: [x] } as const;
   fresh.createIndex({ ...byX, isUnique: false, origin: "statement" }, t);
   fresh.insert(
     t,

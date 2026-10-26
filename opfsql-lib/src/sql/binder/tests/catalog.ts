@@ -73,7 +73,7 @@ function drop(schema: Schema, object: "table" | "index", name: string): Schema {
   }
   const tables = schema.tables.filter((table) => nameKey(table.name) !== key);
   const indexes = schema.indexes.filter(
-    (index) => nameKey(index.table) !== key,
+    (index) => nameKey(index.tableName) !== key,
   );
   return changed(schema, tables, indexes);
 }
@@ -96,7 +96,7 @@ function alter(
     rowidColumn: rowidColumn === null ? null : after(rowidColumn),
   };
   const indexes = schema.indexes.map((index): Index => {
-    if (nameKey(index.table) !== nameKey(table.name)) return index;
+    if (nameKey(index.tableName) !== nameKey(table.name)) return index;
     const keys = index.keys.map((key) =>
       key.kind === "column" ? { ...key, column: after(key.column) } : key,
     );

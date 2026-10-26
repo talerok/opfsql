@@ -17,7 +17,8 @@ import {
 import { memoryFiles, read, write } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
 import type { CompileExpression } from "../index.js";
-import { checkTables, keyedIndex, Sequences, TableEditor } from "../index.js";
+import { checkTables, Sequences, TableEditor } from "../index.js";
+import { keyedIndex } from "../keys.js";
 
 // users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT NOT NULL,
 //        age INTEGER DEFAULT 0), with an index on lower(name).
@@ -57,7 +58,7 @@ async function usersTable(isAutoincrement = false): Promise<Users> {
     const indexes: Index[] = [
       {
         name: "opfsql_autoindex_users_1",
-        table: "users",
+        tableName: "users",
         keys: [{ kind: "column", column: EMAIL }],
         isUnique: true,
         rootPage: IndexWriter.create(transaction),
@@ -65,7 +66,7 @@ async function usersTable(isAutoincrement = false): Promise<Users> {
       },
       {
         name: "users_lower_name",
-        table: "users",
+        tableName: "users",
         keys: [{ kind: "expression", sql: "lower(name)", type: "TEXT" }],
         isUnique: false,
         rootPage: IndexWriter.create(transaction),

@@ -24,7 +24,7 @@ const users: TableShape = {
 
 const uniqueEmail: IndexShape = {
   name: constraintIndexName("users", 1),
-  table: "users",
+  tableName: "users",
   keys: [{ kind: "column", column: 1 }],
   isUnique: true,
   origin: "unique",
@@ -53,7 +53,7 @@ describe("schema statements", () => {
     };
     const key: IndexShape = {
       name: constraintIndexName("pairs", 1),
-      table: "pairs",
+      tableName: "pairs",
       keys: [
         { kind: "column", column: 0 },
         { kind: "column", column: 1 },
@@ -69,7 +69,7 @@ describe("schema statements", () => {
   it("write an index with column and expression keys", () => {
     const index: IndexShape = {
       name: "users_lower_email",
-      table: "users",
+      tableName: "users",
       keys: [
         { kind: "expression", sql: "lower(email)", type: "TEXT" },
         { kind: "column", column: 3 },
@@ -134,7 +134,7 @@ describe("schema statements", () => {
 function codeConstraint(ordinal: number): IndexShape {
   return {
     name: constraintIndexName("codes", ordinal),
-    table: "codes",
+    tableName: "codes",
     keys: [{ kind: "column", column: 0 }],
     isUnique: true,
     origin: "unique",

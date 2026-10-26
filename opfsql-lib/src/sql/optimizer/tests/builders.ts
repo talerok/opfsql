@@ -75,7 +75,7 @@ function index(
   isUnique = false,
 ): Index {
   const origin = isUnique ? "unique" : "statement";
-  return { name, table: table.name, keys, isUnique, rootPage: 20, origin };
+  return { name, tableName: table.name, keys, isUnique, rootPage: 20, origin };
 }
 
 function onColumns(...positions: number[]): Index["keys"] {

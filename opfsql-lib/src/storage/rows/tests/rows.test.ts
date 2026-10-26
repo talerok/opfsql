@@ -10,7 +10,7 @@ import { encodeKey, keyRowid, prefixEnd } from "../../format/key.js";
 import { IndexWriter } from "../index-store.js";
 import {
   ROWID_FIELD,
-  type RowOrder,
+  type ScanOrder,
   type StoredRow,
   TableReader,
   TableWriter,
@@ -169,7 +169,7 @@ describe("table tuples", () => {
 
   it("read the rows of a rowid range either way, both ends included", () => {
     const table = filled();
-    const rowids = (range: [number, number], order: RowOrder) =>
+    const rowids = (range: [number, number], order: ScanOrder) =>
       [...table.tuples(layout, range, order)].map(([, rowid]) => rowid);
     expect(rowids([3, 9], "ascending")).toEqual([4, 6, 8]);
     expect(rowids([4, 8], "descending")).toEqual([8, 6, 4]);

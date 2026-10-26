@@ -62,7 +62,7 @@ export function indexDefinition(
   const scope = tableScope(table, context.newIndex(), context);
   return {
     name: statement.name,
-    table: table.name,
+    tableName: table.name,
     keys: statement.expressions.map((expression) =>
       indexKey(expression, scope),
     ),

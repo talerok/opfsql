@@ -6,18 +6,17 @@ import {
   ROWID_COLUMN,
   type Table,
 } from "../../schema/index.js";
-import { encodeKey, IndexWriter } from "../../storage/index.js";
+import { encodeKey, IndexWriter, type ScanOrder } from "../../storage/index.js";
 import { read, write } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
 import {
-  type IndexEnd,
   IndexRows,
   type KeyBound,
-  type KeyOrder,
   type KeyRange,
   type KeySeek,
   TableRows,
 } from "../index.js";
+import type { IndexEnd } from "../index-rows.js";
 import { type Database, withUsers } from "./database.js";
 
 // users (id INTEGER PRIMARY KEY, nick TEXT, email TEXT UNIQUE), indexed on
@@ -47,7 +46,7 @@ beforeEach(async () => {
 function createIndex(name: string, columns: number[]): Index {
   const shape: IndexShape = {
     name,
-    table: "users",
+    tableName: "users",
     keys: columns.map((column) => ({ kind: "column", column })),
     isUnique: false,
     origin: "statement",
@@ -77,7 +76,7 @@ function through<T>(index: Index, use: (rows: IndexRows) => T): T {
 function rowidsOf(
   index: Index,
   seek: KeySeek,
-  order: KeyOrder = "ascending",
+  order: ScanOrder = "ascending",
 ): number[] {
   return through(index, (rows) => [...rows.rowids(seek, order)]);
 }
@@ -99,7 +98,7 @@ function extreme(index: Index, equal: Value[], end: IndexEnd): Value {
 function between(
   first: number,
   last: number,
-  order: KeyOrder = "ascending",
+  order: ScanOrder = "ascending",
 ): Value[] {
   return read(database.pager, (pages) =>
     [

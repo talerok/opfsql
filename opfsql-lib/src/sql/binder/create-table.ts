@@ -217,7 +217,7 @@ function constraintIndex(
 ): IndexShape {
   return {
     name: constraintIndexName(table, ordinal),
-    table,
+    tableName: table,
     keys: constraint.columns.map((column) => ({ kind: "column", column })),
     isUnique: true,
     origin: constraint.origin,

@@ -41,7 +41,7 @@ describe("Catalog", () => {
     ]);
     const byNick: IndexShape = {
       name: "users_nick",
-      table: "users",
+      tableName: "users",
       keys: [{ kind: "column", column: 1 }],
       isUnique: false,
       origin: "statement",
@@ -126,7 +126,7 @@ describe("Catalog", () => {
       catalog.createIndex(
         {
           name: "users_lower_nick",
-          table: "users",
+          tableName: "users",
           keys: [{ kind: "expression", sql: "lower(nick)", type: "TEXT" }],
           isUnique: false,
           origin: "statement",
