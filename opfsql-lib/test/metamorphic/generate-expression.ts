@@ -4,14 +4,11 @@ import {
   constant,
   type Expression,
   type ExpressionType,
-  type Leaf,
-  leaf,
   node,
-  print,
 } from "./expression.js";
 import type { Random } from "./random.js";
-import type { TableSpec } from "./schema.js";
-import { tableLeaves } from "./scope.js";
+import type { AliasSource, Scope } from "./scope.js";
+import { SubqueryGenerator } from "./subqueries.js";
 
 // ---------------------------------------------------------------------------
 // Well-typed random expressions. Every expression binds — conditions are
@@ -20,25 +17,6 @@ import { tableLeaves } from "./scope.js";
 // integers stay far from overflow, and a scalar subquery is an aggregate,
 // so it has one row.
 // ---------------------------------------------------------------------------
-
-/** What an expression may read. */
-export interface Scope {
-  /** Columns, JSON paths, or a group's key and aggregates. */
-  readonly leaves: readonly Leaf[];
-  /** Tables a subquery may read: none where subqueries are not allowed. */
-  readonly tables: readonly TableSpec[];
-}
-
-/** Names for subqueries' tables, unique within a statement. */
-export class AliasSource {
-  private count = 0;
-
-  next(): string {
-    const alias = `s${String(this.count)}`;
-    this.count++;
-    return alias;
-  }
-}
 
 type Choice = readonly [weight: number, make: (depth: number) => Expression];
 
@@ -50,11 +28,21 @@ const LEAF_CHANCE = 0.45;
 const COLUMN_CHANCE = 0.85;
 
 export class ExpressionGenerator {
+  /** Null where the scope allows no subquery. */
+  private readonly subqueries: SubqueryGenerator | null;
+
   constructor(
     private readonly random: Random,
     private readonly scope: Scope,
-    private readonly aliases: AliasSource,
-  ) {}
+    aliases: AliasSource,
+  ) {
+    const conditionsOver = (inner: Scope) =>
+      new ExpressionGenerator(random, inner, aliases);
+    this.subqueries =
+      scope.database === null
+        ? null
+        : new SubqueryGenerator(random, scope, aliases, conditionsOver);
+  }
 
   /** A BOOLEAN expression. */
   condition(depth: number): Expression {
@@ -243,6 +231,10 @@ export class ExpressionGenerator {
         (inner) =>
           node("integer", "CAST(", this.condition(inner), " AS INTEGER)"),
       ],
+      [
+        1,
+        (inner) => node("integer", "sign(", this.value("integer", inner), ")"),
+      ],
       [2, (inner) => this.choice("integer", inner)],
       [this.subqueryWeight(), (inner) => this.countSubquery(inner)],
     ]);
@@ -267,7 +259,31 @@ export class ExpressionGenerator {
     return this.choose(depth, [
       [1, call("lower")],
       [1, call("upper")],
-      [1, call("trim")],
+      [1, call(this.random.pick(["trim", "ltrim", "rtrim"]))],
+      [
+        1,
+        (inner) =>
+          node(
+            "text",
+            "replace(",
+            this.value("text", inner),
+            ", ",
+            this.leafOf("text"),
+            ", ",
+            this.leafOf("text"),
+            ")",
+          ),
+      ],
+      [
+        1,
+        (inner) =>
+          node(
+            "text",
+            this.value("text", inner),
+            " || ",
+            this.value("integer", inner),
+          ),
+      ],
       [
         1,
         (inner) =>
@@ -324,9 +340,9 @@ export class ExpressionGenerator {
     return node(type, left, ` ${operator} `, right);
   }
 
-  /** CASE, coalesce or nullif: one of several values of `type`. */
+  /** CASE, iif, coalesce or nullif: one of several values of `type`. */
   private choice(type: ExpressionType, depth: number): Expression {
-    switch (this.random.below(3)) {
+    switch (this.random.below(4)) {
       case 0: {
         const otherwise = this.value(type, depth);
         return node(
@@ -341,6 +357,18 @@ export class ExpressionGenerator {
         );
       }
       case 1: {
+        return node(
+          type,
+          "iif(",
+          this.condition(depth),
+          ", ",
+          this.value(type, depth),
+          ", ",
+          this.value(type, depth),
+          ")",
+        );
+      }
+      case 2: {
         return node(
           type,
           "coalesce(",
@@ -366,82 +394,32 @@ export class ExpressionGenerator {
   // --- Subqueries -------------------------------------------------------------
 
   private subqueryWeight(): number {
-    return this.scope.tables.length > 0 ? 1 : 0;
+    return this.subqueries === null ? 0 : 1;
   }
 
-  /** `x IN (SELECT …)`, of a column comparable with `x`, or a comparison when there is none. */
+  /** `x IN (SELECT …)`, or a comparison when no subquery fits. */
   private inSubquery(depth: number): Expression {
     const operand = this.anyValue(depth);
-    const table = this.random.pick(this.scope.tables);
-    const alias = this.aliases.next();
-    const columns = tableLeaves(table, alias).filter((column) =>
-      areComparable(operand.type, column.type),
-    );
-    if (columns.length === 0) return this.comparison(depth);
-    const where = this.subqueryWhere(table, alias, depth);
-    const select = `SELECT ${this.random.pick(columns).sql} FROM ${table.name} AS ${alias}${where}`;
+    const select = this.subqueries?.column(operand.type, depth) ?? null;
+    if (select === null) return this.comparison(depth);
     const keyword = this.random.chance(0.3) ? " NOT IN (" : " IN (";
-    return node("boolean", operand, keyword, leaf("untyped", select), ")");
+    return node("boolean", operand, keyword, select, ")");
   }
 
   private exists(depth: number): Expression {
-    const table = this.random.pick(this.scope.tables);
-    const alias = this.aliases.next();
-    const where = this.subqueryWhere(table, alias, depth);
+    const select = this.subqueries?.any(depth) ?? null;
+    if (select === null) return this.comparison(depth);
     const keyword = this.random.chance(0.3) ? "NOT EXISTS (" : "EXISTS (";
-    return node(
-      "boolean",
-      keyword,
-      leaf("untyped", `SELECT 1 FROM ${table.name} AS ${alias}${where}`),
-      ")",
-    );
+    return node("boolean", keyword, select, ")");
   }
 
   private countSubquery(depth: number): Expression {
-    const table = this.random.pick(this.scope.tables);
-    const alias = this.aliases.next();
-    const where = this.subqueryWhere(table, alias, depth);
-    return leaf(
-      "integer",
-      `(SELECT count(*) FROM ${table.name} AS ${alias}${where})`,
-    );
+    return this.subqueries?.count(depth) ?? this.leafOf("integer");
   }
 
-  /** `(SELECT max(col) …)` of a column of `type`, or a value of `type` when there is none. */
+  /** `(SELECT max(col) …)`, or a value of `type` when no subquery fits. */
   private extremeSubquery(type: ExpressionType, depth: number): Expression {
-    const table = this.random.pick(this.scope.tables);
-    const alias = this.aliases.next();
-    const columns = tableLeaves(table, alias).filter(
-      (column) => column.type === type,
-    );
-    if (columns.length === 0) return this.leafOf(type);
-    const extreme = this.random.pick(["min", "max"]);
-    const where = this.subqueryWhere(table, alias, depth);
-    const select = `SELECT ${extreme}(${this.random.pick(columns).sql}) FROM ${table.name} AS ${alias}${where}`;
-    return leaf(type, `(${select})`);
-  }
-
-  /**
-   * A WHERE clause over the subquery's table and, half the time, the
-   * enclosing query's values too: a correlated subquery.
-   */
-  private subqueryWhere(
-    table: TableSpec,
-    alias: string,
-    depth: number,
-  ): string {
-    if (this.random.chance(0.25)) return "";
-    const isCorrelated = this.random.chance(0.5);
-    const outer = isCorrelated ? this.scope.leaves : [];
-    const inner = new ExpressionGenerator(
-      this.random,
-      {
-        leaves: [...tableLeaves(table, alias), ...outer],
-        tables: this.scope.tables,
-      },
-      this.aliases,
-    );
-    return ` WHERE ${print(inner.condition(Math.min(depth, 1)))}`;
+    return this.subqueries?.extreme(type, depth) ?? this.leafOf(type);
   }
 
   private choose(depth: number, choices: readonly Choice[]): Expression {

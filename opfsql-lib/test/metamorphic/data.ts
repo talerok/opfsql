@@ -43,12 +43,35 @@ export const TEXTS = [
   "'x_y'",
   "'10'",
   "'2'",
+  "'z'",
+  // Above U+FFFF, and below it but above the surrogates: their order by
+  // code point is not JavaScript's by UTF-16 unit.
+  "'😀'",
+  "'～'",
 ];
 export const BOOLEANS = ["TRUE", "FALSE"];
 /** LIKE patterns over the text pool. */
-export const PATTERNS = ["'a%'", "'%b'", "'_'", "'%'", "'A_'", "'%a%'", "''"];
+export const PATTERNS = [
+  "'a%'",
+  "'%b'",
+  "'_'",
+  "'%'",
+  "'A_'",
+  "'%a%'",
+  "''",
+  "'😀%'",
+];
 
 const NULL_SHARE = 0.2;
+/** Values at the edges of their types: rare, as arithmetic on them overflows. */
+const EXTREME_SHARE = 0.03;
+const EXTREME_INTEGERS = [
+  "9007199254740991",
+  "-9007199254740991",
+  "4294967296",
+];
+/** -0 is stored as 0; 1e999 is Infinity. */
+const EXTREME_REALS = ["-0.0", "1e300", "1e999", "-1e999"];
 
 export function generateRows(random: Random, table: TableSpec): Row[] {
   const rows: Row[] = [];
@@ -60,7 +83,8 @@ export function generateRows(random: Random, table: TableSpec): Row[] {
 
 function valueFor(random: Random, column: ColumnSpec, index: number): string {
   if (column.constraint === "primary key") return keyFor(random, index);
-  if (random.chance(NULL_SHARE)) return "NULL";
+  const isNullable = column.constraint !== "not null";
+  if (isNullable && random.chance(NULL_SHARE)) return "NULL";
   return literalOf(random, column.type);
 }
 
@@ -74,10 +98,12 @@ function keyFor(random: Random, index: number): string {
 export function literalOf(random: Random, type: ColumnType): string {
   switch (type) {
     case "INTEGER": {
-      return random.pick(INTEGERS);
+      return random.pick(
+        random.chance(EXTREME_SHARE) ? EXTREME_INTEGERS : INTEGERS,
+      );
     }
     case "REAL": {
-      return random.pick(REALS);
+      return random.pick(random.chance(EXTREME_SHARE) ? EXTREME_REALS : REALS);
     }
     case "TEXT": {
       return random.pick(TEXTS);

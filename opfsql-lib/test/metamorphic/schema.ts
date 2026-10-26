@@ -26,7 +26,7 @@ export const JSON_PATH_KEY = "k";
 export interface ColumnSpec {
   readonly name: string;
   readonly type: ColumnType;
-  readonly constraint: "primary key" | "unique" | null;
+  readonly constraint: "primary key" | "unique" | "not null" | null;
 }
 
 export interface TableSpec {
@@ -58,6 +58,8 @@ export interface DatabaseSpec {
 
 const MAX_TABLES = 3;
 const MAX_INDEXES_PER_TABLE = 3;
+/** NOT NULL lets the optimizer assume what a LEFT JOIN can still undo. */
+const NOT_NULL_CHANCE = 0.15;
 /** Mostly small tables; now and then one large enough to split pages. */
 const LARGE_TABLE_CHANCE = 0.1;
 
@@ -79,7 +81,8 @@ function generateTable(random: Random, name: string): TableSpec {
   const columnCount = random.between(3, 6);
   for (let index = 0; index < columnCount; index++) {
     const type = random.pick(COLUMN_TYPES);
-    columns.push({ name: `c${String(index)}`, type, constraint: null });
+    const constraint = random.chance(NOT_NULL_CHANCE) ? "not null" : null;
+    columns.push({ name: `c${String(index)}`, type, constraint });
   }
   const unique = random.chance(0.3) ? uniqueCandidate(random, columns) : null;
   const withUnique = columns.map((column) =>

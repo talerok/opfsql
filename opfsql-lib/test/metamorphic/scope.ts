@@ -8,6 +8,25 @@ import {
   type TableSpec,
 } from "./schema.js";
 
+/** What an expression may read. */
+export interface Scope {
+  /** Columns, JSON paths, or a group's key and aggregates. */
+  readonly leaves: readonly Leaf[];
+  /** What a subquery may read: null where subqueries are not allowed. */
+  readonly database: DatabaseSpec | null;
+}
+
+/** Names for subqueries' tables, unique within a statement. */
+export class AliasSource {
+  private count = 0;
+
+  next(): string {
+    const alias = `s${String(this.count)}`;
+    this.count++;
+    return alias;
+  }
+}
+
 /** The static type a column's values have in expressions. */
 export function expressionTypeOf(type: ColumnType): ExpressionType {
   switch (type) {
@@ -30,14 +49,22 @@ export function expressionTypeOf(type: ColumnType): ExpressionType {
   }
 }
 
-/** The values a query reads from `table` as `alias`: its columns, and paths into its JSON. */
+/**
+ * The values a query reads from `table` as `alias`: its columns, and of a
+ * JSON column, its paths and what JSON functions make of it.
+ */
 export function tableLeaves(table: TableSpec, alias: string): Leaf[] {
   return table.columns.flatMap((column) => {
     const sql = `${alias}.${column.name}`;
     const own = leaf(expressionTypeOf(column.type), sql);
     if (column.type !== "JSON") return [own];
     const paths = JSON_KEYS.map((key) => leaf("untyped", `${sql}.${key}`));
-    return [own, ...paths];
+    const functions = [
+      leaf("untyped", `json_extract(${sql}, '$.${JSON_KEYS[1]}')`),
+      leaf("text", `json_type(${sql})`),
+      leaf("integer", `json_array_length(${sql})`),
+    ];
+    return [own, ...paths, ...functions];
   });
 }
 
@@ -54,7 +81,10 @@ export function seekKeys(
     .filter((index) => index.table === table.name)
     .flatMap((index) => (isFirstOnly ? index.keys.slice(0, 1) : index.keys));
   const constrained = table.columns
-    .filter((column) => column.constraint !== null)
+    .filter(
+      (column) =>
+        column.constraint === "primary key" || column.constraint === "unique",
+    )
     .map((column) => ({ column, form: "column" as const }));
   return [...indexKeys, ...constrained];
 }

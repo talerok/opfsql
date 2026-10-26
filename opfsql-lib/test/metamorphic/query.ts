@@ -8,10 +8,10 @@ import {
   parameterized,
   print,
 } from "./expression.js";
-import { AliasSource, ExpressionGenerator } from "./generate-expression.js";
+import { ExpressionGenerator } from "./generate-expression.js";
 import type { Random } from "./random.js";
 import { seekableCondition } from "./seekable.js";
-import { keyLeaf, seekKeys, tableLeaves } from "./scope.js";
+import { AliasSource, keyLeaf, seekKeys, tableLeaves } from "./scope.js";
 import type { DatabaseSpec, TableSpec } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,8 @@ export interface QueryCase {
     readonly expression: Expression;
     readonly values: Value[];
   };
+  /** What ORDER BY puts first — often a key, so that an index can deliver the order — or null. */
+  readonly orderKey: string | null;
   readonly limit: number;
   readonly offset: number;
 }
@@ -66,18 +68,19 @@ export function generateCase(
   const from = generateFrom(random, database);
   const generator = new ExpressionGenerator(
     random,
-    { leaves: from.leaves, tables: database.tables },
+    { leaves: from.leaves, database },
     aliases,
   );
   // Grouping reads no subquery: GROUP BY and the aggregates stay simple.
   const plain = new ExpressionGenerator(
     random,
-    { leaves: from.leaves, tables: [] },
+    { leaves: from.leaves, database: null },
     aliases,
   );
   const outputCount = random.between(1, 3);
   const groupKey = generateGroupKey(random, from);
-  const measured = plain.anyValue(1);
+  // Often a key, so that MIN and MAX can read one end of an index.
+  const measured = keyOrElse(random, from, () => plain.anyValue(1));
   const summed = plain.value("integer", 1);
   const condition = generateCondition(random, generator, from);
   const values: Value[] = [];
@@ -100,6 +103,7 @@ export function generateCase(
       expression: parameterized(condition, isParameter, values),
       values,
     },
+    orderKey: generateOrderKey(random, from),
     limit: random.between(0, 8),
     offset: random.chance(0.5) ? 0 : random.between(1, 5),
   };
@@ -136,11 +140,25 @@ function generateCondition(
 
 /** A column of the FROM, now and then in an expression an index may be on. */
 function generateGroupKey(random: Random, from: FromClause): Expression {
-  const column = random.pick(from.leaves);
-  if (!random.chance(0.3)) return column;
-  if (column.type === "text") return node("text", "lower(", column, ")");
-  if (column.type === "integer") return node("integer", "abs(", column, ")");
-  return column;
+  return keyOrElse(random, from, () => random.pick(from.leaves));
+}
+
+/** Half the time a key an access path can seek, when there is one; else `otherwise`. */
+function keyOrElse(
+  random: Random,
+  from: FromClause,
+  otherwise: () => Expression,
+): Expression {
+  const isKey = from.keys.length > 0 && random.chance(0.5);
+  return isKey ? random.pick(from.keys) : otherwise();
+}
+
+/** A key, in either direction and with NULLs placed either way, or null. */
+function generateOrderKey(random: Random, from: FromClause): string | null {
+  if (from.keys.length === 0 || random.chance(0.4)) return null;
+  const direction = random.pick(["", " ASC", " DESC"]);
+  const nulls = random.pick(["", " NULLS FIRST", " NULLS LAST"]);
+  return `${print(random.pick(from.keys))}${direction}${nulls}`;
 }
 
 /** A condition over what a group has: its key and aggregates. */
@@ -157,7 +175,7 @@ function generateGroupCondition(
   ];
   const generator = new ExpressionGenerator(
     random,
-    { leaves, tables: [] },
+    { leaves, database: null },
     new AliasSource(),
   );
   return generator.condition(2);
@@ -215,7 +233,7 @@ function joinOf(random: Random, site: JoinSite): { sql: string } {
     const leaves = [...site.leaves, ...tableLeaves(site.table, site.alias)];
     const generator = new ExpressionGenerator(
       random,
-      { leaves, tables: [] },
+      { leaves, database: null },
       new AliasSource(),
     );
     on += ` AND ${print(generator.condition(1))}`;

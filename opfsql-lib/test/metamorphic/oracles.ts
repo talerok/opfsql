@@ -54,12 +54,19 @@ function noRec(queryCase: QueryCase): Check {
   };
 }
 
-/** ORDER BY every column, so that ties are equal rows, with and without LIMIT … OFFSET. */
+/**
+ * ORDER BY every column, so that ties are equal rows — after a key, when
+ * the case has one — with and without LIMIT … OFFSET.
+ */
 function limited(queryCase: QueryCase): Check {
-  const keys = queryCase.outputs.map((_, index) => {
-    const direction = index % 2 === 0 ? "" : " DESC";
+  const positions = queryCase.outputs.map((_, index) => {
+    const direction = index % 2 === 0 ? "" : " DESC NULLS FIRST";
     return `${String(index + 1)}${direction}`;
   });
+  const keys =
+    queryCase.orderKey === null
+      ? positions
+      : [queryCase.orderKey, ...positions];
   const { limit, offset } = queryCase;
   const query = `SELECT ${selectList(queryCase)} FROM ${queryCase.from.sql} WHERE ${print(queryCase.condition)} ORDER BY ${keys.join(", ")}`;
   return {
