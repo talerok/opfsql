@@ -21,11 +21,15 @@ import { sharedType } from "./type-rules.js";
 // and ORDER BY can only name its columns: by position or by name.
 // ---------------------------------------------------------------------------
 
+/** SQLite's SQLITE_MAX_COMPOUND_SELECT (docs/semantics.md, Limits). */
+const MAX_COMPOUND_SELECTS = 500;
+
 export function bindCompound(
   node: SetOperationNode,
   scope: Scope,
   orderBy: readonly OrderByNode[],
 ): BoundQuery {
+  checkSelectCount(node);
   const query = bindMembers(node, scope);
   const columns = readColumns(query.plan, query.columns);
   const keys = orderBy.map((item) => ({
@@ -33,6 +37,17 @@ export function bindCompound(
     ...keyOrder(item),
   }));
   return { ...query, plan: order(query.plan, keys, columns) };
+}
+
+function checkSelectCount(node: SetOperationNode): void {
+  let count = 1;
+  let member: SelectNode | SetOperationNode = node;
+  for (; member.type === "SET_OPERATION_NODE"; member = member.left) count++;
+  if (count > MAX_COMPOUND_SELECTS) {
+    throw new SemanticError(
+      `a compound SELECT joins at most ${String(MAX_COMPOUND_SELECTS)} SELECTs, not ${String(count)}`,
+    );
+  }
 }
 
 function bindMembers(node: SetOperationNode, scope: Scope): BoundQuery {

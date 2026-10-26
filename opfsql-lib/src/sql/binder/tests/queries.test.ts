@@ -1,9 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { lines, notSupported, plan, query, semanticError } from "./helpers.js";
+import { SemanticError } from "../../../errors.js";
+import { StatementType, type SetOperationNode } from "../../parser/index.js";
+import { bindStatement, type BindableStatement } from "../index.js";
+import {
+  lines,
+  notSupported,
+  only,
+  plan,
+  query,
+  semanticError,
+  shop,
+} from "./helpers.js";
 
 /** A recursive query r(n) with anchor `SELECT 1` and `step`, then `after`. */
 function recursive(step: string, after = ""): string {
   return `WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL ${step}${after}) SELECT * FROM r`;
+}
+
+/**
+ * `SELECT 1 UNION ALL SELECT 2 UNION ALL …`, `count` SELECTs long, built
+ * as a tree: the parser's nesting limit stops a long compound first.
+ */
+function compoundOf(count: number): BindableStatement {
+  const statement = only("SELECT 1 UNION ALL SELECT 2");
+  if (statement.type !== StatementType.SELECT_STATEMENT) {
+    throw new TypeError("not a query");
+  }
+  const { body } = statement;
+  if (body.type !== "SET_OPERATION_NODE") throw new TypeError("not a compound");
+  let chain: SetOperationNode = body;
+  for (let selects = 2; selects < count; selects++) {
+    chain = { ...body, left: chain };
+  }
+  return { ...statement, body: chain };
 }
 
 describe("set operations", () => {
@@ -35,6 +64,13 @@ describe("set operations", () => {
       types: ["REAL"],
       left: { kind: "set-operation", operator: "UNION ALL", types: ["REAL"] },
     });
+  });
+
+  it("join at most 500 SELECTs, as SQLite", () => {
+    expect(bindStatement(compoundOf(500), shop).kind).toBe("query");
+    expect(() => bindStatement(compoundOf(501), shop)).toThrow(
+      new SemanticError("a compound SELECT joins at most 500 SELECTs, not 501"),
+    );
   });
 
   it("need as many columns on each side", () => {
