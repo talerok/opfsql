@@ -279,19 +279,20 @@ runs. They were taken on an Apple M4 on 2026-10-26, under a load average of
 - **Index keys do not overflow.** A key longer than about a quarter of a
   page fails with `TOO_LARGE`.
 - **Several tabs share a database only in Chromium.**
-- **Not supported**, each failing with `NOT_SUPPORTED` or a syntax error:
+- **Not supported.** Each of these fails with `NOT_SUPPORTED` before
+  anything runs; an unknown function fails with `SEMANTIC_ERROR`. The README
+  and docs/semantics.md list them too.
   - window functions;
-  - `FULL OUTER JOIN` and `NATURAL JOIN`;
-  - `FOREIGN KEY`, `REFERENCES` and `CHECK`;
-  - a table-level `UNIQUE`;
-  - views and triggers;
-  - `SAVEPOINT`, `ATTACH`, `PRAGMA`, `VACUUM`, `REPLACE` and `INSERT OR …`;
-  - `RETURNING` and `UPDATE … FROM`;
-  - `ALTER TABLE … RENAME`;
-  - `CREATE TABLE … AS`, `WITHOUT ROWID`, `STRICT`, generated columns and
-    temporary tables;
-  - `VALUES` as a query and `DEFAULT VALUES`;
-  - `COLLATE`, `GLOB`, `LIKE … ESCAPE`, `IS [NOT] DISTINCT FROM`, and `IS`
-    with anything but NULL;
-  - `FILTER` on aggregates;
-  - date and time functions, `group_concat` and `printf`.
+  - `FULL OUTER JOIN`, `NATURAL JOIN`, and parentheses around FROM items;
+  - `FOREIGN KEY`, `REFERENCES`, `CHECK`, a table-level `UNIQUE` and
+    generated columns;
+  - views, triggers, `ALTER TABLE … RENAME`, `CREATE TABLE … AS`, temporary
+    tables, `WITHOUT ROWID`, `STRICT`, descending index keys and `REINDEX`;
+  - `SAVEPOINT`, `RELEASE` and `ROLLBACK TO`;
+  - `REPLACE`, `INSERT OR …`, `UPDATE OR …`, `RETURNING`, `UPDATE … FROM`
+    and `DEFAULT VALUES`;
+  - the bitwise operators, `COLLATE`, `GLOB`, `LIKE … ESCAPE`, `IS` with
+    anything but NULL, `IS [NOT] DISTINCT FROM`, `x IN table`, `FILTER` on
+    aggregates and `VALUES` as a query;
+  - `INDEXED BY`, `ATTACH`, `PRAGMA` and `VACUUM`;
+  - date and time functions and `printf`.
