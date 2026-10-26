@@ -42,7 +42,8 @@ function countOf(
   if (expression === null) return null;
   if (expression.expressionClass === ExpressionClass.PARAMETER) {
     context.noteParameter(expression.index);
-    return { kind: "parameter", index: expression.index, type: "INTEGER" };
+    const { index } = expression;
+    return { kind: "parameter", index, affinity: null, type: "INTEGER" };
   }
   const value =
     expression.expressionClass === ExpressionClass.CONSTANT

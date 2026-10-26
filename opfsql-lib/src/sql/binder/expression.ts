@@ -5,6 +5,7 @@ import {
   type ParsedExpression,
 } from "../parser/index.js";
 import type { logical } from "../plan/index.js";
+import { comparedWith } from "./affinity.js";
 import { bindCall } from "./calls.js";
 import { bindCondition, type AggregateRule, type Clause } from "./clause.js";
 import { bindColumn } from "./names.js";
@@ -51,7 +52,8 @@ function bindNode(expression: ParsedExpression, clause: Clause): Expression {
     }
     case ExpressionClass.PARAMETER: {
       clause.scope.context.noteParameter(expression.index);
-      return { kind: "parameter", index: expression.index, type: "ANY" };
+      const { index } = expression;
+      return { kind: "parameter", index, affinity: null, type: "ANY" };
     }
     case ExpressionClass.COMPARISON: {
       return bindComparison(expression, clause);
@@ -91,12 +93,14 @@ function bindNode(expression: ParsedExpression, clause: Clause): Expression {
  * without, each WHEN is a condition. The results share one type.
  */
 function bindCase(expression: CaseExpression, clause: Clause): Expression {
-  const operand =
+  const compared =
     expression.operand === null ? null : clause.bind(expression.operand);
   const branches = expression.caseChecks.map((check) => ({
-    when: bindWhen(check.whenExpression, operand, clause),
+    when: bindWhen(check.whenExpression, compared, clause),
     result: clause.bind(check.thenExpression),
   }));
+  const whenTypes = branches.map((branch) => branch.when.type);
+  const operand = compared === null ? null : comparedWith(compared, whenTypes);
   const otherwise =
     expression.elseExpression === null
       ? null
@@ -117,5 +121,5 @@ function bindWhen(
   if (operand === null) return bindCondition(when, clause, "a CASE WHEN");
   const value = clause.bind(when);
   checkComparable(operand.type, value.type);
-  return value;
+  return comparedWith(value, [operand.type]);
 }

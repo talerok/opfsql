@@ -196,7 +196,6 @@ describe("subqueries", () => {
           kind: "quantified-comparison",
           operator: "EQUAL",
           quantifier: "ANY",
-          columnType: "INTEGER",
         },
       ],
     });

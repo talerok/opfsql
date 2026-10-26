@@ -14,6 +14,7 @@ import type {
   ComparisonOperator,
   logical,
 } from "../plan/index.js";
+import { comparedWith } from "./affinity.js";
 import { bindCondition, type Clause } from "./clause.js";
 import {
   arithmeticType,
@@ -40,8 +41,13 @@ export function bindComparison(
     return likeCall(left, right);
   }
   checkComparable(left.type, right.type);
-  const operator = comparisonOperator(expression.type);
-  return { kind: "comparison", operator, left, right, type: "BOOLEAN" };
+  return {
+    kind: "comparison",
+    operator: comparisonOperator(expression.type),
+    left: comparedWith(left, [right.type]),
+    right: comparedWith(right, [left.type]),
+    type: "BOOLEAN",
+  };
 }
 
 /** `a AND b AND c` as one node; an AND inside an AND is flattened into it. */
@@ -114,7 +120,13 @@ export function bindBetween(
   const upper = clause.bind(expression.upper);
   checkComparable(input.type, lower.type);
   checkComparable(input.type, upper.type);
-  return { kind: "between", input, lower, upper, type: "BOOLEAN" };
+  return {
+    kind: "between",
+    input: comparedWith(input, [lower.type, upper.type]),
+    lower: comparedWith(lower, [input.type]),
+    upper: comparedWith(upper, [input.type]),
+    type: "BOOLEAN",
+  };
 }
 
 export function not(operand: Expression): Expression {
@@ -205,7 +217,15 @@ function inList(
 ): Expression {
   const list = items.map((item) => clause.bind(item));
   for (const item of list) checkComparable(needle.type, item.type);
-  return { kind: "in-list", needle, list, type: "BOOLEAN" };
+  return {
+    kind: "in-list",
+    needle: comparedWith(
+      needle,
+      list.map((item) => item.type),
+    ),
+    list: list.map((item) => comparedWith(item, [needle.type])),
+    type: "BOOLEAN",
+  };
 }
 
 /** An operand the parser always builds; a tree without it is a bug. */

@@ -1,6 +1,7 @@
 import { SemanticError } from "../../errors.js";
 import type { SubqueryExpression } from "../parser/index.js";
 import type { logical, OutputColumn } from "../plan/index.js";
+import { comparedWith } from "./affinity.js";
 import type { Clause } from "./clause.js";
 import { comparisonOperator, not } from "./operators.js";
 import type { BoundQuery } from "./scope.js";
@@ -45,10 +46,9 @@ export function bindSubquery(
       checkComparable(needle.type, column.type);
       return {
         kind: "quantified-comparison",
-        needle,
+        needle: comparedWith(needle, [column.type]),
         operator: comparisonOperator(expression.comparisonType),
         quantifier: expression.subqueryType,
-        columnType: column.type,
         plan,
         isCorrelated,
         type: "BOOLEAN",
