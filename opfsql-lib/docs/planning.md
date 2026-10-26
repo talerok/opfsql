@@ -235,19 +235,27 @@ column of an enclosing query or a CTE defined inside an enclosing subquery:
 both change from one outer row to the next. Any other subquery runs once and
 keeps its result.
 
-UPDATE and DELETE read every target row from their source, and UPDATE
-computes every new row, before changing any — each change made by the table layer, which keeps indexes and
-constraints with the row — so a change never moves a row into or out of the
-scan that is still finding rows. An INSERT whose source reads the target
-table reads all of it first, for the same reason; the binder, which resolved
-every table the source names, says so on the statement. Any other INSERT
-writes each row as its source produces it.
+UPDATE and DELETE read the rowid of every target row from their source
+before changing any — each change made by the table layer, which keeps
+indexes and constraints with the row — so a change never moves a row into or
+out of the scan that is still finding rows. An INSERT whose source reads the
+target table reads all of it first, for the same reason; the binder, which
+resolved every table the source names, says so on the statement. Any other
+INSERT writes each row as its source produces it.
 
-An UPDATE's source produces every column of the table, then the rowid; no
-pass prunes them. A DELETE's source produces the rows to delete, the rowid
-among their columns: the binder reads every column, as for UPDATE, under the
-WHERE that reads them, and the optimizer may narrow it to the rowid alone
-once the WHERE is in a scan's residual. ON CONFLICT's
+An UPDATE then changes one row at a time: it reads the row by its rowid,
+computes its new values from it, and writes them. Each new row depends only
+on its own old row, which nothing has touched yet, so this is the result of
+computing every new row first (docs/semantics.md, Departures) — unless an
+assignment holds a subquery that reads the target table and so sees other
+rows. The binder says so on the statement, and then every new row is
+computed before any is written. Memory holds the rowids, and only in that
+case the new rows.
+
+The sources of UPDATE and DELETE produce the rows to change, the rowid
+among their columns: the binder reads every column under the WHERE that
+reads them, and the optimizer may narrow it to the rowid alone once the
+WHERE is in a scan's residual. ON CONFLICT's
 existing and refused rows are each every column of the table, in order.
 
 Each statement of a transaction runs inside a savepoint of its write
