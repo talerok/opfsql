@@ -1,10 +1,11 @@
 import { SemanticError } from "../../errors.js";
 import { nameKey } from "../../schema/index.js";
 import {
+  compoundMembers,
   SetOperationType,
+  type CompoundLink,
   type OrderByNode,
   type ParsedExpression,
-  type SelectNode,
   type SetOperationNode,
 } from "../parser/index.js";
 import type { logical, OutputColumn } from "../plan/index.js";
@@ -30,8 +31,15 @@ export function bindCompound(
   scope: Scope,
   orderBy: readonly OrderByNode[],
 ): BoundQuery {
-  checkSelectCount(node);
-  const query = bindMembers(node, scope);
+  const { first, links } = compoundMembers(node);
+  const count = links.length + 1;
+  if (count > MAX_COMPOUND_SELECTS) {
+    throw new SemanticError(
+      `a compound SELECT joins at most ${String(MAX_COMPOUND_SELECTS)} SELECTs, not ${String(count)}`,
+    );
+  }
+  let query = bindSelect(first, scope.sibling(), []);
+  for (const link of links) query = joinOn(query, link, scope);
   const columns = readColumns(query.plan, query.columns);
   const keys = orderBy.map((item) => ({
     position: outputPosition(item.expression, query.columns),
@@ -40,21 +48,14 @@ export function bindCompound(
   return { ...query, plan: order(query.plan, keys, columns) };
 }
 
-function checkSelectCount(node: SetOperationNode): void {
-  let count = 1;
-  let member: SelectNode | SetOperationNode = node;
-  for (; member.type === "SET_OPERATION_NODE"; member = member.left) count++;
-  if (count > MAX_COMPOUND_SELECTS) {
-    throw new SemanticError(
-      `a compound SELECT joins at most ${String(MAX_COMPOUND_SELECTS)} SELECTs, not ${String(count)}`,
-    );
-  }
-}
-
-function bindMembers(node: SetOperationNode, scope: Scope): BoundQuery {
-  const left = bindMember(node.left, scope);
-  const right = bindSelect(node.right, scope.sibling(), []);
-  const operator = operatorOf(node.setOperationType);
+/** The compound so far, `left`, with the next SELECT joined on by its operator. */
+function joinOn(
+  left: BoundQuery,
+  link: CompoundLink,
+  scope: Scope,
+): BoundQuery {
+  const right = bindSelect(link.select, scope.sibling(), []);
+  const operator = operatorOf(link.operator);
   if (left.columns.length !== right.columns.length) {
     throw new SemanticError(
       `each side of ${operator} must have as many columns: ${String(left.columns.length)} and ${String(right.columns.length)}`,
@@ -73,16 +74,6 @@ function bindMembers(node: SetOperationNode, scope: Scope): BoundQuery {
     types: columns.map((column) => column.type),
   };
   return { plan, columns };
-}
-
-function bindMember(
-  member: SelectNode | SetOperationNode,
-  scope: Scope,
-): BoundQuery {
-  if (member.type === "SELECT_NODE") {
-    return bindSelect(member, scope.sibling(), []);
-  }
-  return bindMembers(member, scope);
 }
 
 export function operatorOf(

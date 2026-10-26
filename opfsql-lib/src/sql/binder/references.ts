@@ -1,6 +1,7 @@
 import { nameKey } from "../../schema/index.js";
 import {
   childExpressions,
+  compoundMembers,
   ExpressionClass,
   TableReferenceType,
   type ParsedExpression,
@@ -55,13 +56,14 @@ function* tablesIn(statement: SelectStatement): Generator<string> {
 }
 
 function* tablesInBody(body: SelectNode | SetOperationNode): Generator<string> {
-  if (body.type === "SET_OPERATION_NODE") {
-    yield* tablesInBody(body.left);
-    yield* tablesInBody(body.right);
-    return;
-  }
-  if (body.from !== null) yield* tablesInFrom(body.from);
-  for (const expression of expressionsOf(body)) {
+  const { first, links } = compoundMembers(body);
+  const selects = [first, ...links.map((link) => link.select)];
+  for (const select of selects) yield* tablesInSelect(select);
+}
+
+function* tablesInSelect(select: SelectNode): Generator<string> {
+  if (select.from !== null) yield* tablesInFrom(select.from);
+  for (const expression of expressionsOf(select)) {
     yield* tablesInExpression(expression);
   }
 }
