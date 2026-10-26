@@ -63,6 +63,7 @@ function compileScalar(
   expression: ScalarSubquery<physical.Plan>,
   scope: Scope,
 ): CompiledExpression {
+  // Two rows are enough to tell one from several.
   const rows = compileRows(expression, scope, 2);
   return (row) => onlyValue(rows(row));
 }
@@ -113,7 +114,7 @@ function compileHashedIn(
   compiler: Compiler,
 ): CompiledExpression {
   const needle = compiler.compile(expression.needle);
-  const subquery = compilePlan(expression, compiler.scope);
+  const subquery = compileSubqueryPlan(expression, compiler.scope);
   const { outer } = compiler.scope.run;
   const contains = once(() =>
     membership(
@@ -133,7 +134,7 @@ function compileRows(
   scope: Scope,
   limit?: number,
 ): CompiledRows {
-  const subquery = compilePlan(expression, scope);
+  const subquery = compileSubqueryPlan(expression, scope);
   const { outer } = scope.run;
   if (!expression.isCorrelated) {
     return once(() => sealed(outer, () => subquery.rows(limit)));
@@ -155,7 +156,10 @@ function sealed<T>(outer: OuterRows, run: () => T): T {
  * The subquery's plan, compiled by the executor as a query level inside
  * `scope`: the rows of `scope.layout` are its depth-1 rows.
  */
-function compilePlan(expression: Subquery, scope: Scope): CompiledSubquery {
+function compileSubqueryPlan(
+  expression: Subquery,
+  scope: Scope,
+): CompiledSubquery {
   const level: QueryLevel = {
     run: scope.run,
     outerLayouts: [scope.layout, ...scope.outerLayouts],

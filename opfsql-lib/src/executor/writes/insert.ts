@@ -61,7 +61,7 @@ export function runInsert(
 ): WriteOutcome {
   const { table, onConflict } = statement;
   const source = compilePlan(statement.source, context);
-  const newRow = compileNewRow(table, statement.columns);
+  const newRow = compileTableRow(table, statement.columns);
   const editor = tables.editor(table);
   const insertRow = compileRowInsert(onConflict, editor, context);
   // A source that reads the target table is read whole first, so that it
@@ -94,7 +94,7 @@ function insertEach(
  * rest. A BLOB or JSON default is the schema's own value: each row takes a
  * copy of it.
  */
-function compileNewRow(
+function compileTableRow(
   table: Table,
   columns: readonly number[],
 ): (source: Tuple) => Value[] {

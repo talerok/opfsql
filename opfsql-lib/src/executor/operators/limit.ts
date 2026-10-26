@@ -2,8 +2,14 @@ import { DatatypeMismatchError } from "../../errors.js";
 import type { Tuple } from "../../expressions/index.js";
 import type { physical } from "../../sql/plan/index.js";
 import { assignValue, describeValue, type Value } from "../../values/index.js";
-import { compileFixed, type Context } from "../context.js";
-import { type Demand, type Operator, pull, WalkOperator } from "../operator.js";
+import { compileAtStart, type Context } from "../context.js";
+import {
+  type Demand,
+  demandOf,
+  type Operator,
+  pull,
+  WalkOperator,
+} from "../operator.js";
 
 // ---------------------------------------------------------------------------
 // LIMIT and OFFSET (docs/semantics.md, LIMIT and OFFSET): integers, as
@@ -60,16 +66,12 @@ function* windowRows(
 ): Generator<Tuple> {
   skip(child, window.offset);
   if (window.limit === 0) return;
-  let left = window.limit;
-  const wanted = {
-    get wanted() {
-      return Math.min(demand.wanted, left);
-    },
-  };
-  for (const row of pull(child, wanted)) {
+  let remaining = window.limit;
+  const cappedDemand = demandOf(() => Math.min(demand.wanted, remaining));
+  for (const row of pull(child, cappedDemand)) {
     yield row;
-    left--;
-    if (left === 0) return;
+    remaining--;
+    if (remaining === 0) return;
   }
 }
 
@@ -90,7 +92,7 @@ function compileCount(
   context: Context,
 ): () => number | null {
   if (expression === null) return () => null;
-  const value = compileFixed(expression, context);
+  const value = compileAtStart(expression, context);
   return () => integerOf(value(), clause);
 }
 

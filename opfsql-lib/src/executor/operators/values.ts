@@ -4,7 +4,7 @@ import {
   type Tuple,
 } from "../../expressions/index.js";
 import type { physical } from "../../sql/plan/index.js";
-import { type Context, fixedScope } from "../context.js";
+import { type Context, startScope } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
 
 /**
@@ -12,7 +12,7 @@ import { leafOperator, type Operator } from "../operator.js";
  * is. They may read outer rows, so they are evaluated again on each start.
  */
 export function values(plan: physical.Values, context: Context): Operator {
-  const scope = fixedScope(context);
+  const scope = startScope(context);
   const rows = plan.rows.map((row) =>
     row.map((expression) => compileExpression(expression, scope)),
   );

@@ -1,6 +1,6 @@
 // The expression compiler (docs/planning.md, Execution): the expressions of
-// a physical plan, compiled once per plan node and run into closures that
-// read a row. The executor gives it layouts, the run's parameters and a
+// a physical plan, compiled into closures over a row, once per plan node in
+// each run. The executor gives it layouts, the run's parameters and a
 // compiler for subquery plans; the optimizer folds constants with it.
 
 export { compileAggregate, type CompiledAggregate } from "./aggregate.js";

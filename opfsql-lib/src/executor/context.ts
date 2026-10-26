@@ -17,7 +17,7 @@ export type CteScope = ReadonlyMap<number, CteRows>;
 
 /** Where a plan node is compiled. */
 export interface Context {
-  /** Its query level: the run, and the layouts of the enclosing queries' rows. */
+  /** Its query level: the run, the enclosing queries' rows, the subquery compiler. */
   readonly query: QueryContext;
   /** The CTEs a `cte-scan` here may read. */
   readonly ctes: CteScope;
@@ -31,24 +31,28 @@ export function scopeOf(context: Context, layout: Layout): Scope {
 }
 
 /**
- * The scope of a value fixed for one run of the node, such as a seek value
- * or a LIMIT: no row of its own, though it may read enclosing queries' rows.
+ * The scope of a value computed each time the node starts, such as a seek
+ * value or a LIMIT: no row of its own, though it may read enclosing queries'
+ * rows.
  */
-export function fixedScope(context: Context): Scope {
+export function startScope(context: Context): Scope {
   return scopeOf(context, []);
 }
 
-/** How deep in subqueries the node is: 0 in the statement's own query. */
+/**
+ * The node's query level: how many queries enclose it, 0 in the statement's
+ * own query.
+ */
 export function levelOf(context: Context): number {
   return context.query.outerLayouts.length;
 }
 
-/** A value fixed for one run of its node, evaluated when the node starts. */
-export function compileFixed(
+/** A value computed each time its node starts, the same for all its rows. */
+export function compileAtStart(
   expression: physical.Expression,
   context: Context,
 ): () => Value {
-  const value = compileExpression(expression, fixedScope(context));
+  const value = compileExpression(expression, startScope(context));
   return () => value([]);
 }
 

@@ -1,5 +1,5 @@
 import type { physical } from "../../sql/plan/index.js";
-import { type Context, fixedScope } from "../context.js";
+import { type Context, startScope } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
 import { compileEqual, NO_ROW } from "./seeks.js";
 
@@ -12,7 +12,7 @@ export function indexExtreme(
   context: Context,
 ): Operator {
   const index = context.tables.index(plan.index);
-  const equal = compileEqual(plan.equal, fixedScope(context));
+  const equal = compileEqual(plan.equal, startScope(context));
   const end = plan.extreme === "MIN" ? "first" : "last";
   return leafOperator(
     () => [[index.extreme(equal(NO_ROW), end)]].values(),

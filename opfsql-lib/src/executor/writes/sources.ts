@@ -16,27 +16,25 @@ export function sourceRowids(
   context: Context,
 ): number[] {
   const layout = physical.layoutOf(source);
-  const position = positionOf(layout, tableIndex, ROWID_COLUMN);
+  const position = rowidPosition(layout, tableIndex);
   const rows = pull(compilePlan(source, context), EVERY_ROW);
   return Array.from(rows, (row) => rowidAt(row, position));
 }
 
-/** Where column `columnIndex` of table `tableIndex` is in a write's source rows. */
-export function positionOf(
-  layout: Layout,
-  tableIndex: number,
-  columnIndex: number,
-): number {
-  const position = positionIn(layout, { tableIndex, columnIndex });
+/** Where the rowid of table `tableIndex` is in a write's source rows. */
+function rowidPosition(layout: Layout, tableIndex: number): number {
+  const position = positionIn(layout, {
+    tableIndex,
+    columnIndex: ROWID_COLUMN,
+  });
   if (position === null) {
-    const name = columnIndex === ROWID_COLUMN ? "rowid" : String(columnIndex);
-    throw new InternalError(`a write's source has no column ${name}`);
+    throw new InternalError("a write's source has no rowid");
   }
   return position;
 }
 
 /** The rowid at `position` of a source row. */
-export function rowidAt(row: Tuple, position: number): number {
+function rowidAt(row: Tuple, position: number): number {
   const rowid = row[position];
   if (typeof rowid !== "number") {
     throw new InternalError("a write's source gave a row without a rowid");

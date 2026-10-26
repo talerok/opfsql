@@ -30,7 +30,9 @@ import { tableScan } from "./scans/table-scan.js";
 // Compiling a physical plan into operators, once per run (docs/planning.md,
 // Execution): each node's expressions are compiled for its input's layout,
 // and each subquery in them is compiled here too, once, as a query level of
-// its own, with the CTEs in scope where it is written.
+// its own, with the CTEs in scope where it is written. The operator of each
+// kind of node is built by the function named after that kind (`filter`,
+// `hashJoin`, `tableScan`), in operators/ and scans/.
 // ---------------------------------------------------------------------------
 
 type ScanPlan = Extract<

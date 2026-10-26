@@ -9,6 +9,7 @@ import { rowKey } from "../../values/index.js";
 import { compileConditions, type Context, scopeOf } from "../context.js";
 import {
   type Demand,
+  demandOf,
   drain,
   type Operator,
   pull,
@@ -18,15 +19,16 @@ import {
 // ---------------------------------------------------------------------------
 // Joins (docs/planning.md, Rules 2): a pair is a match only when every
 // condition is TRUE for it, and a LEFT join emits each left row that has no
-// match once, with NULLs for the right side. The right side is read whole;
-// the left in full batches when the caller takes every row, and otherwise
-// one row at a time, since each may give any number of pairs.
+// match once, with NULLs for the right side. A hash or nested-loop join
+// reads its right side whole; a lookup join seeks it for each left row. The
+// left side is read in full batches when the caller takes every row, and
+// otherwise one row at a time, since each may give any number of pairs.
 // ---------------------------------------------------------------------------
 
 /** How a join decides and pads its pairs. */
 interface Pairing {
   readonly isMatch: (pair: Tuple) => boolean;
-  readonly isLeft: boolean;
+  readonly isLeftJoin: boolean;
   /** The right side's columns for a left row without a match. */
   readonly nulls: Tuple;
 }
@@ -123,18 +125,14 @@ export function lookupJoin(
  * row; otherwise one at a time, as any one may give all the pairs wanted.
  */
 function leftDemand(demand: Demand): Demand {
-  return {
-    get wanted() {
-      return demand.wanted === Infinity ? Infinity : 1;
-    },
-  };
+  return demandOf(() => (demand.wanted === Infinity ? Infinity : 1));
 }
 
 /** The matching pairs of `row` with `candidates`; for a LEFT join, the row padded if none. */
 function* pairsOf(
   row: Tuple,
   candidates: Iterable<Tuple>,
-  { isMatch, isLeft, nulls }: Pairing,
+  { isMatch, isLeftJoin, nulls }: Pairing,
 ): Generator<Tuple> {
   let isMatched = false;
   for (const candidate of candidates) {
@@ -143,7 +141,7 @@ function* pairsOf(
     isMatched = true;
     yield pair;
   }
-  if (isLeft && !isMatched) yield [...row, ...nulls];
+  if (isLeftJoin && !isMatched) yield [...row, ...nulls];
 }
 
 function compilePairing(
@@ -155,7 +153,7 @@ function compilePairing(
   const rightWidth = physical.layoutOf(plan.right).length;
   return {
     isMatch: compileConditions(conditions, scope),
-    isLeft: plan.joinType === "left",
+    isLeftJoin: plan.joinType === "left",
     nulls: Array.from({ length: rightWidth }, () => null),
   };
 }

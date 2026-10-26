@@ -39,6 +39,15 @@ export interface Demand {
  */
 export const EVERY_ROW: Demand = { wanted: Infinity };
 
+/** A demand that `wanted` works out each time it is read. */
+export function demandOf(wanted: () => number): Demand {
+  return {
+    get wanted() {
+      return wanted();
+    },
+  };
+}
+
 /** An operator's rows from the start, its children pulled as `demand` wants. */
 export type Walk = (demand: Demand) => Iterator<Tuple>;
 
@@ -117,11 +126,7 @@ function* batchesOf(
 
 /** A demand for what `rows` lack of `count`. */
 function upTo(count: number, rows: readonly Tuple[]): Demand {
-  return {
-    get wanted() {
-      return count - rows.length;
-    },
-  };
+  return demandOf(() => count - rows.length);
 }
 
 /**

@@ -2,7 +2,7 @@ import type { OrderDirection, physical } from "../../sql/plan/index.js";
 import type { Scope, Tuple } from "../../expressions/index.js";
 import type { ColumnReader, KeyBound, KeyRange } from "../../table/index.js";
 import { compareValues, type Value } from "../../values/index.js";
-import { type Context, fixedScope } from "../context.js";
+import { type Context, startScope } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
 import { type AtStart, compileEqual, compileRange, NO_ROW } from "./seeks.js";
 import { tableAccess } from "./table-access.js";
@@ -14,7 +14,7 @@ import { tableAccess } from "./table-access.js";
 // every rowid is above `false` and below 'a'.
 // ---------------------------------------------------------------------------
 
-/** The rowids a set selects in one run: some, in order and each once, or a range. */
+/** The rowids a set selects each time it starts: some, in order and each once, or a range. */
 export type RowidSelection =
   | { readonly kind: "list"; readonly rowids: readonly number[] }
   | { readonly kind: "range"; readonly first: number; readonly last: number };
@@ -34,7 +34,7 @@ export function rowidLookup(
   plan: physical.RowidLookup,
   context: Context,
 ): Operator {
-  const rowsFor = rowidLookupRows(plan, context, fixedScope(context));
+  const rowsFor = rowidLookupRows(plan, context, startScope(context));
   return leafOperator(() => rowsFor(NO_ROW), context.query.run);
 }
 
@@ -72,7 +72,7 @@ export function compileRowidSet(
 }
 
 /** The rows the selection finds, as `reader` reads them, in rowid order or its reverse. */
-export function* rowsSelected(
+function* rowsSelected(
   selection: RowidSelection,
   reader: ColumnReader,
   direction: OrderDirection,
