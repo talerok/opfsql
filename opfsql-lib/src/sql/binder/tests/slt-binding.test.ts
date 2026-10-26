@@ -64,25 +64,41 @@ function isExplain(
 
 /** The statements of a file that should bind and do not, with why. */
 function failures(source: string): string[] {
-  let schema = Schema.empty;
-  const failed: string[] = [];
-  for (const block of blocksOf(source)) {
-    let statements: BindableStatement[];
+  const run = new FileRun();
+  for (const block of blocksOf(source)) run.block(block);
+  return run.failed;
+}
+
+/** One file's statements bound in order, each against the schema the DDL before left. */
+class FileRun {
+  readonly failed: string[] = [];
+  private schema = Schema.empty;
+
+  block(block: Block): void {
+    for (const statement of parsed(block.sql)) this.bind(statement, block);
+  }
+
+  private bind(statement: BindableStatement, block: Block): void {
     try {
-      statements = bindable(block.sql);
-    } catch {
-      continue;
-    }
-    for (const statement of statements) {
-      try {
-        schema = applyStatement(schema, bindStatement(statement, schema));
-      } catch (error) {
-        if (!(error instanceof OpfsqlError)) throw error;
-        if (!block.expectsError) failed.push(`${block.sql}: ${error.message}`);
-      }
+      this.schema = applyStatement(
+        this.schema,
+        bindStatement(statement, this.schema),
+      );
+    } catch (error) {
+      if (!(error instanceof OpfsqlError)) throw error;
+      if (!block.expectsError)
+        this.failed.push(`${block.sql}: ${error.message}`);
     }
   }
-  return failed;
+}
+
+/** The bindable statements of a block; none if it does not parse. */
+function parsed(sql: string): BindableStatement[] {
+  try {
+    return bindable(sql);
+  } catch {
+    return [];
+  }
 }
 
 describe("the SQL logic tests", () => {
