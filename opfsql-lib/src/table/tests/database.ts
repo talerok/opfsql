@@ -70,10 +70,19 @@ export class Database {
 
   indexes: Index[] = [];
 
-  private constructor(readonly pager: Pager) {}
+  private constructor(
+    readonly pager: Pager,
+    private readonly compile: CompileExpression,
+  ) {}
 
-  static async open(): Promise<Database> {
-    return new Database(await openPager(memoryFiles(), { name: "catalog" }));
+  /** `compile` builds expression keys; the default refuses them. */
+  static async open(
+    compile: CompileExpression = noExpressions,
+  ): Promise<Database> {
+    return new Database(
+      await openPager(memoryFiles(), { name: "catalog" }),
+      compile,
+    );
   }
 
   get schema(): Schema {
@@ -82,23 +91,29 @@ export class Database {
 
   change<T>(work: (catalog: Catalog, transaction: WriteTransaction) => T): T {
     return write(this.pager, (transaction) =>
-      work(new Catalog(transaction, this.schema, noExpressions), transaction),
+      work(new Catalog(transaction, this.schema, this.compile), transaction),
     );
   }
 
   insert(table: Table, rows: Value[][]): void {
     write(this.pager, (transaction) => {
-      const indexes = this.schema
-        .indexesOf(table.name)
-        .map((index) => keyedIndex(index, table, noExpressions));
-      const editor = new TableEditor(
-        transaction,
-        table,
-        indexes,
-        this.sequencesIn(transaction),
-      );
+      const editor = this.editorIn(transaction, table);
       for (const row of rows) editor.insert(row);
     });
+  }
+
+  /** An editor of `table` within `transaction`, with all its indexes. */
+  editorIn(transaction: WriteTransaction, table: Table): TableEditor {
+    const indexes = this.schema
+      .indexesOf(table.name)
+      .map((index) => keyedIndex(index, table, this.compile));
+    const sequences = this.sequencesIn(transaction);
+    return new TableEditor(transaction, table, indexes, sequences);
+  }
+
+  /** checkTables within `transaction`, its uncommitted changes included. */
+  problemsIn(transaction: WriteTransaction): string[] {
+    return checkTables(transaction, this.schema, this.compile);
   }
 
   rows(table: Table): Value[][] {
@@ -113,7 +128,7 @@ export class Database {
 
   tableProblems(): string[] {
     return read(this.pager, (transaction) =>
-      checkTables(transaction, this.schema, noExpressions),
+      checkTables(transaction, this.schema, this.compile),
     );
   }
 
