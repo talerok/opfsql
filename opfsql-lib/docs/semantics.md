@@ -95,15 +95,6 @@ NULL.
 ORDER BY puts NULLs first when ascending and last when descending, unless
 `NULLS FIRST` / `NULLS LAST` says otherwise.
 
-## LIMIT and OFFSET
-
-`LIMIT` and `OFFSET` take integers: a constant, or a parameter holding an
-integer or text that is exactly one (`'10'`), as assignment to an INTEGER
-column converts it. Anything else — a fraction, other text, a boolean,
-NULL — fails with `DATATYPE_MISMATCH`. As in SQLite, a negative `LIMIT`
-means no limit and a negative `OFFSET` means 0; `LIMIT 0` returns no rows
-and reads none.
-
 ## Comparisons
 
 `=`, `<>`, `<`, `<=`, `>`, `>=` return NULL when either side is NULL, and
@@ -168,8 +159,7 @@ parameter, a JSON value) must be a boolean when it runs. NULL is "unknown":
   operator (UNION, INTERSECT, EXCEPT), ORDER BY can only name result columns.
   GROUP BY takes positions too, and an alias that no column of the FROM has.
   An alias names one item; two items with the same alias make it ambiguous.
-- LIMIT and OFFSET are integer constants or parameters. A negative LIMIT
-  means no limit, and a negative OFFSET skips none, as in SQLite.
+- LIMIT and OFFSET: see [LIMIT and OFFSET](#limit-and-offset).
 
 ## Arithmetic
 
@@ -281,7 +271,8 @@ SQLite allows), holding an integer, converted as an INTEGER column converts
 it: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
 OFFSET skips nothing. Any other value — NULL, `2.5`, `'five'` — fails with
 `DATATYPE_MISMATCH`: a constant when the statement is prepared, anything
-else (a parameter, say) each time the query starts, before it reads a row.
+else (a parameter, say) each time the query starts, before it reads a row. `LIMIT 0`
+returns no rows and reads none.
 
 ## Limits
 

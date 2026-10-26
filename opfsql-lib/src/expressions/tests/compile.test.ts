@@ -97,6 +97,14 @@ describe("columns, constants and parameters", () => {
     ).toThrow(InternalError);
   });
 
+  it("gives a fresh copy of a JSON constant each time, so no caller changes it", () => {
+    const compiled = compileExpression(json({ a: [1] }), scopeOf());
+    const first = compiled([]);
+    expect(first).toEqual({ a: [1] });
+    (first as { a: number[] }).a.push(2);
+    expect(compiled([])).toEqual({ a: [1] });
+  });
+
   it("reads parameters, normalized: NaN is NULL and -0 is 0", () => {
     const parameters = ["a", NaN, -0];
     expect(evaluate(parameter(0), { parameters })).toBe("a");

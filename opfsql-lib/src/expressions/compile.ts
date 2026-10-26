@@ -1,5 +1,5 @@
 import type { Cast, physical } from "../sql/plan/index.js";
-import { castValue, truthOf } from "../values/index.js";
+import { castValue, truthOf, type Value } from "../values/index.js";
 import { compileOperation } from "./arithmetic.js";
 import { compileCase } from "./case.js";
 import { compileColumn, compileJsonAccess } from "./column.js";
@@ -58,8 +58,7 @@ function compileNode(
       return compileColumn(expression, compiler.scope);
     }
     case "constant": {
-      const { value } = expression;
-      return () => value;
+      return compileConstant(expression.value);
     }
     case "parameter": {
       const value = parameterValue(compiler.scope.run, expression);
@@ -96,6 +95,18 @@ function compileNode(
       return compileSubquery(expression, compiler);
     }
   }
+}
+
+/**
+ * A constant's value. A JSON object or array is copied each time: a cached
+ * plan keeps the constant, and a caller may change what it was given.
+ */
+function compileConstant(value: Value): CompiledExpression {
+  const isObject = typeof value === "object" && value !== null;
+  if (isObject && !(value instanceof Uint8Array)) {
+    return () => structuredClone(value);
+  }
+  return () => value;
 }
 
 function compileCast(

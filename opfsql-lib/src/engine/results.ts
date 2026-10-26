@@ -4,7 +4,9 @@ import { Result, type ResultRow } from "./api/index.js";
 
 // Results as callers get them. A BLOB a query returns may be the bytes of a
 // constant in a cached plan, or a view of a page: callers get a copy, so
-// what they do with it can change neither (docs/semantics.md, Values).
+// what they do with it can change neither (docs/semantics.md, Values). A
+// JSON value is the caller's already: decoded afresh from its record, or a
+// constant the expression compiler copies each time it is evaluated.
 
 /** The rows of a query, under its column names. */
 export function rowsResult(
