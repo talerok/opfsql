@@ -30,7 +30,7 @@ export function lowerPlan(plan: logical.Plan, planner: Planner): physical.Plan {
     lowerPlan(child, planner);
   switch (plan.kind) {
     case "get": {
-      return scanOf(plan, [], planner);
+      return readTable(plan, [], planner);
     }
     case "filter": {
       return lowerFilter(plan, planner);
@@ -76,22 +76,24 @@ export function lowerPlan(plan: logical.Plan, planner: Planner): physical.Plan {
   }
 }
 
-function scanOf(
+/** A table read with its filter's conditions, through its access path. */
+function readTable(
   get: logical.Get,
   conditions: readonly logical.Expression[],
   planner: Planner,
 ): physical.Plan {
   const lowered = lowerExpressions(conditions, planner);
-  return chooseAccessPath({ get, conditions: lowered, order: null }, planner)
-    .plan;
+  const request = { get, conditions: lowered, order: null };
+  return chooseAccessPath(request, planner).plan;
 }
 
 function lowerFilter(plan: logical.Filter, planner: Planner): physical.Plan {
   if (hasNeverTrue(plan.conditions)) {
     return emptyPlan(plan.child);
   }
-  if (plan.child.kind === "get")
-    return scanOf(plan.child, plan.conditions, planner);
+  if (plan.child.kind === "get") {
+    return readTable(plan.child, plan.conditions, planner);
+  }
   return {
     kind: "filter",
     child: lowerPlan(plan.child, planner),

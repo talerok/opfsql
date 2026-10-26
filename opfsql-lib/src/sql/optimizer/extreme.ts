@@ -1,7 +1,8 @@
+import type { Table } from "../../schema/index.js";
 import type { AggregateCall, logical, physical } from "../plan/index.js";
 import type { IndexKeys, KeyPart } from "./key-parts.js";
 import {
-  fitsPart,
+  equalTestOn,
   type KeyTest,
   keyTestOf,
   type SeekValue,
@@ -25,6 +26,14 @@ import { sameExpression } from "./same-expression.js";
 
 type Extreme = physical.IndexExtreme["extreme"];
 
+/** The aggregate's one MIN or MAX call, and where its value goes. */
+interface Wanted {
+  readonly aggregateIndex: number;
+  readonly call: AggregateCall<logical.Plan>;
+  readonly argument: logical.Expression;
+  readonly extreme: Extreme;
+}
+
 export function indexExtreme(
   plan: logical.Aggregate,
   planner: Planner,
@@ -32,30 +41,13 @@ export function indexExtreme(
   const wanted = extremeWanted(plan);
   const source = tableReadOf(plan.child);
   if (wanted === null || source === null) return null;
-  const tests = keyTestsOf(lowerExpressions(source.conditions, planner));
+  const tests = asKeyTests(lowerExpressions(source.conditions, planner));
   if (tests === null) return null;
   for (const keys of planner.indexes.indexesOf(source.get)) {
-    const equal = exactPrefix(keys, tests);
-    const part = keys.parts[tests.length];
-    if (equal !== null && part !== undefined && holds(part, wanted.argument)) {
-      return {
-        kind: "index-extreme",
-        aggregateIndex: plan.aggregateIndex,
-        table: source.get.table,
-        index: keys.index,
-        equal,
-        extreme: wanted.extreme,
-        type: wanted.call.type,
-      };
-    }
+    const extreme = extremeOn(keys, tests, wanted, source.get.table);
+    if (extreme !== null) return extreme;
   }
   return null;
-}
-
-interface Wanted {
-  readonly call: AggregateCall<logical.Plan>;
-  readonly argument: logical.Expression;
-  readonly extreme: Extreme;
 }
 
 /** The one MIN or MAX call of an aggregate without groups, or null. */
@@ -69,7 +61,7 @@ function extremeWanted(plan: logical.Aggregate): Wanted | null {
   if (extreme === null || argument === undefined || rest.length > 0) {
     return null;
   }
-  return { call, argument, extreme };
+  return { aggregateIndex: plan.aggregateIndex, call, argument, extreme };
 }
 
 function extremeOf(name: string): Extreme | null {
@@ -78,7 +70,7 @@ function extremeOf(name: string): Extreme | null {
 }
 
 /** Every condition as a key test, or null if one is not. */
-function keyTestsOf(
+function asKeyTests(
   conditions: readonly physical.Expression[],
 ): KeyTest[] | null {
   const tests: KeyTest[] = [];
@@ -91,37 +83,47 @@ function keyTestsOf(
 }
 
 /**
- * The seek values of the index's leading parts, one exact `=` test each,
- * every test used once; null if the tests are not exactly that.
+ * The extreme read from this index: the tests set its leading parts equal,
+ * one test each, and the wanted argument is the part after them.
  */
-function exactPrefix(
+function extremeOn(
+  keys: IndexKeys,
+  tests: readonly KeyTest[],
+  wanted: Wanted,
+  table: Table,
+): physical.IndexExtreme | null {
+  const equal = equalPrefixOf(keys, tests);
+  const part = keys.parts[tests.length];
+  const isArgument = part !== undefined && holds(part, wanted.argument);
+  if (equal === null || !isArgument) return null;
+  return {
+    kind: "index-extreme",
+    aggregateIndex: wanted.aggregateIndex,
+    table,
+    index: keys.index,
+    equal,
+    extreme: wanted.extreme,
+    type: wanted.call.type,
+  };
+}
+
+/**
+ * The seek values of the index's leading parts, one `=` test each, every
+ * test used once; null if the tests are not exactly that.
+ */
+function equalPrefixOf(
   keys: IndexKeys,
   tests: readonly KeyTest[],
 ): SeekValue[] | null {
-  const used = new Set<KeyTest>();
+  let unused = tests;
   const equal: SeekValue[] = [];
   for (const part of keys.parts.slice(0, tests.length)) {
-    const found = exactEqualOn(part, tests, used);
+    const found = equalTestOn(part, unused);
     if (found === null) return null;
-    used.add(found.keyTest);
-    equal.push(found.value);
+    unused = unused.filter((keyTest) => keyTest !== found);
+    equal.push(found.test.value);
   }
-  return used.size === tests.length ? equal : null;
-}
-
-function exactEqualOn(
-  part: KeyPart,
-  tests: readonly KeyTest[],
-  used: ReadonlySet<KeyTest>,
-): { readonly keyTest: KeyTest; readonly value: SeekValue } | null {
-  for (const keyTest of tests) {
-    const { test } = keyTest;
-    if (test.kind !== "equal" || used.has(keyTest)) continue;
-    if (fitsPart(keyTest, part)) {
-      return { keyTest, value: test.value };
-    }
-  }
-  return null;
+  return unused.length === 0 ? equal : null;
 }
 
 /**

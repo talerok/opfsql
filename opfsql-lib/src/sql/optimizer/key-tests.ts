@@ -59,13 +59,41 @@ export interface KeyTest {
   readonly test: Test;
 }
 
-/** A test that lists the values it seeks: `=` or IN. */
-export type ListTest = KeyTest & {
-  readonly test: Extract<Test, { readonly kind: "equal" | "in" }>;
+/** A key test of the kinds named. */
+type TestOf<Kind extends Test["kind"]> = KeyTest & {
+  readonly test: Extract<Test, { readonly kind: Kind }>;
 };
+
+/** A test that lists the values it seeks: `=` or IN. */
+export type ListTest = TestOf<"equal" | "in">;
+export type EqualTest = TestOf<"equal">;
+export type RangeTest = TestOf<"range">;
 
 export function isListTest(keyTest: KeyTest): keyTest is ListTest {
   return keyTest.test.kind !== "range";
+}
+
+export function isRangeTest(keyTest: KeyTest): keyTest is RangeTest {
+  return keyTest.test.kind === "range";
+}
+
+function isEqualTest(keyTest: KeyTest): keyTest is EqualTest {
+  return keyTest.test.kind === "equal";
+}
+
+/** The key tests among `conditions`; the other conditions are skipped. */
+export function keyTestsAmong(conditions: readonly Expression[]): KeyTest[] {
+  return conditions.flatMap((condition) => keyTestOf(condition) ?? []);
+}
+
+/** The first `=` among `tests` that fits `part`, or null. */
+export function equalTestOn(
+  part: KeyPart,
+  tests: readonly KeyTest[],
+): EqualTest | null {
+  const isOnPart = (keyTest: KeyTest): keyTest is EqualTest =>
+    isEqualTest(keyTest) && fitsPart(keyTest, part);
+  return tests.find((keyTest) => isOnPart(keyTest)) ?? null;
 }
 
 /** `condition` as a key test, or null if it is not one. */

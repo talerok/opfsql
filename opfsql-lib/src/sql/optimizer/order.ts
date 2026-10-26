@@ -36,36 +36,52 @@ export function lowerOrder(
   planner: Planner,
   lowerChild: (plan: logical.Plan) => physical.Plan,
 ): physical.Plan {
+  const clause = limitClauseOf(limit, planner);
+  const ordered = orderedRead(order, countOf(clause) !== null, planner);
+  if (ordered !== null) return withLimit(ordered, clause);
   const keys = lowerOrderKeys(order.keys, planner);
-  const rows = limit === null ? null : lowerLimit(limit, planner);
-  const count = rows?.limit ?? null;
-  const ordered = orderedRead(order, count !== null, planner);
-  if (ordered !== null) return withLimit(ordered, rows);
-  const child = lowerChild(order.child);
-  if (rows !== null && count !== null) {
-    return { kind: "top-n", child, keys, limit: count, offset: rows.offset };
-  }
-  return withLimit({ kind: "sort", child, keys }, rows);
+  return sorted(lowerChild(order.child), keys, clause);
 }
 
-interface LoweredLimit {
-  readonly limit: physical.Expression | null;
+/** A LIMIT's count and offset, lowered. */
+interface LimitClause {
+  readonly count: physical.Expression | null;
   readonly offset: physical.Expression | null;
 }
 
-function lowerLimit(limit: logical.Limit, planner: Planner): LoweredLimit {
-  return {
-    limit: lowerOptional(limit.limit, planner),
-    offset: lowerOptional(limit.offset, planner),
-  };
+function limitClauseOf(
+  limit: logical.Limit | null,
+  planner: Planner,
+): LimitClause | null {
+  if (limit === null) return null;
+  const count = lowerOptional(limit.limit, planner);
+  return { count, offset: lowerOptional(limit.offset, planner) };
 }
 
 function withLimit(
   plan: physical.Plan,
-  limit: LoweredLimit | null,
+  clause: LimitClause | null,
 ): physical.Plan {
-  if (limit === null) return plan;
-  return { kind: "limit", child: plan, ...limit };
+  if (clause === null) return plan;
+  const { count, offset } = clause;
+  return { kind: "limit", child: plan, limit: count, offset };
+}
+
+/** The LIMIT's count, or null for none: no LIMIT, or an OFFSET alone. */
+function countOf(clause: LimitClause | null): physical.Expression | null {
+  return clause?.count ?? null;
+}
+
+/** A sort; with a LIMIT count above it, a top-n in place of both. */
+function sorted(
+  child: physical.Plan,
+  keys: readonly physical.OrderKey[],
+  clause: LimitClause | null,
+): physical.Plan {
+  const count = countOf(clause);
+  if (count === null) return withLimit({ kind: "sort", child, keys }, clause);
+  const offset = clause?.offset ?? null;
+  return { kind: "top-n", child, keys, limit: count, offset };
 }
 
 /**
@@ -120,10 +136,11 @@ function throughProjects(
   expression: logical.Expression,
   projects: readonly logical.Project[],
 ): logical.Expression | null {
-  let result: logical.Expression | null = expression;
+  let result = expression;
   for (const project of projects) {
-    if (result === null) return null;
-    result = substitute(result, projectedBy(project));
+    const rewritten = substitute(result, projectedBy(project));
+    if (rewritten === null) return null;
+    result = rewritten;
   }
   return result;
 }

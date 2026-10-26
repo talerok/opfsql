@@ -17,12 +17,15 @@ import {
   rowidPart,
 } from "./key-parts.js";
 import {
+  equalTestOn,
   fitsPart,
   isExactRange,
   isListTest,
+  isRangeTest,
   type KeyTest,
-  keyTestOf,
+  keyTestsAmong,
   type ListTest,
+  type RangeTest,
   type SeekRange,
   type SeekValue,
 } from "./key-tests.js";
@@ -131,47 +134,45 @@ export function chooseAccessPath(
   request: ScanRequest,
   planner: Planner,
 ): AccessPath {
-  const tests = keyTestsOf(request.conditions);
-  const indexes = planner.indexes.indexesOf(request.get);
+  const { get, conditions, order } = request;
+  const tests = keyTestsAmong(conditions);
+  const indexes = planner.indexes.indexesOf(get);
   const candidates = [
-    rowidCandidate(request.get, tests, request.order),
-    ...indexes.map((keys) => indexCandidate(keys, tests, request.order)),
-    ...request.conditions.map((condition) =>
-      unionCandidate(condition, request.get, indexes),
-    ),
+    rowidCandidate(get, tests, order),
+    ...indexes.map((keys) => indexCandidate(keys, tests, order)),
+    ...conditions.map((condition) => unionCandidate(condition, get, indexes)),
   ].filter((candidate) => candidate !== null);
   const scan = tableScanCandidate(request);
-  const best = cheapest([...candidates, scan], request) ?? scan;
-  return { plan: scanOf(best, request), isOrdered: best.isOrdered };
-}
-
-function keyTestsOf(conditions: readonly Expression[]): KeyTest[] {
-  return conditions.flatMap((condition) => keyTestOf(condition) ?? []);
-}
-
-/** The cheapest candidate, the earlier on a tie. */
-function cheapest(
-  candidates: readonly Candidate[],
-  request: ScanRequest,
-): Candidate | null {
-  const passing = rowsPassing(request.conditions);
-  const costOf = (candidate: Candidate): number => {
-    const { order } = request;
+  const passing = rowsPassing(conditions);
+  const best = cheapestBy([...candidates, scan], (candidate) => {
     if (order === null) return candidate.estimate.cost;
     const shape = {
       isDelivered: candidate.isOrdered,
       isLimited: order.isLimited,
     };
     return orderedCost(candidate.estimate, shape, passing);
-  };
-  let best: Candidate | null = null;
+  });
+  const chosen = best ?? scan;
+  return { plan: buildScan(chosen, request), isOrdered: chosen.isOrdered };
+}
+
+/** The candidate `costOf` says is cheapest, the earlier on a tie; null if none. */
+function cheapestBy<C>(
+  candidates: readonly C[],
+  costOf: (candidate: C) => number,
+): C | null {
+  let best: C | null = null;
+  let bestCost = Infinity;
   for (const candidate of candidates) {
-    if (best === null || costOf(candidate) < costOf(best)) best = candidate;
+    const cost = costOf(candidate);
+    if (best !== null && cost >= bestCost) continue;
+    best = candidate;
+    bestCost = cost;
   }
   return best;
 }
 
-function scanOf(candidate: Candidate, request: ScanRequest): Scan {
+function buildScan(candidate: Candidate, request: ScanRequest): Scan {
   const { tableIndex, table, columns } = request.get;
   const residual = request.conditions.filter(
     (condition) => !candidate.enforced.includes(condition),
@@ -296,10 +297,16 @@ function equalPrefix(
   for (const part of parts) {
     const found = equalTestOn(part, tests);
     if (found === null) break;
-    prefix.values.push(found.value);
-    prefix.enforced.push(found.keyTest.condition);
+    prefix.values.push(found.test.value);
+    prefix.enforced.push(found.condition);
   }
   return prefix;
+}
+
+/** A range seek, and the conditions it enforces. */
+interface RangeSeek {
+  readonly range: SeekRange;
+  readonly enforced: readonly Expression[];
 }
 
 /** The range the tests set on the part after the equality prefix, if any. */
@@ -307,7 +314,7 @@ function rangeAfter(
   prefix: Prefix,
   parts: readonly KeyPart[],
   tests: readonly KeyTest[],
-): ReturnType<typeof rangeOn> {
+): RangeSeek | null {
   const next = parts[prefix.values.length];
   if (next === undefined) return null;
   return rangeOn(
@@ -316,49 +323,50 @@ function rangeAfter(
   );
 }
 
-function equalTestOn(
-  part: KeyPart,
-  tests: readonly KeyTest[],
-): { readonly keyTest: KeyTest; readonly value: SeekValue } | null {
-  for (const keyTest of tests) {
-    const { test } = keyTest;
-    if (test.kind === "equal" && fitsPart(keyTest, part)) {
-      return { keyTest, value: test.value };
-    }
-  }
-  return null;
+/** The range `fitting`, the tests that fit `part`, set on it; null if they set none. */
+function rangeOn(part: KeyPart, fitting: readonly KeyTest[]): RangeSeek | null {
+  const ranges = fitting.filter((keyTest) => isRangeTest(keyTest));
+  const bounds = boundsOf(ranges);
+  if (bounds === null) return null;
+  return { range: bounds.range, enforced: enforcedBy(bounds, ranges, part) };
+}
+
+/** A range, and the tests its lower and upper bounds came from. */
+interface Bounds {
+  readonly range: SeekRange;
+  readonly lowerFrom: RangeTest | undefined;
+  readonly upperFrom: RangeTest | undefined;
+}
+
+/** The first lower bound and the first upper bound among the tests. */
+function boundsOf(ranges: readonly RangeTest[]): Bounds | null {
+  const lowerFrom = ranges.find(({ test }) => test.range.lower !== null);
+  const upperFrom = ranges.find(({ test }) => test.range.upper !== null);
+  if (lowerFrom === undefined && upperFrom === undefined) return null;
+  const lower = lowerFrom?.test.range.lower ?? null;
+  const upper = upperFrom?.test.range.upper ?? null;
+  return { range: { lower, upper }, lowerFrom, upperFrom };
 }
 
 /**
- * The range `fitting`, the tests that fit `part`, set on it: the first
- * lower bound and the first upper bound among them. A test is enforced
- * when it is exact and every bound it has was used.
+ * The conditions an exact range enforces (isExactRange): those of the
+ * tests whose every bound it uses.
  */
-function rangeOn(
+function enforcedBy(
+  bounds: Bounds,
+  ranges: readonly RangeTest[],
   part: KeyPart,
-  fitting: readonly KeyTest[],
-): { readonly range: SeekRange; readonly enforced: Expression[] } | null {
-  const ranges: { readonly keyTest: KeyTest; readonly range: SeekRange }[] = [];
-  for (const keyTest of fitting) {
-    const { test } = keyTest;
-    if (test.kind === "range") ranges.push({ keyTest, range: test.range });
-  }
-  const lower = ranges.find(({ range }) => range.lower !== null);
-  const upper = ranges.find(({ range }) => range.upper !== null);
-  if (lower === undefined && upper === undefined) return null;
-  const range = {
-    lower: lower?.range.lower ?? null,
-    upper: upper?.range.upper ?? null,
+): Expression[] {
+  if (!isExactRange(bounds.range, part)) return [];
+  const isUsed = (keyTest: RangeTest): boolean => {
+    const { lower, upper } = keyTest.test.range;
+    const isLowerUsed = lower === null || keyTest === bounds.lowerFrom;
+    const isUpperUsed = upper === null || keyTest === bounds.upperFrom;
+    return isLowerUsed && isUpperUsed;
   };
-  const isFullyUsed = (candidate: (typeof ranges)[number]): boolean =>
-    (candidate.range.lower === null || candidate === lower) &&
-    (candidate.range.upper === null || candidate === upper);
-  const enforced = isExactRange(range, part)
-    ? ranges
-        .filter((candidate) => isFullyUsed(candidate))
-        .map(({ keyTest }) => keyTest.condition)
-    : [];
-  return { range, enforced };
+  return ranges
+    .filter((keyTest) => isUsed(keyTest))
+    .map((keyTest) => keyTest.condition);
 }
 
 // --- OR and IN ------------------------------------------------------------------
@@ -411,16 +419,12 @@ function branchSeek(
   get: logical.Get,
   indexes: readonly IndexKeys[],
 ): Candidate<RowidAccess | IndexAccess> | null {
-  const tests = keyTestsOf(conjunctsOf(branch));
+  const tests = keyTestsAmong(conjunctsOf(branch));
   const seeks = [
     rowidCandidate(get, tests, null),
     ...indexes.map((keys) => indexCandidate(keys, tests, null)),
   ].filter((seek) => seek !== null);
-  let best: Candidate<RowidAccess | IndexAccess> | null = null;
-  for (const seek of seeks) {
-    if (best === null || seek.estimate.cost < best.estimate.cost) best = seek;
-  }
-  return best;
+  return cheapestBy(seeks, (seek) => seek.estimate.cost);
 }
 
 function branchOf(access: RowidAccess | IndexAccess): physical.IndexBranch {
