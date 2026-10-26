@@ -9,6 +9,7 @@ import type { Index, Schema, Table } from "../../schema/index.js";
 import {
   type ConflictAction,
   type Insert,
+  type OnConflict,
   type physical,
   positions,
 } from "../../sql/plan/index.js";
@@ -57,10 +58,13 @@ export function runInsert(
   tables: WritableTables,
   context: Context,
 ): WriteOutcome {
+  const { table, onConflict } = statement;
   // All of the source first: it may read the table it inserts into.
   const rows = drain(compilePlan(statement.source, context));
-  const newRow = compileNewRow(statement.table, statement.columns);
-  const insertRow = compileRowInsert(statement, tables, context);
+  const newRow = compileNewRow(table, statement.columns);
+  const editor = tables.editor(table);
+  const target = constraintOf(onConflict?.target ?? null, tables.schema);
+  const insertRow = compileRowInsert(onConflict, target, editor, context);
   return tally(rows.map((row) => insertRow(newRow(row))));
 }
 
@@ -91,20 +95,22 @@ function compileNewRow(
   };
 }
 
+/**
+ * Inserts a row, or for ON CONFLICT finds the row in its way first: one in
+ * the way under `target` (any, if null) is resolved, any other refuses it.
+ */
 function compileRowInsert(
-  statement: Insert<physical.Plan>,
-  tables: WritableTables,
+  onConflict: OnConflict<physical.Plan> | null,
+  target: ConflictConstraint | null,
+  editor: TableEditor,
   context: Context,
 ): RowInsert {
-  const editor = tables.editor(statement.table);
-  const { onConflict } = statement;
   if (onConflict === null) return (values) => inserted(editor.insert(values));
-  const constraint = constraintOf(onConflict.target, tables.schema);
   const resolve = compileResolution(onConflict.action, editor, context);
   return (values) => {
-    const conflict = editor.findConflict(values, constraint);
+    const conflict = editor.findConflict(values, target);
     if (conflict === null) return inserted(editor.insert(values));
-    if (!isHandled(conflict, constraint)) throw conflict.error;
+    if (!isHandled(conflict, target)) throw conflict.error;
     return resolve(conflict);
   };
 }
