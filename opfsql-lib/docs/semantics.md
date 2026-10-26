@@ -93,6 +93,15 @@ NULL.
 ORDER BY puts NULLs first when ascending and last when descending, unless
 `NULLS FIRST` / `NULLS LAST` says otherwise.
 
+## LIMIT and OFFSET
+
+`LIMIT` and `OFFSET` take integers: a constant, or a parameter holding an
+integer or text that is exactly one (`'10'`), as assignment to an INTEGER
+column converts it. Anything else — a fraction, other text, a boolean,
+NULL — fails with `DATATYPE_MISMATCH`. As in SQLite, a negative `LIMIT`
+means no limit and a negative `OFFSET` means 0; `LIMIT 0` returns no rows
+and reads none.
+
 ## Comparisons
 
 `=`, `<>`, `<`, `<=`, `>`, `>=` return NULL when either side is NULL, and

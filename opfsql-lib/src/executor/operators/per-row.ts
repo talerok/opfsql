@@ -1,11 +1,6 @@
 import { compileExpression, type Tuple } from "../../expressions/index.js";
 import { physical } from "../../sql/plan/index.js";
-import {
-  compileConditions,
-  type Context,
-  fixedScope,
-  scopeOf,
-} from "../context.js";
+import { compileConditions, type Context, scopeOf } from "../context.js";
 import {
   nextNonEmpty,
   type Operator,
@@ -14,8 +9,8 @@ import {
 } from "../operator.js";
 import { firstSighting } from "../../values/index.js";
 
-// Operators that take their child's rows one by one: filter, project,
-// hash-distinct, and VALUES, which has rows of its own.
+// Operators that decide or compute row by row: filter, project and
+// hash-distinct.
 
 /** The child's rows for which every condition is TRUE. */
 export function filter(
@@ -57,18 +52,6 @@ export function project(
 /** The child's rows, each the first of the rows equal to it (values' rowKey). */
 export function hashDistinct(child: Operator): Operator {
   return new WalkOperator(() => distinctRows(child), [child]);
-}
-
-/** Literal rows, evaluated each time the node starts: they may read outer rows. */
-export function values(plan: physical.Values, context: Context): Operator {
-  const scope = fixedScope(context);
-  const rows = plan.rows.map((row) =>
-    row.map((expression) => compileExpression(expression, scope)),
-  );
-  return new WalkOperator(
-    () => rows.map((row) => row.map((value) => value([]))).values(),
-    [],
-  );
 }
 
 function* distinctRows(child: Operator): Generator<Tuple> {

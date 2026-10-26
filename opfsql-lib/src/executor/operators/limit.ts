@@ -35,14 +35,16 @@ export function compileWindow(
 ): () => Window {
   const limitOf = compileCount(limitValue, "LIMIT", context);
   const offsetOf = compileCount(offsetValue, "OFFSET", context);
-  return () => {
-    const count = limitOf() ?? -1;
-    const offset = offsetOf() ?? 0;
-    return {
-      offset: Math.max(offset, 0),
-      limit: count < 0 ? Infinity : count,
-    };
-  };
+  return () => ({
+    offset: Math.max(offsetOf() ?? 0, 0),
+    limit: rowLimit(limitOf()),
+  });
+}
+
+/** No LIMIT, or a negative one, is no limit at all. */
+function rowLimit(count: number | null): number {
+  const isUnlimited = count === null || count < 0;
+  return isUnlimited ? Infinity : count;
 }
 
 function* windowRows(
