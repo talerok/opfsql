@@ -3,4 +3,3 @@ coverage/
 test-results/
 playwright-report/
 package-lock.json
-eslint-suppressions.json

@@ -130,11 +130,13 @@ surface is its `index.ts`; other modules import from there.
 **Small units.** Cognitive complexity at most 11, functions under 50 lines,
 at most 4 parameters (pass an object beyond that).
 
-**Strict everywhere.** Lint errors in code written before these rules are
-listed in `eslint-suppressions.json`, which only shrinks.
-`tsconfig.strict.json` adds `noUncheckedIndexedAccess`,
-`exactOptionalPropertyTypes` and the other strict flags; it covers all of
-`src` but the engine's and the worker's tests, and when it covers
+**Strict everywhere.** Nothing is suppressed: code that breaks a lint rule
+is fixed, or the rule is turned off in `eslint.config.js` with its reason.
+Inline `eslint-disable` comments have no effect, and a suppressions file
+fails the lint. `tsconfig.strict.json` adds `noUncheckedIndexedAccess`,
+`exactOptionalPropertyTypes` and the other strict flags; it covers `src`
+with its tests and the shared test code (`test/setup`, `test/slt`,
+`test/support`), not yet `bench` or the e2e tests, and when it covers
 everything, it becomes the only configuration.
 
 ## How code reads

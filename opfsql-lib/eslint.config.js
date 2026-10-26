@@ -1,4 +1,6 @@
 // @ts-check
+import { existsSync } from "node:fs";
+import path from "node:path";
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier/flat";
 import { createTypeScriptImportResolver } from "eslint-import-resolver-typescript";
@@ -8,11 +10,18 @@ import unicorn from "eslint-plugin-unicorn";
 import { config, configs as tseslint } from "typescript-eslint";
 
 // ---------------------------------------------------------------------------
-// As strict as the plugins go. Violations in code written before this config
-// are recorded in eslint-suppressions.json: new code must be clean, and the
-// file only shrinks (`npm run lint:prune` drops what has been fixed).
-// Formatting is Prettier's: the rules it decides are turned off here.
+// As strict as the plugins go, and nothing is suppressed: code that breaks a
+// rule is fixed, or the rule is turned off below with its reason. Inline
+// eslint-disable comments have no effect (noInlineConfig), and a
+// suppressions file, which `eslint --suppress-all` would write, fails every
+// run. Formatting is Prettier's: the rules it decides are turned off here.
 // ---------------------------------------------------------------------------
+
+if (existsSync(path.join(import.meta.dirname, "eslint-suppressions.json"))) {
+  throw new Error(
+    "eslint-suppressions.json: fix the violations instead of suppressing them",
+  );
+}
 
 export default config(
   {
@@ -46,7 +55,7 @@ export default config(
       ],
     },
     linterOptions: {
-      reportUnusedDisableDirectives: "error",
+      noInlineConfig: true,
     },
     rules: {
       // --- Size and complexity ----------------------------------------------

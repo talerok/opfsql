@@ -2,8 +2,8 @@ import { Engine } from "../src/worker-entry.js";
 import type { Scenario } from "./scenarios.js";
 
 export interface BenchHost {
-  open(dbName: string): Promise<Engine>;
-  remove(dbName: string): Promise<void>;
+  open(databaseName: string): Promise<Engine>;
+  remove(databaseName: string): Promise<void>;
 }
 
 /**
@@ -12,11 +12,11 @@ export interface BenchHost {
  * a browser worker.
  */
 export const opfsHost: BenchHost = {
-  open: (dbName) => Engine.open(dbName),
-  async remove(dbName) {
+  open: async (databaseName) => Engine.open(databaseName),
+  async remove(databaseName) {
     const root = await navigator.storage.getDirectory();
-    for (const file of [`${dbName}.opfsql`, `${dbName}.opfsql-wal`]) {
-      await root.removeEntry(file);
+    for (const suffix of [".opfsql", ".opfsql-wal"]) {
+      await root.removeEntry(`${databaseName}${suffix}`);
     }
   },
 };
@@ -30,11 +30,13 @@ export interface BenchOptions {
 }
 
 /** Collects garbage before a timed run when the host allows it (node --expose-gc). */
-const collectGarbage = (globalThis as { gc?: () => void }).gc ?? (() => {});
+function collectGarbage(): void {
+  globalThis.gc?.();
+}
 
 interface OpenDatabase {
   engine: Engine;
-  dbName: string;
+  databaseName: string;
 }
 
 export interface ScenarioResult {
@@ -49,9 +51,10 @@ export async function runScenarios(
   host: BenchHost,
   options: BenchOptions,
 ): Promise<ScenarioResult[]> {
+  const { filter = "" } = options;
   const results: ScenarioResult[] = [];
   for (const scenario of scenarios) {
-    if (options.filter && !scenario.name.includes(options.filter)) continue;
+    if (!scenario.name.includes(filter)) continue;
     results.push({
       scenario: scenario.name,
       ops: scenario.ops,
@@ -61,52 +64,69 @@ export async function runScenarios(
   return results;
 }
 
+/**
+ * The times of the scenario's runs after the warmup ones. Read-only
+ * scenarios share one database; the others get a fresh one each run.
+ */
 async function measure(
   scenario: Scenario,
   host: BenchHost,
   { warmup, repeats }: BenchOptions,
 ): Promise<number[]> {
   const runs: number[] = [];
+  const isShared = scenario.readOnly === true;
   let shared: OpenDatabase | null = null;
-
-  for (let i = 0; i < warmup + repeats; i++) {
-    let db: OpenDatabase | null = shared;
-    if (!db) {
-      const dbName = `bench-${Date.now()}-${i}`;
-      const engine = await host.open(dbName);
-      const session = engine.connect();
-      await scenario.setup(session);
-      await session.close();
-      db = { engine, dbName };
-      if (scenario.readOnly) shared = db;
-    }
-
-    const session = db.engine.connect();
-    collectGarbage();
-    const start = performance.now();
-    await scenario.run(session);
-    if (i >= warmup) runs.push(performance.now() - start);
-    await session.close();
-
-    if (!scenario.readOnly) await dispose(db, host);
+  for (let index = 0; index < warmup + repeats; index++) {
+    const database: OpenDatabase =
+      shared ?? (await prepare(scenario, host, index));
+    if (isShared) shared = database;
+    const time = await timeRun(scenario, database.engine);
+    if (index >= warmup) runs.push(time);
+    if (!isShared) await dispose(database, host);
   }
-  if (shared) await dispose(shared, host);
+  if (shared !== null) await dispose(shared, host);
   return runs;
 }
 
-async function dispose(db: OpenDatabase, host: BenchHost): Promise<void> {
-  await db.engine.close();
-  await host.remove(db.dbName);
+/** A new database, set up for the scenario. */
+async function prepare(
+  scenario: Scenario,
+  host: BenchHost,
+  index: number,
+): Promise<OpenDatabase> {
+  const databaseName = `bench-${String(Date.now())}-${String(index)}`;
+  const engine = await host.open(databaseName);
+  const session = engine.connect();
+  await scenario.setup(session);
+  await session.close();
+  return { engine, databaseName };
+}
+
+/** Milliseconds one run of the scenario takes, on a session of its own. */
+async function timeRun(scenario: Scenario, engine: Engine): Promise<number> {
+  const session = engine.connect();
+  collectGarbage();
+  const start = performance.now();
+  await scenario.run(session);
+  const time = performance.now() - start;
+  await session.close();
+  return time;
+}
+
+async function dispose(database: OpenDatabase, host: BenchHost): Promise<void> {
+  await database.engine.close();
+  await host.remove(database.databaseName);
 }
 
 // ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
 
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+function median(values: readonly number[]): number {
+  const sorted = values.toSorted((a, b) => a - b);
+  const middle = sorted.length >> 1;
+  if (sorted.length % 2 === 1) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 /** Plain-text table; with a baseline, adds the change of each median. */
@@ -115,34 +135,48 @@ export function formatResults(
   baseline?: ScenarioResult[],
 ): string {
   const header = ["scenario", "median ms", "min ms", "µs/op"];
-  if (baseline) header.push("vs baseline");
-
-  const rows = results.map((r) => {
-    const med = median(r.runs);
-    const row = [
-      r.scenario,
-      med.toFixed(1),
-      Math.min(...r.runs).toFixed(1),
-      ((med * 1000) / r.ops).toFixed(1),
-    ];
-    if (baseline) {
-      const base = baseline.find((b) => b.scenario === r.scenario);
-      if (!base) {
-        row.push("new");
-      } else {
-        const change = (med / median(base.runs) - 1) * 100;
-        row.push(`${change >= 0 ? "+" : ""}${change.toFixed(0)}%`);
-      }
-    }
-    return row;
-  });
-
-  const widths = header.map((h, i) =>
-    Math.max(h.length, ...rows.map((row) => row[i].length)),
+  if (baseline !== undefined) header.push("vs baseline");
+  const rows = results.map((result) => rowOf(result, baseline));
+  const widths = header.map((title, column) =>
+    Math.max(title.length, ...rows.map((row) => row[column].length)),
   );
-  const line = (cells: string[]) =>
+  const line = (cells: string[]): string =>
     cells
-      .map((c, i) => (i === 0 ? c.padEnd(widths[i]) : c.padStart(widths[i])))
+      .map((cell, column) =>
+        column === 0
+          ? cell.padEnd(widths[column])
+          : cell.padStart(widths[column]),
+      )
       .join("  ");
-  return [line(header), ...rows.map(line)].join("\n");
+  return [line(header), ...rows.map((row) => line(row))].join("\n");
+}
+
+function rowOf(
+  result: ScenarioResult,
+  baseline: ScenarioResult[] | undefined,
+): string[] {
+  const medianMs = median(result.runs);
+  const row = [
+    result.scenario,
+    medianMs.toFixed(1),
+    Math.min(...result.runs).toFixed(1),
+    ((medianMs * 1000) / result.ops).toFixed(1),
+  ];
+  if (baseline !== undefined) {
+    row.push(changeFrom(baseline, result.scenario, medianMs));
+  }
+  return row;
+}
+
+/** The change from the baseline's median, or "new" for a scenario it lacks. */
+function changeFrom(
+  baseline: readonly ScenarioResult[],
+  scenario: string,
+  medianMs: number,
+): string {
+  const base = baseline.find((candidate) => candidate.scenario === scenario);
+  if (base === undefined) return "new";
+  const change = (medianMs / median(base.runs) - 1) * 100;
+  const sign = change >= 0 ? "+" : "";
+  return `${sign}${change.toFixed(0)}%`;
 }

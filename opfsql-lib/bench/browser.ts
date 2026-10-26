@@ -3,36 +3,43 @@
 import { chromium, firefox, webkit } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
-import { parseCli, report } from "./cli.js";
+import { parseCli, report, type CliOptions } from "./cli.js";
+import type { BenchOptions, ScenarioResult } from "./harness.js";
+
+declare global {
+  // The benchmark page's entry point (bench/browser/main.ts).
+  var runBenchmarks: (options: BenchOptions) => Promise<ScenarioResult[]>;
+}
+
+/** Serves bench/browser and runs the scenarios in a page of `options.browser`. */
+async function runInBrowser(options: CliOptions): Promise<ScenarioResult[]> {
+  const server = await createServer({
+    configFile: false,
+    root: fileURLToPath(new URL("browser", import.meta.url)),
+    logLevel: "error",
+    server: {
+      port: 0,
+      fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
+    },
+  });
+  await server.listen();
+  const browser = await { chromium, firefox, webkit }[options.browser].launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(server.resolvedUrls!.local[0]);
+    return await page.evaluate(
+      async (benchOptions) => globalThis.runBenchmarks(benchOptions),
+      {
+        repeats: options.repeats,
+        warmup: options.warmup,
+        filter: options.filter,
+      },
+    );
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+}
 
 const options = parseCli(process.argv.slice(2));
-const browserType = { chromium, firefox, webkit }[options.browser];
-
-const server = await createServer({
-  configFile: false,
-  root: fileURLToPath(new URL("./browser", import.meta.url)),
-  logLevel: "error",
-  server: {
-    port: 0,
-    fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] },
-  },
-});
-await server.listen();
-
-const browser = await browserType.launch();
-try {
-  const page = await browser.newPage();
-  await page.goto(server.resolvedUrls!.local[0]);
-  const results = await page.evaluate(
-    (benchOptions) => window.runBenchmarks(benchOptions),
-    {
-      repeats: options.repeats,
-      warmup: options.warmup,
-      filter: options.filter,
-    },
-  );
-  report(results, options);
-} finally {
-  await browser.close();
-  await server.close();
-}
+if (options !== undefined) report(await runInBrowser(options), options);

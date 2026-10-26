@@ -22,9 +22,10 @@ const USAGE = `options:
   --compare <file>  compare against saved results
   --browser <name>  chromium | firefox | webkit (bench:browser only)`;
 
-export function parseCli(args: string[]): CliOptions {
+/** The options on the command line; undefined after printing --help. */
+export function parseCli(argv: string[]): CliOptions | undefined {
   const { values } = parseArgs({
-    args: args.filter((arg) => arg !== "--"),
+    args: argv.filter((argument) => argument !== "--"),
     options: {
       repeats: { type: "string", default: "5" },
       warmup: { type: "string", default: "2" },
@@ -32,14 +33,14 @@ export function parseCli(args: string[]): CliOptions {
       json: { type: "string" },
       compare: { type: "string" },
       browser: { type: "string", default: "chromium" },
-      help: { type: "boolean" },
+      help: { type: "boolean", default: false },
     },
   });
   if (values.help) {
-    console.log(USAGE);
-    process.exit(0);
+    print(USAGE);
+    return undefined;
   }
-  const browser = values.browser;
+  const { browser } = values;
   if (browser !== "chromium" && browser !== "firefox" && browser !== "webkit") {
     throw new Error(`unknown browser "${browser}"\n${USAGE}`);
   }
@@ -54,11 +55,18 @@ export function parseCli(args: string[]): CliOptions {
 }
 
 export function report(results: ScenarioResult[], options: CliOptions): void {
-  const baseline = options.compare
-    ? (JSON.parse(readFileSync(options.compare, "utf8")) as ScenarioResult[])
-    : undefined;
-  console.log(formatResults(results, baseline));
-  if (options.json) {
-    writeFileSync(options.json, JSON.stringify(results, null, 2) + "\n");
+  const { compare, json } = options;
+  const baseline = compare === undefined ? undefined : readResults(compare);
+  print(formatResults(results, baseline));
+  if (json !== undefined) {
+    writeFileSync(json, `${JSON.stringify(results, null, 2)}\n`);
   }
+}
+
+function readResults(file: string): ScenarioResult[] {
+  return JSON.parse(readFileSync(file, "utf8")) as ScenarioResult[];
+}
+
+function print(text: string): void {
+  process.stdout.write(`${text}\n`);
 }

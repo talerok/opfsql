@@ -11,4 +11,6 @@ import { opfsHost, runScenarios } from "./harness.js";
 import { SCENARIOS } from "./scenarios.js";
 
 const options = parseCli(process.argv.slice(2));
-report(await runScenarios(SCENARIOS, opfsHost, options), options);
+if (options !== undefined) {
+  report(await runScenarios(SCENARIOS, opfsHost, options), options);
+}

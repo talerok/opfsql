@@ -24,34 +24,31 @@ const CATEGORIES = ["Electronics", "Books", "Clothing", "Food", "Toys"];
 function product(id: number): [number, string, number, string] {
   return [
     id,
-    `Product ${id}`,
+    `Product ${String(id)}`,
     ((id * 7919) % 10_000) / 100,
     CATEGORIES[id % CATEGORIES.length],
   ];
 }
 
 /** Spreads lookups over the whole key range without randomness. */
-function scatter(i: number, n: number): number {
-  return (i * 7919) % n;
+function scatter(index: number, count: number): number {
+  return (index * 7919) % count;
 }
 
 async function createProducts(session: Session, rows: number): Promise<void> {
   await session.execute(
     "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL, category TEXT)",
   );
-  await insertProducts(session, 0, rows);
+  await insertProducts(session, rows);
 }
 
-async function insertProducts(
-  session: Session,
-  from: number,
-  count: number,
-): Promise<void> {
+/** Products 0 to `count` - 1, in one transaction. */
+async function insertProducts(session: Session, count: number): Promise<void> {
   const insert = await session.prepare(
     "INSERT INTO products VALUES ($1, $2, $3, $4)",
   );
   await session.execute("BEGIN");
-  for (let id = from; id < from + count; id++) await insert.query(product(id));
+  for (let id = 0; id < count; id++) await insert.query(product(id));
   await session.execute("COMMIT");
 }
 
@@ -90,6 +87,11 @@ async function insertRows(
 
 function* range(count: number, row: (id: number) => Row): Generator<Row> {
   for (let id = 0; id < count; id++) yield row(id);
+}
+
+/** products, empty. */
+async function createProductTable(session: Session): Promise<void> {
+  await createProducts(session, 0);
 }
 
 /** products with TABLE_ROWS rows. */
@@ -214,15 +216,17 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "insert 1 000 rows in one transaction",
     ops: 1000,
-    setup: (s) => createProducts(s, 0),
-    run: (s) => insertProducts(s, 0, 1000),
+    setup: createProductTable,
+    async run(session) {
+      await insertProducts(session, 1000);
+    },
   },
   {
     name: "insert 100 rows, one commit each",
     ops: 100,
-    setup: (s) => createProducts(s, TABLE_ROWS),
-    async run(s) {
-      const insert = await s.prepare(
+    setup: createAllProducts,
+    async run(session) {
+      const insert = await session.prepare(
         "INSERT INTO products VALUES ($1, $2, $3, $4)",
       );
       for (let id = TABLE_ROWS; id < TABLE_ROWS + 100; id++) {
@@ -234,25 +238,27 @@ export const SCENARIOS: Scenario[] = [
     name: "select by primary key ×1 000",
     ops: 1000,
     readOnly: true,
-    setup: (s) => createProducts(s, TABLE_ROWS),
-    async run(s) {
-      const select = await s.prepare("SELECT * FROM products WHERE id = $1");
-      for (let i = 0; i < 1000; i++)
-        await select.query([scatter(i, TABLE_ROWS)]);
+    setup: createAllProducts,
+    async run(session) {
+      const select = await session.prepare(
+        "SELECT * FROM products WHERE id = $1",
+      );
+      for (let index = 0; index < 1000; index++)
+        await select.query([scatter(index, TABLE_ROWS)]);
     },
   },
   {
     name: "select range (BETWEEN) ×100",
     ops: 100,
     readOnly: true,
-    setup: (s) => createProducts(s, TABLE_ROWS),
-    async run(s) {
-      for (let i = 0; i < 100; i++) {
-        const low = scatter(i, 9_000) / 100;
-        await s.query("SELECT * FROM products WHERE price BETWEEN $1 AND $2", [
-          low,
-          low + 10,
-        ]);
+    setup: createAllProducts,
+    async run(session) {
+      for (let index = 0; index < 100; index++) {
+        const low = scatter(index, 9000) / 100;
+        await session.query(
+          "SELECT * FROM products WHERE price BETWEEN $1 AND $2",
+          [low, low + 10],
+        );
       }
     },
   },
@@ -260,19 +266,20 @@ export const SCENARIOS: Scenario[] = [
     name: "full scan ×10",
     ops: 10,
     readOnly: true,
-    setup: (s) => createProducts(s, TABLE_ROWS),
-    async run(s) {
-      for (let i = 0; i < 10; i++) await s.execute("SELECT * FROM products");
+    setup: createAllProducts,
+    async run(session) {
+      for (let index = 0; index < 10; index++)
+        await session.execute("SELECT * FROM products");
     },
   },
   {
     name: "GROUP BY + COUNT + AVG ×10",
     ops: 10,
     readOnly: true,
-    setup: (s) => createProducts(s, TABLE_ROWS),
-    async run(s) {
-      for (let i = 0; i < 10; i++) {
-        await s.execute(
+    setup: createAllProducts,
+    async run(session) {
+      for (let index = 0; index < 10; index++) {
+        await session.execute(
           "SELECT category, COUNT(*) AS n, AVG(price) AS avg_price FROM products GROUP BY category",
         );
       }
@@ -281,24 +288,26 @@ export const SCENARIOS: Scenario[] = [
   {
     name: "update by primary key, one commit each ×100",
     ops: 100,
-    setup: (s) => createProducts(s, TABLE_ROWS),
-    async run(s) {
-      const update = await s.prepare(
+    setup: createAllProducts,
+    async run(session) {
+      const update = await session.prepare(
         "UPDATE products SET price = $1 WHERE id = $2",
       );
-      for (let i = 0; i < 100; i++) {
-        await update.query([i, scatter(i, TABLE_ROWS)]);
+      for (let index = 0; index < 100; index++) {
+        await update.query([index, scatter(index, TABLE_ROWS)]);
       }
     },
   },
   {
     name: "delete by primary key, one commit each ×100",
     ops: 100,
-    setup: (s) => createProducts(s, TABLE_ROWS),
-    async run(s) {
-      const remove = await s.prepare("DELETE FROM products WHERE id = $1");
-      for (let i = 0; i < 100; i++)
-        await remove.query([scatter(i, TABLE_ROWS)]);
+    setup: createAllProducts,
+    async run(session) {
+      const remove = await session.prepare(
+        "DELETE FROM products WHERE id = $1",
+      );
+      for (let index = 0; index < 100; index++)
+        await remove.query([scatter(index, TABLE_ROWS)]);
     },
   },
   {
@@ -306,12 +315,12 @@ export const SCENARIOS: Scenario[] = [
     ops: 200,
     readOnly: true,
     setup: createShop,
-    async run(s) {
-      const select = await s.prepare(
+    async run(session) {
+      const select = await session.prepare(
         "SELECT o.id, o.total, u.name FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = $1",
       );
-      for (let count = 0; count < 200; count++)
-        await select.query([scatter(count, ORDERS)]);
+      for (let index = 0; index < 200; index++)
+        await select.query([scatter(index, ORDERS)]);
     },
   },
   {
@@ -319,12 +328,12 @@ export const SCENARIOS: Scenario[] = [
     ops: 20,
     readOnly: true,
     setup: createShop,
-    async run(s) {
-      const select = await s.prepare(
+    async run(session) {
+      const select = await session.prepare(
         "SELECT o.id, o.total FROM users u JOIN orders o ON o.user_id = u.id WHERE u.id = $1",
       );
-      for (let count = 0; count < 20; count++)
-        await select.query([scatter(count, USERS)]);
+      for (let index = 0; index < 20; index++)
+        await select.query([scatter(index, USERS)]);
     },
   },
   {
@@ -332,9 +341,9 @@ export const SCENARIOS: Scenario[] = [
     ops: 5,
     readOnly: true,
     setup: createShop,
-    async run(s) {
-      for (let count = 0; count < 5; count++) {
-        await s.execute(
+    async run(session) {
+      for (let index = 0; index < 5; index++) {
+        await session.execute(
           "SELECT u.id, u.name, COUNT(*) AS orders, SUM(o.total) AS spent FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.id, u.name",
         );
       }
@@ -345,10 +354,12 @@ export const SCENARIOS: Scenario[] = [
     ops: 1000,
     readOnly: true,
     setup: createAccounts,
-    async run(s) {
-      const select = await s.prepare("SELECT * FROM accounts WHERE email = $1");
-      for (let count = 0; count < 1000; count++) {
-        await select.query([accountEmail(scatter(count, ACCOUNTS))]);
+    async run(session) {
+      const select = await session.prepare(
+        "SELECT * FROM accounts WHERE email = $1",
+      );
+      for (let index = 0; index < 1000; index++) {
+        await select.query([accountEmail(scatter(index, ACCOUNTS))]);
       }
     },
   },
@@ -357,10 +368,10 @@ export const SCENARIOS: Scenario[] = [
     ops: TABLE_ROWS / PAGE,
     readOnly: true,
     setup: createAllProducts,
-    async run(s) {
+    async run(session) {
       const sql =
         "SELECT * FROM products WHERE id < $1 ORDER BY id DESC LIMIT 20";
-      await pageThrough(s, sql, TABLE_ROWS, 0);
+      await pageThrough(session, sql, TABLE_ROWS, 0);
     },
   },
   {
@@ -368,10 +379,10 @@ export const SCENARIOS: Scenario[] = [
     ops: EVENTS / PAGE,
     readOnly: true,
     setup: createEvents,
-    async run(s) {
+    async run(session) {
       const sql =
         "SELECT * FROM events WHERE created_at < $1 ORDER BY created_at DESC LIMIT 20";
-      await pageThrough(s, sql, Number.MAX_SAFE_INTEGER, 1);
+      await pageThrough(session, sql, Number.MAX_SAFE_INTEGER, 1);
     },
   },
   {
@@ -379,10 +390,12 @@ export const SCENARIOS: Scenario[] = [
     ops: 10_000,
     readOnly: true,
     setup: createAllProducts,
-    async run(s) {
-      const select = await s.prepare("SELECT * FROM products WHERE id = $1");
-      for (let count = 0; count < 10_000; count++) {
-        await select.query([scatter(count, TABLE_ROWS)]);
+    async run(session) {
+      const select = await session.prepare(
+        "SELECT * FROM products WHERE id = $1",
+      );
+      for (let index = 0; index < 10_000; index++) {
+        await select.query([scatter(index, TABLE_ROWS)]);
       }
     },
   },
@@ -390,18 +403,18 @@ export const SCENARIOS: Scenario[] = [
     name: "update all 10 000 rows in one statement",
     ops: TABLE_ROWS,
     setup: createAllProducts,
-    async run(s) {
-      await s.execute("UPDATE products SET price = price * 1.1");
+    async run(session) {
+      await session.execute("UPDATE products SET price = price * 1.1");
     },
   },
   {
     name: "JSON: insert 1 000 documents in one transaction",
     ops: DOCUMENTS,
     setup: createDocumentTable,
-    async run(s) {
+    async run(session) {
       const sql = "INSERT INTO docs VALUES ($1, $2)";
       await insertRows(
-        s,
+        session,
         sql,
         range(DOCUMENTS, (id) => [id, document(id)]),
       );
@@ -412,9 +425,9 @@ export const SCENARIOS: Scenario[] = [
     ops: 10,
     readOnly: true,
     setup: createAllDocuments,
-    async run(s) {
-      for (let count = 0; count < 10; count++)
-        await s.execute("SELECT data FROM docs");
+    async run(session) {
+      for (let index = 0; index < 10; index++)
+        await session.execute("SELECT data FROM docs");
     },
   },
   {
@@ -422,12 +435,12 @@ export const SCENARIOS: Scenario[] = [
     ops: 10,
     readOnly: true,
     setup: createAllDocuments,
-    async run(s) {
-      const select = await s.prepare(
+    async run(session) {
+      const select = await session.prepare(
         "SELECT id FROM docs WHERE data.kind = $1",
       );
-      for (let count = 0; count < 10; count++) {
-        await select.query([KINDS[count % KINDS.length]]);
+      for (let index = 0; index < 10; index++) {
+        await select.query([KINDS[index % KINDS.length]]);
       }
     },
   },
@@ -435,11 +448,13 @@ export const SCENARIOS: Scenario[] = [
     name: "insert then select, one commit each ×100",
     ops: 100,
     setup: createAllProducts,
-    async run(s) {
-      const insert = await s.prepare(
+    async run(session) {
+      const insert = await session.prepare(
         "INSERT INTO products VALUES ($1, $2, $3, $4)",
       );
-      const select = await s.prepare("SELECT * FROM products WHERE id = $1");
+      const select = await session.prepare(
+        "SELECT * FROM products WHERE id = $1",
+      );
       for (let id = TABLE_ROWS; id < TABLE_ROWS + 100; id++) {
         await insert.query(product(id));
         await select.query([id]);

@@ -22,8 +22,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p . && tsc -p tsconfig.check.json && tsc -p tsconfig.strict.json",
-    "lint": "eslint .",
-    "lint:prune": "eslint . --prune-suppressions",
+    "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
