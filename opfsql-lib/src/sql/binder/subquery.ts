@@ -40,7 +40,7 @@ export function bindSubquery(
       const needle = clause.bind(expression.child);
       const column = onlyColumn(
         query,
-        `a subquery compared with ${expression.subqueryType}`,
+        "a subquery compared with IN, ANY or ALL",
       );
       checkComparable(needle.type, column.type);
       return {
