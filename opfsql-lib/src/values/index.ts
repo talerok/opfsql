@@ -57,7 +57,9 @@ export {
   typeFromName,
 } from "./types.js";
 export {
+  copyValue,
   isJsonComposite,
+  isMutable,
   type JsonComposite,
   type JsonObject,
   type JsonValue,

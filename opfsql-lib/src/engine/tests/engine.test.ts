@@ -1304,6 +1304,25 @@ describe("schema changes", () => {
 });
 
 describe("schema()", () => {
+  it("hands out copies of BLOB and JSON defaults, which the caller may change", async () => {
+    await createEngine();
+    await session.execute(
+      `CREATE TABLE t (id INTEGER PRIMARY KEY, data BLOB DEFAULT x'0102', tags JSON DEFAULT '["a"]')`,
+    );
+    const first = await session.schema();
+    const [, data, tags] = first.tables[0].columns;
+    (data.defaultValue as Uint8Array).fill(0);
+    (tags.defaultValue as string[]).push("changed");
+
+    const second = await session.schema();
+    expect(
+      second.tables[0].columns.map((column) => column.defaultValue),
+    ).toEqual([null, new Uint8Array([1, 2]), ["a"]]);
+    await session.execute("INSERT INTO t (id) VALUES (1)");
+    const [row] = await session.execute("SELECT data, tags FROM t");
+    expect(row.rows).toEqual([[new Uint8Array([1, 2]), ["a"]]]);
+  });
+
   it("describes columns from the model, leaving out opfsql's own tables", async () => {
     await createEngine();
     await session.execute(`

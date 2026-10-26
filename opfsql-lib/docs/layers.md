@@ -132,6 +132,5 @@ fix lands; the labels stay as they were.
 
 - **G3. No change count per tree.** Open cursors and lazily read overflow values
   are not checked against writes and rollbacks in the same transaction.
-- **G8. BLOB defaults and BLOB constants are shared**, and so are defaults an
-  INSERT fills in or the schema description hands out; results copy BLOBs per
-  row instead. (A row read from a record already copies a JSON default.)
+- **G8. Results still copy BLOBs per row**, though every source of a value
+  now makes it the caller's own.

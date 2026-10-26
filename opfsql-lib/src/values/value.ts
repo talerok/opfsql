@@ -23,6 +23,20 @@ export function isJsonComposite(value: Value): value is JsonComposite {
   return isObject && !(value instanceof Uint8Array);
 }
 
+/** Whether its holder can change a value: a BLOB, a JSON object or array. */
+export function isMutable(value: Value): value is Uint8Array | JsonComposite {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * A value of one's own: a BLOB or a JSON object or array copied, so that
+ * changing it changes nothing anyone else holds; any other value as it is.
+ */
+export function copyValue(value: Value): Value {
+  if (value instanceof Uint8Array) return value.slice();
+  return isJsonComposite(value) ? structuredClone(value) : value;
+}
+
 export function kindOf(value: Value): ValueKind {
   if (value === null) return "null";
   if (typeof value === "boolean") return "boolean";

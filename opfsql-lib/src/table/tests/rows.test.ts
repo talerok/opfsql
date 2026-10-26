@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ROWID_COLUMN } from "../../schema/index.js";
+import { type Column, ROWID_COLUMN } from "../../schema/index.js";
 import { read } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
 import { TableRows } from "../index.js";
@@ -15,6 +15,29 @@ async function threeUsers() {
     [9, "cid", "c@x"],
   ]);
   return { database, users };
+}
+
+/**
+ * Every read of `added`, a column added after three users were written, so
+ * they read its default: twice per tuple by columns, by rowid, and row by
+ * row — eleven values — and a way to read them all again.
+ */
+async function everyReadOfAdded(
+  added: Column,
+): Promise<{ reads: Value[]; again: () => Value[] }> {
+  const { database, users } = await threeUsers();
+  const widened = { ...users, columns: [...users.columns, added] };
+  const again = (): Value[] =>
+    read(database.pager, (pages) => {
+      const rows = new TableRows(pages, widened);
+      const twice = rows.columns([3, 3]);
+      return [
+        ...[...twice.between(-Infinity, Infinity)].flat(),
+        ...(twice.at(5) ?? []),
+        ...[...rows.scan()].map((row) => row.value(3)),
+      ];
+    });
+  return { reads: again(), again };
 }
 
 describe("ColumnReader", () => {
@@ -47,33 +70,26 @@ describe("ColumnReader", () => {
   });
 
   it("reads a JSON default as each row's own copy, by columns or by rows", async () => {
-    const { database, users } = await threeUsers();
-    // A JSON column added after the rows were written: they read its default.
     const fallback = ["new"];
-    const widened = {
-      ...users,
-      columns: [
-        ...users.columns,
-        column("tags", "JSON", { defaultValue: fallback }),
-      ],
-    };
-    const everyRead = (): Value[] =>
-      read(database.pager, (pages) => {
-        const rows = new TableRows(pages, widened);
-        const twice = rows.columns([3, 3]);
-        return [
-          ...[...twice.between(-Infinity, Infinity)].flat(),
-          ...(twice.at(5) ?? []),
-          ...[...rows.scan()].map((row) => row.value(3)),
-        ];
-      });
-    const tags = everyRead();
-    expect(tags).toEqual(Array.from({ length: 11 }, () => ["new"]));
+    const added = column("tags", "JSON", { defaultValue: fallback });
+    const { reads, again } = await everyReadOfAdded(added);
+    expect(reads).toEqual(Array.from({ length: 11 }, () => ["new"]));
     // Every one a different array, and none the column's default itself.
-    expect(new Set([...tags, fallback]).size).toBe(tags.length + 1);
-    for (const value of tags) if (Array.isArray(value)) value.push("changed");
-    expect(everyRead()).toEqual(tags.map(() => ["new"]));
+    expect(new Set([...reads, fallback]).size).toBe(reads.length + 1);
+    for (const value of reads) if (Array.isArray(value)) value.push("changed");
+    expect(again()).toEqual(reads.map(() => ["new"]));
     expect(fallback).toEqual(["new"]);
+  });
+
+  it("reads a BLOB default as each row's own copy, by columns or by rows", async () => {
+    const fallback = new Uint8Array([1, 2]);
+    const added = column("data", "BLOB", { defaultValue: fallback });
+    const { reads, again } = await everyReadOfAdded(added);
+    expect(reads).toEqual(Array.from({ length: 11 }, () => fallback));
+    expect(new Set([...reads, fallback]).size).toBe(reads.length + 1);
+    for (const value of reads) if (value instanceof Uint8Array) value.fill(0);
+    expect(again()).toEqual(reads.map(() => new Uint8Array([1, 2])));
+    expect(fallback).toEqual(new Uint8Array([1, 2]));
   });
 
   it("reads one row by rowid, or none", async () => {
