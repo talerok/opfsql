@@ -9,7 +9,6 @@ import {
   bindCondition,
   conjunctsOf,
   refuse,
-  type Clause,
 } from "./clause.js";
 import { clauseOf } from "./expression.js";
 import { bindFrom } from "./from-clause.js";
@@ -23,6 +22,7 @@ import {
 } from "./order-by.js";
 import type { BoundQuery, Scope } from "./scope.js";
 import { itemName, selectItems, type SelectItem } from "./select-list.js";
+import { checkCondition } from "./type-rules.js";
 
 // ---------------------------------------------------------------------------
 // One SELECT: FROM and WHERE, the aggregate node if it groups (grouping.ts),
@@ -50,13 +50,12 @@ export function bindSelect(
   const aggregation = isAggregating(node, orderBy)
     ? startAggregation(node, items, scope)
     : null;
-  const bindAbove = aboveFrom(scope, aggregation);
-  const outputs = items.map((item) => bindOutput(item, bindAbove));
-  const having =
-    node.having === null ? null : bindHaving(node.having, scope, aggregation);
+  const above = aboveFrom(scope, aggregation);
+  const outputs = items.map((item) => bindOutput(item, above));
+  const having = node.having === null ? null : bindHaving(node.having, above);
   const ordering = orderColumns(orderBy, outputs, {
     allowsExtras: !node.isDistinct,
-    bind: bindAbove,
+    bind: (expression) => above.bind(expression),
   });
   const grouped = aggregate(source, aggregation, having);
   return finish(
@@ -87,43 +86,45 @@ function startAggregation(
   return { collector, grouping };
 }
 
-/** How the select list, HAVING and ORDER BY bind: above the aggregate, if any. */
-function aboveFrom(
-  scope: Scope,
-  aggregation: Aggregation | null,
-): (expression: ParsedExpression) => Expression {
-  if (aggregation === null) {
-    const clause = clauseOf(scope, refuse("this query"));
-    return (expression) => clause.bind(expression);
-  }
-  const { collector, grouping } = aggregation;
-  const clause: Clause = clauseOf(scope, { kind: "collect", collector });
-  return (expression) => grouping.rewrite(clause.bind(expression));
+/**
+ * How the select list, HAVING and ORDER BY bind: over the FROM, then lifted
+ * above the aggregate if the query groups (grouping.ts).
+ */
+interface Above {
+  bind(expression: ParsedExpression): Expression;
+  lift(expression: Expression): Expression;
 }
 
-function bindOutput(
-  item: SelectItem,
-  bindAbove: (expression: ParsedExpression) => Expression,
-): Output {
-  if (item.kind === "column") {
-    return { expression: item.column, name: item.column.name, alias: null };
+function aboveFrom(scope: Scope, aggregation: Aggregation | null): Above {
+  if (aggregation === null) {
+    const clause = clauseOf(scope, refuse("this query"));
+    return {
+      bind: (expression) => clause.bind(expression),
+      lift: (expression) => expression,
+    };
   }
-  const expression = bindAbove(item.expression);
+  const { collector, grouping } = aggregation;
+  const clause = clauseOf(scope, { kind: "collect", collector });
+  return {
+    bind: (expression) => grouping.rewrite(clause.bind(expression)),
+    lift: (expression) => grouping.rewrite(expression),
+  };
+}
+
+function bindOutput(item: SelectItem, above: Above): Output {
+  if (item.kind === "column") {
+    const expression = above.lift(item.column);
+    return { expression, name: item.column.name, alias: null };
+  }
+  const expression = above.bind(item.expression);
   const name = itemName(item, expression);
   return { expression, name, alias: item.expression.alias };
 }
 
-function bindHaving(
-  having: ParsedExpression,
-  scope: Scope,
-  aggregation: Aggregation | null,
-): Expression {
-  const bindAbove = aboveFrom(scope, aggregation);
-  const clause: Clause = {
-    ...clauseOf(scope, refuse("HAVING")),
-    bind: bindAbove,
-  };
-  return bindCondition(having, clause, "HAVING");
+function bindHaving(having: ParsedExpression, above: Above): Expression {
+  const condition = above.bind(having);
+  checkCondition(condition.type, "HAVING");
+  return condition;
 }
 
 /** The aggregate node over the source, and HAVING as a filter over it. */
