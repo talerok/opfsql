@@ -8,7 +8,12 @@ import type {
   Table,
   TableShape,
 } from "../schema/index.js";
-import { createIndexSql, createTableSql, nameKey } from "../schema/index.js";
+import {
+  createIndexSql,
+  createTableSql,
+  nameKey,
+  SEQUENCE_TABLE_NAME,
+} from "../schema/index.js";
 import type {
   IndexReader,
   SchemaEntry,
@@ -25,7 +30,7 @@ import { isStoredAs } from "../values/index.js";
 import type { CompileExpression } from "./keys.js";
 import { entryOf, keyedIndex, rowidsWithKey, uniqueViolation } from "./keys.js";
 import { TableRows } from "./rows.js";
-import { SEQUENCE_TABLE_NAME, Sequences } from "./sequences.js";
+import { Sequences } from "./sequences.js";
 
 // ---------------------------------------------------------------------------
 // Schema changes on storage: the trees of tables and indexes, their rows in

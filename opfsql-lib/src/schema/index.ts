@@ -5,6 +5,7 @@ export {
   isSameName,
   nameKey,
   RESERVED_PREFIX,
+  SEQUENCE_TABLE_NAME,
 } from "./names.js";
 export { Schema } from "./schema.js";
 export {

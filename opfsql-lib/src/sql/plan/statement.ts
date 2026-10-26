@@ -61,8 +61,9 @@ export interface Insert<Plan> {
   readonly columns: readonly number[];
   readonly source: Plan;
   /**
-   * True when `source`, or a subquery anywhere in it, reads the target
-   * table. The executor then reads all of it before inserting, so
+   * True when `source`, or a subquery anywhere in it, reads a table the
+   * insert writes: the target, or opfsql_sequence when the target has
+   * AUTOINCREMENT. The executor then reads all of it before inserting, so
    * `INSERT INTO t SELECT … FROM t` never reads its own rows; otherwise it
    * inserts each row as the source produces it.
    */

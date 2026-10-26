@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ConstraintError, InternalError } from "../../errors.js";
-import type { IndexShape } from "../../schema/index.js";
+import { type IndexShape, SEQUENCE_TABLE_NAME } from "../../schema/index.js";
 import type { Catalog } from "../index.js";
-import { SEQUENCE_TABLE_NAME } from "../index.js";
 import { column, Database, usersShape, withUsers } from "./database.js";
 
 describe("Catalog", () => {

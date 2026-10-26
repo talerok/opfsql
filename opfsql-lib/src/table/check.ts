@@ -1,4 +1,9 @@
-import type { Index, Schema, Table } from "../schema/index.js";
+import {
+  type Index,
+  type Schema,
+  SEQUENCE_TABLE_NAME,
+  type Table,
+} from "../schema/index.js";
 import type { PageReader } from "../storage/index.js";
 import {
   decodeKey,
@@ -11,7 +16,7 @@ import { rowKey } from "../values/index.js";
 import type { CompileExpression } from "./keys.js";
 import { entryOf, keyedIndex } from "./keys.js";
 import { TableRows } from "./rows.js";
-import { lastIssued, SEQUENCE_TABLE_NAME } from "./sequences.js";
+import { lastIssued } from "./sequences.js";
 
 // ---------------------------------------------------------------------------
 // The table part of the integrity check (docs/file-format.md, Integrity):

@@ -5,7 +5,11 @@ import type {
   Table,
   TableShape,
 } from "../../schema/index.js";
-import { constraintIndexName, Schema } from "../../schema/index.js";
+import {
+  constraintIndexName,
+  Schema,
+  SEQUENCE_TABLE_NAME,
+} from "../../schema/index.js";
 import type {
   Pager,
   ReadTransaction,
@@ -24,7 +28,6 @@ import {
   Catalog,
   checkTables,
   keyedIndex,
-  SEQUENCE_TABLE_NAME,
   Sequences,
   TableEditor,
   TableRows,
