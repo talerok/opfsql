@@ -211,19 +211,29 @@ describe("GROUP BY", () => {
     );
   });
 
-  it("refuses an alias of two different items, as ORDER BY does", () => {
+  it("refuses an alias two items carry, as ORDER BY does", () => {
     expect(
       semanticError("SELECT age AS x, name AS x FROM users GROUP BY x"),
     ).toBe("GROUP BY x is ambiguous");
     expect(
-      semanticError("SELECT age AS x, name AS x FROM users ORDER BY x"),
-    ).toBe("ORDER BY x is ambiguous");
+      semanticError(
+        "SELECT age AS x, age AS x, count(*) FROM users GROUP BY x",
+      ),
+    ).toBe("GROUP BY x is ambiguous");
+  });
+
+  it("names a subquery item by its alias", () => {
     expect(
-      plan("SELECT age AS x, age AS x, count(*) FROM users GROUP BY x"),
+      plan(
+        "SELECT (SELECT max(total) FROM orders) AS m, count(*) FROM users GROUP BY m",
+      ),
     ).toBe(
       lines(
-        "project #3 (age#1.0, age#1.0, count(*)#2.0)",
-        "  aggregate #1 (age#0.2) #2 (count(*))",
+        "project #7 (group1#5.0, count(*)#6.0)",
+        "  aggregate #5 (subquery(1)) #6 (count(*))",
+        "    subquery(1): project #4 (max(total)#3.0)",
+        "      aggregate #2 () #3 (max(total#1.2))",
+        "        get #1 orders (id, user_id, total, status)",
         "    get #0 users (id, name, age, email, data)",
       ),
     );
