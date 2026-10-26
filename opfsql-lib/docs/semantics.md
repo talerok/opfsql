@@ -247,8 +247,9 @@ that of [Order and equality](#order-and-equality).
 
 ## LIMIT and OFFSET
 
-LIMIT and OFFSET take integers, converted as an INTEGER column converts
-them: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
+LIMIT and OFFSET take a constant or a parameter (not an expression, as
+SQLite allows), holding an integer, converted as an INTEGER column converts
+it: `'5'` is 5. No LIMIT, or a negative one, is no limit; a negative
 OFFSET skips nothing. Any other value — NULL, `2.5`, `'five'` — fails with
 `DATATYPE_MISMATCH`: a constant when the statement is prepared, anything
 else (a parameter, say) each time the query starts, before it reads a row.
