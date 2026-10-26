@@ -1,7 +1,6 @@
 import { SemanticError } from "../../errors.js";
 import {
   isReservedName,
-  nameKey,
   type Column,
   type Index,
   type Table,
@@ -13,6 +12,7 @@ import {
 } from "../parser/index.js";
 import type { AlterAction, AlterTable, logical } from "../plan/index.js";
 import { declareColumn } from "./column-definition.js";
+import { findColumn } from "./columns.js";
 import { isStatementError } from "./corruption.js";
 import { bindIndexKey, bindKeyText } from "./create-index.js";
 import { isSameExpression } from "./same-expression.js";
@@ -58,10 +58,7 @@ function addColumn(
 ): AlterAction {
   const declared = declareColumn(definition);
   const { column } = declared;
-  const isTaken = table.columns.some(
-    (other) => nameKey(other.name) === nameKey(column.name),
-  );
-  if (isTaken) {
+  if (findColumn(table.columns, column.name) !== -1) {
     throw new SemanticError(`duplicate column name: ${column.name}`);
   }
   if (declared.primaryKeys > 0 || declared.isAutoincrement) {

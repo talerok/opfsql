@@ -1,6 +1,6 @@
 import { SemanticError } from "../../errors.js";
 import { commonType } from "../../functions/index.js";
-import { isReservedName, nameKey, type Table } from "../../schema/index.js";
+import { isReservedName, type Table } from "../../schema/index.js";
 import type {
   Assignment as AssignmentNode,
   DeleteStatement,
@@ -16,6 +16,7 @@ import {
   type Update,
 } from "../plan/index.js";
 import { bindCondition, conjunctsOf, refuse, type Clause } from "./clause.js";
+import { columnIn } from "./columns.js";
 import { clauseOf } from "./expression.js";
 import { relation, Scope, type BindContext, type BoundQuery } from "./scope.js";
 
@@ -106,14 +107,7 @@ export function bindAssignments(
 
 /** The position of `table`'s column called `name`. */
 export function columnNamed(table: Table, name: string): number {
-  const key = nameKey(name);
-  const position = table.columns.findIndex(
-    (column) => nameKey(column.name) === key,
-  );
-  if (position === -1) {
-    throw new SemanticError(`table ${table.name} has no column named ${name}`);
-  }
-  return position;
+  return columnIn(table.columns, name, table.name);
 }
 
 /** INSERT's rows: VALUES, each row as long as the column list, or a query. */

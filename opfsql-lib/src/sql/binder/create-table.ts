@@ -11,6 +11,7 @@ import {
 import type { CreateTableStatement } from "../parser/index.js";
 import type { CreateTable } from "../plan/index.js";
 import { declareColumn, type DeclaredColumn } from "./column-definition.js";
+import { columnIn, firstRepeated } from "./columns.js";
 
 // ---------------------------------------------------------------------------
 // CREATE TABLE to the schema model. A sole PRIMARY KEY column of type
@@ -96,15 +97,10 @@ function checkColumnNames(
   table: string,
   declared: readonly DeclaredColumn[],
 ): void {
-  const seen = new Set<string>();
-  for (const { column } of declared) {
-    const key = nameKey(column.name);
-    if (seen.has(key)) {
-      throw new SemanticError(
-        `duplicate column name in ${table}: ${column.name}`,
-      );
-    }
-    seen.add(key);
+  const names = declared.map(({ column }) => column.name);
+  const repeated = names[firstRepeated(names.map((name) => nameKey(name)))];
+  if (repeated !== undefined) {
+    throw new SemanticError(`duplicate column name in ${table}: ${repeated}`);
   }
 }
 
@@ -113,11 +109,12 @@ function primaryKey(
   statement: CreateTableStatement,
   declared: readonly DeclaredColumn[],
 ): number[] {
+  const columns = declared.map(({ column }) => column);
   const columnKeys = declared.flatMap((column, position) =>
     Array.from({ length: column.primaryKeys }, () => [position]),
   );
   const tableKeys = statement.primaryKeys.map((names) =>
-    names.map((name) => positionOf(name, declared, statement.table)),
+    names.map((name) => columnIn(columns, name, statement.table)),
   );
   const keys = [...columnKeys, ...tableKeys];
   if (keys.length > 1) {
@@ -126,27 +123,12 @@ function primaryKey(
     );
   }
   const [key = []] = keys;
-  if (new Set(key).size !== key.length) {
+  if (firstRepeated(key) !== -1) {
     throw new SemanticError(
       `a column is named twice in the primary key of ${statement.table}`,
     );
   }
   return key;
-}
-
-function positionOf(
-  name: string,
-  declared: readonly DeclaredColumn[],
-  table: string,
-): number {
-  const key = nameKey(name);
-  const position = declared.findIndex(
-    ({ column }) => nameKey(column.name) === key,
-  );
-  if (position === -1) {
-    throw new SemanticError(`table ${table} has no column named ${name}`);
-  }
-  return position;
 }
 
 /** A primary key that is one INTEGER column is the rowid. */
