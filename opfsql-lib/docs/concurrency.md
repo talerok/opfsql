@@ -5,8 +5,8 @@ no tab ever reads a page of the wrong snapshot. `docs/file-format.md` has the
 byte layouts this refers to; `src/storage/pager` implements it.
 
 Several tabs open the same files only in Chromium (`readwrite-unsafe`
-handles). Elsewhere a second tab gets `DATABASE_IN_USE`, there is no
-read-mark file, and everything below holds trivially for the one tab.
+handles). Elsewhere a second tab gets `DATABASE_IN_USE`; the one tab still
+keeps the read-mark file, and everything below holds trivially for it.
 
 ## Shared state
 
