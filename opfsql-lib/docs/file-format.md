@@ -272,6 +272,7 @@ Names starting with `opfsql_` are reserved.
 | 8      | 4    | format version, `5`                              |
 | 12     | 4    | epoch: incremented each time the WAL restarts    |
 | 16     | 4    | base transaction: the last one before this epoch |
+| 20     | 4    | CRC-32 of bytes 0–19                             |
 
 Then frames, each a 16-byte header and a payload:
 
@@ -291,6 +292,12 @@ flushed at once. Recovery reads frames until the first whose checksum or
 epoch does not match, and keeps the transactions whose commit record it read.
 Transaction ids continue across epochs, so an id is a position in the
 database's history: a snapshot is the latest transaction it sees.
+
+Restarting the WAL writes the new header, then truncates the file to it.
+Another tab reading meanwhile finds the old header or the new one, never
+none, and under the new header the old frames' epoch rejects them. A header
+whose checksum fails is being rewritten: a reader reads it again, and only
+one that keeps failing is corrupt.
 
 ## Read-mark file
 

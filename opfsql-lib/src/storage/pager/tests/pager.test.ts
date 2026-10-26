@@ -5,6 +5,7 @@ import {
   StorageFullError,
   UnsupportedFormatError,
 } from "../../../errors.js";
+import { crc32 } from "../../file/crc32.js";
 import type { SyncFile } from "../../file/sync-file.js";
 import { MemoryFile } from "../../file/sync-file.js";
 import type { StorageFiles } from "../../open.js";
@@ -21,9 +22,10 @@ import type { Pager } from "../pager.js";
 import type { WriteTransaction } from "../transaction.js";
 
 const PAGE_SIZE = 4096;
-/** docs/file-format.md, WAL file: the header is 20 bytes, the epoch at 12. */
-const WAL_HEADER_SIZE = 20;
+/** docs/file-format.md, WAL file: the header is 24 bytes, the epoch at 12. */
+const WAL_HEADER_SIZE = 24;
 const WAL_EPOCH_OFFSET = 12;
+const WAL_CHECKSUM_OFFSET = 20;
 const TABLE_LEAF_TYPE = 0x02;
 
 /** The same files, as another engine opening them would see them. */
@@ -49,10 +51,15 @@ function firstByte(pager: Pager, pageNo: number): number {
   return read(pager, (transaction) => transaction.read(pageNo)[0] ?? -1);
 }
 
+/** Rewrites the WAL header's epoch, and its checksum to match. */
 function setWalEpoch(wal: SyncFile, epoch: number): void {
-  const bytes = new Uint8Array(4);
-  new DataView(bytes.buffer).setUint32(0, epoch);
-  wal.write(bytes, { at: WAL_EPOCH_OFFSET });
+  const header = new Uint8Array(WAL_HEADER_SIZE);
+  wal.read(header, { at: 0 });
+  const view = new DataView(header.buffer);
+  view.setUint32(WAL_EPOCH_OFFSET, epoch);
+  const checksum = crc32(header.subarray(0, WAL_CHECKSUM_OFFSET));
+  view.setUint32(WAL_CHECKSUM_OFFSET, checksum);
+  wal.write(header, { at: 0 });
 }
 
 describe("Pager", () => {
