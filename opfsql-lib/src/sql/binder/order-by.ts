@@ -3,7 +3,6 @@ import { nameKey } from "../../schema/index.js";
 import {
   ExpressionClass,
   OrderByNullType,
-  OrderType,
   type OrderByNode,
   type ParsedExpression,
 } from "../parser/index.js";
@@ -72,8 +71,8 @@ export function orderColumns(
 export function keyOrder(
   order: OrderByNode,
 ): Pick<KeyColumn, "direction" | "nulls"> {
-  const isAscending = order.type === OrderType.ASCENDING;
-  const direction = isAscending ? "ascending" : "descending";
+  const { direction } = order;
+  const isAscending = direction === "ascending";
   if (order.nullOrder === null) {
     return { direction, nulls: isAscending ? "first" : "last" };
   }
@@ -88,7 +87,7 @@ export function keyOrder(
 export function literalPosition(
   expression: ParsedExpression,
   count: number,
-  clause: string,
+  place: string,
 ): number | null {
   const isInteger =
     expression.expressionClass === ExpressionClass.CONSTANT &&
@@ -97,7 +96,7 @@ export function literalPosition(
   const position = expression.value;
   if (position < 1 || position > count) {
     throw new SemanticError(
-      `${clause} position ${String(position)} is not between 1 and ${String(count)}`,
+      `${place} position ${String(position)} is not between 1 and ${String(count)}`,
     );
   }
   return position - 1;
@@ -107,9 +106,9 @@ export function literalPosition(
 export function bareName(expression: ParsedExpression): string | null {
   const isName =
     expression.expressionClass === ExpressionClass.COLUMN_REF &&
-    expression.columnNames.length === 1 &&
+    expression.names.length === 1 &&
     expression.path.length === 0;
-  return isName ? (expression.columnNames[0] ?? null) : null;
+  return isName ? (expression.names[0] ?? null) : null;
 }
 
 /** What a key sorts by: a column already there, or an expression to add. */
@@ -161,7 +160,7 @@ function outputAliased(
  * make the name ambiguous, whatever they compute.
  */
 export function aliasPosition(
-  clause: string,
+  place: string,
   name: string,
   aliases: readonly (string | null)[],
 ): number | null {
@@ -173,6 +172,6 @@ export function aliasPosition(
     .filter((position) => position !== -1);
   return oneOrNone(
     positions,
-    () => new SemanticError(`${clause} ${name} is ambiguous`),
+    () => new SemanticError(`${place} ${name} is ambiguous`),
   );
 }

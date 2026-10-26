@@ -43,8 +43,8 @@ function parseCreateTable(cursor: Cursor): CreateTableStatement {
   cursor.expectSymbol("(");
   const elements = cursor.list(() => parseTableElement(cursor));
   cursor.expectSymbol(")");
-  cursor.rejectWord("STRICT", "STRICT");
-  cursor.rejectWord("WITHOUT", "WITHOUT ROWID");
+  cursor.rejectIdentifierWord("STRICT", "STRICT");
+  cursor.rejectIdentifierWord("WITHOUT", "WITHOUT ROWID");
   return {
     type: StatementType.CREATE_TABLE_STATEMENT,
     table,
@@ -52,7 +52,7 @@ function parseCreateTable(cursor: Cursor): CreateTableStatement {
     columns: elements.flatMap((element) =>
       element.type === "COLUMN" ? [element.column] : [],
     ),
-    primaryKeys: elements.flatMap((element) =>
+    tablePrimaryKeys: elements.flatMap((element) =>
       element.type === "PRIMARY KEY" ? [element.columns] : [],
     ),
   };
@@ -196,7 +196,7 @@ export function parseAlterTable(cursor: Cursor): AlterTableStatement {
     const columnName = cursor.name("a column name");
     return { type, table, alterType: AlterType.DROP_COLUMN, columnName };
   }
-  cursor.rejectWord("RENAME", "ALTER TABLE … RENAME");
+  cursor.rejectIdentifierWord("RENAME", "ALTER TABLE … RENAME");
   return cursor.fail("ADD or DROP");
 }
 
@@ -254,5 +254,5 @@ const OTHER_OBJECTS: ReadonlySet<string> = new Set([
 ]);
 
 function rejectOtherObjects(cursor: Cursor, verb: "CREATE" | "DROP"): void {
-  cursor.rejectWordIn(OTHER_OBJECTS, (word) => `${verb} ${word}`);
+  cursor.rejectIdentifierWordIn(OTHER_OBJECTS, (word) => `${verb} ${word}`);
 }

@@ -266,12 +266,12 @@ function parseName(cursor: Cursor): ParsedExpression {
   if (cursor.isSymbol("(")) return parseCall(cursor, name);
   const columnNames = [name];
   while (cursor.matchSymbol(".")) {
-    columnNames.push(cursor.label("a name after '.'"));
+    columnNames.push(cursor.nameAfterDot("a name after '.'"));
   }
   return {
     expressionClass: ExpressionClass.COLUMN_REF,
     alias: null,
-    columnNames,
+    names: columnNames,
     path: parseJsonPath(cursor),
   };
 }
@@ -291,7 +291,7 @@ function parseJsonPath(cursor: Cursor): JsonPathSegment[] {
 /** `.field` or `[index]`, or undefined at the end of the path. */
 function parsePathSegment(cursor: Cursor): JsonPathSegment | undefined {
   if (cursor.matchSymbol(".")) {
-    return { type: "field", name: cursor.label("a field name") };
+    return { type: "field", name: cursor.nameAfterDot("a field name") };
   }
   if (!cursor.matchSymbol("[")) return undefined;
   if (cursor.peek().kind !== "integer") cursor.fail("an array index");

@@ -7,7 +7,6 @@ import { parseFrom } from "./from-clause.js";
 import {
   ExpressionClass,
   OrderByNullType,
-  OrderType,
   SetOperationType,
   StatementType,
   type CTENode,
@@ -65,7 +64,7 @@ function parseCte(cursor: Cursor): CTENode {
     ? cursor.nameList("a column name")
     : [];
   cursor.expectKeyword("AS");
-  cursor.rejectWord("MATERIALIZED", "[NOT] MATERIALIZED");
+  cursor.rejectIdentifierWord("MATERIALIZED", "[NOT] MATERIALIZED");
   cursor.rejectKeyword("NOT", "[NOT] MATERIALIZED");
   return { name, columnNames, query: cursor.subquery() };
 }
@@ -175,8 +174,8 @@ function parseOrderItem(cursor: Cursor): OrderByNode {
   const expression = cursor.expression();
   const isDescending = cursor.matchKeyword("DESC");
   if (!isDescending) cursor.matchKeyword("ASC");
-  const type = isDescending ? OrderType.DESCENDING : OrderType.ASCENDING;
-  return { type, nullOrder: parseNullOrder(cursor), expression };
+  const direction = isDescending ? "descending" : "ascending";
+  return { direction, nullOrder: parseNullOrder(cursor), expression };
 }
 
 /** `NULLS FIRST`, `NULLS LAST`, or null when the item does not say. */

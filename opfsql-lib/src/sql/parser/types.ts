@@ -93,7 +93,7 @@ export type JsonPathSegment =
 export interface ColumnReferenceExpression {
   readonly expressionClass: ExpressionClass.COLUMN_REF;
   readonly alias: string | null;
-  readonly columnNames: readonly string[];
+  readonly names: readonly string[];
   readonly path: readonly JsonPathSegment[];
 }
 
@@ -287,10 +287,8 @@ export type TableReference =
 // Queries
 // ============================================================================
 
-export enum OrderType {
-  ASCENDING = "ASCENDING",
-  DESCENDING = "DESCENDING",
-}
+/** ASC or DESC, as the plan names the directions too. */
+export type OrderDirection = "ascending" | "descending";
 
 export enum OrderByNullType {
   NULLS_FIRST = "NULLS_FIRST",
@@ -298,7 +296,7 @@ export enum OrderByNullType {
 }
 
 export interface OrderByNode {
-  readonly type: OrderType;
+  readonly direction: OrderDirection;
   /** NULLS FIRST or LAST as written; null when the query does not say. */
   readonly nullOrder: OrderByNullType | null;
   readonly expression: ParsedExpression;
@@ -448,7 +446,7 @@ export interface CreateTableStatement {
   readonly ifNotExists: boolean;
   readonly columns: readonly ColumnDefinition[];
   /** The columns of each table-level `PRIMARY KEY (…)`, as written. */
-  readonly primaryKeys: readonly (readonly string[])[];
+  readonly tablePrimaryKeys: readonly (readonly string[])[];
 }
 
 export interface CreateIndexStatement {

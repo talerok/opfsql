@@ -48,7 +48,7 @@ function bindAggregate(
   const rule = clause.aggregates;
   if (rule.kind === "refuse") {
     throw new SemanticError(
-      `aggregate functions are not allowed in ${rule.where}`,
+      `aggregate functions are not allowed in ${rule.place}`,
     );
   }
   const inner = clause.withAggregates(

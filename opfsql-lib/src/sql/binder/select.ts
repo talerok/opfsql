@@ -54,10 +54,13 @@ export function bindSelect(
   scope: Scope,
   orderBy: readonly OrderByNode[],
 ): BoundQuery {
+  // The order matters: binding FROM fills the scope's relations, which `*`
+  // and the grouping read; and the aggregate is built last, from the calls
+  // the collector met binding the select list, HAVING and ORDER BY.
   const source = bindSource(node, scope);
   const items = selectItems(node.selectList, scope);
   const aggregation = startAggregation(node, orderBy, items, scope);
-  const above = aboveFrom(scope, aggregation);
+  const above = outputBinderFor(scope, aggregation);
   const outputs = items.map((item, position) =>
     bindOutput(item, position, above),
   );
@@ -103,14 +106,17 @@ function startAggregation(
  * How the select list, HAVING and ORDER BY bind: over the FROM, then lifted
  * above the aggregate if the query groups (grouping.ts).
  */
-interface Above {
+interface OutputBinder {
   bind(expression: ParsedExpression): Expression;
   lift(expression: Expression): Expression;
   /** The group column of select item `item`, if GROUP BY named the item. */
   groupOf(item: number): Expression | null;
 }
 
-function aboveFrom(scope: Scope, aggregation: Aggregation | null): Above {
+function outputBinderFor(
+  scope: Scope,
+  aggregation: Aggregation | null,
+): OutputBinder {
   if (aggregation === null) {
     const clause = clauseOf(scope, refuse("this query"));
     return {
@@ -131,7 +137,11 @@ function aboveFrom(scope: Scope, aggregation: Aggregation | null): Above {
   };
 }
 
-function bindOutput(item: SelectItem, position: number, above: Above): Output {
+function bindOutput(
+  item: SelectItem,
+  position: number,
+  above: OutputBinder,
+): Output {
   const group = above.groupOf(position);
   if (group !== null) {
     return {
@@ -149,7 +159,7 @@ function bindOutput(item: SelectItem, position: number, above: Above): Output {
   return { expression, name, alias: item.expression.alias };
 }
 
-function bindHaving(having: ParsedExpression, above: Above): Expression {
+function bindHaving(having: ParsedExpression, above: OutputBinder): Expression {
   const condition = above.bind(having);
   checkCondition(condition.type, "HAVING");
   return condition;

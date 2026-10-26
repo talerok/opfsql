@@ -102,12 +102,12 @@ function conflictTarget(
 function namedOnce(
   names: readonly string[],
   table: Table,
-  clause: string,
+  place: string,
 ): number[] {
   const columns = names.map((name) => columnNamed(table, name));
   const repeated = names[firstRepeated(columns)];
   if (repeated !== undefined) {
-    throw new SemanticError(`column ${repeated} is listed twice in ${clause}`);
+    throw new SemanticError(`column ${repeated} is listed twice in ${place}`);
   }
   return columns;
 }

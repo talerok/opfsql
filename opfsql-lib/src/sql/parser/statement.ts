@@ -7,7 +7,7 @@
 import { Cursor, type Grammar } from "./cursor.js";
 import { parseAlterTable, parseCreate, parseDrop } from "./ddl.js";
 import { parseDelete, parseInsert, parseUpdate } from "./dml.js";
-import { parseExpression as parseExpressionAt } from "./expression.js";
+import { parseExpressionFrom as parseExpressionAt } from "./expression.js";
 import type { Keyword } from "./keywords.js";
 import { tokenize } from "./lexer.js";
 import { parseQuery } from "./query.js";
@@ -75,8 +75,8 @@ const STATEMENTS: ReadonlyMap<Keyword, StatementParser> = new Map<
   ["ALTER", parseAlterTable],
   ["DROP", parseDrop],
   ["BEGIN", parseBegin],
-  ["COMMIT", parseTransactionEnd],
-  ["END", parseTransactionEnd],
+  ["COMMIT", parseCommit],
+  ["END", parseCommit],
   ["ROLLBACK", parseRollback],
   ["EXPLAIN", parseExplain],
 ]);
@@ -97,7 +97,10 @@ const OTHER_STATEMENTS: ReadonlySet<string> = new Set([
 function parseStatement(cursor: Cursor): Statement {
   const parser = cursor.lookupKeyword(STATEMENTS);
   if (parser !== undefined) return parser(cursor);
-  cursor.rejectWordIn(OTHER_STATEMENTS, (word) => `the ${word} statement`);
+  cursor.rejectIdentifierWordIn(
+    OTHER_STATEMENTS,
+    (word) => `the ${word} statement`,
+  );
   return cursor.fail("a statement");
 }
 
@@ -117,17 +120,17 @@ function parseBegin(cursor: Cursor): BeginStatement {
 
 /** DEFERRED, the default, or IMMEDIATE; EXCLUSIVE is not supported. */
 function parseBeginMode(cursor: Cursor): BeginMode {
-  cursor.rejectWord("EXCLUSIVE", "BEGIN EXCLUSIVE");
-  if (cursor.isWord("IMMEDIATE")) {
+  cursor.rejectIdentifierWord("EXCLUSIVE", "BEGIN EXCLUSIVE");
+  if (cursor.isIdentifierWord("IMMEDIATE")) {
     cursor.next();
     return "IMMEDIATE";
   }
-  if (cursor.isWord("DEFERRED")) cursor.next();
+  if (cursor.isIdentifierWord("DEFERRED")) cursor.next();
   return "DEFERRED";
 }
 
 /** `COMMIT [TRANSACTION]` or `END [TRANSACTION]`. */
-function parseTransactionEnd(cursor: Cursor): TransactionStatement {
+function parseCommit(cursor: Cursor): TransactionStatement {
   cursor.next();
   parseTransactionKeyword(cursor);
   return transactionEnd(TransactionType.COMMIT);
@@ -137,7 +140,7 @@ function parseTransactionEnd(cursor: Cursor): TransactionStatement {
 function parseRollback(cursor: Cursor): TransactionStatement {
   cursor.next();
   const hasKeyword = cursor.matchKeyword("TRANSACTION");
-  cursor.rejectWord("TO", "ROLLBACK TO");
+  cursor.rejectIdentifierWord("TO", "ROLLBACK TO");
   if (hasKeyword) rejectTransactionName(cursor);
   return transactionEnd(TransactionType.ROLLBACK);
 }
@@ -160,7 +163,7 @@ function rejectTransactionName(cursor: Cursor): void {
 
 function parseExplain(cursor: Cursor): Statement {
   cursor.next();
-  cursor.rejectWord("QUERY", "EXPLAIN QUERY PLAN");
+  cursor.rejectIdentifierWord("QUERY", "EXPLAIN QUERY PLAN");
   if (cursor.isKeyword("EXPLAIN")) cursor.fail("a statement to explain");
   return {
     type: StatementType.EXPLAIN_STATEMENT,

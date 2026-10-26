@@ -113,15 +113,15 @@ function primaryKey(
   declared: readonly DeclaredColumn[],
 ): number[] {
   const columnKeys = declared.reduce(
-    (count, column) => count + column.primaryKeys,
+    (count, column) => count + column.primaryKeyCount,
     0,
   );
-  if (columnKeys + statement.primaryKeys.length > 1) {
+  if (columnKeys + statement.tablePrimaryKeys.length > 1) {
     throw new SemanticError(
       `table "${statement.table}" has more than one primary key`,
     );
   }
-  const keyColumn = declared.findIndex((column) => column.primaryKeys > 0);
+  const keyColumn = declared.findIndex((column) => column.primaryKeyCount > 0);
   if (keyColumn !== -1) return [keyColumn];
   return tableKey(statement, declared);
 }
@@ -131,7 +131,7 @@ function tableKey(
   statement: CreateTableStatement,
   declared: readonly DeclaredColumn[],
 ): number[] {
-  const [names = []] = statement.primaryKeys;
+  const [names = []] = statement.tablePrimaryKeys;
   const columns = declared.map(({ column }) => column);
   const key = names.map((name) => columnIn(columns, name, statement.table));
   if (firstRepeated(key) !== -1) {

@@ -63,7 +63,7 @@ export function indexDefinition(
     name: statement.name,
     tableName: table.name,
     keys: statement.expressions.map((expression) =>
-      indexKey(expression, scope),
+      indexKeyOf(expression, scope),
     ),
     isUnique: statement.isUnique,
     origin: "statement",
@@ -76,27 +76,27 @@ export function indexDefinition(
  * the engine compiles to compute the key of a row. A key that does not
  * parse or bind is a CorruptError.
  */
-export function bindIndexKey(
+export function bindStoredIndexKey(
   sql: string,
   table: Table,
   tableIndex: number,
 ): Expression {
   return asCorruption(
-    () => bindKeyText(sql, table, tableIndex),
+    () => bindIndexKeyText(sql, table, tableIndex),
     (problem) =>
       `the index key ${sql} of table ${table.name} does not bind: ${problem}`,
   );
 }
 
 /** An expression key's text bound over `table`; its errors are a statement's. */
-export function bindKeyText(
+export function bindIndexKeyText(
   sql: string,
   table: Table,
   tableIndex: number,
 ): Expression {
   const context = new BindContext(Schema.empty, bindQuery);
   const scope = tableScope(table, tableIndex, context);
-  return bindKeyExpression(parseExpression(sql), scope);
+  return bindIndexKeyExpression(parseExpression(sql), scope);
 }
 
 function tableScope(
@@ -109,8 +109,8 @@ function tableScope(
   return scope;
 }
 
-function indexKey(expression: ParsedExpression, scope: Scope): IndexKey {
-  const bound = bindKeyExpression(expression, scope);
+function indexKeyOf(expression: ParsedExpression, scope: Scope): IndexKey {
+  const bound = bindIndexKeyExpression(expression, scope);
   if (bound.kind === "column") {
     return { kind: "column", column: bound.binding.columnIndex };
   }
@@ -118,7 +118,7 @@ function indexKey(expression: ParsedExpression, scope: Scope): IndexKey {
   return { kind: "expression", sql, type: storedType(bound.type) };
 }
 
-function bindKeyExpression(
+function bindIndexKeyExpression(
   expression: ParsedExpression,
   scope: Scope,
 ): Expression {

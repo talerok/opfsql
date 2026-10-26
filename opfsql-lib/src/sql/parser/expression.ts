@@ -27,7 +27,7 @@ import {
 } from "./types.js";
 
 /** An expression whose operators all bind at least as tightly as `minimum`. */
-export function parseExpression(
+export function parseExpressionFrom(
   cursor: Cursor,
   minimum: number,
 ): ParsedExpression {
@@ -92,7 +92,8 @@ function comparison(type: ComparisonType, level: number): InfixRule {
 function quantifierAt(cursor: Cursor): "ANY" | "ALL" | undefined {
   if (!cursor.isSymbol("(", 1)) return undefined;
   if (cursor.isKeyword("ALL")) return "ALL";
-  const isAny = cursor.isWord("ANY") || cursor.isWord("SOME");
+  const isAny =
+    cursor.isIdentifierWord("ANY") || cursor.isIdentifierWord("SOME");
   return isAny ? "ANY" : undefined;
 }
 
@@ -215,18 +216,18 @@ const BETWEEN_RULE: InfixRule = {
 };
 
 /** `a NOT <rule>`: NOT, then the rule's own words, then NOT around it all. */
-function negated(rule: InfixRule): InfixRule {
+function withNotPrefix(rule: InfixRule): InfixRule {
   return {
     power: rule.power,
     parse(cursor, left) {
       cursor.next();
-      return negation(rule.parse(cursor, left));
+      return wrapInNot(rule.parse(cursor, left));
     },
   };
 }
 
 /** NOT around a node; NOT IN and IS NOT NULL are operators of their own. */
-function negation(node: ParsedExpression): ParsedExpression {
+function wrapInNot(node: ParsedExpression): ParsedExpression {
   const isOperator = node.expressionClass === ExpressionClass.OPERATOR;
   if (isOperator && node.type === ExpressionType.OPERATOR_IN) {
     return operatorNode(ExpressionType.OPERATOR_NOT_IN, node.children);
@@ -295,10 +296,10 @@ const KEYWORD_RULES: ReadonlyMap<Keyword, InfixRule> = new Map<
 
 /** Operators written with NOT before their own word: `NOT IN`, `NOT NULL`. */
 const NOT_RULES: ReadonlyMap<Keyword, InfixRule> = new Map<Keyword, InfixRule>([
-  ["IN", negated(IN_RULE)],
-  ["LIKE", negated(LIKE_RULE)],
-  ["BETWEEN", negated(BETWEEN_RULE)],
-  ["NULL", negated(postfix(ExpressionType.OPERATOR_IS_NULL))],
+  ["IN", withNotPrefix(IN_RULE)],
+  ["LIKE", withNotPrefix(LIKE_RULE)],
+  ["BETWEEN", withNotPrefix(BETWEEN_RULE)],
+  ["NULL", withNotPrefix(postfix(ExpressionType.OPERATOR_IS_NULL))],
   ["GLOB", GLOB_RULE],
   ["REGEXP", REGEXP_RULE],
   ["MATCH", MATCH_RULE],

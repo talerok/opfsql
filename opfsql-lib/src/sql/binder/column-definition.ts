@@ -24,7 +24,7 @@ import { declaredType } from "./type-rules.js";
 export interface DeclaredColumn {
   readonly column: Column;
   /** PRIMARY KEY written with the column, how many times. */
-  readonly primaryKeys: number;
+  readonly primaryKeyCount: number;
   readonly isUnique: boolean;
   readonly isAutoincrement: boolean;
 }
@@ -42,7 +42,7 @@ export function declareColumn(definition: ColumnDefinition): DeclaredColumn {
   };
   return {
     column,
-    primaryKeys: constraints.filter((item) => item.type === "PRIMARY KEY")
+    primaryKeyCount: constraints.filter((item) => item.type === "PRIMARY KEY")
       .length,
     isUnique: hasConstraint("UNIQUE"),
     isAutoincrement: hasConstraint("AUTOINCREMENT"),

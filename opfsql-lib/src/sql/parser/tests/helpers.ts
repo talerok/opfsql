@@ -7,7 +7,6 @@ import { parse } from "../index.js";
 import {
   ExpressionClass,
   ExpressionType,
-  OrderType,
   StatementType,
   TableReferenceType,
   type CaseExpression,
@@ -155,7 +154,7 @@ function renderNode(node: ParsedExpression): string {
           ? `.${segment.name}`
           : `[${String(segment.value)}]`,
       );
-      return node.columnNames.join(".") + path.join("");
+      return node.names.join(".") + path.join("");
     }
     case ExpressionClass.CONSTANT: {
       return renderLiteral(node);
@@ -293,7 +292,7 @@ function renderBody(body: SelectNode | SetOperationNode): string {
 function renderOrderBy(orders: readonly OrderByNode[]): string {
   if (orders.length === 0) return "";
   const orderItems = orders.map((order) => {
-    const direction = order.type === OrderType.DESCENDING ? " DESC" : "";
+    const direction = order.direction === "descending" ? " DESC" : "";
     const nulls = order.nullOrder === null ? "" : ` ${order.nullOrder}`;
     return `${render(order.expression)}${direction}${nulls}`;
   });

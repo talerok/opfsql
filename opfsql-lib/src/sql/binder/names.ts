@@ -35,13 +35,13 @@ export function bindColumn(
   scope: Scope,
 ): ColumnReference | JsonAccess {
   for (let query: Scope | null = scope; query !== null; query = query.outer) {
-    const found = findIn(query, reference.columnNames);
+    const found = findIn(query, reference.names);
     if (found === null) continue;
     const depth = scope.level - query.level;
     if (depth > 0) scope.noteReach(query.level);
     return referenceTo(found, depth, reference);
   }
-  throw new SemanticError(`no such column: ${reference.columnNames.join(".")}`);
+  throw new SemanticError(`no such column: ${reference.names.join(".")}`);
 }
 
 /** The relations `*` or `t.*` stands for, and the columns of each it reads. */
@@ -177,7 +177,7 @@ function referenceTo(
   reference: ColumnReferenceExpression,
 ): ColumnReference | JsonAccess {
   const column = columnOf(found.relation, found.column, depth);
-  const keys = reference.columnNames.slice(found.namesUsed);
+  const keys = reference.names.slice(found.namesUsed);
   const path: JsonPathStep[] = [
     ...keys.map((key) => ({ kind: "key" as const, key })),
     ...reference.path.map((segment) => pathStep(segment)),

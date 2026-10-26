@@ -93,9 +93,9 @@ export function concatenationType(
  * A condition — WHERE, ON, HAVING, a searched CASE's WHEN, an operand of
  * AND, OR and NOT — is BOOLEAN; an untyped value is checked per row.
  */
-export function checkCondition(type: StaticType, where: string): void {
+export function checkCondition(type: StaticType, place: string): void {
   if (!CONDITIONS.has(type)) {
-    throw new SemanticError(`${where} must be BOOLEAN, not ${type}`);
+    throw new SemanticError(`${place} must be BOOLEAN, not ${type}`);
   }
 }
 

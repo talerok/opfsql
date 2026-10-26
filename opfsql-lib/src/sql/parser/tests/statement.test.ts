@@ -463,7 +463,7 @@ describe("CREATE TABLE", () => {
       "a INT PRIMARY KEY PRIMARY KEY",
       "b INT",
     ]);
-    expect(table.primaryKeys).toEqual([["a", "b"], ["b"]]);
+    expect(table.tablePrimaryKeys).toEqual([["a", "b"], ["b"]]);
   });
 
   it.each([

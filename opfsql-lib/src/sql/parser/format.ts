@@ -18,7 +18,6 @@ import {
   ExpressionType,
   JoinType,
   OrderByNullType,
-  OrderType,
   SetOperationType,
   TableReferenceType,
   type CaseExpression,
@@ -136,7 +135,7 @@ function formatOperator(expression: OperatorExpression): string {
       return `NOT ${operand(subject, level)}`;
     }
     case ExpressionType.OPERATOR_NEGATE: {
-      return `-${negated(subject)}`;
+      return `-${minusOperand(subject)}`;
     }
     case ExpressionType.OPERATOR_IS_NULL: {
       return `${operand(subject, level)} IS NULL`;
@@ -184,7 +183,7 @@ function required(expression: ParsedExpression | undefined): ParsedExpression {
  * a literal of its own, and so does a second `-`, since `--` starts a
  * comment.
  */
-function negated(expression: ParsedExpression): string {
+function minusOperand(expression: ParsedExpression): string {
   const isNumber =
     expression.expressionClass === ExpressionClass.CONSTANT &&
     (expression.type === "INTEGER" || expression.type === "REAL");
@@ -216,7 +215,7 @@ function formatList(expressions: readonly ParsedExpression[]): string {
 // --- Primaries -----------------------------------------------------------------
 
 function formatColumn(reference: ColumnReferenceExpression): string {
-  const names = reference.columnNames.map((name) => formatName(name));
+  const names = reference.names.map((name) => formatName(name));
   const path = reference.path.map((segment) => formatSegment(segment));
   return names.join(".") + path.join("");
 }
@@ -390,7 +389,7 @@ function formatJoin(join: JoinReference): string {
 function formatOrderBy(orders: readonly OrderByNode[]): string {
   if (orders.length === 0) return "";
   const keys = orders.map((order) => {
-    const direction = order.type === OrderType.DESCENDING ? " DESC" : "";
+    const direction = order.direction === "descending" ? " DESC" : "";
     return `${formatExpression(order.expression)}${direction}${nullsText(order)}`;
   });
   return `ORDER BY ${keys.join(", ")}`;
