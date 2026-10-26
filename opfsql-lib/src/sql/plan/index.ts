@@ -34,3 +34,4 @@ export {
 export * as logical from "./logical.js";
 export * as physical from "./physical.js";
 export type * from "./statement.js";
+export { formatPhysicalPlan } from "./format-physical.js";
