@@ -83,4 +83,14 @@ describe("records", () => {
     const bytes = encode(["abc"]);
     expect(() => decodeRecord(bytes.subarray(0, -1))).toThrow(CorruptError);
   });
+
+  it("refuse the reserved serial type, whether its field is read or skipped", () => {
+    // A header of two bytes, its size and serial type 15, then eight bytes.
+    const bytes = Uint8Array.of(2, 15, 0, 0, 0, 0, 0, 0, 0, 0);
+    expect(() => decodeRecord(bytes)).toThrow(CorruptError);
+    expect(() => decodeRecord(bytes)).toThrow("serial type 15 is reserved");
+    expect(() => decodeInto(bytes, [undefined], [])).toThrow(
+      "serial type 15 is reserved",
+    );
+  });
 });

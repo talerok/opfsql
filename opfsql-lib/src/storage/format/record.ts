@@ -202,12 +202,14 @@ export function decodeInto(
   let hasOverflow = false;
   while (position < headerSize) {
     const serialType = readVarint(record, position);
+    // Sized before it is read, so that a reserved type fails as itself.
+    const size = bodySizeOf(serialType);
     const place = places === null ? field : places[field];
     if (place !== undefined) {
       target[place] = fieldAt(record, serialType, offset);
       hasOverflow ||= isOverflowType(serialType);
     }
-    offset += bodySizeOf(serialType);
+    offset += size;
     position = skipVarint(record, position);
     field++;
   }
