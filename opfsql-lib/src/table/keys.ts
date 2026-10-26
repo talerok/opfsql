@@ -81,8 +81,8 @@ export function uniqueViolation(table: Table, index: Index): ConstraintError {
 function keyColumnNames(table: Table, index: Index): string[] {
   const names: string[] = [];
   for (const key of index.keys) {
-    const column =
-      key.kind === "column" ? table.columns[key.column] : undefined;
+    if (key.kind === "expression") return [];
+    const column = table.columns[key.column];
     if (column === undefined) return [];
     names.push(column.name);
   }

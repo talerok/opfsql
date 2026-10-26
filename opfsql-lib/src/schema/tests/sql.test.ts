@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { column } from "../../../test/support/schema.js";
 import { InternalError } from "../../errors.js";
-import type { Column, IndexShape, TableShape } from "../index.js";
+import type { IndexShape, TableShape } from "../index.js";
 import {
   constraintIndexName,
   createIndexSql,
@@ -9,14 +10,6 @@ import {
   literalSql,
   quoteName,
 } from "../index.js";
-
-function column(
-  name: string,
-  type: Column["type"],
-  extra: Partial<Column> = {},
-): Column {
-  return { name, type, isNotNull: false, defaultValue: null, ...extra };
-}
 
 const users: TableShape = {
   name: "users",

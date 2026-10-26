@@ -1,5 +1,5 @@
+import { column } from "../../../test/support/schema.js";
 import type {
-  Column,
   Index,
   IndexShape,
   Table,
@@ -29,20 +29,14 @@ import {
   TableRows,
 } from "../index.js";
 
+export { column } from "../../../test/support/schema.js";
+
 // A database for table-layer tests, its schema kept by hand as the engine
 // would reload it, and a users table to work on.
 
 export const noExpressions: CompileExpression = () => {
   throw new Error("these tests have no expression keys");
 };
-
-export function column(
-  name: string,
-  type: Column["type"],
-  extra: Partial<Column> = {},
-): Column {
-  return { name, type, isNotNull: false, defaultValue: null, ...extra };
-}
 
 // users (id INTEGER PRIMARY KEY, nick TEXT, email TEXT UNIQUE)
 export const usersShape: TableShape = {
@@ -166,10 +160,11 @@ export class Database {
 /** A database with an empty users table and its unique email index. */
 export async function withUsers(
   shape: TableShape = usersShape,
+  constraints: readonly IndexShape[] = [uniqueEmail],
 ): Promise<{ database: Database; users: Table }> {
   const database = await Database.open();
   const { table, indexes } = database.change((catalog) =>
-    catalog.createTable(shape, shape === usersShape ? [uniqueEmail] : []),
+    catalog.createTable(shape, constraints),
   );
   database.tables.push(table);
   database.indexes.push(...indexes);

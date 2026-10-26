@@ -62,18 +62,18 @@ export class Sequences {
 
   /** The largest rowid `table` has issued; 0 if none. */
   last(table: string): number {
-    return findSequence(this.rows, table)?.seq ?? 0;
+    return issuedIn(this.rows, table);
   }
 
-  /** Records that `table` issued `rowid`, if it is the largest so far. */
-  record(table: string, rowid: number): void {
+  /** Records that `table` issued rowid `issued`, if it is the largest so far. */
+  record(table: string, issued: number): void {
     const found = findSequence(this.rows, table);
     if (found === undefined) {
-      const next = (this.rows.lastRowid() ?? 0) + 1;
-      this.rows.insert(next, [table, rowid]);
+      const sequenceRowid = (this.rows.lastRowid() ?? 0) + 1;
+      this.rows.insert(sequenceRowid, [table, issued]);
       return;
     }
-    if (rowid > found.seq) this.rows.replace(found.rowid, [table, rowid]);
+    if (issued > found.seq) this.rows.replace(found.rowid, [table, issued]);
   }
 
   /** Forgets `table`, when it is dropped. */
@@ -89,7 +89,11 @@ export function lastIssued(
   root: number,
   table: string,
 ): number {
-  return findSequence(new TableReader(pages, root), table)?.seq ?? 0;
+  return issuedIn(new TableReader(pages, root), table);
+}
+
+function issuedIn(rows: TableReader, table: string): number {
+  return findSequence(rows, table)?.seq ?? 0;
 }
 
 /** The table's row. A scan: there is one row per AUTOINCREMENT table. */

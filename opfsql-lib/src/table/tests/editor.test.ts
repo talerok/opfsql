@@ -1,37 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { column } from "../../../test/support/schema.js";
 import { ConstraintError, DatatypeMismatchError } from "../../errors.js";
-import type { Column, Index, Table } from "../../schema/index.js";
+import type { Index, Table } from "../../schema/index.js";
+import { Schema } from "../../schema/index.js";
 import type { Pager, WriteTransaction } from "../../storage/index.js";
-import {
-  IndexReader,
-  IndexWriter,
-  openPager,
-  TableWriter,
-} from "../../storage/index.js";
-import { memoryFiles, write } from "../../storage/tests/pager-support.js";
+import { IndexWriter, openPager, TableWriter } from "../../storage/index.js";
+import { memoryFiles, read, write } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
-import { compareBytes } from "../../values/index.js";
 import type { CompileExpression } from "../index.js";
-import {
-  entryOf,
-  keyedIndex,
-  Sequences,
-  TableEditor,
-  TableRows,
-} from "../index.js";
+import { checkTables, keyedIndex, Sequences, TableEditor } from "../index.js";
 
 // users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, name TEXT NOT NULL,
 //        age INTEGER DEFAULT 0), with an index on lower(name).
 const ID = 0;
 const EMAIL = 1;
-
-function column(
-  name: string,
-  type: Column["type"],
-  extra: Partial<Column> = {},
-): Column {
-  return { name, type, isNotNull: false, defaultValue: null, ...extra };
-}
 
 /** lower(name), as the engine would compile it. */
 function lowerName(row: readonly Value[]): Value {
@@ -104,21 +86,13 @@ function rowsOf(users: Users): Value[][] {
   return edit(users, (editor) => [...editor.scan()].map((row) => row.values()));
 }
 
-/** Every index holds exactly the entries the rows give it. */
+/** The table and its indexes agree: checkTables finds nothing wrong. */
 function expectIndexesMatchRows(users: Users): void {
-  write(users.pager, (transaction) => {
-    const rows = [...new TableRows(transaction, users.table).scan()];
-    for (const index of users.indexes) {
-      const keyed = keyedIndex(index, users.table, compile);
-      const expected = rows
-        .map((row) => entryOf(keyed, row.values(), row.rowid))
-        .toSorted(compareBytes);
-      const stored = [
-        ...new IndexReader(transaction, index.rootPage).keysFrom(),
-      ];
-      expect(stored).toEqual(expected);
-    }
-  });
+  const schema = new Schema(0, [users.table], users.indexes);
+  const problems = read(users.pager, (transaction) =>
+    checkTables(transaction, schema, compile),
+  );
+  expect(problems).toEqual([]);
 }
 
 describe("TableEditor", () => {
@@ -219,20 +193,19 @@ describe("TableEditor", () => {
     expectIndexesMatchRows(users);
   });
 
-  it("never reuses a rowid with AUTOINCREMENT, and does without it", async () => {
-    for (const isAutoincrement of [true, false]) {
-      const users = await usersTable(isAutoincrement);
-      edit(users, (editor) => {
-        for (const name of ["Ann", "Bob", "Cid"]) {
-          editor.insert([null, null, name, 0]);
-        }
-        editor.delete(3);
-      });
-      const next = edit(users, (editor) =>
-        editor.insert([null, null, "Dan", 0]),
-      );
-      expect(next).toBe(isAutoincrement ? 4 : 3);
-    }
+  it.each([
+    ["with AUTOINCREMENT, never reuses a rowid", true, 4],
+    ["without, reuses the largest one's next", false, 3],
+  ])("%s", async (_, isAutoincrement, expected) => {
+    const users = await usersTable(isAutoincrement);
+    edit(users, (editor) => {
+      for (const name of ["Ann", "Bob", "Cid"]) {
+        editor.insert([null, null, name, 0]);
+      }
+      editor.delete(3);
+    });
+    const next = edit(users, (editor) => editor.insert([null, null, "Dan", 0]));
+    expect(next).toBe(expected);
   });
 
   it("reads a column added after a row was written as its default", async () => {

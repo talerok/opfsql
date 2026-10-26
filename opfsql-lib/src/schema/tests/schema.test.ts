@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { column } from "../../../test/support/schema.js";
 import type { Column, Index, Table } from "../index.js";
 import { isReservedName, isSameName, Schema } from "../index.js";
-
-function column(name: string, type: Column["type"] = "TEXT"): Column {
-  return { name, type, isNotNull: false, defaultValue: null };
-}
 
 function table(
   name: string,

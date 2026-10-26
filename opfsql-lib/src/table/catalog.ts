@@ -169,19 +169,17 @@ export class Catalog {
   // --- Rows ----------------------------------------------------------------------
 
   /**
-   * Rewrites every row without field `column`. The rowids are read first,
-   * so no row moves under the scan that finds it.
+   * Rewrites every row without field `column`. Every row is read before any
+   * is rewritten, so none moves under the scan that finds it.
    */
   private rewriteRows(table: Table, column: number): void {
     const rows = new TableWriter(this.pages, table.rootPage, table.name);
-    const rowids = [...rows.scan()].map((row) => row.rowid);
-    for (const rowid of rowids) {
-      const stored = rows.get(rowid);
-      if (stored === null) continue;
-      const fields = Array.from({ length: stored.length }, (_, field) =>
-        stored.value(field),
+    const all = [...rows.scan()];
+    for (const row of all) {
+      const fields = Array.from({ length: row.length }, (_, field) =>
+        row.value(field),
       );
-      rows.replace(rowid, fields.toSpliced(column, 1));
+      rows.replace(row.rowid, fields.toSpliced(column, 1));
     }
   }
 
