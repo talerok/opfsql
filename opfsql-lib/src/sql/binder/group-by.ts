@@ -1,4 +1,4 @@
-import { formatExpression, type ParsedExpression } from "../parser/index.js";
+import type { ParsedExpression } from "../parser/index.js";
 import type { logical } from "../plan/index.js";
 import { refuse, type Clause } from "./clause.js";
 import { clauseOf } from "./expression.js";
@@ -46,11 +46,6 @@ export function bindGroups(
   return { expressions, ofItem };
 }
 
-/** An item as SQL prints it: two items printed alike are the same item. */
-function itemText(item: SelectItem | undefined): string | null {
-  return item?.kind === "expression" ? formatExpression(item.expression) : null;
-}
-
 function groupExpression(
   group: ParsedExpression,
   item: number | null,
@@ -73,7 +68,5 @@ function namedItem(
   const name = bareName(group);
   if (name === null || hasColumn(scope, name)) return null;
   const aliases = items.map((item) => aliasOf(item));
-  const isSame = (a: number, b: number): boolean =>
-    itemText(items[a]) === itemText(items[b]);
-  return aliasPosition("GROUP BY", name, aliases, isSame);
+  return aliasPosition("GROUP BY", name, aliases);
 }

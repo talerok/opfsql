@@ -184,7 +184,7 @@ describe("operators", () => {
       ),
     ).toBe(
       lines(
-        "project #3 (NOT like('b%', name#0.1), NOT (id#0.0 IN (1, 2)), NOT (email#0.3 IS NULL), NOT (age#0.2 BETWEEN 1 AND 2), NOT (EXISTS subquery(1)))",
+        "project #3 (NOT like('b%', name#0.1), id#0.0 NOT IN (1, 2), email#0.3 IS NOT NULL, age#0.2 NOT BETWEEN 1 AND 2, NOT EXISTS subquery(1))",
         "  subquery(1): project #2 (1)",
         "    values #1 ()",
         "  get #0 users (id, name, age, email, data)",
@@ -198,7 +198,7 @@ describe("operators", () => {
     ).toBe(
       lines(
         "project #1 (1)",
-        "  filter (age#0.2 > 1) AND (age#0.2 < 5) AND (id#0.0 = 2)",
+        "  filter age#0.2 > 1 AND age#0.2 < 5 AND id#0.0 = 2",
         "    get #0 users (id, name, age, email, data)",
       ),
     );
@@ -226,7 +226,7 @@ describe("operators", () => {
     ).toBe(
       lines(
         "project #3 (1)",
-        "  filter (age#0.2 > ALL subquery(1))",
+        "  filter age#0.2 > ALL subquery(1)",
         "    subquery(1): project #2 (qty#1.2)",
         "      get #1 items (order_id, sku, qty)",
         "    get #0 users (id, name, age, email, data)",

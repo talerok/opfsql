@@ -6,6 +6,7 @@ import {
   sqlLiteral,
   type Value,
 } from "../../values/index.js";
+import { above, power } from "../precedence.js";
 import type {
   AggregateCall,
   ArithmeticOperator,
@@ -15,14 +16,17 @@ import type {
   Expression,
   JsonPathStep,
 } from "./expression.js";
+import { comparisonPower, powerOf } from "./printed-power.js";
 
 // ---------------------------------------------------------------------------
-// Expressions as SQL-like text: the one expression printer of both plan
-// printers (format-logical.ts, format-physical.ts). An operand that has
-// operators of its own is parenthesized, so a printed condition never
-// depends on precedence; constants print as literals that read back as the
-// same value. What differs between plans is how a column and a subquery
-// read, which each plan printer gives as its style.
+// Expressions as SQL text: the one expression printer of both plan printers
+// (format-logical.ts, format-physical.ts). An operand is parenthesized only
+// where the parser's precedence (sql/precedence.ts) needs it, so with
+// columns printed as SQL names the text parses back to the same tree; a NOT
+// over IN, IS NULL or BETWEEN reads as SQL writes it, `x NOT IN …`, and
+// constants as literals that read back as the same value. What differs
+// between plans is how a column and a subquery read: each plan printer
+// gives its style.
 // ---------------------------------------------------------------------------
 
 /** What a plan printer decides: how a column and a subquery reference read. */
@@ -39,14 +43,17 @@ export function formatExpression<Plan>(
   return new ExpressionPrinter(style).print(expression);
 }
 
-/** Conditions as their conjunction, each one parenthesized if it has operators. */
+/** Conditions as their conjunction: `a AND b`, an OR among several parenthesized. */
 export function formatConditions<Plan>(
   conditions: readonly Expression<Plan>[],
   style: ExpressionStyle<Plan>,
 ): string {
   const printer = new ExpressionPrinter(style);
+  const [only] = conditions;
+  if (only !== undefined && conditions.length === 1) return printer.print(only);
+  const level = above(power.and);
   return conditions
-    .map((condition) => printer.operand(condition))
+    .map((condition) => printer.operand(condition, level))
     .join(" AND ");
 }
 
@@ -74,35 +81,6 @@ function formatValue(value: Value, type: StaticType): string {
 function isJsonComposite(value: Value): value is JsonComposite {
   const isObject = typeof value === "object" && value !== null;
   return isObject && !(value instanceof Uint8Array);
-}
-
-/** Names, literals and calls: what needs no parentheses as an operand. */
-function isAtomic<Plan>(expression: Expression<Plan>): boolean {
-  switch (expression.kind) {
-    case "column":
-    case "constant":
-    case "parameter":
-    case "function":
-    case "case":
-    case "cast":
-    case "json-access":
-    case "scalar-subquery": {
-      return true;
-    }
-    case "comparison":
-    case "conjunction":
-    case "not":
-    case "is-null":
-    case "arithmetic":
-    case "negate":
-    case "concatenate":
-    case "in-list":
-    case "between":
-    case "exists":
-    case "quantified-comparison": {
-      return false;
-    }
-  }
 }
 
 type Operation<Plan> = Extract<
@@ -141,9 +119,8 @@ class ExpressionPrinter<Plan> {
         return `$${String(expression.index + 1)}`;
       }
       case "json-access": {
-        return (
-          this.style.column(expression.column) + formatPath(expression.path)
-        );
+        const path = formatPath(expression.path);
+        return this.style.column(expression.column) + path;
       }
       case "function": {
         return `${expression.name}(${this.list(expression.arguments)})`;
@@ -173,10 +150,10 @@ class ExpressionPrinter<Plan> {
     }
   }
 
-  /** `expression` as an operand: parenthesized when it has operators of its own. */
-  operand(expression: Expression<Plan>): string {
+  /** `expression`, in parentheses unless it binds at least as tightly as `minimum`. */
+  operand(expression: Expression<Plan>, minimum: number): string {
     const text = this.print(expression);
-    return isAtomic(expression) ? text : `(${text})`;
+    return powerOf(expression) >= minimum ? text : `(${text})`;
   }
 
   list(expressions: readonly Expression<Plan>[]): string {
@@ -186,25 +163,23 @@ class ExpressionPrinter<Plan> {
   private operation(expression: Operation<Plan>): string {
     switch (expression.kind) {
       case "comparison": {
-        return this.binary(
-          expression.left,
-          comparisonSymbol(expression.operator),
-          expression.right,
-        );
+        const { left, operator, right } = expression;
+        const level = comparisonPower(operator);
+        return this.binary(left, comparisonSymbol(operator), right, level);
       }
       case "arithmetic": {
-        return this.binary(
-          expression.left,
-          arithmeticSymbol(expression.operator),
-          expression.right,
-        );
+        const { left, operator, right } = expression;
+        const level = powerOf(expression);
+        return this.binary(left, arithmeticSymbol(operator), right, level);
       }
       case "concatenate": {
-        return this.binary(expression.left, "||", expression.right);
+        const { left, right } = expression;
+        return this.binary(left, "||", right, power.concatenation);
       }
       case "conjunction": {
+        const level = powerOf(expression);
         const operands = expression.operands.map((operand) =>
-          this.operand(operand),
+          this.operand(operand, above(level)),
         );
         return operands.join(` ${expression.operator} `);
       }
@@ -218,12 +193,15 @@ class ExpressionPrinter<Plan> {
     }
   }
 
+  /** A left-associative operator: its right side binds tighter than it. */
   private binary(
     left: Expression<Plan>,
     symbol: string,
     right: Expression<Plan>,
+    level: number,
   ): string {
-    return `${this.operand(left)} ${symbol} ${this.operand(right)}`;
+    const leftText = this.operand(left, level);
+    return `${leftText} ${symbol} ${this.operand(right, above(level))}`;
   }
 
   private unary(
@@ -234,24 +212,64 @@ class ExpressionPrinter<Plan> {
   ): string {
     switch (expression.kind) {
       case "not": {
-        return `NOT ${this.operand(expression.operand)}`;
+        return this.negation(expression.operand);
       }
       case "is-null": {
-        return `${this.operand(expression.operand)} IS NULL`;
+        return `${this.operand(expression.operand, power.equality)} IS NULL`;
       }
       case "negate": {
-        // `--` starts a comment in SQL: a negative operand gets parentheses.
-        const operand = this.operand(expression.operand);
-        return operand.startsWith("-") ? `-(${operand})` : `-${operand}`;
+        return `-${this.negated(expression.operand)}`;
       }
       case "in-list": {
-        return `${this.operand(expression.needle)} IN (${this.list(expression.list)})`;
+        return this.inList(expression, "IN");
       }
       case "between": {
-        const { input, lower, upper } = expression;
-        return `${this.operand(input)} BETWEEN ${this.operand(lower)} AND ${this.operand(upper)}`;
+        return this.between(expression, "BETWEEN");
       }
     }
+  }
+
+  /** NOT IN, IS NOT NULL and NOT BETWEEN as SQL writes them; any other NOT before its operand. */
+  private negation(operand: Expression<Plan>): string {
+    if (operand.kind === "in-list") return this.inList(operand, "NOT IN");
+    if (operand.kind === "between") return this.between(operand, "NOT BETWEEN");
+    if (operand.kind === "is-null") {
+      return `${this.operand(operand.operand, power.equality)} IS NOT NULL`;
+    }
+    return `NOT ${this.operand(operand, power.not)}`;
+  }
+
+  /**
+   * The operand of a prefix `-`. A number goes in parentheses, since `-5`
+   * reads back as a literal of its own, and so does a second `-`, since
+   * `--` starts a comment.
+   */
+  private negated(operand: Expression<Plan>): string {
+    const text = this.print(operand);
+    const isNumber =
+      operand.kind === "constant" && typeof operand.value === "number";
+    const isBare =
+      !isNumber && operand.kind !== "negate" && powerOf(operand) >= power.unary;
+    return isBare ? text : `(${text})`;
+  }
+
+  private inList(
+    expression: Extract<Expression<Plan>, { readonly kind: "in-list" }>,
+    keyword: "IN" | "NOT IN",
+  ): string {
+    const needle = this.operand(expression.needle, power.equality);
+    return `${needle} ${keyword} (${this.list(expression.list)})`;
+  }
+
+  private between(
+    expression: Extract<Expression<Plan>, { readonly kind: "between" }>,
+    keyword: "BETWEEN" | "NOT BETWEEN",
+  ): string {
+    const bound = above(power.equality);
+    const input = this.operand(expression.input, power.equality);
+    const lower = this.operand(expression.lower, bound);
+    const upper = this.operand(expression.upper, bound);
+    return `${input} ${keyword} ${lower} AND ${upper}`;
   }
 
   private caseOf(expression: Case<Plan>): string {
@@ -280,7 +298,8 @@ class ExpressionPrinter<Plan> {
         return `EXISTS ${reference}`;
       }
       case "quantified-comparison": {
-        const needle = this.operand(expression.needle);
+        const level = comparisonPower(expression.operator);
+        const needle = this.operand(expression.needle, level);
         const symbol = comparisonSymbol(expression.operator);
         return `${needle} ${symbol} ${expression.quantifier} ${reference}`;
       }

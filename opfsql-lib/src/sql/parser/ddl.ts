@@ -1,7 +1,7 @@
 // CREATE TABLE, CREATE INDEX, ALTER TABLE and DROP.
 
 import type { Cursor } from "./cursor.js";
-import { above, power } from "./precedence.js";
+import { above, power } from "../precedence.js";
 import { parseTypeName, startsTypeName } from "./type-name.js";
 import {
   AlterType,

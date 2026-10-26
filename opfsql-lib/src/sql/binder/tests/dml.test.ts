@@ -50,7 +50,7 @@ describe("INSERT", () => {
     expect(formatPlan(bound.source)).toBe(
       lines(
         "project #1 (age#0.2, id#0.0)",
-        "  filter (age#0.2 > $2)",
+        "  filter age#0.2 > $2",
         "    get #0 users (id, name, age, email, data)",
       ),
     );
@@ -229,7 +229,7 @@ describe("UPDATE", () => {
     expect(bound.parameterCount).toBe(1);
     expect(formatPlan(bound.source)).toBe(
       lines(
-        "filter (id#0.0 = $1)",
+        "filter id#0.0 = $1",
         "  get #0 users (id, name, age, email, data, rowid)",
       ),
     );
@@ -266,7 +266,7 @@ describe("DELETE", () => {
     const bound = remove("DELETE FROM orders WHERE total > 5 AND status = 'x'");
     expect(formatPlan(bound.source)).toBe(
       lines(
-        "filter (total#0.2 > 5) AND (status#0.3 = 'x')",
+        "filter total#0.2 > 5 AND status#0.3 = 'x'",
         "  get #0 orders (id, user_id, total, status, rowid)",
       ),
     );

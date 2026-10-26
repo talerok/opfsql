@@ -11,7 +11,7 @@ import { InternalError } from "../../errors.js";
 import { realLiteral, sqlLiteral } from "../../values/index.js";
 import { compoundMembers } from "./compound.js";
 import { keywordOf } from "./keywords.js";
-import { above, power } from "./precedence.js";
+import { above, power } from "../precedence.js";
 import { comparisonPower, OPERATOR_POWER, powerOf } from "./printed-power.js";
 import {
   ExpressionClass,

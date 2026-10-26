@@ -19,6 +19,7 @@
     "src/schema",
     "src/storage",
     "src/table",
+    "src/sql/precedence.ts",
     "src/sql/parser",
     "src/sql/binder",
     "src/sql/plan",

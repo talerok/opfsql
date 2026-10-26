@@ -13,7 +13,7 @@ describe("names", () => {
     expect(plan("SELECT name FROM users WHERE id = 1")).toBe(
       lines(
         "project #1 (name#0.1)",
-        "  filter (id#0.0 = 1)",
+        "  filter id#0.0 = 1",
         "    get #0 users (id, name, age, email, data)",
       ),
     );
@@ -36,7 +36,7 @@ describe("names", () => {
     ).toBe(
       lines(
         "project #2 (name#0.1, name#1.1)",
-        "  filter (id#0.0 = id#1.0)",
+        "  filter id#0.0 = id#1.0",
         "    join inner",
         "      get #0 users (id, name, age, email, data)",
         "      get #1 users (id, name, age, email, data)",
@@ -100,9 +100,9 @@ describe("names", () => {
     ).toBe(
       lines(
         "project #3 (id#0.0)",
-        "  filter (EXISTS subquery(1))",
+        "  filter EXISTS subquery(1)",
         "    subquery(1): project #2 (id#1.0)",
-        "      filter (id#1.0 = 1)",
+        "      filter id#1.0 = 1",
         "        get #1 orders (id, user_id, total, status)",
         "    get #0 users (id, name, age, email, data)",
       ),
@@ -119,11 +119,11 @@ describe("outer references", () => {
     ).toBe(
       lines(
         "project #5 (id#0.0)",
-        "  filter (EXISTS subquery(1))",
+        "  filter EXISTS subquery(1)",
         "    subquery(1, correlated): project #4 (1)",
-        "      filter (user_id#1.1 = id#0.0^1) AND (EXISTS subquery(2))",
+        "      filter user_id#1.1 = id#0.0^1 AND EXISTS subquery(2)",
         "        subquery(2, correlated): project #3 (1)",
-        "          filter (order_id#2.0 = id#1.0^1) AND (qty#2.2 > age#0.2^2)",
+        "          filter order_id#2.0 = id#1.0^1 AND qty#2.2 > age#0.2^2",
         "            get #2 items (order_id, sku, qty)",
         "        get #1 orders (id, user_id, total, status)",
         "    get #0 users (id, name, age, email, data)",
@@ -154,7 +154,7 @@ describe("outer references", () => {
     ).toBe(
       lines(
         "project #3 (id#0.0)",
-        "  filter (id#0.0 = ANY subquery(1))",
+        "  filter id#0.0 = ANY subquery(1)",
         "    subquery(1): project #2 (user_id#1.1)",
         "      get #1 orders (id, user_id, total, status)",
         "    get #0 users (id, name, age, email, data)",
@@ -238,11 +238,11 @@ describe("CTEs read in subqueries", () => {
         "project #12 (id#0.0, subquery(1))",
         "  subquery(1, correlated): cte #3 mine",
         "    definition: project #2 (amount#1.2)",
-        "      filter (user#1.1 = id#0.0^1)",
+        "      filter user#1.1 = id#0.0^1",
         "        get #1 orders (id, user, amount)",
         "    body: project #11 (count(*)#10.0)",
         "      aggregate #9 () #10 (count(*))",
-        "        filter (amount#4.0 > subquery(2))",
+        "        filter amount#4.0 > subquery(2)",
         "          subquery(2, correlated): project #8 (avg(amount)#7.0)",
         "            aggregate #6 () #7 (avg(amount#5.0))",
         "              cte-scan #5 of #3",
@@ -307,7 +307,7 @@ describe("FROM", () => {
     ).toBe(
       lines(
         "project #3 (n#2.0)",
-        "  filter (n#2.0 <> 'x')",
+        "  filter n#2.0 <> 'x'",
         "    project #2 (n#1.0)",
         "      project #1 (name#0.1)",
         "        get #0 users (id, name, age, email, data)",
@@ -336,7 +336,7 @@ describe("FROM", () => {
       lines(
         "project #3 (1)",
         "  join inner",
-        "    join inner on (user_id#1.1 = id#0.0) AND (total#1.2 > 10)",
+        "    join inner on user_id#1.1 = id#0.0 AND total#1.2 > 10",
         "      get #0 users (id, name, age, email, data)",
         "      get #1 orders (id, user_id, total, status)",
         "    get #2 items (order_id, sku, qty)",
@@ -350,7 +350,7 @@ describe("FROM", () => {
     ).toBe(
       lines(
         "project #2 (1)",
-        "  join left on (user_id#1.1 = id#0.0)",
+        "  join left on user_id#1.1 = id#0.0",
         "    get #1 orders (id, user_id, total, status)",
         "    get #0 users (id, name, age, email, data)",
       ),
@@ -361,7 +361,7 @@ describe("FROM", () => {
     expect(plan("SELECT * FROM users u JOIN orders o USING (id)")).toBe(
       lines(
         "project #2 (id#0.0, name#0.1, age#0.2, email#0.3, data#0.4, user_id#1.1, total#1.2, status#1.3)",
-        "  join inner on (id#0.0 = id#1.0)",
+        "  join inner on id#0.0 = id#1.0",
         "    get #0 users (id, name, age, email, data)",
         "    get #1 orders (id, user_id, total, status)",
       ),
@@ -371,7 +371,7 @@ describe("FROM", () => {
     ).toBe(
       lines(
         "project #2 (id#0.0, id#1.0)",
-        "  join left on (id#0.0 = id#1.0)",
+        "  join left on id#0.0 = id#1.0",
         "    get #0 users (id, name, age, email, data)",
         "    get #1 orders (id, user_id, total, status)",
       ),
@@ -382,7 +382,7 @@ describe("FROM", () => {
     expect(plan("SELECT id FROM users RIGHT JOIN orders USING (id)")).toBe(
       lines(
         "project #2 (id#1.0)",
-        "  join left on (id#0.0 = id#1.0)",
+        "  join left on id#0.0 = id#1.0",
         "    get #1 orders (id, user_id, total, status)",
         "    get #0 users (id, name, age, email, data)",
       ),

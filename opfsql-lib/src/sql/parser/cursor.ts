@@ -13,7 +13,7 @@ import {
   SqlSyntaxError,
 } from "../../errors.js";
 import { isReserved, upperAscii, type Keyword } from "./keywords.js";
-import { power } from "./precedence.js";
+import { power } from "../precedence.js";
 import { describe, type SymbolText, type Token } from "./tokens.js";
 import type { ParsedExpression, SelectStatement } from "./types.js";
 

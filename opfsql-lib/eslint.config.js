@@ -195,6 +195,12 @@ export default config(
               message: "errors depends on nothing.",
             },
             {
+              target: "./src/sql/precedence.ts",
+              from: "./src",
+              except: ["./sql/precedence.ts"],
+              message: "sql/precedence depends on nothing.",
+            },
+            {
               target: "./src/functions",
               from: "./src",
               except: ["./functions", "./values", "./errors.ts"],
@@ -205,13 +211,14 @@ export default config(
               from: "./src",
               except: [
                 "./sql/plan",
+                "./sql/precedence.ts",
                 "./schema",
                 "./functions",
                 "./values",
                 "./errors.ts",
               ],
               message:
-                "sql/plan depends on nothing but schema, functions, values and errors.",
+                "sql/plan depends on nothing but sql/precedence, schema, functions, values and errors.",
             },
             {
               target: "./src/expressions",
@@ -275,8 +282,14 @@ export default config(
             {
               target: "./src/sql/parser",
               from: "./src",
-              except: ["./sql/parser", "./values", "./errors.ts"],
-              message: "sql/parser depends on nothing but values and errors.",
+              except: [
+                "./sql/parser",
+                "./sql/precedence.ts",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "sql/parser depends on nothing but sql/precedence, values and errors.",
             },
             {
               // The engine serves the worker; it never reaches back.
