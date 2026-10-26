@@ -155,8 +155,8 @@ exactly as `=` matches it, with nothing left to convert: `id = $1` with
    the left row is still emitted with NULLs.
 3. **Order comes from one place.** A `sort` is removed only when its child
    already delivers exactly that order: an index scan whose key order,
-   direction and NULL placement match every key, or a table scan whose
-   rowid order matches an ORDER BY of the rowid. `top-n` replaces a `sort`
+   direction and NULL placement match every key, or a table scan or rowid
+   lookup whose rowid order matches an ORDER BY of the rowid. `top-n` replaces a `sort`
    and the `limit` above it; it never coexists with that `limit`.
 4. **Rewrites follow `values`.** A rewrite that folds or simplifies an
    expression evaluates it with the expression compiler, never with its own
