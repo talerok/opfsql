@@ -1,6 +1,6 @@
 import type { logical, physical } from "../plan/index.js";
 import { chooseAccessPath } from "./access-path.js";
-import { isNeverTrue, substitute } from "./expression-tree.js";
+import { hasNeverTrue, substitute } from "./expression-tree.js";
 import {
   lowerExpressions,
   lowerOptional,
@@ -97,7 +97,7 @@ function scanChainOf(plan: logical.Plan): ScanChain | null {
   const read = tableReadOf(below);
   if (read === null) return null;
   // A filter no row passes reads nothing; lowering it reads no index either.
-  if (read.conditions.some((condition) => isNeverTrue(condition))) return null;
+  if (hasNeverTrue(read.conditions)) return null;
   return { projects, ...read };
 }
 

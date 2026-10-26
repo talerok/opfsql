@@ -3,8 +3,9 @@ import type { AggregateCall, logical } from "../plan/index.js";
 import {
   conjunctsOf,
   disjunctsOf,
+  isAlwaysFalse,
   isAlwaysTrue,
-  isNeverTrue,
+  hasNeverTrue,
   rebuildChildren,
   truth,
 } from "./expression-tree.js";
@@ -82,7 +83,7 @@ function simplifyConditions(
   const conjuncts = conditions
     .map((condition) => simplifyExpression(condition))
     .flatMap((condition) => conjunctsOf(condition));
-  if (conjuncts.some((condition) => isNeverTrue(condition))) {
+  if (hasNeverTrue(conjuncts)) {
     return [truth(false)];
   }
   return conjuncts.filter((condition) => !isAlwaysTrue(condition));
@@ -148,10 +149,7 @@ function simplifyAnd(expression: Conjunction): logical.Expression {
   const operands = expression.operands.flatMap((operand) =>
     conjunctsOf(operand),
   );
-  const isFalse = operands.some(
-    (operand) => operand.kind === "constant" && operand.value === false,
-  );
-  if (isFalse) return truth(false);
+  if (operands.some((operand) => isAlwaysFalse(operand))) return truth(false);
   return withOperands(expression, operands, (operand) => isAlwaysTrue(operand));
 }
 
@@ -161,9 +159,9 @@ function simplifyOr(expression: Conjunction): logical.Expression {
     disjunctsOf(operand),
   );
   if (operands.some((operand) => isAlwaysTrue(operand))) return truth(true);
-  return withOperands(expression, operands, (operand) => {
-    return operand.kind === "constant" && operand.value === false;
-  });
+  return withOperands(expression, operands, (operand) =>
+    isAlwaysFalse(operand),
+  );
 }
 
 /**

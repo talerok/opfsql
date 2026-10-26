@@ -1,7 +1,7 @@
 import type { logical, physical } from "../plan/index.js";
 import { chooseAccessPath } from "./access-path.js";
 import { emptyPlan } from "./empty.js";
-import { isNeverTrue } from "./expression-tree.js";
+import { hasNeverTrue } from "./expression-tree.js";
 import { indexExtreme } from "./extreme.js";
 import { planJoin } from "./join.js";
 import {
@@ -87,7 +87,7 @@ function scanOf(
 }
 
 function lowerFilter(plan: logical.Filter, planner: Planner): physical.Plan {
-  if (plan.conditions.some((condition) => isNeverTrue(condition))) {
+  if (hasNeverTrue(plan.conditions)) {
     return emptyPlan(plan.child);
   }
   if (plan.child.kind === "get")
@@ -104,7 +104,7 @@ function lowerFilter(plan: logical.Filter, planner: Planner): physical.Plan {
  * join every left row with NULLs, the right side read as empty.
  */
 function lowerJoin(plan: logical.Join, planner: Planner): physical.Plan {
-  const isEmptyOn = plan.conditions.some((condition) => isNeverTrue(condition));
+  const isEmptyOn = hasNeverTrue(plan.conditions);
   if (isEmptyOn && plan.joinType === "inner") return emptyPlan(plan);
   const left = lowerPlan(plan.left, planner);
   const right = isEmptyOn

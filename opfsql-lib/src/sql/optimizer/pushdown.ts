@@ -3,7 +3,7 @@ import type { ColumnReference, logical } from "../plan/index.js";
 import { logical as plans } from "../plan/index.js";
 import {
   columnsOf,
-  isNeverTrue,
+  hasNeverTrue,
   isPinned,
   readsOnly,
   substitute,
@@ -66,7 +66,7 @@ function withFilter(plan: Plan, conditions: readonly Expression[]): Plan {
 function place(plan: Plan, conditions: readonly Expression[]): Plan {
   switch (plan.kind) {
     case "filter": {
-      if (plan.conditions.some((condition) => isNeverTrue(condition))) {
+      if (hasNeverTrue(plan.conditions)) {
         return plan;
       }
       return pushInto(plan.child, [...plan.conditions, ...conditions]);
@@ -169,7 +169,7 @@ function placeIntoInnerJoin(
   plan: logical.Join,
   conditions: readonly Expression[],
 ): Plan {
-  if (plan.conditions.some((condition) => isNeverTrue(condition))) {
+  if (hasNeverTrue(plan.conditions)) {
     return withFilter(withSidesPushed(plan, [], []), conditions);
   }
   const left = tablesOf(plans.layoutOf(plan.left));
@@ -194,7 +194,7 @@ function placeIntoLeftJoin(
   const right = tablesOf(plans.layoutOf(plan.right));
   const toLeft = conditions.filter((condition) => readsOnly(condition, left));
   const above = conditions.filter((condition) => !readsOnly(condition, left));
-  const isEmptyOn = plan.conditions.some((condition) => isNeverTrue(condition));
+  const isEmptyOn = hasNeverTrue(plan.conditions);
   const isRightOnly = (condition: Expression): boolean =>
     !isEmptyOn && !isPinned(condition) && readsOnly(condition, right);
   const toRight = plan.conditions.filter((condition) => isRightOnly(condition));

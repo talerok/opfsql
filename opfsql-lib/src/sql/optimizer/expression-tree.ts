@@ -123,6 +123,12 @@ export function* columnsOf<Plan>(
   }
 }
 
+/** True if `expression` reads a column of this query. */
+export function readsAnyColumn<Plan>(expression: Expression<Plan>): boolean {
+  const [first] = columnsOf(expression);
+  return first !== undefined;
+}
+
 /** True if every column of this query that `expression` reads is in `tables`. */
 export function readsOnly<Plan>(
   expression: Expression<Plan>,
@@ -235,9 +241,21 @@ export function isNeverTrue<Plan>(expression: Expression<Plan>): boolean {
   return expression.value === false || expression.value === null;
 }
 
+/** True if some condition is never TRUE: no row passes them all. */
+export function hasNeverTrue<Plan>(
+  conditions: readonly Expression<Plan>[],
+): boolean {
+  return conditions.some((condition) => isNeverTrue(condition));
+}
+
 /** True for the constant TRUE. */
 export function isAlwaysTrue<Plan>(expression: Expression<Plan>): boolean {
   return expression.kind === "constant" && expression.value === true;
+}
+
+/** True for the constant FALSE. */
+export function isAlwaysFalse<Plan>(expression: Expression<Plan>): boolean {
+  return expression.kind === "constant" && expression.value === false;
 }
 
 /** What a column of this query becomes in a substitution, if anything. */
@@ -254,29 +272,30 @@ export function substitute<Plan>(
   expression: Expression<Plan>,
   replacement: Replacement<Plan>,
 ): Expression<Plan> | null {
+  // A column further out belongs to another query: never replaced.
+  const replace = (column: ColumnReference): Expression<Plan> | undefined =>
+    column.depth === 0 ? replacement(column) : undefined;
   for (const node of nodesOf(expression)) {
-    const isJsonColumn = node.kind === "json-access";
-    const column = isJsonColumn ? replacement(node.column) : undefined;
+    if (node.kind !== "json-access") continue;
+    const column = replace(node.column);
     if (column !== undefined && column.kind !== "column") return null;
   }
-  return replaceColumns(expression, replacement);
+  return replaceColumns(expression, replace);
 }
 
+/** `expression` with each column `replace` knows replaced, a JSON access's by a column. */
 function replaceColumns<Plan>(
   expression: Expression<Plan>,
-  replacement: Replacement<Plan>,
+  replace: Replacement<Plan>,
 ): Expression<Plan> {
+  if (expression.kind === "column") return replace(expression) ?? expression;
   if (expression.kind === "json-access") {
-    const column = replacement(expression.column);
-    return column?.kind === "column" ? { ...expression, column } : expression;
-  }
-  if (expression.kind === "column") {
-    return expression.depth === 0
-      ? (replacement(expression) ?? expression)
-      : expression;
+    const column = replace(expression.column);
+    if (column?.kind !== "column") return expression;
+    return { ...expression, column };
   }
   return rebuildChildren(expression, {
-    expression: (child) => replaceColumns(child, replacement),
+    expression: (child) => replaceColumns(child, replace),
     plan: (plan) => plan,
   });
 }

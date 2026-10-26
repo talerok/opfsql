@@ -1,5 +1,10 @@
 import { physical } from "../plan/index.js";
-import { columnsOf, isPinned, readsOnly, tablesOf } from "./expression-tree.js";
+import {
+  isPinned,
+  readsAnyColumn,
+  readsOnly,
+  tablesOf,
+} from "./expression-tree.js";
 
 // ---------------------------------------------------------------------------
 // Pass 3, join planning. The FROM order stays as written (left-deep). A
@@ -76,6 +81,5 @@ function isOnSide(
   expression: Expression,
   tables: ReadonlySet<number>,
 ): boolean {
-  const hasColumns = columnsOf(expression).next().done !== true;
-  return hasColumns && readsOnly(expression, tables);
+  return readsAnyColumn(expression) && readsOnly(expression, tables);
 }
