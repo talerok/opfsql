@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { IndexKeyTooLargeError } from "../../errors.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
+import type { Value } from "../../values/index.js";
+import { columnValues } from "../../../test/support/results.js";
 import { openTestEngine } from "./test-engine.js";
 
 // Rows larger than a page move their largest values to overflow pages; an
@@ -32,9 +34,9 @@ afterEach(async () => {
 /** Larger than any page, so larger than any index key can be. */
 const BIG = "x".repeat(80 * 1024);
 
-async function bodies(table: string): Promise<unknown[]> {
-  const [r] = await session.execute(`SELECT body FROM ${table} ORDER BY id`);
-  return r.objects().map((row) => row.body);
+async function bodies(table: string): Promise<Value[]> {
+  const result = await session.query(`SELECT body FROM ${table} ORDER BY id`);
+  return columnValues(result, "body");
 }
 
 describe("large rows", () => {
