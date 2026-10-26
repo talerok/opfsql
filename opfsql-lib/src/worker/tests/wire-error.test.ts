@@ -17,6 +17,7 @@ import {
   SemanticError,
   SerializationError,
   SqlSyntaxError,
+  StorageFullError,
   UnsupportedFormatError,
 } from "../../errors.js";
 import { fromWireError, toWireError } from "../wire-error.js";
@@ -62,6 +63,7 @@ describe("errors across the worker boundary", () => {
       new IndexKeyTooLargeError("t_body", 3000, 2000),
       new IoError("could not write", { cause: new Error("disk") }),
       new CorruptError("page 3 is damaged"),
+      new StorageFullError("no room"),
       new UnsupportedFormatError("app.opfsql", 4, 5),
       new MisuseError("closed"),
       new SemanticError("no such table"),

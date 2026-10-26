@@ -45,6 +45,7 @@ export {
   SemanticError,
   SerializationError,
   SqlSyntaxError,
+  StorageFullError,
   UnsupportedFormatError,
 } from "./errors.js";
 export type { JsonValue, SqlType, Value } from "./values/index.js";

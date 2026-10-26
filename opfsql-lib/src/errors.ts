@@ -204,6 +204,15 @@ export class IoError extends OpfsqlError {
   }
 }
 
+/** The browser refused to store more data: the origin's quota is used up. */
+export class StorageFullError extends OpfsqlError {
+  override readonly name = "StorageFullError";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super("STORAGE_FULL", message, options);
+  }
+}
+
 /** The database files are damaged. */
 export class CorruptError extends OpfsqlError {
   override readonly name = "CorruptError";

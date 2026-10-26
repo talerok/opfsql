@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   IoError,
   MisuseError,
+  StorageFullError,
   UnsupportedFormatError,
 } from "../../../errors.js";
 import type { SyncFile } from "../../file/sync-file.js";
@@ -198,6 +199,25 @@ describe("Pager", () => {
     expect(() => {
       write(pager, (transaction) => allocateMarked(transaction, 1));
     }).toThrow(/unknown state/);
+  });
+
+  it("reports a write the browser refuses for want of space as STORAGE_FULL", async () => {
+    const files = newFiles();
+    const pager = await open(files);
+    const writeFile = files.wal.write.bind(files.wal);
+    let shouldFail = true;
+    files.wal.write = (buffer, options) => {
+      if (!shouldFail) return writeFile(buffer, options);
+      shouldFail = false;
+      throw new DOMException("quota", "QuotaExceededError");
+    };
+
+    expect(() => {
+      write(pager, (transaction) => allocateMarked(transaction, 1));
+    }).toThrow(StorageFullError);
+    expect(pager.latestCommit()).toBe(0);
+    write(pager, (transaction) => allocateMarked(transaction, 1));
+    expect(pager.latestCommit()).toBe(1);
   });
 
   it("rolls back an append whose flush fails", async () => {

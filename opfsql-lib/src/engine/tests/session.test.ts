@@ -298,6 +298,24 @@ describe("failed commit", () => {
     await s.close();
   });
 
+  it("a commit the browser refuses for want of space fails with STORAGE_FULL", async () => {
+    const wal = new MemoryFile();
+    engine = await engineOn({ database: new MemoryFile(), wal, marks: null });
+    const s = engine.connect();
+    await s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    vi.spyOn(wal, "write").mockImplementationOnce(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+
+    await expect(s.execute("INSERT INTO t VALUES (1)")).rejects.toMatchObject({
+      code: "STORAGE_FULL",
+    });
+    await s.execute("INSERT INTO t VALUES (2)");
+    const [result] = await s.execute("SELECT id FROM t");
+    expect(result.rows).toEqual([[2]]);
+    await s.close();
+  });
+
   it("schema from a failed commit is never published", async () => {
     const failNextCommit = await createEngineWithFailingCommit();
     const s = engine.connect();
