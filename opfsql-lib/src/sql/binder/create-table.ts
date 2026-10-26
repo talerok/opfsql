@@ -81,7 +81,7 @@ export function tableDefinition(statement: CreateTableStatement): {
   const table: TableShape = {
     name: statement.table,
     columns: declared.map(({ column }, position) => {
-      const isKeyColumn = key.includes(position) && position !== rowidColumn;
+      const isKeyColumn = position !== rowidColumn && key.includes(position);
       return isKeyColumn ? { ...column, isNotNull: true } : column;
     }),
     rowidColumn,
@@ -184,7 +184,7 @@ function constraintIndexes(
   key: readonly number[],
   rowidColumn: number | null,
 ): IndexShape[] {
-  const columnKey = key.length === 1 && rowidColumn === null ? key[0] : null;
+  const columnKey = rowidColumn === null && key.length === 1 ? key[0] : null;
   const perColumn = declared.flatMap((column, position) => {
     const origins: IndexOrigin[] = [];
     if (columnKey === position) origins.push("primary-key");

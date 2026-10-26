@@ -46,7 +46,8 @@ export function* expressionsOf(node: SelectNode): Generator<ParsedExpression> {
 }
 
 function* tablesIn(statement: SelectStatement): Generator<string> {
-  for (const cte of statement.with?.ctes ?? []) yield* tablesIn(cte.query);
+  const ctes = statement.with?.ctes ?? [];
+  for (const cte of ctes) yield* tablesIn(cte.query);
   yield* tablesInBody(statement.body);
   for (const order of statement.orderBy) {
     yield* tablesInExpression(order.expression);

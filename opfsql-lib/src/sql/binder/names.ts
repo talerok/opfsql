@@ -9,6 +9,7 @@ import type {
   ColumnReference,
   JsonAccess,
   JsonPathStep,
+  OutputColumn,
 } from "../plan/index.js";
 import type { Relation, Scope } from "./scope.js";
 
@@ -80,9 +81,9 @@ export function relationNamed(scope: Scope, name: string): Relation | null {
 
 /** The column `name` of `item`, which an unqualified name can find; null if none. */
 export function unqualifiedColumn(item: Relation, name: string): number | null {
-  const [column, other] = visibleColumns(item, name, false);
+  const [column = null, other] = visibleColumns(item, name, false);
   if (other !== undefined) throw ambiguous(name);
-  return column ?? null;
+  return column;
 }
 
 /** A reference to column `column` of `item`, `depth` levels out. */
@@ -129,15 +130,15 @@ function unqualified(scope: Scope, name: string): Found | null {
       namesUsed: 1,
     })),
   );
-  const [found, other] = matches;
+  const [found = null, other] = matches;
   if (other !== undefined) throw ambiguous(name);
-  return found ?? null;
+  return found;
 }
 
 function qualifiedColumn(item: Relation, name: string): number | null {
-  const [column, other] = visibleColumns(item, name, true);
+  const [column = null, other] = visibleColumns(item, name, true);
   if (other !== undefined) throw ambiguous(`${item.name ?? "?"}.${name}`);
-  return column ?? null;
+  return column;
 }
 
 /** The columns of `item` named `name` that a name, qualified or not, can see. */
@@ -146,12 +147,15 @@ function visibleColumns(
   name: string,
   isQualified: boolean,
 ): number[] {
-  if (item.isQualifiedOnly && !isQualified) return [];
+  if (!isQualified && item.isQualifiedOnly) return [];
   const key = nameKey(name);
-  return item.columns.flatMap((column, position) => {
+  const isFound = (column: OutputColumn, position: number): boolean => {
     const isVisible = isQualified || !item.hidden.has(position);
-    return isVisible && nameKey(column.name) === key ? [position] : [];
-  });
+    return isVisible && nameKey(column.name) === key;
+  };
+  return item.columns
+    .map((column, position) => (isFound(column, position) ? position : -1))
+    .filter((position) => position !== -1);
 }
 
 function ambiguous(name: string): SemanticError {

@@ -139,9 +139,11 @@ function aliasPosition(
   const name = bareName(expression);
   if (name === null) return null;
   const key = nameKey(name);
-  const matches = outputs.flatMap((output, position) =>
-    output.alias !== null && nameKey(output.alias) === key ? [position] : [],
-  );
+  const isNamed = (output: Output): boolean =>
+    output.alias !== null && nameKey(output.alias) === key;
+  const matches = outputs
+    .map((output, position) => (isNamed(output) ? position : -1))
+    .filter((position) => position !== -1);
   const [first] = matches;
   if (first === undefined) return null;
   const chosen = outputs[first]?.expression;

@@ -83,8 +83,9 @@ function conflictTarget(
   context: BindContext,
 ): Index | "rowid" {
   const columns = new Set(names.map((name) => columnNamed(table, name)));
-  const [only] = columns;
-  const isRowid = columns.size === 1 && only === table.rowidColumn;
+  const { rowidColumn } = table;
+  const isRowid =
+    columns.size === 1 && rowidColumn !== null && columns.has(rowidColumn);
   if (isRowid) return "rowid";
   const index = context.schema
     .indexesOf(table.name)
@@ -103,9 +104,9 @@ function isOnColumns(
   columns: ReadonlySet<number>,
   count: number,
 ): boolean {
-  const keyColumns = index.keys.flatMap((key) =>
-    key.kind === "column" ? [key.column] : [],
-  );
+  const keyColumns = index.keys
+    .filter((key) => key.kind === "column")
+    .map((key) => key.column);
   const isSameSet =
     keyColumns.length === index.keys.length &&
     keyColumns.length === count &&

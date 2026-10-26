@@ -33,7 +33,7 @@ export function mapChildren(expression: Expression, map: Map): Expression {
       return { ...expression, left, right: map(expression.right) };
     }
     case "conjunction": {
-      return { ...expression, operands: expression.operands.map(map) };
+      return { ...expression, operands: mapAll(expression.operands, map) };
     }
     case "not":
     case "is-null":
@@ -43,7 +43,7 @@ export function mapChildren(expression: Expression, map: Map): Expression {
     }
     case "in-list": {
       const needle = map(expression.needle);
-      return { ...expression, needle, list: expression.list.map(map) };
+      return { ...expression, needle, list: mapAll(expression.list, map) };
     }
     case "between": {
       const input = map(expression.input);
@@ -51,7 +51,7 @@ export function mapChildren(expression: Expression, map: Map): Expression {
       return { ...expression, input, lower, upper: map(expression.upper) };
     }
     case "function": {
-      return { ...expression, arguments: expression.arguments.map(map) };
+      return { ...expression, arguments: mapAll(expression.arguments, map) };
     }
     case "case": {
       return mapCase(expression, map);
@@ -60,6 +60,10 @@ export function mapChildren(expression: Expression, map: Map): Expression {
       return { ...expression, needle: map(expression.needle) };
     }
   }
+}
+
+function mapAll(expressions: readonly Expression[], map: Map): Expression[] {
+  return expressions.map((expression) => map(expression));
 }
 
 function mapCase(
@@ -87,15 +91,15 @@ export function mapPlan(plan: Plan, map: Map): Plan {
       return plan;
     }
     case "values": {
-      return { ...plan, rows: plan.rows.map((row) => row.map(map)) };
+      return { ...plan, rows: plan.rows.map((row) => mapAll(row, map)) };
     }
     case "filter": {
       const child = mapPlan(plan.child, map);
-      return { ...plan, child, conditions: plan.conditions.map(map) };
+      return { ...plan, child, conditions: mapAll(plan.conditions, map) };
     }
     case "project": {
       const child = mapPlan(plan.child, map);
-      return { ...plan, child, expressions: plan.expressions.map(map) };
+      return { ...plan, child, expressions: mapAll(plan.expressions, map) };
     }
     case "aggregate": {
       return mapAggregate(plan, map);
@@ -103,7 +107,7 @@ export function mapPlan(plan: Plan, map: Map): Plan {
     case "join": {
       const left = mapPlan(plan.left, map);
       const right = mapPlan(plan.right, map);
-      return { ...plan, left, right, conditions: plan.conditions.map(map) };
+      return { ...plan, left, right, conditions: mapAll(plan.conditions, map) };
     }
     case "order": {
       const keys = plan.keys.map((key) => mapKey(key, map));
@@ -133,12 +137,12 @@ export function mapPlan(plan: Plan, map: Map): Plan {
 function mapAggregate(plan: logical.Aggregate, map: Map): Plan {
   const aggregates = plan.aggregates.map((call): AggregateCall<Plan> => ({
     ...call,
-    arguments: call.arguments.map(map),
+    arguments: mapAll(call.arguments, map),
   }));
   return {
     ...plan,
     child: mapPlan(plan.child, map),
-    groups: plan.groups.map(map),
+    groups: mapAll(plan.groups, map),
     aggregates,
   };
 }

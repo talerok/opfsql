@@ -37,6 +37,10 @@ import { partsOf } from "./walk.js";
 
 type Expression = logical.Expression;
 
+const SUBQUERIES: ReadonlySet<Expression["kind"]> = new Set<Expression["kind"]>(
+  ["scalar-subquery", "exists", "quantified-comparison"],
+);
+
 export function bindCreateIndex(
   statement: CreateIndexStatement,
   context: BindContext,
@@ -130,11 +134,7 @@ function bindKeyExpression(
 
 /** A key's value depends on its row alone. */
 function checkDeterministic(expression: Expression): void {
-  const isSubquery =
-    expression.kind === "scalar-subquery" ||
-    expression.kind === "exists" ||
-    expression.kind === "quantified-comparison";
-  if (isSubquery) {
+  if (SUBQUERIES.has(expression.kind)) {
     throw new SemanticError("subqueries are not allowed in an index");
   }
   if (expression.kind === "parameter") {

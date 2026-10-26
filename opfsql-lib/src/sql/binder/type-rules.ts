@@ -62,7 +62,7 @@ export function sharedType(types: readonly StaticType[]): StaticType {
 
 /** What checkComparable tells apart: numbers are one kind; untyped and JSON none. */
 function kindOf(type: StaticType): string | null {
-  if (UNTYPED.has(type) || type === "JSON") return null;
+  if (type === "JSON" || UNTYPED.has(type)) return null;
   return NUMBERS.has(type) ? "number" : type;
 }
 

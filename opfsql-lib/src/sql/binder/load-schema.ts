@@ -106,7 +106,7 @@ function checkConstraintRows(
 ): void {
   for (const constraint of item.constraints) {
     const key = nameKey(constraint.name);
-    if (!indexes.some((index) => nameKey(index.name) === key)) {
+    if (indexes.every((index) => nameKey(index.name) !== key)) {
       throw new CorruptError(
         `table ${item.table.name} has a constraint index ${constraint.name} with no row in opfsql_schema`,
       );

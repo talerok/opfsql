@@ -59,7 +59,11 @@ export function bindSelect(
     bind: bindAbove,
   });
   const grouped = aggregate(source, aggregation, having);
-  return finish(grouped, outputs, ordering, node.isDistinct, scope);
+  return finish(
+    grouped,
+    { outputs, ordering, isDistinct: node.isDistinct },
+    scope,
+  );
 }
 
 /** FROM, and WHERE as a filter over it. */
@@ -142,14 +146,16 @@ function aggregate(
   return { kind: "filter", child: node, conditions: conjunctsOf(having) };
 }
 
+/** What is computed above the source and the aggregate. */
+interface Shape {
+  readonly outputs: readonly Output[];
+  readonly ordering: Ordering;
+  readonly isDistinct: boolean;
+}
+
 /** The project, DISTINCT, ORDER BY, and the project that drops sort-only columns. */
-function finish(
-  plan: Plan,
-  outputs: readonly Output[],
-  ordering: Ordering,
-  isDistinct: boolean,
-  scope: Scope,
-): BoundQuery {
+function finish(plan: Plan, shape: Shape, scope: Scope): BoundQuery {
+  const { outputs, ordering } = shape;
   const expressions = [
     ...outputs.map((output) => output.expression),
     ...ordering.extras,
@@ -161,24 +167,21 @@ function finish(
     child: plan,
     expressions,
   };
-  const distinct: Plan = isDistinct
+  const distinct: Plan = shape.isDistinct
     ? { kind: "distinct", child: projected }
     : projected;
   const columns = outputs.map((output) => ({
     name: output.name,
     type: output.expression.type,
   }));
-  const ordered = order(
-    distinct,
-    ordering.keys,
-    columnsOf(tableIndex, expressions),
-  );
+  const projectColumns = columnsOf(tableIndex, expressions);
+  const ordered = order(distinct, ordering.keys, projectColumns);
   if (ordering.extras.length === 0) return { plan: ordered, columns };
   const trimmed: Plan = {
     kind: "project",
     tableIndex: scope.context.newIndex(),
     child: ordered,
-    expressions: columnsOf(tableIndex, expressions).slice(0, outputs.length),
+    expressions: projectColumns.slice(0, outputs.length),
   };
   return { plan: trimmed, columns };
 }

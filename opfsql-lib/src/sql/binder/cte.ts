@@ -1,7 +1,6 @@
 import { SemanticError } from "../../errors.js";
 import { nameKey } from "../../schema/index.js";
 import type { CTENode, WithClause } from "../parser/index.js";
-import type { logical } from "../plan/index.js";
 import { cteColumns, type BoundCte } from "./cte-definition.js";
 import { bindRecursiveCte } from "./recursive-cte.js";
 import { mentions } from "./references.js";
@@ -41,16 +40,11 @@ export function wrapCtes(
   query: BoundQuery,
   ctes: readonly BoundCte[],
 ): BoundQuery {
-  const plan = ctes.reduceRight<logical.Plan>(
-    (body, cte) => ({
-      kind: "cte",
-      cteIndex: cte.definition.cteIndex,
-      name: cte.definition.name,
-      definition: cte.plan,
-      body,
-    }),
-    query.plan,
-  );
+  let plan = query.plan;
+  for (const cte of ctes.toReversed()) {
+    const { cteIndex, name } = cte.definition;
+    plan = { kind: "cte", cteIndex, name, definition: cte.plan, body: plan };
+  }
   return { ...query, plan };
 }
 

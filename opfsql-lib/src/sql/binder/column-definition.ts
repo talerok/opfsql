@@ -32,20 +32,20 @@ export interface DeclaredColumn {
 export function declareColumn(definition: ColumnDefinition): DeclaredColumn {
   const { constraints, name } = definition;
   const type = declaredType(definition.type);
-  const has = (kind: ColumnConstraint["type"]): boolean =>
+  const hasConstraint = (kind: ColumnConstraint["type"]): boolean =>
     constraints.some((constraint) => constraint.type === kind);
   const column: Column = {
     name,
     type,
-    isNotNull: has("NOT NULL"),
+    isNotNull: hasConstraint("NOT NULL"),
     defaultValue: defaultOf(definition, type),
   };
   return {
     column,
     primaryKeys: constraints.filter((item) => item.type === "PRIMARY KEY")
       .length,
-    isUnique: has("UNIQUE"),
-    isAutoincrement: has("AUTOINCREMENT"),
+    isUnique: hasConstraint("UNIQUE"),
+    isAutoincrement: hasConstraint("AUTOINCREMENT"),
   };
 }
 

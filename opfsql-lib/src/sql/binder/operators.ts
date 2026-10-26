@@ -71,10 +71,10 @@ export function bindOperator(
       return not(conditionOf(subject));
     }
     case ExpressionType.OPERATOR_IS_NULL: {
-      return isNull(subject);
+      return nullTest(subject);
     }
     case ExpressionType.OPERATOR_IS_NOT_NULL: {
-      return not(isNull(subject));
+      return not(nullTest(subject));
     }
     case ExpressionType.OPERATOR_IN: {
       return inList(subject, rest, clause);
@@ -193,7 +193,7 @@ function conditionOf(operand: Expression): Expression {
   return operand;
 }
 
-function isNull(operand: Expression): Expression {
+function nullTest(operand: Expression): Expression {
   return { kind: "is-null", operand, type: "BOOLEAN" };
 }
 

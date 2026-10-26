@@ -111,10 +111,10 @@ function sameJsonAccess(
   a: Extract<Expression, { kind: "json-access" }>,
   b: Extract<Expression, { kind: "json-access" }>,
 ): boolean {
-  const samePath =
+  const isSamePath =
     a.path.length === b.path.length &&
     a.path.every((step, index) => sameStep(step, b.path[index]));
-  return samePath && sameBinding(a.column, b.column);
+  return isSamePath && sameBinding(a.column, b.column);
 }
 
 function sameStep(a: JsonPathStep, b: JsonPathStep | undefined): boolean {

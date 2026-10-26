@@ -10,7 +10,7 @@ import {
   type AlterTableStatement,
   type ColumnDefinition,
 } from "../parser/index.js";
-import type { AlterAction, AlterTable } from "../plan/index.js";
+import type { AlterAction, AlterTable, logical } from "../plan/index.js";
 import { declareColumn } from "./column-definition.js";
 import { bindIndexKey } from "./create-index.js";
 import { columnNamed, tableNamed } from "./dml.js";
@@ -91,9 +91,13 @@ function dropColumn(
 function usesColumn(index: Index, table: Table, column: number): boolean {
   return index.keys.some((key) => {
     if (key.kind === "column") return key.column === column;
-    const expression = bindIndexKey(key.sql, table, 0);
-    return [...columnsOf(expression)].some(
-      (reference) => reference.binding.columnIndex === column,
-    );
+    return readsColumn(bindIndexKey(key.sql, table, 0), column);
   });
+}
+
+function readsColumn(expression: logical.Expression, column: number): boolean {
+  for (const reference of columnsOf(expression)) {
+    if (reference.binding.columnIndex === column) return true;
+  }
+  return false;
 }

@@ -1,5 +1,4 @@
 import { SemanticError } from "../../errors.js";
-import type { StaticType } from "../../functions/index.js";
 import { nameKey, type Schema } from "../../schema/index.js";
 import type { SelectStatement } from "../parser/index.js";
 import type { logical, OutputColumn } from "../plan/index.js";
@@ -92,45 +91,59 @@ interface CteNames {
   readonly outer: CteNames | null;
 }
 
+/** Where a scope sits among the queries of a statement. */
+interface Place {
+  /** The query this one is nested in, whose FROM its names also see. */
+  readonly outer: Scope | null;
+  /** Subqueries in expressions between this query and the statement's. */
+  readonly level: number;
+  readonly ctes: CteNames | null;
+  /** The scope that stands for this level: a subquery's, or the statement's. */
+  readonly levelScope: Scope | null;
+}
+
 export class Scope {
   private readonly items: Relation[] = [];
   private correlated = false;
 
   private constructor(
     readonly context: BindContext,
-    /** The query this one is nested in, whose FROM its names also see. */
-    readonly outer: Scope | null,
-    /** Subqueries in expressions between this query and the statement's. */
-    readonly level: number,
-    private readonly ctes: CteNames | null,
-    /** The scope that stands for this level: a subquery's, or the statement's. */
-    private readonly levelScope: Scope | null,
+    private readonly place: Place,
   ) {}
 
   static root(context: BindContext): Scope {
-    return new Scope(context, null, 0, null, null);
+    const place = { outer: null, level: 0, ctes: null, levelScope: null };
+    return new Scope(context, place);
+  }
+
+  /** The query this one is nested in, whose FROM its names also see. */
+  get outer(): Scope | null {
+    return this.place.outer;
+  }
+
+  /** Subqueries in expressions between this query and the statement's. */
+  get level(): number {
+    return this.place.level;
   }
 
   /** A subquery in an expression of this query: one level in. */
   subquery(): Scope {
-    return new Scope(this.context, this, this.level + 1, this.ctes, null);
+    const { ctes } = this.place;
+    const level = this.level + 1;
+    const place = { outer: this, level, ctes, levelScope: null };
+    return new Scope(this.context, place);
   }
 
   /** A query in FROM or WITH, or a compound's member: the same level, without this FROM. */
   sibling(): Scope {
-    return new Scope(
-      this.context,
-      this.outer,
-      this.level,
-      this.ctes,
-      this.root(),
-    );
+    return new Scope(this.context, { ...this.place, levelScope: this.root() });
   }
 
   /** This query, seeing one more CTE name; it has no relations yet. */
   withCte(definition: CteDefinition): Scope {
-    const ctes = { definition, outer: this.ctes };
-    return new Scope(this.context, this.outer, this.level, ctes, this.root());
+    const ctes = { definition, outer: this.place.ctes };
+    const levelScope = this.root();
+    return new Scope(this.context, { ...this.place, ctes, levelScope });
   }
 
   /**
@@ -173,7 +186,7 @@ export class Scope {
   /** The CTE `name` stands for here, if any. */
   cte(name: string): CteDefinition | null {
     const key = nameKey(name);
-    for (let names = this.ctes; names !== null; names = names.outer) {
+    for (let names = this.place.ctes; names !== null; names = names.outer) {
       if (nameKey(names.definition.name) === key) return names.definition;
     }
     return null;
@@ -192,11 +205,6 @@ export class Scope {
   }
 
   private root(): Scope {
-    return this.levelScope ?? this;
+    return this.place.levelScope ?? this;
   }
-}
-
-/** A column a relation offers. */
-export function outputColumn(name: string, type: StaticType): OutputColumn {
-  return { name, type };
 }
