@@ -16,6 +16,7 @@ export {
   castValue,
   describeValue,
   hexToBytes,
+  isStoredAs,
   normalizeNumber,
   normalizeValue,
   numberFromText,

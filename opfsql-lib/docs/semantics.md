@@ -30,7 +30,9 @@ UTF-8 without changing it.
 Names of tables, columns and indexes are kept as written and compared
 without regard to the case of ASCII letters, as in SQLite: `Users` and
 `USERS` are the same table, while `Été` and `été` are two. Tables and indexes
-share one namespace. Names starting with `opfsql_` are reserved.
+share one namespace. Names starting with `opfsql_` are reserved: the
+tables opfsql keeps under them can be read, never written, created or dropped
+by a statement.
 
 ## Column types
 
@@ -96,23 +98,27 @@ ORDER BY puts NULLs first when ascending and last when descending, unless
 ## Comparisons
 
 `=`, `<>`, `<`, `<=`, `>`, `>=` return NULL when either side is NULL, and
-otherwise compare by the total order above.
+otherwise compare the two values as they are, by the total order above.
 
-Operands of different kinds are a bind error: a number compares with a
-number, a text with a text, and so on; `id = '5'` and `name > 18` are
-refused; a JSON value compares with anything, as it is. An operand whose
-type is known only at run time — a parameter, a CASE or COALESCE of mixed
-types — takes the other side's affinity when it is compared, as in SQLite:
+The operands must be comparable: numbers with numbers, a type with itself,
+and anything with a value whose type only the row tells — a parameter, an
+ANY column, a JSON value. `id = '5'` for an INTEGER `id` is a bind error;
+write `id = 5`.
 
-- compared with a number (INTEGER, REAL), text that is exactly a number is
-  converted to it, so `id = $1` with `'5'` matches id 5 and with `'five'`
-  matches nothing;
-- compared with TEXT, a number is converted to text, so `name = $1` with
-  `5` matches `'5'`.
+A parameter is converted to the type of what it is compared with, as SQLite
+applies affinity:
 
-The same holds wherever values are compared as `=` compares them: IN,
-BETWEEN, CASE with an operand, ANY and ALL. Comparing values of different
-kinds after that falls back to the total order, so `1 < 'a'` is true.
+- compared with an INTEGER or REAL operand, text that is exactly a number
+  becomes that number, so `id = $1` with `'5'` finds id 5 and with `'five'`
+  finds nothing;
+- compared with a TEXT operand, a number becomes text, so `name = $1` with
+  `5` finds `'5'`.
+
+Compared with several operands at once — the items of `IN`, the bounds of
+`BETWEEN`, the `WHEN` values of `CASE x` — it is converted only when they
+all agree on the type. Nothing else is converted: an ANY column's values
+compare as they were stored, so `x = 1` does not find `'1'`. Values of
+different kinds then compare by the total order, so `1 < 'a'` is true.
 
 ## Logic
 
@@ -231,9 +237,11 @@ points) in text and bytes in BLOBs.
 | `json_valid(x)`                              | whether `x` is JSON (TEXT is parsed)                                                                                                                                                            |
 | `like(pattern, x [, escape])`                | `x LIKE pattern` (see Text matching)                                                                                                                                                            |
 
-The result of `coalesce`, `ifnull`, `iif` (and of CASE) has the type its
-arguments share; INTEGER with REAL is REAL; any other mix has no static
-type, and arithmetic on it decides by the value.
+The result of `coalesce`, `ifnull`, `iif` and CASE, and each column of a
+UNION, INTERSECT, EXCEPT or VALUES, has the type its values share; INTEGER
+with REAL is REAL; any other mix has no static type, and arithmetic on it
+decides by the value. So `CASE WHEN x THEN 1 ELSE 'a' END` is allowed, and
+`SELECT 1 UNION SELECT '1'` gives two rows.
 
 A JSON argument is a JSON value when its static type is JSON, and JSON
 text to parse when it is TEXT; malformed text fails with
@@ -254,21 +262,30 @@ that of [Order and equality](#order-and-equality).
 - `sum` and `avg` take numbers only: over TEXT, BOOLEAN, BLOB or JSON they
   are a bind error.
 
+## Limits
+
+A statement nests at most 200 levels deep (parentheses, subqueries, CASE
+inside CASE), and a compound SELECT joins at most 500 SELECTs, as SQLite's
+default `SQLITE_MAX_COMPOUND_SELECT`. Past either, the statement fails to
+compile with a `SYNTAX_ERROR` or a `SEMANTIC_ERROR`, before it runs.
+
 ## Departures from SQLite
 
-| opfsql                                                   | SQLite                            | Why                                                                       |
-| -------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------- |
-| BOOLEAN is its own type; `true` ≠ `1`                    | booleans are the integers 1 and 0 | JavaScript has booleans, and callers get back what they stored            |
-| JSON is a column type holding parsed values              | JSON is text handled by functions | JavaScript works with objects                                             |
-| INTEGER is limited to safe integers                      | 64-bit integers                   | a JavaScript number cannot hold more without losing precision             |
-| `7.0 / 2` with untyped operands is `3`                   | `3.5`                             | JavaScript cannot tell `7.0` from `7`; typed REAL operands divide exactly |
-| numbers print as JavaScript prints them (`1`, not `1.0`) | `%!.15g`                          | round-trips through JavaScript exactly                                    |
-| invalid casts fail                                       | invalid casts give 0 or a prefix  | a guessed value hides a bug                                               |
-| WHERE requires a BOOLEAN                                 | any value, by truthiness          | as in PostgreSQL; catches mistakes at bind time                           |
-| `upper` / `lower` convert all of Unicode                 | ASCII letters only (without ICU)  | JavaScript's case mapping is complete and free                            |
-| `typeof` also answers `'boolean'` and `'json'`           | no such types                     | they are types here                                                       |
-| JSON functions return JSON values                        | JSON text                         | as JSON columns do                                                        |
-| `md5` exists                                             | no `md5`                          | kept from earlier opfsql versions                                         |
-| a scalar subquery with several rows fails                | the first row is used             | a guessed value hides a bug                                               |
-| comparing typed values of different kinds is an error    | converted by affinity             | as in PostgreSQL; `id = '5'` is usually a mistake, caught at bind time    |
-| a column neither grouped nor aggregated is an error      | a "bare column" of some row       | as in PostgreSQL; a guessed value hides a bug                             |
+| opfsql                                                                               | SQLite                                   | Why                                                                                           |
+| ------------------------------------------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| BOOLEAN is its own type; `true` ≠ `1`                                                | booleans are the integers 1 and 0        | JavaScript has booleans, and callers get back what they stored                                |
+| JSON is a column type holding parsed values                                          | JSON is text handled by functions        | JavaScript works with objects                                                                 |
+| INTEGER is limited to safe integers                                                  | 64-bit integers                          | a JavaScript number cannot hold more without losing precision                                 |
+| `7.0 / 2` with untyped operands is `3`                                               | `3.5`                                    | JavaScript cannot tell `7.0` from `7`; typed REAL operands divide exactly                     |
+| numbers print as JavaScript prints them (`1`, not `1.0`)                             | `%!.15g`                                 | round-trips through JavaScript exactly                                                        |
+| invalid casts fail                                                                   | invalid casts give 0 or a prefix         | a guessed value hides a bug                                                                   |
+| WHERE requires a BOOLEAN                                                             | any value, by truthiness                 | as in PostgreSQL; catches mistakes at bind time                                               |
+| `upper` / `lower` convert all of Unicode                                             | ASCII letters only (without ICU)         | JavaScript's case mapping is complete and free                                                |
+| `typeof` also answers `'boolean'` and `'json'`                                       | no such types                            | they are types here                                                                           |
+| JSON functions return JSON values                                                    | JSON text                                | as JSON columns do                                                                            |
+| `md5` exists                                                                         | no `md5`                                 | kept from earlier opfsql versions                                                             |
+| a scalar subquery with several rows fails                                            | the first row is used                    | a guessed value hides a bug                                                                   |
+| `id = '5'` for an INTEGER `id` is a bind error                                       | the text is converted to a number        | catches mistakes at bind time; a parameter is still converted                                 |
+| an ANY column compared with a typed column compares values as stored                 | the ANY side takes the other's affinity  | only parameters are converted, so an index seek or a hash join always finds what a scan finds |
+| UPDATE computes every row's new values from the table as it was before the statement | each row sees the rows updated before it | the result does not depend on the order rows are found in, as in PostgreSQL                   |
+| a column neither grouped nor aggregated is an error                                  | a "bare column" of some row              | as in PostgreSQL; a guessed value hides a bug                                                 |

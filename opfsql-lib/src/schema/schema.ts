@@ -1,5 +1,4 @@
-import type { SqlType, Value } from "../values/index.js";
-import { areEqual, assignValue } from "../values/index.js";
+import { isStoredAs } from "../values/index.js";
 import type { Column, Index, Table } from "./model.js";
 import { nameKey } from "./names.js";
 
@@ -100,14 +99,6 @@ function rowidProblems(table: Table): string[] {
 /** A default is stored as its column's type: rows written before the column read it as it is. */
 function defaultProblems(column: Column): string[] {
   const { defaultValue, type, name } = column;
-  if (isOfType(defaultValue, type)) return [];
+  if (isStoredAs(defaultValue, type)) return [];
   return [`the default of ${name} is not a ${type}`];
-}
-
-function isOfType(value: Value, type: SqlType): boolean {
-  try {
-    return areEqual(assignValue(value, type), value);
-  } catch {
-    return false;
-  }
 }

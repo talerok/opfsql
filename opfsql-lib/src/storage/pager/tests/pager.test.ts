@@ -242,14 +242,18 @@ describe("Pager", () => {
 let tabsOpened = 0;
 
 /** Two tabs sharing one database's files. */
-async function twoTabs(): Promise<{ first: Pager; second: Pager }> {
+async function twoTabs(): Promise<{
+  first: Pager;
+  second: Pager;
+  marks: MemoryFile;
+}> {
   const database = new MemoryFile();
   const wal = new MemoryFile();
   const marks = new MemoryFile();
   const lockName = `tabs-${String(tabsOpened++)}`;
   const first = await open({ database, wal, marks }, { lockName });
   const second = await open({ database, wal, marks }, { lockName });
-  return { first, second };
+  return { first, second, marks };
 }
 
 describe("Pager across tabs", () => {
@@ -302,5 +306,24 @@ describe("Pager across tabs", () => {
     first.checkpoint();
     second.catchUp();
     expect(firstByte(second, pageNo)).toBe(2);
+  });
+
+  it("lowers a checkpoint intent left by an earlier database of the same name", async () => {
+    const { first, marks } = await twoTabs();
+    write(first, (transaction) => allocateMarked(transaction, 1));
+    first.checkpoint();
+
+    // The database and WAL files are removed; the read marks stay.
+    const lockName = `tabs-${String(tabsOpened++)}`;
+    const fresh = await open(
+      { database: new MemoryFile(), wal: new MemoryFile(), marks },
+      { lockName },
+    );
+    expect(fresh.beginRead()).toBeNull();
+    expect(fresh.catchUp()).toBe(false);
+
+    expect(fresh.resetStaleIntent()).toBe(true);
+    beginRead(fresh).end();
+    expect(fresh.resetStaleIntent()).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ import {
   TableWriter,
 } from "../storage/index.js";
 import type { Value } from "../values/index.js";
-import { areEqual, assignValue } from "../values/index.js";
+import { isStoredAs } from "../values/index.js";
 import type { CompileExpression } from "./keys.js";
 import { entryOf, keyedIndex, rowidsWithKey, uniqueViolation } from "./keys.js";
 import { TableRows } from "./rows.js";
@@ -242,7 +242,7 @@ function checkDefault(column: Column): void {
   if (isNotNull && defaultValue === null) {
     throw new InternalError(`NOT NULL column ${name} needs a default`);
   }
-  if (!areEqual(assignValue(defaultValue, type), defaultValue)) {
+  if (!isStoredAs(defaultValue, type)) {
     throw new InternalError(`the default of ${name} is not a ${type}`);
   }
 }

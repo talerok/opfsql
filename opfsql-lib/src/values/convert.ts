@@ -1,5 +1,5 @@
 import { DatatypeMismatchError } from "../errors.js";
-import { canonicalJson } from "./order.js";
+import { areEqual, canonicalJson } from "./order.js";
 import type { SqlType } from "./types.js";
 import type { JsonValue, Value } from "./value.js";
 
@@ -38,6 +38,21 @@ export function assignValue(value: Value, type: SqlType): Value {
   );
 }
 
+/**
+ * True if a column of `type` stores `value` as it is: what assignment would
+ * keep unchanged. A JSON column stores any value but a BLOB as it is — text
+ * already stored is a JSON string, not JSON text to parse again.
+ */
+export function isStoredAs(value: Value, type: SqlType): boolean {
+  if (value === null) return true;
+  if (type === "JSON") return !(value instanceof Uint8Array);
+  try {
+    return areEqual(assignValue(value, type), value);
+  } catch {
+    return false;
+  }
+}
+
 /** CAST(value AS type), or throws. */
 export function castValue(value: Value, type: SqlType): Value {
   const normalized = normalizeValue(value);
@@ -50,9 +65,9 @@ export function castValue(value: Value, type: SqlType): Value {
 }
 
 /**
- * How a comparison converts an operand of unknown type to the type of the
- * other side (docs/semantics.md, Comparisons): `numeric` turns text that
- * is exactly a number into that number, `text` turns a number into text.
+ * How a parameter is converted to the type of what it is compared with
+ * (docs/semantics.md, Comparisons): `numeric` turns text that is exactly a
+ * number into that number, `text` turns a number into text.
  */
 export type Affinity = "numeric" | "text";
 

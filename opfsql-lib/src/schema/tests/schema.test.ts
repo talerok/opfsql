@@ -46,6 +46,11 @@ describe("Schema", () => {
   it("is consistent when names, tables and columns match", () => {
     expect(schema.problems()).toEqual([]);
     expect(Schema.empty.problems()).toEqual([]);
+    // A JSON string default is stored as it is, not parsed as JSON text again.
+    const settings = table("settings", [
+      { ...column("theme", "JSON"), defaultValue: "dark" },
+    ]);
+    expect(new Schema(1, [settings], []).problems()).toEqual([]);
   });
 
   it("reports what does not match", () => {

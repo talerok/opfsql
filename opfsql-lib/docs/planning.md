@@ -126,13 +126,20 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 
 INSERT, UPDATE and DELETE are statements holding a physical source plan, not
 plan nodes. Every scan carries `residual`: conditions checked on every row
-it returns. A rowid lookup and an index union return each row once.
+it returns. A rowid lookup and an index union return each row once; a rowid
+lookup returns them in rowid order.
 
-Seek values and hash keys are converted as `=` would convert them: from the
-key part's type (the column's, or an expression key's as the binder typed
-it) and the value's static type, through `comparisonConversion`. So
-`id = '5'`, and `id = $1` with `'5'`, find id 5 through an index exactly as a
-scan would; skipping the conversion would lose rows no residual can restore.
+A seek value — an equal value or a range bound — is fixed for one scan: a
+constant, a parameter, or a column of an enclosing query, evaluated again
+each time the scan starts. So a correlated subquery seeks on its outer row
+instead of scanning for it. A NULL seek value matches nothing, as `=` and `<`
+with NULL never hold.
+
+`=` compares values as they are; the one conversion a comparison involves
+is a parameter's affinity (docs/semantics.md, Comparisons), which the binder
+puts on the parameter node itself. So a seek value or a hash key is matched
+exactly as `=` matches it, with nothing left to convert: `id = $1` with
+`'5'` seeks 5, because the parameter evaluates to 5.
 
 ## Rules every optimization keeps
 
@@ -166,22 +173,32 @@ compiled expressions and the table layer. An operator:
 
 ```ts
 interface Operator {
-  /** The next batch of rows, or null when there are no more. */
-  next(): Tuple[] | null;
+  /** The next batch of at most `max` rows, or null when there are no more. */
+  next(max: number): Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
   rescan(): void;
 }
 ```
 
 Rows are arrays of values in the operator's layout. Operators pull from their
-children (the Volcano model) in batches.
+children (the Volcano model) in batches, and ask for no more rows than they
+can use. So an operator evaluates no more of its input than the rows it
+returns need — unless its algorithm needs all of it: a sort, an aggregate, a
+hash join's build side, a set operation. A row past a LIMIT, or past the one
+row an EXISTS needs, is never evaluated and cannot fail the statement, as in
+SQLite. Nothing outside can stop a running statement — JavaScript runs it to
+the end — so operators call the run's `checkpoint` once per batch, where the
+engine can end it.
 
 A subquery is compiled once, with the plan it is part of. A correlated
 subquery is rescanned for each outer row, with that row pushed on the outer
-stack. A subquery without outer references runs once and keeps its result.
+stack. A subquery is correlated when it, or a subquery nested in it, reads a
+column of an enclosing query or a CTE defined inside an enclosing subquery:
+both change from one outer row to the next. Any other subquery runs once and
+keeps its result.
 
-UPDATE and DELETE read every target row from their source before changing
-any — each change made by the table layer, which keeps indexes and
+UPDATE and DELETE read every target row from their source, and UPDATE
+computes every new row, before changing any — each change made by the table layer, which keeps indexes and
 constraints with the row — so a change never moves a row into or out of the
 scan that is still finding rows. An INSERT whose source reads the target
 table reads all of it first, for the same reason.
@@ -193,10 +210,22 @@ WHERE that reads them, and the optimizer may narrow it to the rowid alone
 once the WHERE is in a scan's residual. ON CONFLICT's
 existing and refused rows are each every column of the table, in order.
 
+Each statement of a transaction runs inside a savepoint of its write
+transaction. A statement that fails is rolled back to it and the
+transaction goes on, as in SQLite: a caller can catch a UNIQUE violation
+and carry on. Only a failure that cannot be rolled back — the commit
+itself failing — ends the transaction. Savepoints live in one transaction's
+memory; nothing of them reaches the WAL or other tabs.
+
+A CTE's rows are computed as far as they are read, so a CTE nothing reads
+never runs, and cannot fail the statement.
+
 A recursive CTE is a `cte` whose definition is a `recursive-cte`. The
 `recursive-cte`'s own index names its working set, the rows the last step
 added, which its step reads; the `cte`'s index names the full result, which
-the body reads.
+the body reads. The step reads the working set in its FROM clause only, never
+from a subquery (as in SQLite): a subquery would run once and keep the first
+working set.
 
 ## Schema text
 

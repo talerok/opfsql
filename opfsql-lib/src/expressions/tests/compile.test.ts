@@ -136,55 +136,54 @@ describe("comparisons", () => {
   });
 });
 
-describe("comparison affinity", () => {
-  it("converts numeric text of unknown type for a numeric side", () => {
-    expect(
-      evaluate(compare(c0, "=", parameter(0)), { parameters: ["10"] }),
-    ).toBe(true);
+describe("parameter affinity", () => {
+  const numeric = parameter(0, "numeric");
+
+  it("turns numeric text into a number for a numeric side", () => {
+    expect(evaluate(compare(c0, "=", numeric), { parameters: ["10"] })).toBe(
+      true,
+    );
   });
 
-  it("converts a number of unknown type for a text side", () => {
+  it("turns a number into text for a text side", () => {
     const row = rowWith(c1, "5");
-    expect(
-      evaluate(compare(c1, "=", parameter(0)), { parameters: [5], row }),
-    ).toBe(true);
+    const text = parameter(0, "text");
+    expect(evaluate(compare(c1, "=", text), { parameters: [5], row })).toBe(
+      true,
+    );
   });
 
   it("leaves text that is not exactly a number alone", () => {
-    expect(
-      evaluate(compare(c0, "<", parameter(0)), { parameters: ["ten"] }),
-    ).toBe(true);
+    expect(evaluate(compare(c0, "<", numeric), { parameters: ["ten"] })).toBe(
+      true,
+    );
   });
 
-  it("does not convert typed operands: JSON '10' is text, not 10", () => {
+  it("is the only conversion: everything else compares as it is", () => {
+    const untyped = parameter(0);
+    expect(evaluate(compare(c0, "=", untyped), { parameters: ["10"] })).toBe(
+      false,
+    );
+    const anyText = rowWith(c2, "10");
+    expect(evaluate(compare(c2, "=", constant(10)), { row: anyText })).toBe(
+      false,
+    );
     expect(evaluate(compare(json("10"), "=", constant(10)))).toBe(false);
   });
 
-  it("applies to IN items, hashed or not", () => {
-    expect(evaluate(inList(c0, parameter(0)), { parameters: ["10"] })).toBe(
-      true,
-    );
-    expect(
-      evaluate(inList(parameter(0), constant(10), constant(20)), {
-        parameters: ["10"],
-      }),
-    ).toBe(true);
-    expect(
-      evaluate(inList(parameter(0), constant(10), constant("x")), {
-        parameters: ["10"],
-      }),
-    ).toBe(true);
-    expect(evaluate(inList(c0, c2, parameter(0)), { parameters: ["10"] })).toBe(
-      true,
-    );
+  it("converts IN needles and items, hashed or not", () => {
+    const parameters = ["10"];
+    expect(evaluate(inList(c0, numeric), { parameters })).toBe(true);
+    const tens = inList(numeric, constant(10), constant(20));
+    expect(evaluate(tens, { parameters })).toBe(true);
+    expect(evaluate(inList(c0, c2, numeric), { parameters })).toBe(true);
   });
 
-  it("applies to BETWEEN bounds and CASE operands", () => {
+  it("converts BETWEEN bounds and CASE values", () => {
     const parameters = ["5", "20", "10"];
-    expect(
-      evaluate(between(c0, parameter(0), parameter(1)), { parameters }),
-    ).toBe(true);
-    const ten = simpleCase(c0, [[parameter(2), constant("ten")]]);
+    const bounds = between(c0, numeric, parameter(1, "numeric"));
+    expect(evaluate(bounds, { parameters })).toBe(true);
+    const ten = simpleCase(c0, [[parameter(2, "numeric"), constant("ten")]]);
     expect(evaluate(ten, { parameters })).toBe("ten");
   });
 });

@@ -3,7 +3,7 @@ import type {
   ScalarFunction,
   StaticType,
 } from "../../functions/index.js";
-import type { SqlType, Value } from "../../values/index.js";
+import type { Affinity, SqlType, Value } from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
 // Bound expressions (docs/planning.md). `Plan` is the kind of plan a
@@ -12,6 +12,10 @@ import type { SqlType, Value } from "../../values/index.js";
 //
 // Negation is always a `not` node around what it negates — NOT IN, NOT
 // EXISTS, IS NOT NULL, NOT BETWEEN alike — so every rewrite sees one shape.
+//
+// Comparisons compare values as they are. The one conversion is a
+// parameter's affinity, carried by the parameter node, so every comparison,
+// seek and hash key agrees without converting anything itself.
 // ---------------------------------------------------------------------------
 
 /** A column: the relation that produces it, and its position there. */
@@ -54,6 +58,11 @@ export interface Parameter {
   readonly kind: "parameter";
   /** Position in the parameters a run gets, from 0. */
   readonly index: number;
+  /**
+   * The conversion its value gets, from the type of what it is compared with
+   * (docs/semantics.md, Comparisons), or null for none.
+   */
+  readonly affinity: Affinity | null;
   /** What the context expects, or ANY. */
   readonly type: StaticType;
 }
@@ -177,9 +186,10 @@ export interface JsonAccess {
 interface SubqueryPart<Plan> {
   readonly plan: Plan;
   /**
-   * True when it reads a column of an enclosing query — itself or through a
-   * subquery nested in it — and so runs again for each outer row. False
-   * when it can run once and keep its result.
+   * True when it reads a column of an enclosing query, or a CTE defined
+   * inside an enclosing subquery — itself or through a subquery nested in
+   * it — and so runs again for each outer row. False when it can run once
+   * and keep its result.
    */
   readonly isCorrelated: boolean;
 }
@@ -208,11 +218,6 @@ export interface QuantifiedComparison<Plan> extends SubqueryPart<Plan> {
   readonly needle: Expression<Plan>;
   readonly operator: ComparisonOperator;
   readonly quantifier: "ANY" | "ALL";
-  /**
-   * The type of the subquery's one column, which the needle is compared
-   * with — comparison affinity included, as for `=`.
-   */
-  readonly columnType: StaticType;
   readonly type: "BOOLEAN";
 }
 

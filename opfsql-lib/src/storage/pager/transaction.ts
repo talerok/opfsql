@@ -59,11 +59,34 @@ export class ReadTransaction implements PageReader {
 }
 
 /**
+ * A point a write transaction can return to, undoing what was written since:
+ * a failed statement, or ROLLBACK TO. It lives in memory only; nothing of it
+ * reaches the WAL, the read marks or other tabs.
+ */
+export class Savepoint {
+  /** Each page changed since: its bytes before, or null if it was unchanged. */
+  readonly before = new Map<number, Uint8Array | null>();
+
+  /** WriteTransaction.savepoint() makes them. */
+  constructor(
+    readonly pageCount: number,
+    readonly freeHint: number,
+  ) {}
+}
+
+/**
  * Changes pages on top of the latest commit. Every page it writes is a
  * private copy until commit() appends them to the WAL as one transaction.
+ *
+ * Savepoints nest. Changing a page records its bytes in the innermost one;
+ * releasing one hands what it recorded to the one around it. Objects that
+ * hold a page's bytes — editors, cursors — must not outlive a rollback to a
+ * savepoint made before they read them: the bytes they hold are discarded.
  */
 export class WriteTransaction extends ReadTransaction implements PageWriter {
   private readonly dirty = new Map<number, Uint8Array>();
+  /** Open savepoints, the innermost last. */
+  private readonly savepoints: Savepoint[] = [];
   private readonly map: AllocationMap;
   private readonly initialPageCount: number;
   private currentPageCount: number;
@@ -89,6 +112,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
 
   write(pageNo: number): Uint8Array {
     this.ensureOpen();
+    this.remember(pageNo);
     const dirty = this.dirty.get(pageNo);
     if (dirty !== undefined) return dirty;
     const copy = new Uint8Array(super.read(pageNo));
@@ -101,6 +125,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     const pageNo =
       this.map.findFree(this.freeHint, this.currentPageCount) ?? this.extend();
     this.map.markInUse(pageNo);
+    this.remember(pageNo);
     this.dirty.set(pageNo, new Uint8Array(this.pageSize));
     this.freeHint = pageNo + 1;
     return pageNo;
@@ -112,8 +137,41 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
       throw new InternalError(`page ${String(pageNo)} can never be freed`);
     }
     this.map.markFree(pageNo);
+    this.remember(pageNo);
     this.dirty.delete(pageNo);
     this.freeHint = Math.min(this.freeHint, pageNo);
+  }
+
+  /** A point to return to with rollbackTo; nested inside any open one. */
+  savepoint(): Savepoint {
+    this.ensureOpen();
+    const savepoint = new Savepoint(this.currentPageCount, this.freeHint);
+    this.savepoints.push(savepoint);
+    return savepoint;
+  }
+
+  /**
+   * Undoes everything written since `savepoint`, savepoints made after it
+   * included; `savepoint` stays open, empty, as ROLLBACK TO leaves it.
+   */
+  rollbackTo(savepoint: Savepoint): void {
+    this.ensureOpen();
+    const depth = this.depthOf(savepoint);
+    const inside = this.savepoints.splice(depth + 1);
+    // Innermost first, so the oldest bytes of a page are the ones that stay.
+    for (const inner of inside.toReversed()) this.restore(inner);
+    this.restore(savepoint);
+    savepoint.before.clear();
+  }
+
+  /** Keeps what was written since `savepoint`, and closes it and any inside it. */
+  release(savepoint: Savepoint): void {
+    this.ensureOpen();
+    const depth = this.depthOf(savepoint);
+    const released = this.savepoints.splice(depth);
+    const outer = this.savepoints.at(-1);
+    if (outer === undefined) return;
+    for (const inner of released) handOver(inner, outer);
   }
 
   /** Records that this transaction changes the schema. */
@@ -130,16 +188,44 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
       if (this.hasChanges())
         this.pager.append(this.dirty, this.currentPageCount);
     } finally {
-      this.dirty.clear();
-      this.end();
+      this.discard();
     }
   }
 
   /** Drops the changes and ends the transaction. */
   rollback(): void {
     this.ensureOpen();
+    this.discard();
+  }
+
+  /** Ends the transaction; any savepoints still open end with it. */
+  private discard(): void {
     this.dirty.clear();
+    this.savepoints.length = 0;
     this.end();
+  }
+
+  /** Records a page's bytes in the innermost savepoint, before its first change there. */
+  private remember(pageNo: number): void {
+    const innermost = this.savepoints.at(-1);
+    if (innermost === undefined || innermost.before.has(pageNo)) return;
+    const dirty = this.dirty.get(pageNo);
+    innermost.before.set(pageNo, dirty === undefined ? null : dirty.slice());
+  }
+
+  private restore(savepoint: Savepoint): void {
+    for (const [pageNo, bytes] of savepoint.before) {
+      if (bytes === null) this.dirty.delete(pageNo);
+      else this.dirty.set(pageNo, bytes);
+    }
+    this.currentPageCount = savepoint.pageCount;
+    this.freeHint = savepoint.freeHint;
+  }
+
+  private depthOf(savepoint: Savepoint): number {
+    const depth = this.savepoints.indexOf(savepoint);
+    if (depth === -1) throw new MisuseError("the savepoint is not open");
+    return depth;
   }
 
   /** Writers are serialized by a lock: another commit means a bug, not a race. */
@@ -167,7 +253,15 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
 
   /** A new group's allocation map, which follows the group's first page. */
   private addMapPage(mapPageNo: number): void {
+    this.remember(mapPageNo);
     this.dirty.set(mapPageNo, newMapPage(this.pageSize, mapPageNo));
     this.currentPageCount = mapPageNo + 1;
+  }
+}
+
+/** What `inner` recorded, for the pages `outer` has not: its bytes are older. */
+function handOver(inner: Savepoint, outer: Savepoint): void {
+  for (const [pageNo, bytes] of inner.before) {
+    if (!outer.before.has(pageNo)) outer.before.set(pageNo, bytes);
   }
 }

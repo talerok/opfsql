@@ -19,7 +19,7 @@ import type {
   QuantifiedComparison,
   ScalarSubquery,
 } from "../../sql/plan/index.js";
-import type { SqlType, Value } from "../../values/index.js";
+import type { Affinity, SqlType, Value } from "../../values/index.js";
 
 // Small builders for expression trees, so that a test reads as the SQL it
 // stands for: compare(c0, "=", parameter(0)) is `c0 = $1`.
@@ -78,8 +78,11 @@ export function outer(
   return column(tableIndex, columnIndex, type, depth);
 }
 
-export function parameter(index: number, type: StaticType = "ANY"): Parameter {
-  return { kind: "parameter", index, type };
+export function parameter(
+  index: number,
+  affinity: Affinity | null = null,
+): Parameter {
+  return { kind: "parameter", index, affinity, type: "ANY" };
 }
 
 export type ComparisonSymbol = "=" | "<>" | "<" | "<=" | ">" | ">=";
@@ -315,7 +318,6 @@ export function compareAll(
     needle,
     operator: COMPARISONS[symbol],
     quantifier: "ALL",
-    columnType: firstColumnType(plan),
     type: "BOOLEAN",
   };
 }
