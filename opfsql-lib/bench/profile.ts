@@ -63,6 +63,8 @@ const PHASE_ROOTS: readonly PhaseRoot[] = [
   root("compile", "compileExpression", "expressions/compile.ts"),
   root("compile", "compilePredicate", "expressions/compile.ts"),
   root("run", "drain", "executor/operator.ts"),
+  // A write's rows and indexes change under runWrite, around its roots above.
+  root("run", "runWrite", "executor/execute.ts"),
   root("result", "rowsResult", "engine/results.ts"),
   root("result", "toData", "engine/api/result.ts"),
   root("plan (cached)", "plan", "engine/statements.ts"),
