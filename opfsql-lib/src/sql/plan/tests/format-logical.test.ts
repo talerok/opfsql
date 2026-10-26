@@ -79,6 +79,26 @@ describe("formatPlan", () => {
     );
   });
 
+  it("puts a negated operand that starts with a minus in parentheses", () => {
+    const minusOne: logical.Expression = {
+      kind: "constant",
+      value: -1,
+      type: "INTEGER",
+    };
+    const negate = (operand: logical.Expression): logical.Expression => ({
+      kind: "negate",
+      operand,
+      type: "INTEGER",
+    });
+    const plan: logical.Plan = {
+      kind: "values",
+      tableIndex: 0,
+      rows: [[negate(minusOne), negate(negate(column(1))), negate(column(1))]],
+      types: ["INTEGER", "INTEGER", "INTEGER"],
+    };
+    expect(formatPlan(plan)).toBe("values #0 (-(-1), -(-c1#0.1), -c1#0.1)");
+  });
+
   it("keeps a REAL constant's decimal point", () => {
     const plan: logical.Plan = {
       kind: "values",

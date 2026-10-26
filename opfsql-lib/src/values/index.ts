@@ -24,6 +24,7 @@ export {
   withoutNegativeZero,
 } from "./convert.js";
 export { firstSighting, rowKey, valueKey } from "./key.js";
+export { realLiteral, sqlLiteral, textLiteral } from "./literal.js";
 export {
   and,
   compareSql,

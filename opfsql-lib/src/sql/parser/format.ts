@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import { InternalError } from "../../errors.js";
-import { bytesToHex } from "../../values/index.js";
+import { realLiteral, sqlLiteral } from "../../values/index.js";
 import { keywordOf } from "./keywords.js";
 import { above, power } from "./precedence.js";
 import { comparisonPower, OPERATOR_POWER, powerOf } from "./printed-power.js";
@@ -226,38 +226,8 @@ function formatSegment(segment: JsonPathSegment): string {
 }
 
 function formatLiteral(literal: Literal): string {
-  switch (literal.type) {
-    case "INTEGER": {
-      return String(literal.value);
-    }
-    case "REAL": {
-      return formatReal(literal.value);
-    }
-    case "TEXT": {
-      return `'${literal.value.replaceAll("'", "''")}'`;
-    }
-    case "BLOB": {
-      return `X'${bytesToHex(literal.value)}'`;
-    }
-    case "BOOLEAN": {
-      return literal.value ? "TRUE" : "FALSE";
-    }
-    case "NULL": {
-      return "NULL";
-    }
-  }
-}
-
-/**
- * A REAL literal that reads back as REAL: `2.0`, not `2`, which is an
- * INTEGER and would divide as one. SQL has no infinity; 9e999 overflows to
- * it, as in SQLite.
- */
-function formatReal(value: number): string {
-  if (value === Infinity) return "9e999";
-  if (value === -Infinity) return "-9e999";
-  const text = String(value);
-  return /[.e]/.test(text) ? text : `${text}.0`;
+  if (literal.type === "REAL") return realLiteral(literal.value);
+  return sqlLiteral(literal.value);
 }
 
 function formatCall(

@@ -1,13 +1,12 @@
-import type { StaticType } from "../../functions/index.js";
-import { bytesToHex, canonicalJson, type Value } from "../../values/index.js";
+import { ROWID_COLUMN, type AggregateCall } from "./expression.js";
 import {
-  ROWID_COLUMN,
-  type AggregateCall,
-  type ArithmeticOperator,
-  type ColumnReference,
-  type ComparisonOperator,
-  type JsonPathStep,
-} from "./expression.js";
+  arithmeticText,
+  comparisonText,
+  formatColumn,
+  formatStep,
+  formatValue,
+  isAtomic,
+} from "./format-terms.js";
 import type { Expression, OrderKey, Plan } from "./logical.js";
 
 // ---------------------------------------------------------------------------
@@ -209,7 +208,7 @@ class PlanPrinter {
         return `${this.operand(expression.operand)} IS NULL`;
       }
       case "negate": {
-        return `-${this.operand(expression.operand)}`;
+        return `-${this.negated(expression.operand)}`;
       }
       case "in-list": {
         return `${this.operand(expression.needle)} IN (${this.list(expression.list)})`;
@@ -219,6 +218,12 @@ class PlanPrinter {
         return `${this.operand(input)} BETWEEN ${this.operand(lower)} AND ${this.operand(upper)}`;
       }
     }
+  }
+
+  /** A negated operand: one that starts with `-` too goes in parentheses, as `--` starts a comment. */
+  private negated(operand: Expression): string {
+    const text = this.operand(operand);
+    return text.startsWith("-") ? `(${text})` : text;
   }
 
   private primary(
@@ -331,78 +336,6 @@ function childrenOf(plan: Plan): readonly Labeled[] {
   }
 }
 
-/** Names, literals and calls: what needs no parentheses as an operand. */
-function isAtomic(expression: Expression): boolean {
-  switch (expression.kind) {
-    case "column":
-    case "constant":
-    case "parameter":
-    case "function":
-    case "case":
-    case "cast":
-    case "json-access":
-    case "scalar-subquery": {
-      return true;
-    }
-    case "comparison":
-    case "conjunction":
-    case "not":
-    case "is-null":
-    case "arithmetic":
-    case "negate":
-    case "concatenate":
-    case "in-list":
-    case "between":
-    case "exists":
-    case "quantified-comparison": {
-      return false;
-    }
-  }
-}
-
-function comparisonText(operator: ComparisonOperator): string {
-  switch (operator) {
-    case "EQUAL": {
-      return "=";
-    }
-    case "NOT_EQUAL": {
-      return "<>";
-    }
-    case "LESS": {
-      return "<";
-    }
-    case "GREATER": {
-      return ">";
-    }
-    case "LESS_EQUAL": {
-      return "<=";
-    }
-    case "GREATER_EQUAL": {
-      return ">=";
-    }
-  }
-}
-
-function arithmeticText(operator: ArithmeticOperator): string {
-  switch (operator) {
-    case "ADD": {
-      return "+";
-    }
-    case "SUBTRACT": {
-      return "-";
-    }
-    case "MULTIPLY": {
-      return "*";
-    }
-    case "DIVIDE": {
-      return "/";
-    }
-    case "MOD": {
-      return "%";
-    }
-  }
-}
-
 function describeGet(plan: Extract<Plan, { kind: "get" }>): string {
   const columns = plan.columns.map((column) => columnLabel(plan, column));
   return `get #${String(plan.tableIndex)} ${plan.table.name} (${columns.join(", ")})`;
@@ -414,31 +347,4 @@ function columnLabel(
 ): string {
   if (column === ROWID_COLUMN) return "rowid";
   return plan.table.columns[column]?.name ?? String(column);
-}
-
-function formatColumn(reference: ColumnReference): string {
-  const { tableIndex, columnIndex } = reference.binding;
-  const column = columnIndex === ROWID_COLUMN ? "rowid" : String(columnIndex);
-  const depth = reference.depth === 0 ? "" : `^${String(reference.depth)}`;
-  return `${reference.name}#${String(tableIndex)}.${column}${depth}`;
-}
-
-function formatStep(step: JsonPathStep): string {
-  return step.kind === "key" ? `.${step.key}` : `[${String(step.index)}]`;
-}
-
-/** A constant as SQL writes it; a REAL keeps its decimal point. */
-function formatValue(value: Value, type: StaticType): string {
-  if (value === null) return "NULL";
-  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-  if (typeof value === "number") return formatNumber(value, type);
-  if (typeof value === "string") return `'${value.replaceAll("'", "''")}'`;
-  if (value instanceof Uint8Array) return `X'${bytesToHex(value)}'`;
-  return `JSON '${canonicalJson(value)}'`;
-}
-
-function formatNumber(value: number, type: StaticType): string {
-  const text = String(value);
-  const isIntegralReal = type === "REAL" && !/[.e]/.test(text);
-  return isIntegralReal ? `${text}.0` : text;
 }
