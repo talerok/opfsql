@@ -76,7 +76,7 @@ describe("formatPlan", () => {
     expect(formatPlan(plan)).toBe(
       [
         "limit all offset 5",
-        "  filter (rowid#0.rowid <= subquery(1)) AND json_valid(JSON '{\"a\":[1]}')",
+        "  filter rowid#0.rowid <= subquery(1) AND json_valid(JSON '{\"a\":[1]}')",
         "    subquery(1, correlated): project #3 (c1#0.1^1)",
         "      values #2 ()",
         "    get #0 users (data, rowid)",

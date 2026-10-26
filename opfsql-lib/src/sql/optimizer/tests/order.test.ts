@@ -35,7 +35,7 @@ describe("sorts an index delivers", () => {
     expect(planOf(plan)).toBe(
       lines(
         "limit 10",
-        "  index-scan users#1 using users_name_age residual: (age > 18)",
+        "  index-scan users#1 using users_name_age residual: age > 18",
       ),
     );
   });
@@ -166,7 +166,7 @@ describe("sorts an index delivers", () => {
       lines(
         "project#5 name, age",
         "  limit $1",
-        "    index-scan users#1 using users_name_age residual: (age > 18)",
+        "    index-scan users#1 using users_name_age residual: age > 18",
       ),
     );
   });
