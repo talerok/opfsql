@@ -24,7 +24,12 @@ import { columnType, positions } from "./logical.js";
 export type Expression = GenericExpression<Plan>;
 export type OrderKey = GenericOrderKey<Plan>;
 
-/** One end of a range: a constant or parameter, and whether it is included. */
+/**
+ * One end of a range, and whether it is included. Its value — like every
+ * seek value — is fixed for one scan: a constant, a parameter, or a column of
+ * an enclosing query (depth ≥ 1), evaluated again each time the scan starts;
+ * never a column of the scan's own query. A NULL seek value matches nothing.
+ */
 export interface Bound {
   readonly value: Expression;
   readonly isInclusive: boolean;
@@ -65,7 +70,7 @@ export type RowidSet =
   | { readonly kind: "list"; readonly values: readonly Expression[] }
   | { readonly kind: "range"; readonly range: Range };
 
-/** Rows by rowid, each once even when the list names it twice. */
+/** Rows by rowid in rowid order, each once even when the list names it twice. */
 export interface RowidLookup extends TableAccess {
   readonly kind: "rowid-lookup";
   readonly rowids: RowidSet;

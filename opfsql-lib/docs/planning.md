@@ -126,7 +126,14 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 
 INSERT, UPDATE and DELETE are statements holding a physical source plan, not
 plan nodes. Every scan carries `residual`: conditions checked on every row
-it returns. A rowid lookup and an index union return each row once.
+it returns. A rowid lookup and an index union return each row once; a rowid
+lookup returns them in rowid order.
+
+A seek value — an equal value or a range bound — is fixed for one scan: a
+constant, a parameter, or a column of an enclosing query, evaluated again
+each time the scan starts. So a correlated subquery seeks on its outer row
+instead of scanning for it. A NULL seek value matches nothing, as `=` and `<`
+with NULL never hold.
 
 Seek values and hash keys are converted as `=` would convert them: from the
 key part's type (the column's, or an expression key's as the binder typed
