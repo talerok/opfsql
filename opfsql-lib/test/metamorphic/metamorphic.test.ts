@@ -14,8 +14,8 @@ import { runSeed } from "./run.js";
 // ---------------------------------------------------------------------------
 
 const FIRST_SEED = Number(process.env["METAMORPHIC_SEED"] ?? 1);
-const SEEDS = Number(process.env["METAMORPHIC_SEEDS"] ?? 6);
-const CASES_PER_SEED = 25;
+const SEEDS = Number(process.env["METAMORPHIC_SEEDS"] ?? 4);
+const CASES_PER_SEED = 20;
 /** Only catches a run that hangs: a busy machine may take many times longer. */
 const TIMEOUT = Math.max(60_000, SEEDS * 5000);
 

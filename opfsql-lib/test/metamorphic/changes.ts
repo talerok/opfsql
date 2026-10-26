@@ -28,7 +28,9 @@ const FIRST_CHANGE = 100_000;
 
 type Change =
   | { readonly kind: "done"; readonly changes: number }
-  | { readonly kind: "failed"; readonly code: string };
+  | { readonly kind: "failed"; readonly code: string }
+  /** Failed with an error no change should: an internal one, say. */
+  | { readonly kind: "broken"; readonly reason: string };
 
 export interface ChangesReport {
   readonly failures: readonly string[];
@@ -74,6 +76,8 @@ async function changeBoth(
 ): Promise<string | null> {
   const plain = await apply(copies.plain, sql);
   const indexed = await apply(copies.indexed, sql);
+  if (plain.kind === "broken") return `plain copy: ${plain.reason}`;
+  if (indexed.kind === "broken") return `indexed copy: ${indexed.reason}`;
   if (plain.kind !== indexed.kind) return "parted";
   return changeDifference(copies, table, [plain, indexed]);
 }
@@ -147,8 +151,10 @@ async function apply(copy: Copy, sql: string): Promise<Change> {
     const isExpected =
       error instanceof OpfsqlError &&
       (RUNTIME_ERRORS.has(error.code) || error.code === "CONSTRAINT_VIOLATION");
-    if (!isExpected) throw error;
-    return { kind: "failed", code: error.code };
+    if (isExpected) return { kind: "failed", code: error.code };
+    const code =
+      error instanceof OpfsqlError ? error.code : "not an OpfsqlError";
+    return { kind: "broken", reason: `${code}: ${String(error)}` };
   }
 }
 
