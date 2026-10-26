@@ -1,3 +1,4 @@
+import { InternalError } from "../../errors.js";
 import type { PageReader } from "../btree/page-store.js";
 import { AllocationMapReader } from "./allocation.js";
 import type { DatabaseFile } from "./database-file.js";
@@ -65,8 +66,17 @@ export class Pager {
     return snapshot === null ? null : new WriteTransaction(this, snapshot);
   }
 
-  /** The page as of `snapshot`. Shared: never modify it. */
+  /**
+   * The page as of `snapshot`, which must be pinned: only a pin keeps a
+   * checkpoint, in this tab or another, from rewriting what it reads.
+   * Shared: never modify it.
+   */
   read(pageNo: number, snapshot: number): Uint8Array {
+    if (!this.pins.has(snapshot)) {
+      throw new InternalError(
+        `page ${String(pageNo)} read at snapshot ${String(snapshot)}, which is not pinned`,
+      );
+    }
     return this.wal.versionAt(pageNo, snapshot) ?? this.file.read(pageNo);
   }
 
@@ -194,7 +204,13 @@ export class Pager {
   }
 
   private restartWal(): void {
-    this.truncateFreeTail(this.latestCommit());
+    const latest = this.latestCommit();
+    this.hold(latest);
+    try {
+      this.truncateFreeTail(latest);
+    } finally {
+      this.release(latest);
+    }
     this.wal.restart();
   }
 

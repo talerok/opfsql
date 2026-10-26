@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  InternalError,
   IoError,
   MisuseError,
   StorageFullError,
@@ -114,6 +115,16 @@ describe("Pager", () => {
     setWalEpoch(files.wal, 1);
     const reopened = await open(reopenFiles(files));
     expect(reopened.latestCommit()).toBe(0);
+  });
+
+  it("reads a page only at a snapshot some transaction has pinned", async () => {
+    const pager = await open(newFiles());
+    const latest = pager.latestCommit();
+    expect(() => pager.read(SCHEMA_ROOT_PAGE, latest)).toThrow(InternalError);
+    const transaction = beginRead(pager);
+    expect(pager.read(SCHEMA_ROOT_PAGE, latest)[0]).toBe(TABLE_LEAF_TYPE);
+    transaction.end();
+    expect(() => pager.read(SCHEMA_ROOT_PAGE, latest)).toThrow(InternalError);
   });
 
   it("keeps a snapshot's pages while later transactions commit", async () => {
