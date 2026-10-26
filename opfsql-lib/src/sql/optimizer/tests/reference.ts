@@ -66,6 +66,24 @@ export function bothRuns(
   return { expected: multiset(expected), actual: multiset(actual) };
 }
 
+/** The rows of both plans, in the order each gives them. */
+export function bothSequences(
+  plan: logical.Plan,
+  optimized: physical.Plan,
+  data: { readonly tables: Tables; readonly parameters: readonly Value[] },
+  bindKey: KeyBinder,
+): { readonly expected: string[]; readonly actual: string[] } {
+  const { tables, parameters } = data;
+  const expected = runPlan(naivePlan(plan), tables, parameters, bindKey);
+  const actual = runPlan(optimized, tables, parameters, bindKey);
+  return { expected: sequence(expected), actual: sequence(actual) };
+}
+
+/** Rows as a list of keys, in order. */
+function sequence(rows: readonly Tuple[]): string[] {
+  return rows.map((row) => rowKey(row));
+}
+
 /** Rows as a sorted list of keys, for results whose order is free. */
 export function multiset(rows: readonly Tuple[]): string[] {
   return rows.map((row) => rowKey(row)).toSorted((a, b) => a.localeCompare(b));

@@ -20,8 +20,10 @@ import {
 import {
   fitsPart,
   isExactRange,
+  isListTest,
   type KeyTest,
   keyTestOf,
+  type ListTest,
   type SeekRange,
   type SeekValue,
 } from "./key-tests.js";
@@ -40,6 +42,9 @@ import type { Planner } from "./planner.js";
 //   index-union    an OR whose every branch has one of the above, or an
 //                  IN whose every item does;
 //   table-scan     every row, forward or backward for an ORDER BY rowid.
+//
+// A rowid lookup returns rowid order, and so does a table scan read
+// forward: either delivers an ORDER BY of the rowid in that direction.
 //
 // Every candidate's cost is weighed with the order wanted (cost.ts): a
 // path that delivers it saves the sort, and under a LIMIT stops early.
@@ -101,7 +106,7 @@ export function chooseAccessPath(
   const tests = keyTestsOf(request.conditions);
   const indexes = indexesOf(request.get, planner);
   const candidates = [
-    rowidCandidate(request.get, tests),
+    rowidCandidate(request.get, tests, request.order),
     ...indexes.map((keys) => indexCandidate(keys, tests, request.order)),
     ...request.conditions.map((condition) =>
       unionCandidate(condition, request.get, indexes),
@@ -147,7 +152,7 @@ function scanOf(candidate: Candidate, request: ScanRequest): Scan {
 }
 
 function tableScanCandidate(request: ScanRequest): Candidate {
-  const direction = rowidOrder(request);
+  const direction = rowidOrder(request.order, request.get);
   return {
     access: { kind: "table-scan", direction: direction ?? "ascending" },
     enforced: [],
@@ -156,34 +161,55 @@ function tableScanCandidate(request: ScanRequest): Candidate {
   };
 }
 
-/** The direction a table scan delivers the order wanted in, if it starts with the rowid. */
-function rowidOrder(request: ScanRequest): OrderDirection | null {
-  const first = request.order?.keys[0];
+/** The direction of the order wanted if it starts with the rowid, else null. */
+function rowidOrder(
+  order: WantedOrder | null,
+  get: logical.Get,
+): OrderDirection | null {
+  const first = order?.keys[0];
   if (first === undefined) return null;
   // Rowids are unique and never NULL: the keys after it change nothing.
-  return isRowidOf(first.expression, request.get) ? first.direction : null;
+  return isRowidOf(first.expression, get) ? first.direction : null;
 }
 
 // --- Rowids -------------------------------------------------------------------
 
-/** The listed rowids of the first `=` or IN on the rowid, or a range of them. */
+/**
+ * The rowids of the first `=` or IN on the rowid, else a range of them. A
+ * lookup returns its rows in rowid order, so it delivers an ascending
+ * ORDER BY of the rowid.
+ */
 function rowidCandidate(
   get: logical.Get,
   tests: readonly KeyTest[],
+  order: WantedOrder | null,
 ): Candidate<RowidAccess> | null {
-  const part = rowidPart(get);
   const fitting = tests.filter((keyTest) => isRowidOf(keyTest.subject, get));
-  for (const keyTest of fitting) {
-    const { test } = keyTest;
-    if (test.kind === "range") continue;
-    const values = test.kind === "equal" ? [test.value] : test.values;
-    return {
-      access: { kind: "rowid-lookup", rowids: { kind: "list", values } },
-      enforced: [keyTest.condition],
-      estimate: rowidListEstimate(values.length),
-      isOrdered: false,
-    };
-  }
+  const isOrdered = rowidOrder(order, get) === "ascending";
+  const listed = fitting.find((keyTest) => isListTest(keyTest));
+  if (listed !== undefined) return rowidListCandidate(listed, isOrdered);
+  return rowidRangeCandidate(rowidPart(get), fitting, isOrdered);
+}
+
+function rowidListCandidate(
+  keyTest: ListTest,
+  isOrdered: boolean,
+): Candidate<RowidAccess> {
+  const { test } = keyTest;
+  const values = test.kind === "equal" ? [test.value] : test.values;
+  return {
+    access: { kind: "rowid-lookup", rowids: { kind: "list", values } },
+    enforced: [keyTest.condition],
+    estimate: rowidListEstimate(values.length),
+    isOrdered,
+  };
+}
+
+function rowidRangeCandidate(
+  part: KeyPart,
+  fitting: readonly KeyTest[],
+  isOrdered: boolean,
+): Candidate<RowidAccess> | null {
   const ranged = rangeOn(part, fitting);
   if (ranged === null) return null;
   const rowids = { kind: "range", range: ranged.range } as const;
@@ -191,7 +217,7 @@ function rowidCandidate(
     access: { kind: "rowid-lookup", rowids },
     enforced: ranged.enforced,
     estimate: rowidRangeEstimate(ranged.range),
-    isOrdered: false,
+    isOrdered,
   };
 }
 
@@ -359,7 +385,7 @@ function branchSeek(
 ): Candidate<RowidAccess | IndexAccess> | null {
   const tests = keyTestsOf(conjunctsOf(branch));
   const seeks = [
-    rowidCandidate(get, tests),
+    rowidCandidate(get, tests, null),
     ...indexes.map((keys) => indexCandidate(keys, tests, null)),
   ].filter((seek) => seek !== null);
   let best: Candidate<RowidAccess | IndexAccess> | null = null;

@@ -59,6 +59,15 @@ export interface KeyTest {
   readonly test: Test;
 }
 
+/** A test that lists the values it seeks: `=` or IN. */
+export type ListTest = KeyTest & {
+  readonly test: Extract<Test, { readonly kind: "equal" | "in" }>;
+};
+
+export function isListTest(keyTest: KeyTest): keyTest is ListTest {
+  return keyTest.test.kind !== "range";
+}
+
 /** `condition` as a key test, or null if it is not one. */
 export function keyTestOf(condition: Expression): KeyTest | null {
   if (condition.kind === "comparison") return comparisonTest(condition);

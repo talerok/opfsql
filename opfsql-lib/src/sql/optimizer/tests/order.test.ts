@@ -7,6 +7,7 @@ import {
   desc,
   filter,
   get,
+  inList,
   limit,
   lines,
   order,
@@ -18,12 +19,14 @@ import {
   project,
   users,
 } from "./builders.js";
+import { expectSameSequence } from "./same-rows.js";
 
 const u = { tableIndex: 1, table: users };
 const o = { tableIndex: 2, table: orders };
 const age = column(u, "age");
 const name = column(u, "name");
 const email = column(u, "email");
+const id = column(u, "id");
 const adults = filter(get(u), compare(age, ">", constant(18)));
 
 describe("sorts an index delivers", () => {
@@ -78,9 +81,45 @@ describe("sorts an index delivers", () => {
   });
 
   it("reads the table in rowid order for ORDER BY its INTEGER PRIMARY KEY", () => {
-    expect(planOf(order(get(u), desc(column(u, "id"))))).toBe(
-      "table-scan users#1 descending",
+    const plan = order(get(u), desc(column(u, "id")));
+    expect(planOf(plan)).toBe("table-scan users#1 descending");
+    expectSameSequence(plan);
+  });
+
+  it("takes rowid order from a rowid range", () => {
+    const plan = order(filter(get(u), compare(id, ">", constant(5))), asc(id));
+    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid > 5)");
+    expectSameSequence(plan);
+  });
+
+  it("takes rowid order from a rowid list, whatever order it lists them in", () => {
+    const listed = inList(
+      id,
+      constant(9),
+      constant(2),
+      constant(5),
+      constant(2),
     );
+    const plan = order(filter(get(u), listed), asc(id, "last"));
+    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid IN (9, 2, 5, 2))");
+    expectSameSequence(plan);
+  });
+
+  it("reads the table backward for a descending rowid order under a LIMIT", () => {
+    const range = filter(get(u), compare(id, ">", constant(5)));
+    const plan = limit(order(range, desc(id)), constant(3));
+    expect(planOf(plan)).toBe(
+      lines("limit 3", "  table-scan users#1 descending residual: id > 5"),
+    );
+    expectSameSequence(plan);
+  });
+
+  it("sorts a rowid range descending without a LIMIT: a lookup reads ascending", () => {
+    const plan = order(filter(get(u), compare(id, ">", constant(5))), desc(id));
+    expect(planOf(plan)).toBe(
+      lines("sort id DESC", "  rowid-lookup users#1 (rowid > 5)"),
+    );
+    expectSameSequence(plan);
   });
 
   it("sees the order through projects", () => {
