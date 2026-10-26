@@ -24,7 +24,10 @@ Each stage is a pure function of its inputs, except run. A plan never changes
 after it is built; a stage returns a new tree. So a prepared statement keeps
 its physical plan for as long as the schema version it was planned for is
 current, and compiles it again for each run (compiling is cheap: it builds
-closures, it does not plan).
+closures, it does not plan). Measured on a prepared point query, compiling
+is about 15% of the call and compiling once per plan would save about 8%
+(2026-10, `npm run bench:profile`): not worth a run state threaded through
+every operator.
 
 ## Column identity
 
