@@ -528,8 +528,18 @@ describe("other DDL", () => {
     expect(notSupported("CREATE INDEX i ON t (a) WHERE a > 0").feature).toBe(
       "a partial index",
     );
-    expect(notSupported("CREATE INDEX i ON t (a DESC)").feature).toBe(
-      "ASC or DESC in an index",
+    const ascending = statementOf(
+      "CREATE INDEX i ON t (a ASC, b)",
+      StatementType.CREATE_INDEX_STATEMENT,
+    );
+    expect(ascending.expressions.map((part) => render(part))).toEqual([
+      "a",
+      "b",
+    ]);
+    const descending = notSupported("CREATE INDEX i ON t (a, b DESC)");
+    expect(descending.feature).toBe("DESC on an index key");
+    expect(descending.message).toBe(
+      "descending index keys are not supported; an ascending index is read backward for ORDER BY … DESC",
     );
   });
 

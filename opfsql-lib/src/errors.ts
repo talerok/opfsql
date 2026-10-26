@@ -95,8 +95,12 @@ export class SemanticError extends OpfsqlError {
 export class NotSupportedError extends OpfsqlError {
   override readonly name = "NotSupportedError";
 
-  constructor(readonly feature: string) {
-    super("NOT_SUPPORTED", `${feature} is not supported`);
+  /** `message` when the feature's name alone does not say enough. */
+  constructor(
+    readonly feature: string,
+    message = `${feature} is not supported`,
+  ) {
+    super("NOT_SUPPORTED", message);
   }
 }
 

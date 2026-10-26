@@ -12,6 +12,7 @@ import {
   FALSE,
   filter,
   get,
+  inList,
   join,
   lines,
   not,
@@ -119,6 +120,15 @@ describe("conditions no row passes", () => {
       and(NULL, TRUE),
     );
     expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid IN ())");
+  });
+
+  it("reads nothing for x IN (), and drops x NOT IN (), whatever x is", () => {
+    const isIn = filter(get(u), inList(age));
+    expect(planOf(isIn)).toBe("rowid-lookup users#1 (rowid IN ())");
+    expectSameRows(isIn);
+    const isNotIn = filter(get(u), not(inList(age)));
+    expect(planOf(isNotIn)).toBe("table-scan users#1");
+    expectSameRows(isNotIn);
   });
 
   it("drops a WHERE that folds to TRUE", () => {
