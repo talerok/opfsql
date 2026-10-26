@@ -19,7 +19,8 @@ import { sameExpression } from "./same-expression.js";
 // filter condition is an `=` on one of the leading parts — a seek finds
 // exactly the entries `=` holds for (key-tests.ts). index-extreme has no
 // residual (docs/planning.md, Physical plans), so any other condition, a
-// range included, rules it out.
+// range included, rules it out. It returns the decoded key, so never for a
+// part that may hold a JSON object or array (holds).
 // ---------------------------------------------------------------------------
 
 type Extreme = physical.IndexExtreme["extreme"];
@@ -123,9 +124,14 @@ function exactEqualOn(
   return null;
 }
 
-/** True if the aggregate's argument is what the part holds. */
+/**
+ * True if the aggregate's argument is what the part holds, and the part's
+ * decoded key is that value. A JSON object or array is keyed by its
+ * canonical text, which loses the stored object's key order (physical.ts,
+ * IndexExtreme); a JSON part holds them, and so may an ANY part, which
+ * stores any value as given.
+ */
 function holds(part: KeyPart, argument: logical.Expression): boolean {
-  return (
-    argument.type === part.type && sameExpression(argument, part.expression)
-  );
+  const isDecodedExactly = part.type !== "JSON" && part.type !== "ANY";
+  return isDecodedExactly && sameExpression(argument, part.expression);
 }

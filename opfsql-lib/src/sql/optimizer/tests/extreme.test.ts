@@ -5,8 +5,10 @@ import {
   column,
   compare,
   constant,
+  events,
   filter,
   get,
+  lines,
   orders,
   parameter,
   planOf,
@@ -20,9 +22,13 @@ const indexes = { groupIndex: 3, aggregateIndex: 4 };
 const age = column(u, "age");
 const name = column(u, "name");
 
-/** `SELECT call(age) FROM child`. */
-function single(call: string, child: logical.Plan): logical.Aggregate {
-  return aggregate(indexes, child, [], aggregateCall(call, age));
+/** `SELECT call(argument) FROM child`. */
+function single(
+  call: string,
+  child: logical.Plan,
+  argument: logical.Expression = age,
+): logical.Aggregate {
+  return aggregate(indexes, child, [], aggregateCall(call, argument));
 }
 
 describe("MIN and MAX from an index's end", () => {
@@ -89,6 +95,23 @@ describe("MIN and MAX from an index's end", () => {
     for (const plan of [grouped, two, unindexed]) {
       expect(planOf(plan)).toMatch(/^hash-aggregate/u);
     }
+  });
+
+  it("is not chosen for a JSON or ANY part, whose decoded key may lose an object's key order", () => {
+    const log = { tableIndex: 5, table: events };
+    const json = aggregate(
+      indexes,
+      get(log),
+      [],
+      aggregateCall("max", column(log, "data")),
+    );
+    expect(planOf(json)).toBe(
+      lines("hash-aggregate#3#4 compute max(data)", "  table-scan events#5"),
+    );
+    const any = single("max", get(u), column(u, "tag"));
+    expect(planOf(any)).toBe(
+      lines("hash-aggregate#3#4 compute max(tag)", "  table-scan users#1"),
+    );
   });
 
   it("is not chosen for COUNT", () => {

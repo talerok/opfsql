@@ -90,10 +90,29 @@ export const usersLowerName = index("users_lower_name", users, [
 ]);
 export const ordersUser = index("orders_user", orders, onColumns(1));
 
+/** events(id INTEGER PRIMARY KEY, data JSON) */
+export const events: Table = {
+  name: "events",
+  columns: [columnOf("id", "INTEGER", true), columnOf("data", "JSON")],
+  rootPage: 30,
+  rowidColumn: 0,
+  isAutoincrement: false,
+};
+
+export const eventsData = index("events_data", events, onColumns(1));
+
 export const schema = new Schema(
   1,
-  [users, orders],
-  [usersEmail, usersAge, usersNameAge, usersTag, usersLowerName, ordersUser],
+  [users, orders, events],
+  [
+    usersEmail,
+    usersAge,
+    usersNameAge,
+    usersTag,
+    usersLowerName,
+    ordersUser,
+    eventsData,
+  ],
 );
 
 /** Binds the expression keys above, as the engine's binder would. */
