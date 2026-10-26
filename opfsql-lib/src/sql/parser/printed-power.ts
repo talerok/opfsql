@@ -11,9 +11,6 @@ import {
   type SubqueryExpression,
 } from "./types.js";
 
-/** What binds tighter than every operator: names, literals, calls, `( … )`. */
-const PRIMARY = power.unary + 1;
-
 const RELATIONAL: ReadonlySet<ComparisonType | ExpressionType.COMPARE_LIKE> =
   new Set([
     ExpressionType.COMPARE_LESSTHAN,
@@ -65,7 +62,7 @@ export function powerOf(expression: ParsedExpression): number {
     case ExpressionClass.CASE:
     case ExpressionClass.CAST:
     case ExpressionClass.STAR: {
-      return PRIMARY;
+      return power.primary;
     }
   }
 }
@@ -80,7 +77,7 @@ function subqueryPower(expression: SubqueryExpression): number {
   switch (expression.subqueryType) {
     case "SCALAR":
     case "EXISTS": {
-      return PRIMARY;
+      return power.primary;
     }
     case "NOT_EXISTS": {
       // It starts with NOT, whose operand would take what follows.

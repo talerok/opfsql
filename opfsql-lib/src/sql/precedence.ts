@@ -32,6 +32,8 @@ export const power = {
   collation: 10,
   /** Prefix `-`, `+`, `~`. */
   unary: 11,
+  /** What binds tighter than every operator: names, literals, calls, `( … )`. */
+  primary: 12,
 } as const;
 
 /** Where the right side of a left-associative operator starts. */

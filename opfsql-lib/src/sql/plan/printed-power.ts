@@ -1,4 +1,4 @@
-import { above, power } from "../precedence.js";
+import { power } from "../precedence.js";
 import type {
   ArithmeticOperator,
   ComparisonOperator,
@@ -11,9 +11,6 @@ import type {
 // parentheses exactly where reading the text back needs them.
 // ---------------------------------------------------------------------------
 
-/** What binds tighter than every operator: names, literals, calls, `( … )`. */
-export const PRIMARY = above(power.unary);
-
 export function powerOf<Plan>(expression: Expression<Plan>): number {
   switch (expression.kind) {
     case "column":
@@ -25,7 +22,7 @@ export function powerOf<Plan>(expression: Expression<Plan>): number {
     case "json-access":
     case "scalar-subquery":
     case "exists": {
-      return PRIMARY;
+      return power.primary;
     }
     case "conjunction": {
       return expression.operator === "AND" ? power.and : power.or;
