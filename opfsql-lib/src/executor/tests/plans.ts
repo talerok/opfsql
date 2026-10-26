@@ -8,8 +8,13 @@ import { callOf } from "../../expressions/tests/builders.js";
 import type { Index, Table } from "../../schema/index.js";
 import {
   type AggregateCall,
+  type Assignment,
+  type Delete,
+  type Insert,
+  type OnConflict,
   type OrderDirection,
   physical,
+  type Update,
 } from "../../sql/plan/index.js";
 
 // Small builders for physical plans, so that a test reads as the plan it
@@ -345,4 +350,45 @@ export class Counting {
   of(operand: Node): Node {
     return callOf(this.definition, [operand]);
   }
+}
+
+export function insert(
+  table: Table,
+  columns: number[],
+  from: Plan,
+  onConflict: OnConflict<Plan> | null = null,
+): Insert<Plan> {
+  return {
+    kind: "insert",
+    table,
+    columns,
+    source: from,
+    onConflict,
+    parameterCount: 0,
+  };
+}
+
+export function update(
+  from: Source,
+  sourcePlan: Plan,
+  assignments: Assignment<Plan>[],
+): Update<Plan> {
+  return {
+    kind: "update",
+    table: from.table,
+    tableIndex: from.tableIndex,
+    source: sourcePlan,
+    assignments,
+    parameterCount: 0,
+  };
+}
+
+export function deleteFrom(from: Source, sourcePlan: Plan): Delete<Plan> {
+  return {
+    kind: "delete",
+    table: from.table,
+    tableIndex: from.tableIndex,
+    source: sourcePlan,
+    parameterCount: 0,
+  };
 }
