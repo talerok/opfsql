@@ -65,9 +65,9 @@ export function castValue(value: Value, type: SqlType): Value {
 }
 
 /**
- * How a comparison converts an operand of unknown type to the type of the
- * other side (docs/semantics.md, Comparisons): `numeric` turns text that
- * is exactly a number into that number, `text` turns a number into text.
+ * How a parameter is converted to the type of what it is compared with
+ * (docs/semantics.md, Comparisons): `numeric` turns text that is exactly a
+ * number into that number, `text` turns a number into text.
  */
 export type Affinity = "numeric" | "text";
 

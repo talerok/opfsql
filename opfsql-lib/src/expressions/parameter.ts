@@ -1,21 +1,23 @@
 import { MisuseError } from "../errors.js";
-import type { physical } from "../sql/plan/index.js";
-import type { Value } from "../values/index.js";
+import type { Parameter, physical } from "../sql/plan/index.js";
+import { applyAffinity, type Value } from "../values/index.js";
 import type { Run } from "./scope.js";
 
 /**
- * Parameter `$index + 1` of the run. The engine checks a statement's
+ * The value of parameter `$index + 1` in the run, converted by its affinity
+ * (docs/semantics.md, Comparisons). The engine checks a statement's
  * parameter count before running it; a run built without that check still
  * gets MISUSE here, never a NULL.
  */
-export function parameterValue(run: Run, index: number): Value {
-  const value = run.parameters[index];
+export function parameterValue(run: Run, parameter: Parameter): Value {
+  const value = run.parameters[parameter.index];
   if (value === undefined) {
     throw new MisuseError(
-      `parameter $${String(index + 1)} was not given (${String(run.parameters.length)} given)`,
+      `parameter $${String(parameter.index + 1)} was not given (${String(run.parameters.length)} given)`,
     );
   }
-  return value;
+  const { affinity } = parameter;
+  return affinity === null ? value : applyAffinity(value, affinity);
 }
 
 /**
@@ -27,8 +29,6 @@ export function fixedValue(
   run: Run,
 ): Value | undefined {
   if (expression.kind === "constant") return expression.value;
-  if (expression.kind === "parameter") {
-    return parameterValue(run, expression.index);
-  }
+  if (expression.kind === "parameter") return parameterValue(run, expression);
   return undefined;
 }

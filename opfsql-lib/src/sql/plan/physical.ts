@@ -15,10 +15,8 @@ import { columnType, positions } from "./logical.js";
 // conditions checked on each row it returns: an access path only narrows
 // what is read, it never stands in for a condition.
 //
-// Seek values and hash keys are converted as `=` would convert them: the
-// executor applies comparisonConversion (src/expressions) from the key part's
-// type and the value's static type, so `id = '5'` and `id = $1` with '5'
-// find id 5 through an index exactly as a scan would.
+// Seek values and hash keys are matched exactly as `=` matches them: as they
+// are, a parameter's affinity being part of the parameter (expression.ts).
 // ---------------------------------------------------------------------------
 
 export type Expression = GenericExpression<Plan>;
