@@ -132,5 +132,3 @@ fix lands; the labels stay as they were.
 
 - **G3. No change count per tree.** Open cursors and lazily read overflow values
   are not checked against writes and rollbacks in the same transaction.
-- **G8. Results still copy BLOBs per row**, though every source of a value
-  now makes it the caller's own.
