@@ -164,6 +164,12 @@ describe("index unions", () => {
     );
   });
 
+  it("reads an IN list on an indexed column as a union of its items", () => {
+    expect(scanOf(inList(age, constant(1), parameter(0)))).toBe(
+      "index-union users#1 [using users_age (age = 1); using users_age (age = $1)] residual: age IN (1, $1)",
+    );
+  });
+
   it("scans when one branch has no index", () => {
     const plan = scanOf(
       or(

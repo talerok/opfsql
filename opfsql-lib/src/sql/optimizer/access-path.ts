@@ -38,7 +38,8 @@ import type { Planner } from "./planner.js";
 //                  most one range on the next part (key-tests.ts says what
 //                  fits a part); or the whole index, when it delivers the
 //                  ORDER BY wanted;
-//   index-union    an OR whose every branch has one of the above;
+//   index-union    an OR whose every branch has one of the above, or an
+//                  IN whose every item does;
 //   table-scan     every row, forward or backward for an ORDER BY rowid.
 //
 // Every candidate's cost is weighed with the order wanted (cost.ts): a
@@ -166,17 +167,19 @@ function rowidOrder(request: ScanRequest): OrderDirection | null {
 
 // --- Rowids -------------------------------------------------------------------
 
+/** The listed rowids of the first `=` or IN on the rowid, or a range of them. */
 function rowidCandidate(
   get: logical.Get,
   tests: readonly KeyTest[],
 ): Candidate<RowidAccess> | null {
-  const fitting = tests.filter(
-    (test) => isRowidOf(test.subject, get) && seeksRowids(test.test),
-  );
   const part = rowidPart(get);
+  const fitting = tests.filter(
+    (keyTest) => isRowidOf(keyTest.subject, get) && seeksRowids(keyTest.test),
+  );
   for (const keyTest of fitting) {
-    const values = listedValues(keyTest);
-    if (values === null) continue;
+    const { test } = keyTest;
+    if (test.kind === "range") continue;
+    const values = test.kind === "equal" ? [test.value] : test.values;
     return {
       access: { kind: "rowid-lookup", rowids: { kind: "list", values } },
       enforced: isExact(keyTest, part) ? [keyTest.condition] : [],
@@ -186,21 +189,13 @@ function rowidCandidate(
   }
   const ranged = rangeOn(part, fitting);
   if (ranged === null) return null;
+  const rowids = { kind: "range", range: ranged.range } as const;
   return {
-    access: {
-      kind: "rowid-lookup",
-      rowids: { kind: "range", range: ranged.range },
-    },
+    access: { kind: "rowid-lookup", rowids },
     enforced: ranged.enforced,
     estimate: rowidRangeEstimate(ranged.range),
     isOrdered: false,
   };
-}
-
-function listedValues(keyTest: KeyTest): readonly SeekValue[] | null {
-  const { test } = keyTest;
-  if (test.kind === "equal") return [test.value];
-  return test.kind === "in" ? test.values : null;
 }
 
 // --- Indexes ------------------------------------------------------------------
@@ -212,14 +207,7 @@ function indexCandidate(
   order: WantedOrder | null,
 ): Candidate<IndexAccess> | null {
   const prefix = equalPrefix(keys.parts, tests);
-  const next = keys.parts[prefix.values.length];
-  const ranged =
-    next === undefined
-      ? null
-      : rangeOn(
-          next,
-          tests.filter((keyTest) => fitsPart(keyTest, next)),
-        );
+  const ranged = rangeAfter(prefix, keys.parts, tests);
   const direction = deliveredDirection(order, keys.parts, prefix.values.length);
   const isSeek = prefix.values.length > 0 || ranged !== null;
   if (!isSeek && direction === null) return null;
@@ -258,10 +246,25 @@ function equalPrefix(
     const found = equalTestOn(part, tests);
     if (found === null) break;
     prefix.values.push(found.value);
-    if (isExact(found.keyTest, part))
+    if (isExact(found.keyTest, part)) {
       prefix.enforced.push(found.keyTest.condition);
+    }
   }
   return prefix;
+}
+
+/** The range the tests set on the part after the equality prefix, if any. */
+function rangeAfter(
+  prefix: Prefix,
+  parts: readonly KeyPart[],
+  tests: readonly KeyTest[],
+): ReturnType<typeof rangeOn> {
+  const next = parts[prefix.values.length];
+  if (next === undefined) return null;
+  return rangeOn(
+    next,
+    tests.filter((keyTest) => fitsPart(keyTest, next)),
+  );
 }
 
 function equalTestOn(
@@ -309,15 +312,19 @@ function rangeOn(
   return { range, enforced };
 }
 
-// --- OR -------------------------------------------------------------------------
+// --- OR and IN ------------------------------------------------------------------
 
-/** An index union for an OR whose every branch has a seek; it enforces nothing. */
+/**
+ * An index union for an OR whose every branch has a seek, or an IN whose
+ * every item does (`x IN (a, b)` is `x = a OR x = b`, compared alike); it
+ * enforces nothing, so the OR or IN stays in the residual.
+ */
 function unionCandidate(
   condition: Expression,
   get: logical.Get,
   indexes: readonly IndexKeys[],
 ): Candidate | null {
-  const branches = disjunctsOf(condition);
+  const branches = alternativesOf(condition);
   if (branches.length < 2) return null;
   const seeks: Candidate<RowidAccess | IndexAccess>[] = [];
   for (const branch of branches) {
@@ -334,6 +341,19 @@ function unionCandidate(
     estimate: unionEstimate(seeks.map((seek) => seek.estimate)),
     isOrdered: false,
   };
+}
+
+/** The conditions any of which makes `condition` hold: an OR's operands, an IN's items. */
+function alternativesOf(condition: Expression): Expression[] {
+  if (condition.kind !== "in-list") return disjunctsOf(condition);
+  const { needle } = condition;
+  return condition.list.map((item) => ({
+    kind: "comparison",
+    operator: "EQUAL",
+    left: needle,
+    right: item,
+    type: "BOOLEAN",
+  }));
 }
 
 /** The cheapest rowid or index seek for one branch of an OR. */
