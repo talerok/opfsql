@@ -1,3 +1,4 @@
+import { InternalError } from "../errors.js";
 import { loadSchema } from "../sql/binder/index.js";
 import { type ReadTransaction, readSchemaTable } from "../storage/index.js";
 import type { IndexKeys } from "../table/index.js";
@@ -21,8 +22,17 @@ const KEPT_VERSIONS = 8;
 export class SchemaCache {
   private readonly byVersion = new Map<number, IndexKeys>();
 
-  /** The schema of the committed snapshot `pages` reads. */
+  /**
+   * The schema of the committed snapshot `pages` reads. A transaction with
+   * changes of its own is refused: its version may be rolled back and its
+   * number reused for another schema, which the cache would then serve.
+   */
   load(pages: ReadTransaction): IndexKeys {
+    if (pages.hasChanges()) {
+      throw new InternalError(
+        "the schema cache takes committed snapshots only, and this transaction has changes of its own",
+      );
+    }
     const version = pages.schemaVersion;
     const keys = this.byVersion.get(version) ?? readSchema(pages);
     this.remember(keys);

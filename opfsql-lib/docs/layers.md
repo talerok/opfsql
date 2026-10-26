@@ -53,7 +53,7 @@ they guard.
 | A cursor, a row or an overflow reference read from a tree lives until that tree is changed or rolled back in the same transaction | by check: a change count per tree, which cursors and rows compare           |
 | The allocation map never frees a free page nor hands out one in use                                                               | by check: CORRUPT                                                           |
 | Each statement of a write transaction runs in a savepoint; a failure rolls back to it (docs/planning.md, Execution)               | by construction, in the engine                                              |
-| The schema cache holds committed schemas only                                                                                     | by check: a snapshot with uncommitted changes is refused                    |
+| The schema cache holds committed schemas only                                                                                     | by check: a transaction with changes of its own (`hasChanges()`) is refused |
 
 ## Engine ↔ SQL pipeline
 
@@ -137,23 +137,22 @@ fix lands.
    are not checked against writes and rollbacks in the same transaction.
 4. **INSERT streams when its source reads `opfsql_sequence`** while it
    writes it through AUTOINCREMENT.
-5. **The schema cache accepts a write transaction's snapshot.**
-6. **Defaults are handed out by reference**, and BLOB constants are not
+5. **Defaults are handed out by reference**, and BLOB constants are not
    copied; results copy BLOBs per row instead.
-7. **Call order on a connection relies on no `await`** before the queue.
-8. **A failing call on the shared connection** can leave its transaction
+6. **Call order on a connection relies on no `await`** before the queue.
+7. **A failing call on the shared connection** can leave its transaction
    open.
-9. **The editor ignores** whether an index entry it inserts or deletes was
+8. **The editor ignores** whether an index entry it inserts or deletes was
    already there.
-10. **The catalog's dropped-column check** misses expression keys.
-11. **Uncorrelated subqueries run with the outer rows open**, and a row
+9. **The catalog's dropped-column check** misses expression keys.
+10. **Uncorrelated subqueries run with the outer rows open**, and a row
     narrower than its layout reads NULL.
-12. **The WAL rethrows one stored IoError**, which statement tagging then
+11. **The WAL rethrows one stored IoError**, which statement tagging then
     changes.
-13. **Errors are translated in two places** that disagree on a DOMException;
+12. **Errors are translated in two places** that disagree on a DOMException;
     INTERNAL also covers a crashed worker and a failed lock request.
-14. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
+13. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
     bug.
-15. **The allocation map** does not check a page's state before marking it.
-16. **`close()` does not wait** for the background release of abandoned read
+14. **The allocation map** does not check a page's state before marking it.
+15. **`close()` does not wait** for the background release of abandoned read
     marks.
