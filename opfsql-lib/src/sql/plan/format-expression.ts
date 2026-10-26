@@ -274,7 +274,9 @@ class ExpressionPrinter<Plan> {
     >,
   ): string {
     if (expression.kind === "negate") {
-      return `-${this.operand(expression.operand, PRECEDENCE.unary)}`;
+      const operand = this.operand(expression.operand, PRECEDENCE.unary);
+      // `--` starts a comment in SQL: a negative operand gets parentheses.
+      return operand.startsWith("-") ? `-(${operand})` : `-${operand}`;
     }
     const strength = precedenceOf(expression);
     const symbol = operationSymbol(expression);
@@ -371,9 +373,14 @@ function additiveOrNot(operator: ArithmeticOperator): number {
 }
 
 function formatPath(path: readonly JsonPathStep[]): string {
-  return path
-    .map((step) =>
-      step.kind === "key" ? `.${step.key}` : `[${String(step.index)}]`,
-    )
-    .join("");
+  return path.map((step) => formatStep(step)).join("");
+}
+
+const PLAIN_NAME = /^[A-Za-z_]\w*$/u;
+
+/** `.key`, `."a key"` when the key is not a plain name, or `[0]`. */
+function formatStep(step: JsonPathStep): string {
+  if (step.kind === "index") return `[${String(step.index)}]`;
+  if (PLAIN_NAME.test(step.key)) return `.${step.key}`;
+  return `."${step.key.replaceAll('"', '""')}"`;
 }

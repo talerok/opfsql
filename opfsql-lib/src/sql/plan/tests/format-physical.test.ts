@@ -7,6 +7,7 @@ import {
   formatPhysicalPlan,
   type Parameter,
   type physical,
+  type StaticType,
 } from "../index.js";
 
 const users: Table = {
@@ -46,14 +47,20 @@ function column(
   name: string,
   columnIndex: number,
   tableIndex = 1,
+  type: StaticType = "INTEGER",
 ): ColumnReference {
   return {
     kind: "column",
     binding: { tableIndex, columnIndex },
     depth: 0,
     name,
-    type: "INTEGER",
+    type,
   };
+}
+
+/** Lines, as formatPhysicalPlan prints them. */
+function lines(...printed: string[]): string {
+  return printed.join("\n");
 }
 
 function constant(value: number | string | null): Constant {
@@ -236,6 +243,45 @@ describe("formatPhysicalPlan", () => {
         "subquery 1:",
         "  values#3 (1)",
       ].join("\n"),
+    );
+  });
+
+  it("never prints -- for a negation of something negative", () => {
+    const age = column("age", 2);
+    const negate = (operand: physical.Expression): physical.Expression => ({
+      kind: "negate",
+      operand,
+      type: "INTEGER",
+    });
+    const filter: physical.Filter = {
+      kind: "filter",
+      child: { kind: "values", tableIndex: 1, rows: [], types: [] },
+      conditions: [compare(negate(negate(age)), "EQUAL", negate(constant(-5)))],
+    };
+    expect(formatPhysicalPlan(filter)).toBe(
+      lines("filter -(-age) = -(-5)", "  values#1 no rows"),
+    );
+  });
+
+  it("quotes a JSON path key that is not a plain name", () => {
+    const data: physical.Expression = {
+      kind: "json-access",
+      column: column("data", 1, 1, "JSON"),
+      path: [
+        { kind: "key", key: "plain_1" },
+        { kind: "key", key: 'a "b" c' },
+        { kind: "index", index: 0 },
+      ],
+      type: "JSON",
+    };
+    const project: physical.Project = {
+      kind: "project",
+      tableIndex: 2,
+      child: { kind: "values", tableIndex: 1, rows: [], types: [] },
+      expressions: [data],
+    };
+    expect(formatPhysicalPlan(project)).toBe(
+      lines('project#2 data.plain_1."a ""b"" c"[0]', "  values#1 no rows"),
     );
   });
 });
