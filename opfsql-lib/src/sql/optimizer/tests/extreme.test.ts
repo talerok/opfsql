@@ -7,12 +7,12 @@ import {
   constant,
   filter,
   get,
-  lines,
   orders,
   parameter,
   planOf,
   users,
 } from "./builders.js";
+import { expectSameRows } from "./same-rows.js";
 import type { logical } from "../../plan/index.js";
 
 const u = { tableIndex: 1, table: users };
@@ -42,17 +42,15 @@ describe("MIN and MAX from an index's end", () => {
     );
   });
 
-  it("is not chosen for an equality with a parameter, which it could not enforce", () => {
+  it("reads MIN after an equality with a parameter, which a seek enforces as = does", () => {
     const plan = single(
       "min",
       filter(get(u), compare(name, "=", parameter(0))),
     );
     expect(planOf(plan)).toBe(
-      lines(
-        "hash-aggregate#3#4 compute min(age)",
-        "  index-scan users#1 using users_name_age (name = $1) residual: name = $1",
-      ),
+      "index-extreme#4 MIN(age) of users using users_name_age (name = $1)",
     );
+    for (const value of ["bob", "5", 5, null]) expectSameRows(plan, [value]);
   });
 
   it("is not chosen with any other condition", () => {

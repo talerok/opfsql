@@ -6,8 +6,8 @@ import type { Planner } from "./planner.js";
 // ---------------------------------------------------------------------------
 // Index key parts as the optimizer matches conditions and ORDER BY keys
 // against them: the expression a part holds, over the columns of one `get`,
-// and the type its seek values convert to (docs/planning.md, Physical
-// plans). The rowid is a key of its own: the table's B-tree is ordered by it.
+// and its type. The rowid is a key of its own: the table's B-tree is
+// ordered by it.
 // ---------------------------------------------------------------------------
 
 type StaticType = ColumnReference["type"];
@@ -15,7 +15,7 @@ type StaticType = ColumnReference["type"];
 export interface KeyPart {
   /** What the part holds, as an expression over the get's columns. */
   readonly expression: logical.Expression;
-  /** The type `=` and seeks convert compared values to. */
+  /** The type of what the part holds: the column's, or the key expression's. */
   readonly type: StaticType;
   /** True if no entry holds NULL here, so a range below a value skips none. */
   readonly isNeverNull: boolean;

@@ -19,12 +19,11 @@ import {
 } from "./key-parts.js";
 import {
   fitsPart,
-  isExact,
+  isExactRange,
   type KeyTest,
   keyTestOf,
   type SeekRange,
   type SeekValue,
-  seeksRowids,
 } from "./key-tests.js";
 import { deliveredDirection, type WantedOrder } from "./order-match.js";
 import type { Planner } from "./planner.js";
@@ -46,11 +45,11 @@ import type { Planner } from "./planner.js";
 // path that delivers it saves the sort, and under a LIMIT stops early.
 //
 // Residual = every condition (docs/planning.md, rule 1), except the ones a
-// path is proven to enforce exactly (key-tests.ts, isExact): an `=`, IN or
-// lower bound with constants, of a type the part does not convert, and an
-// upper bound too where the part holds no NULL. A condition with a
-// parameter always stays; an index union keeps its OR; a condition used
-// only to choose a path stays.
+// path enforces exactly. A seek finds exactly the entries `=` or `<` holds
+// for (key-tests.ts), so a test the path seeks with is left out — unless it
+// is part of a range open below on a part that may hold NULL, which starts
+// at the NULL entries (isExactRange). An index union keeps its OR or IN; a
+// condition used only to choose a path, or not used, stays.
 // ---------------------------------------------------------------------------
 
 type Expression = physical.Expression;
@@ -173,16 +172,14 @@ function rowidCandidate(
   tests: readonly KeyTest[],
 ): Candidate<RowidAccess> | null {
   const part = rowidPart(get);
-  const fitting = tests.filter(
-    (keyTest) => isRowidOf(keyTest.subject, get) && seeksRowids(keyTest.test),
-  );
+  const fitting = tests.filter((keyTest) => isRowidOf(keyTest.subject, get));
   for (const keyTest of fitting) {
     const { test } = keyTest;
     if (test.kind === "range") continue;
     const values = test.kind === "equal" ? [test.value] : test.values;
     return {
       access: { kind: "rowid-lookup", rowids: { kind: "list", values } },
-      enforced: isExact(keyTest, part) ? [keyTest.condition] : [],
+      enforced: [keyTest.condition],
       estimate: rowidListEstimate(values.length),
       isOrdered: false,
     };
@@ -246,9 +243,7 @@ function equalPrefix(
     const found = equalTestOn(part, tests);
     if (found === null) break;
     prefix.values.push(found.value);
-    if (isExact(found.keyTest, part)) {
-      prefix.enforced.push(found.keyTest.condition);
-    }
+    prefix.enforced.push(found.keyTest.condition);
   }
   return prefix;
 }
@@ -304,11 +299,11 @@ function rangeOn(
   const isFullyUsed = (candidate: (typeof ranges)[number]): boolean =>
     (candidate.range.lower === null || candidate === lower) &&
     (candidate.range.upper === null || candidate === upper);
-  const enforced = ranges
-    .filter(
-      (candidate) => isFullyUsed(candidate) && isExact(candidate.keyTest, part),
-    )
-    .map(({ keyTest }) => keyTest.condition);
+  const enforced = isExactRange(range, part)
+    ? ranges
+        .filter((candidate) => isFullyUsed(candidate))
+        .map(({ keyTest }) => keyTest.condition)
+    : [];
   return { range, enforced };
 }
 

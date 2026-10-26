@@ -10,10 +10,10 @@ import { columnsOf, isPinned, readsOnly, tablesOf } from "./expression-tree.js";
 // rule 2): a condition is a key or it is in the residual, which for a LEFT
 // join decides whether a pair matches, not whether the left row appears.
 //
-// A key compares as `=` does: the executor converts both sides as `=`
-// would before hashing (docs/planning.md, Physical plans). A condition
-// that calls a volatile function or holds a correlated subquery is never a
-// key: a key is evaluated once per row of its side, not once per pair.
+// A key matches as `=` does: values as they are, a NULL key never
+// (docs/planning.md, Physical plans). A condition that calls a volatile
+// function or holds a correlated subquery is never a key: a key is
+// evaluated once per row of its side, not once per pair.
 // ---------------------------------------------------------------------------
 
 type Expression = physical.Expression;

@@ -12,21 +12,19 @@ import { sameExpression } from "./same-expression.js";
 
 // ---------------------------------------------------------------------------
 // Conditions an access path can seek with: a conjunct that compares one
-// operand, its subject, with seek values — constants other than NULL, and
-// parameters (docs/planning.md, rule 5: a parameter bounds a range, it never
-// picks the index; nothing here looks at a parameter's value, or at whether
-// a value is a parameter, except to keep its condition in the residual).
+// operand, its subject, with seek values — constants and parameters, each
+// fixed for one scan (docs/planning.md, Physical plans).
 //
 //   subject = v                        equal
 //   subject IN (v, …)                  in
 //   subject < v, <=, >, >=, BETWEEN    range
 //
-// A test fits a key part when the subject is what the part holds, of the
-// part's type, and no value makes `=` convert the subject: a part of type
-// ANY compared with a typed value is converted per row by affinity (ANY
-// 5 = TEXT '5' is true), which an index of the stored values cannot follow.
-// Seek values themselves are converted as `=` converts them, by the
-// executor (docs/planning.md, Physical plans).
+// A test fits a key part when the subject is what the part holds. `=` and
+// `<` compare values as they are (a parameter's affinity is part of the
+// parameter), and an index orders its entries by the same total order, so
+// a seek finds exactly the entries the comparison holds for — a NULL seek
+// value none, as `=` with NULL never holds. Nothing here looks at a
+// parameter's value (rule 5).
 // ---------------------------------------------------------------------------
 
 type Expression = physical.Expression;
@@ -66,8 +64,7 @@ export function keyTestOf(condition: Expression): KeyTest | null {
 }
 
 function isSeekValue(expression: Expression): expression is SeekValue {
-  if (expression.kind === "parameter") return true;
-  return expression.kind === "constant" && expression.value !== null;
+  return expression.kind === "constant" || expression.kind === "parameter";
 }
 
 function comparisonTest(condition: Comparison<physical.Plan>): KeyTest | null {
@@ -117,7 +114,7 @@ function testFor(operator: ComparisonOperator, value: SeekValue): Test | null {
   }
 }
 
-/** `v < x` is `x > v`: each side converts by its own type, so either order compares alike. */
+/** `v < x` is `x > v`. */
 function mirrored(operator: ComparisonOperator): ComparisonOperator {
   switch (operator) {
     case "EQUAL":
@@ -159,62 +156,18 @@ function inListTest(condition: InList<physical.Plan>): KeyTest | null {
   return { condition, subject: needle, test: { kind: "in", values } };
 }
 
-/** The seek values a test compares with. */
-function valuesOf(test: Test): SeekValue[] {
-  switch (test.kind) {
-    case "equal": {
-      return [test.value];
-    }
-    case "in": {
-      return [...test.values];
-    }
-    case "range": {
-      const { lower, upper } = test.range;
-      return [lower, upper].flatMap((bound) =>
-        bound === null ? [] : [bound.value],
-      );
-    }
-  }
-}
-
-/** True if the test can seek on `part` (see above). */
+/** True if the test can seek on `part`: its subject is what the part holds. */
 export function fitsPart(keyTest: KeyTest, part: KeyPart): boolean {
-  const { subject } = keyTest;
-  const isHeld =
-    subject.type === part.type && sameExpression(subject, part.expression);
-  if (!isHeld) return false;
-  return valuesOf(keyTest.test).every((value) => isUnconverting(part, value));
-}
-
-/** True if comparing the part with `value` leaves the part's values as they are. */
-function isUnconverting(part: KeyPart, value: SeekValue): boolean {
-  return part.type !== "ANY" || value.type === "ANY";
+  return sameExpression(keyTest.subject, part.expression);
 }
 
 /**
- * True if seeking with the test returns exactly the rows the condition
- * holds for, so the residual may leave it out (docs/planning.md, rule 1).
- * Only for constants: a parameter may be NULL at run time, where `=` holds
- * for nothing but a seek could still find NULL entries. And a range with
- * an upper bound starts at the index's first entry, where NULLs sort, so
- * it is exact only for a part that holds no NULL.
+ * True if a range finds exactly the entries its bounds hold for, so the
+ * residual may leave out the tests it came from (docs/planning.md, rule 1).
+ * NULL sorts before every value, so a range open below starts at the NULL
+ * entries, where `<` never holds: exact only on a part that holds no NULL.
+ * An `=` or IN seek is always exact.
  */
-export function isExact(keyTest: KeyTest, part: KeyPart): boolean {
-  const values = valuesOf(keyTest.test);
-  const isConstant = values.every((value) => value.kind === "constant");
-  const { test } = keyTest;
-  const hasUpper = test.kind === "range" && test.range.upper !== null;
-  return isConstant && (!hasUpper || part.isNeverNull);
-}
-
-/**
- * True if every value can find a rowid: a parameter (the executor converts
- * it), or a constant that `=` with an INTEGER turns into a number. Any other
- * constant can never equal a rowid, and is left to the residual.
- */
-export function seeksRowids(test: Test): boolean {
-  return valuesOf(test).every((value) => {
-    if (value.kind === "parameter") return true;
-    return typeof value.value === "number";
-  });
+export function isExactRange(range: SeekRange, part: KeyPart): boolean {
+  return range.lower !== null || part.isNeverNull;
 }

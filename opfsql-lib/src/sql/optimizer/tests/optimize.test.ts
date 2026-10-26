@@ -105,7 +105,7 @@ describe("DML", () => {
       parameterCount: 1,
     });
     expect(sourceOf(statement)).toBe(
-      "index-scan users#1 using users_email (email = $1) residual: u.email = $1",
+      "index-scan users#1 using users_email (email = $1)",
     );
   });
 
@@ -324,9 +324,7 @@ describe("the rules every optimization keeps", () => {
       filter(get(u), compare(age, ">", parameter(0))),
     );
     const withConstant = planOf(filter(get(u), compare(age, ">", constant(1))));
-    expect(withParameter).toBe(
-      "index-scan users#1 using users_age (age > $1) residual: u.age > $1",
-    );
+    expect(withParameter).toBe("index-scan users#1 using users_age (age > $1)");
     expect(withConstant).toBe("index-scan users#1 using users_age (age > 1)");
   });
 });

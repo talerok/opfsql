@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { logical } from "../../plan/index.js";
 import {
   and,
   between,
@@ -15,6 +16,7 @@ import {
   planOf,
   users,
 } from "./builders.js";
+import { expectSameRows } from "./same-rows.js";
 
 const u = { tableIndex: 1, table: users };
 const id = column(u, "id");
@@ -23,175 +25,193 @@ const age = column(u, "age");
 const name = column(u, "name");
 const email = column(u, "email");
 const tag = column(u, "tag");
+/** `$1` compared with a number: text that is exactly a number becomes it. */
+const numeric = parameter(0, "INTEGER", "numeric");
 
-function scanOf(...conditions: Parameters<typeof filter>[1][]): string {
-  return planOf(filter(get(u), ...conditions));
+function where(...conditions: logical.Expression[]): logical.Plan {
+  return filter(get(u), ...conditions);
 }
 
 describe("rowid lookups", () => {
   it("looks up a rowid equal to a constant, and drops the condition it enforces", () => {
-    expect(scanOf(compare(id, "=", constant(5)))).toBe(
-      "rowid-lookup users#1 (rowid = 5)",
-    );
+    const plan = where(compare(id, "=", constant(5)));
+    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid = 5)");
+    expectSameRows(plan);
   });
 
   it("treats ROWID_COLUMN as the INTEGER PRIMARY KEY", () => {
-    expect(scanOf(compare(constant(5), "=", rowid))).toBe(
-      "rowid-lookup users#1 (rowid = 5)",
-    );
+    const plan = where(compare(constant(5), "=", rowid));
+    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid = 5)");
   });
 
-  it("keeps a condition with a parameter, which may be NULL at run time", () => {
-    expect(scanOf(compare(id, "=", parameter(0)))).toBe(
-      "rowid-lookup users#1 (rowid = $1) residual: id = $1",
-    );
+  it("drops a condition with a parameter: the seek uses the value as = does", () => {
+    const plan = where(compare(id, "=", numeric));
+    expect(planOf(plan)).toBe("rowid-lookup users#1 (rowid = $1)");
+    for (const value of [7, "7", "seven", null]) expectSameRows(plan, [value]);
   });
 
   it("looks up the rowids of an IN list", () => {
-    expect(scanOf(inList(id, constant(1), constant(2), constant(3)))).toBe(
-      "rowid-lookup users#1 (rowid IN (1, 2, 3))",
+    const plan = where(inList(id, constant(1), constant(2), NULL, constant(3)));
+    expect(planOf(plan)).toBe(
+      "rowid-lookup users#1 (rowid IN (1, 2, NULL, 3))",
     );
+    expectSameRows(plan);
   });
 
   it("reads a range of rowids", () => {
-    expect(scanOf(between(id, constant(1), constant(9)))).toBe(
+    const plan = where(between(id, constant(1), constant(9)));
+    expect(planOf(plan)).toBe(
       "rowid-lookup users#1 (rowid >= 1 AND rowid <= 9)",
     );
-  });
-
-  it("never seeks a rowid with a constant that is no number", () => {
-    const text = constant("five", "ANY");
-    expect(scanOf(compare(id, "=", text))).toBe(
-      "table-scan users#1 residual: id = 'five'",
-    );
+    expectSameRows(plan);
   });
 });
 
 describe("index scans", () => {
   it("prefers a unique index's whole key to an equality prefix", () => {
-    const plan = scanOf(
+    const plan = where(
       compare(age, "=", constant(30)),
-      compare(email, "=", constant("a@b")),
+      compare(email, "=", constant("e1x1")),
     );
-    expect(plan).toBe(
-      "index-scan users#1 using users_email (email = 'a@b') residual: age = 30",
+    expect(planOf(plan)).toBe(
+      "index-scan users#1 using users_email (email = 'e1x1') residual: age = 30",
     );
+    expectSameRows(plan);
   });
 
   it("prefers the longer equality prefix", () => {
-    const plan = scanOf(
+    const plan = where(
       compare(age, "=", constant(30)),
       compare(name, "=", constant("bob")),
     );
-    expect(plan).toBe(
+    expect(planOf(plan)).toBe(
       "index-scan users#1 using users_name_age (name = 'bob', age = 30)",
     );
+    expectSameRows(plan);
   });
 
-  it("follows an equality prefix with a range on the next part", () => {
-    const plan = scanOf(
+  it("follows an equality prefix with a range, exact once bounded below", () => {
+    const plan = where(
       compare(name, "=", constant("bob")),
-      compare(age, ">", constant(18)),
+      compare(age, ">", constant(0)),
       compare(age, "<=", constant(65)),
     );
-    expect(plan).toBe(
-      "index-scan users#1 using users_name_age (name = 'bob', age > 18 AND age <= 65) residual: age <= 65",
+    expect(planOf(plan)).toBe(
+      "index-scan users#1 using users_name_age (name = 'bob', age > 0 AND age <= 65)",
     );
+    expectSameRows(plan);
   });
 
-  it("keeps an upper bound on a column that may hold NULL, which sorts first", () => {
-    expect(scanOf(compare(age, "<", constant(18)))).toBe(
+  it("keeps a range open below on a column that may hold NULL, which sorts first", () => {
+    const plan = where(compare(age, "<", constant(18)));
+    expect(planOf(plan)).toBe(
       "index-scan users#1 using users_age (age < 18) residual: age < 18",
     );
+    expectSameRows(plan);
   });
 
-  it("drops an upper bound on a NOT NULL column", () => {
-    expect(scanOf(compare(email, "<", constant("m")))).toBe(
-      "index-scan users#1 using users_email (email < 'm')",
+  it("drops a range open below on a NOT NULL column", () => {
+    const plan = where(compare(email, "<", constant("e2")));
+    expect(planOf(plan)).toBe(
+      "index-scan users#1 using users_email (email < 'e2')",
     );
+    expectSameRows(plan);
   });
 
-  it("lets a parameter bound a range, keeping the condition", () => {
-    expect(scanOf(compare(age, ">=", parameter(0)))).toBe(
-      "index-scan users#1 using users_age (age >= $1) residual: age >= $1",
-    );
+  it("lets a parameter bound a range, as exact as a constant", () => {
+    const plan = where(compare(age, ">=", numeric));
+    expect(planOf(plan)).toBe("index-scan users#1 using users_age (age >= $1)");
+    for (const value of [18, "18", "abc", null]) expectSameRows(plan, [value]);
+  });
+
+  it("seeks a numeric parameter that stays text, which = compares as text too", () => {
+    const plan = where(compare(age, "=", numeric));
+    expect(planOf(plan)).toBe("index-scan users#1 using users_age (age = $1)");
+    for (const value of ["abc", "5", 5, ""]) expectSameRows(plan, [value]);
   });
 
   it("matches an expression key to a condition written the same way", () => {
-    const lowered = call("lower", name);
-    expect(scanOf(compare(lowered, "=", constant("bob")))).toBe(
+    const plan = where(compare(call("lower", name), "=", constant("bob")));
+    expect(planOf(plan)).toBe(
       "index-scan users#1 using users_lower_name (lower(name) = 'bob')",
     );
+    expectSameRows(plan);
   });
 
-  it("never seeks an ANY column with a typed value, which = converts per row", () => {
-    // tag 5 = '5' is true by affinity; an index of 5 has no entry '5'.
-    expect(scanOf(compare(tag, "=", constant("5")))).toBe(
-      "table-scan users#1 residual: tag = '5'",
-    );
-    expect(scanOf(compare(tag, "=", parameter(0)))).toBe(
-      "index-scan users#1 using users_tag (tag = $1) residual: tag = $1",
-    );
+  it("seeks an ANY column with any value: nothing converts its stored values", () => {
+    const plan = where(compare(tag, "=", constant(1)));
+    expect(planOf(plan)).toBe("index-scan users#1 using users_tag (tag = 1)");
+    expectSameRows(plan);
+    const any = where(compare(tag, "=", parameter(0)));
+    expect(planOf(any)).toBe("index-scan users#1 using users_tag (tag = $1)");
+    for (const value of [5, "5", true, 1.5, null]) expectSameRows(any, [value]);
   });
 
-  it("does not seek with NULL, which = never matches", () => {
-    expect(scanOf(compare(age, "=", NULL))).toBe(
-      "table-scan users#1 residual: age = NULL",
+  it("seeks with NULL, which finds nothing, as = finds nothing", () => {
+    const plan = where(compare(age, "=", NULL));
+    expect(planOf(plan)).toBe(
+      "index-scan users#1 using users_age (age = NULL)",
     );
+    expectSameRows(plan);
   });
 
   it("does not seek with <>", () => {
-    expect(scanOf(compare(age, "<>", constant(3)))).toBe(
-      "table-scan users#1 residual: age <> 3",
-    );
+    const plan = where(compare(age, "<>", constant(3)));
+    expect(planOf(plan)).toBe("table-scan users#1 residual: age <> 3");
   });
 });
 
 describe("index unions", () => {
   it("reads an OR of indexable branches through each, keeping the OR", () => {
-    const plan = scanOf(
+    const plan = where(
       or(
         compare(id, "=", constant(1)),
-        compare(email, "=", constant("x")),
+        compare(email, "=", constant("e2x2")),
         and(
           compare(name, "=", constant("bob")),
           compare(age, ">", constant(3)),
         ),
       ),
     );
-    expect(plan).toBe(
-      "index-union users#1 [rowid = 1; using users_email (email = 'x'); using users_name_age (name = 'bob', age > 3)] residual: id = 1 OR email = 'x' OR name = 'bob' AND age > 3",
+    expect(planOf(plan)).toBe(
+      "index-union users#1 [rowid = 1; using users_email (email = 'e2x2'); using users_name_age (name = 'bob', age > 3)] residual: id = 1 OR email = 'e2x2' OR name = 'bob' AND age > 3",
     );
+    expectSameRows(plan);
   });
 
   it("reads an IN list on an indexed column as a union of its items", () => {
-    expect(scanOf(inList(age, constant(1), parameter(0)))).toBe(
+    const plan = where(inList(age, constant(1), numeric));
+    expect(planOf(plan)).toBe(
       "index-union users#1 [using users_age (age = 1); using users_age (age = $1)] residual: age IN (1, $1)",
     );
+    for (const value of [30, "30", null]) expectSameRows(plan, [value]);
   });
 
   it("scans when one branch has no index", () => {
-    const plan = scanOf(
-      or(
-        compare(id, "=", constant(1)),
-        compare(column(u, "tag"), ">", constant("a")),
-      ),
+    const plan = where(
+      or(compare(id, "=", constant(1)), compare(age, "<>", constant(3))),
     );
-    expect(plan).toBe("table-scan users#1 residual: id = 1 OR tag > 'a'");
+    expect(planOf(plan)).toBe(
+      "table-scan users#1 residual: id = 1 OR age <> 3",
+    );
   });
 });
 
 describe("parameters never choose the index (rule 5)", () => {
   it("chooses the same index for a parameter as for a constant", () => {
-    const withConstant = scanOf(
+    const withConstant = where(
       compare(age, "=", constant(30)),
       compare(name, ">", constant("a")),
     );
-    const withParameter = scanOf(
-      compare(age, "=", parameter(0)),
-      compare(name, ">", parameter(1)),
+    const withParameter = where(
+      compare(age, "=", numeric),
+      compare(name, ">", parameter(1, "TEXT", "text")),
     );
-    expect(withConstant).toMatch(/using users_age \(age = 30\)/u);
-    expect(withParameter).toMatch(/using users_age \(age = \$1\)/u);
+    expect(planOf(withConstant)).toBe(
+      "index-scan users#1 using users_age (age = 30) residual: name > 'a'",
+    );
+    expect(planOf(withParameter)).toBe(
+      "index-scan users#1 using users_age (age = $1) residual: name > $2",
+    );
   });
 });

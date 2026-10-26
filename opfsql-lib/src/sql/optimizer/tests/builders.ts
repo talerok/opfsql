@@ -20,6 +20,7 @@ import {
   formatPhysicalPlan,
   logical,
   type Parameter,
+  type physical,
   ROWID_COLUMN,
   type Statement,
 } from "../../plan/index.js";
@@ -399,12 +400,18 @@ export function query(plan: Plan): Statement<Plan> {
   return { kind: "query", plan, columns, parameterCount: 0 };
 }
 
+/** The physical plan the optimizer makes of `plan`. */
+export function optimizedPlan(plan: Plan): physical.Plan {
+  const statement = optimize(query(plan), schema, bindKey);
+  if (statement.kind !== "query") {
+    throw new InternalError("a query stays a query");
+  }
+  return statement.plan;
+}
+
 /** The physical plan the optimizer makes of `plan`, printed. */
 export function planOf(plan: Plan): string {
-  const statement = optimize(query(plan), schema, bindKey);
-  if (statement.kind !== "query")
-    throw new InternalError("a query stays a query");
-  return formatPhysicalPlan(statement.plan);
+  return formatPhysicalPlan(optimizedPlan(plan));
 }
 
 /** Lines, as formatPhysicalPlan prints them. */
