@@ -77,19 +77,19 @@ export function tableScan(
 export function rowidList(
   from: Source,
   rowids: Node[],
-  residual: Node[] = [],
+  { residual = [], direction = "ascending" }: ScanOptions = {},
 ): physical.RowidLookup {
   const set = { kind: "list", values: rowids } as const;
-  return { kind: "rowid-lookup", ...from, residual, rowids: set };
+  return { kind: "rowid-lookup", ...from, residual, rowids: set, direction };
 }
 
 export function rowidRange(
   from: Source,
   bounds: physical.Range,
-  residual: Node[] = [],
+  { residual = [], direction = "ascending" }: ScanOptions = {},
 ): physical.RowidLookup {
   const set = { kind: "range", range: bounds } as const;
-  return { kind: "rowid-lookup", ...from, residual, rowids: set };
+  return { kind: "rowid-lookup", ...from, residual, rowids: set, direction };
 }
 
 export function indexScan(

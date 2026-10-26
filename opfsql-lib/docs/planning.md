@@ -108,7 +108,7 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 | Node                               | Algorithm                                                                         |
 | ---------------------------------- | --------------------------------------------------------------------------------- |
 | `table-scan`                       | every row in rowid order, or reverse                                              |
-| `rowid-lookup`                     | rows by rowid: listed rowids, or one rowid range                                  |
+| `rowid-lookup`                     | rows by rowid: listed rowids, or one rowid range, in rowid order or reverse       |
 | `index-scan`                       | entries of one index within a key range, in key order or reverse, then their rows |
 | `index-union`                      | the rows of several index scans, each row once (an OR of indexable conditions)    |
 | `index-extreme`                    | MIN or MAX of an indexed expression from one end of the index                     |
@@ -127,7 +127,7 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 INSERT, UPDATE and DELETE are statements holding a physical source plan, not
 plan nodes. Every scan carries `residual`: conditions checked on every row
 it returns. A rowid lookup and an index union return each row once; a rowid
-lookup returns them in rowid order.
+lookup returns them in rowid order or its reverse.
 
 A seek value — an equal value or a range bound — is fixed for one scan: a
 constant, a parameter, or a column of an enclosing query, evaluated again
@@ -156,7 +156,7 @@ exactly as `=` matches it, with nothing left to convert: `id = $1` with
 3. **Order comes from one place.** A `sort` is removed only when its child
    already delivers exactly that order: an index scan whose key order,
    direction and NULL placement match every key, or a table scan or rowid
-   lookup whose rowid order matches an ORDER BY of the rowid. `top-n` replaces a `sort`
+   lookup whose rowid order and direction match an ORDER BY of the rowid. `top-n` replaces a `sort`
    and the `limit` above it; it never coexists with that `limit`.
 4. **Rewrites follow `values`.** A rewrite that folds or simplifies an
    expression evaluates it with the expression compiler, never with its own

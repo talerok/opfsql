@@ -243,6 +243,21 @@ export default config(
                 "executor depends on nothing but sql/plan, expressions, table, functions, schema, values and errors.",
             },
             {
+              target: "./src/sql/binder",
+              from: "./src",
+              except: [
+                "./sql/binder",
+                "./sql/parser",
+                "./sql/plan",
+                "./schema",
+                "./functions",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "sql/binder depends on nothing but sql/parser, sql/plan, schema, functions, values and errors.",
+            },
+            {
               target: "./src/sql/parser",
               from: "./src",
               except: ["./sql/parser", "./values", "./errors.ts"],

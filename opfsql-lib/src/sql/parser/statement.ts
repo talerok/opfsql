@@ -7,7 +7,7 @@
 import { Cursor, type Grammar } from "./cursor.js";
 import { parseAlterTable, parseCreate, parseDrop } from "./ddl.js";
 import { parseDelete, parseInsert, parseUpdate } from "./dml.js";
-import { parseExpression } from "./expression.js";
+import { parseExpression as parseExpressionAt } from "./expression.js";
 import type { Keyword } from "./keywords.js";
 import { tokenize } from "./lexer.js";
 import { parseQuery } from "./query.js";
@@ -16,11 +16,12 @@ import {
   TransactionType,
   type BeginMode,
   type BeginStatement,
+  type ParsedExpression,
   type Statement,
   type TransactionStatement,
 } from "./types.js";
 
-const GRAMMAR: Grammar = { expression: parseExpression, query: parseQuery };
+const GRAMMAR: Grammar = { expression: parseExpressionAt, query: parseQuery };
 
 /** The statements in `sql`; empty statements (`;;`) are skipped. */
 export function parse(sql: string): readonly Statement[] {
@@ -32,6 +33,17 @@ export function parse(sql: string): readonly Statement[] {
     skipEmptyStatements(cursor);
   }
   return statements;
+}
+
+/**
+ * One expression and nothing after it: an index key as CREATE INDEX stores
+ * it (formatExpression prints it back).
+ */
+export function parseExpression(sql: string): ParsedExpression {
+  const cursor = new Cursor(sql, tokenize(sql), GRAMMAR);
+  const expression = cursor.expression();
+  if (!cursor.atEnd()) cursor.fail("end of input");
+  return expression;
 }
 
 function skipEmptyStatements(cursor: Cursor): void {

@@ -175,7 +175,8 @@ describe("rowid lookup", () => {
   it("reads an open-ended range and applies its residual", () => {
     const residual = [compare(name, "<>", constant("dan"))];
     const bounds = between(including(constant(3)), null);
-    expect(ids(rowidRange(users([0, 1]), bounds, residual))).toEqual([3, 5]);
+    const plan = rowidRange(users([0, 1]), bounds, { residual });
+    expect(ids(plan)).toEqual([3, 5]);
   });
 });
 

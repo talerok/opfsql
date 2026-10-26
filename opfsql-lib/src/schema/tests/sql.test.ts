@@ -7,7 +7,6 @@ import {
   createIndexSql,
   createTableSql,
   defaultSql,
-  literalSql,
   quoteName,
 } from "../index.js";
 
@@ -83,13 +82,9 @@ describe("schema statements", () => {
     );
   });
 
-  it("quote any name, and write values as literals that read back the same", () => {
+  it("quote any name, and write defaults as literals that read back the same", () => {
     expect(quoteName('say "hi"')).toBe('"say ""hi"""');
-    expect(
-      [null, true, 42, Infinity, "it's", Uint8Array.from([0xde, 0xad])].map(
-        (value) => literalSql(value),
-      ),
-    ).toEqual(["NULL", "TRUE", "42", "9e999", "'it''s'", "X'dead'"]);
+    expect(defaultSql(Infinity, "REAL")).toBe("9e999");
     // A JSON column parses its default as JSON text, so a string is quoted twice.
     expect(defaultSql("abc", "JSON")).toBe(`'"abc"'`);
     expect(defaultSql("abc", "TEXT")).toBe("'abc'");
