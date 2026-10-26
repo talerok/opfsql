@@ -45,9 +45,14 @@ interface ProfileNode {
   readonly children?: readonly number[];
 }
 
+/** A V8 CPU profile. Its root is its first node; times are in µs. */
 interface Profile {
   readonly nodes: readonly ProfileNode[];
+  readonly startTime: number;
+  readonly endTime: number;
   readonly samples: readonly number[];
+  /** The time from each sample to the next, the first from startTime. */
+  readonly timeDeltas: readonly number[];
 }
 
 /** A function that starts a phase: everything it calls counts toward it. */
@@ -114,7 +119,10 @@ async function main(settings: Settings): Promise<void> {
   }
   const total = profile.samples.length;
   const phaseOf = phaseByNode(profile);
-  print(`${settings.scenario.name}: ${String(total)} samples`);
+  const perRun = (profile.endTime - profile.startTime) / 1000 / settings.runs;
+  print(
+    `${settings.scenario.name}: ${String(total)} samples, ${perRun.toFixed(1)} ms a run while profiled`,
+  );
   print(formatShares(countBy(profile.samples, phaseOf), total));
   print("\ntop self time");
   print(formatShares(selfTimes(profile, profile.samples), total, settings.top));
@@ -162,28 +170,86 @@ async function profileRuns(settings: Settings): Promise<Profile> {
     settings.scenario,
     settings.warmup + settings.runs,
   );
-  const runOn = async (engines: readonly Engine[]): Promise<void> => {
-    for (const engine of engines) {
-      const session = engine.connect();
-      collectGarbage();
-      await settings.scenario.run(session);
-      await session.close();
-    }
-  };
-  await runOn(databases.slice(0, settings.warmup));
   const inspector = new Inspector();
   inspector.connect();
   await inspector.post("Profiler.enable");
   await inspector.post("Profiler.setSamplingInterval", {
     interval: settings.interval,
   });
-  await inspector.post("Profiler.start");
-  await runOn(databases.slice(settings.warmup));
-  const { profile } = await inspector.post("Profiler.stop");
+  // Each run is profiled on its own, so that the profile has only what the
+  // bench times: not connecting, collecting garbage or closing the session.
+  const profiles: Profile[] = [];
+  for (const [index, engine] of databases.entries()) {
+    const isProfiled = index >= settings.warmup;
+    const session = engine.connect();
+    collectGarbage();
+    if (isProfiled) await inspector.post("Profiler.start");
+    await settings.scenario.run(session);
+    if (isProfiled) {
+      const { profile } = await inspector.post("Profiler.stop");
+      profiles.push(profile as Profile);
+    }
+    await session.close();
+  }
   inspector.disconnect();
   const engines = new Set(databases);
   for (const engine of engines) await engine.close();
-  return readable(profile as Profile);
+  return readable(merged(profiles));
+}
+
+/**
+ * The runs' profiles as one: their trees under the first one's root, their
+ * node ids kept apart, and their samples back to back in time, without the
+ * time between runs.
+ */
+function merged(profiles: readonly Profile[]): Profile {
+  const first = profiles[0];
+  const rootId = first.nodes[0].id;
+  const rootChildren: number[] = [];
+  const nodes: ProfileNode[] = [];
+  const samples: number[] = [];
+  const timeDeltas: number[] = [];
+  let offset = 0;
+  let runStart = first.startTime;
+  let lastSample = first.startTime;
+  for (const profile of profiles) {
+    const [runRoot, ...rest] = profile.nodes;
+    const idOf = (id: number): number =>
+      id === runRoot.id ? rootId : id + offset;
+    const children = runRoot.children ?? [];
+    rootChildren.push(...children.map((id) => idOf(id)));
+    for (const node of rest) {
+      nodes.push({
+        ...node,
+        id: idOf(node.id),
+        children: node.children?.map((id) => idOf(id)),
+      });
+    }
+    for (const sample of profile.samples) samples.push(idOf(sample));
+    let time = profile.startTime;
+    for (const delta of profile.timeDeltas) {
+      time += delta;
+      const at = runStart + time - profile.startTime;
+      timeDeltas.push(at - lastSample);
+      lastSample = at;
+    }
+    offset += largestId(profile);
+    runStart += profile.endTime - profile.startTime;
+  }
+  const mergedRoot = { ...first.nodes[0], children: rootChildren };
+  return {
+    nodes: [mergedRoot, ...nodes],
+    startTime: first.startTime,
+    endTime: runStart,
+    samples,
+    timeDeltas,
+  };
+}
+
+function largestId(profile: Profile): number {
+  let largest = 0;
+  for (const node of profile.nodes) largest = Math.max(largest, node.id);
+  return largest;
 }
 
 /**
