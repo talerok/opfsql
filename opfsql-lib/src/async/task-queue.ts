@@ -103,7 +103,7 @@ function ensureNotAborted(signal: AbortSignal): void {
 export async function runInTurn<T>(
   queue: TaskQueue,
   signals: readonly (AbortSignal | undefined)[],
-  task: (signal: AbortSignal) => Promise<T> | T,
+  task: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const linked = linkSignals(signals);
   try {

@@ -179,27 +179,28 @@ export class SessionCore {
     return runInTurn(
       this.queue,
       [options.signal, this.lifetime.signal],
-      async (signal) => this.withNoLeftoverTransaction(task, signal),
+      this.endingLeftoverTransaction(task),
     );
   }
 
   /**
-   * One call's turn: its task, then no transaction left where none may
-   * stay — whether the task succeeded or failed, so no path through a task
-   * can leave one behind.
+   * One call's turn: `task`, then no transaction left where none may stay —
+   * whether the task succeeded or failed, so no path through a task can
+   * leave one behind.
    */
-  private async withNoLeftoverTransaction<T>(
+  private endingLeftoverTransaction<T>(
     task: (signal: AbortSignal) => Promise<T> | T,
-    signal: AbortSignal,
-  ): Promise<T> {
-    let hasSucceeded = false;
-    try {
-      const value = await task(signal);
-      hasSucceeded = true;
-      return value;
-    } finally {
-      this.endLeftoverTransaction(hasSucceeded);
-    }
+  ): (signal: AbortSignal) => Promise<T> {
+    return async (signal) => {
+      let hasSucceeded = false;
+      try {
+        const value = await task(signal);
+        hasSucceeded = true;
+        return value;
+      } finally {
+        this.endLeftoverTransaction(hasSucceeded);
+      }
+    };
   }
 
   /**
