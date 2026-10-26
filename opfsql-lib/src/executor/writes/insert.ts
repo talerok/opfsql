@@ -107,7 +107,13 @@ function compileNewRow(
     const values = [...defaults];
     for (const [column, value] of copied) values[column] = copyValue(value);
     for (const [position, column] of columns.entries()) {
-      values[column] = source[position] ?? null;
+      const value = source[position];
+      if (value === undefined) {
+        throw new InternalError(
+          `a source row of ${String(source.length)} values fills ${String(columns.length)} columns`,
+        );
+      }
+      values[column] = value;
     }
     return values;
   };
@@ -169,7 +175,7 @@ function compileConflictUpdate(
   const assign = compileAssignments(action.assignments, scope);
   const holds = compileCondition(action.condition, scope);
   return ({ rowid, refused }) => {
-    const existing = rowValues(editor, rowid);
+    const existing = editor.rowValues(rowid);
     const pair = [...existing, ...refused];
     if (!holds(pair)) return SKIPPED;
     editor.update(rowid, assign(existing, pair));
@@ -197,12 +203,4 @@ function compileCondition(
 
 function inserted(rowid: number): RowOutcome {
   return { kind: "inserted", rowid };
-}
-
-function rowValues(editor: TableEditor, rowid: number): Value[] {
-  const row = editor.get(rowid);
-  if (row === null) {
-    throw new InternalError(`the conflicting row ${String(rowid)} is gone`);
-  }
-  return row.values();
 }

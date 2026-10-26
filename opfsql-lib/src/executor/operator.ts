@@ -1,3 +1,4 @@
+import { InternalError } from "../errors.js";
 import type { Run, Tuple } from "../expressions/index.js";
 
 // ---------------------------------------------------------------------------
@@ -12,8 +13,9 @@ import type { Run, Tuple } from "../expressions/index.js";
 export interface Operator {
   /**
    * The next batch of at most `max` rows, never empty, or null when there
-   * are no more. `max` is what the caller can still use: Infinity when it
-   * takes every row.
+   * are no more. `max` is what the caller can still use, at least 1:
+   * Infinity when it takes every row. A caller that can use no more rows
+   * stops pulling instead.
    */
   next(max: number): readonly Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
@@ -137,6 +139,10 @@ class Batch implements Demand {
 
   /** Up to `max` rows from `source`, at most a batch; null if it has none left. */
   fill(source: Iterator<Tuple>, max: number): Tuple[] | null {
+    if (max < 1) {
+      // Null would read as "no rows left", which a source may not be.
+      throw new InternalError(`an operator was asked for ${String(max)} rows`);
+    }
     this.rows = [];
     this.max = max;
     const size = Math.min(max, BATCH_SIZE);

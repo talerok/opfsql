@@ -1,4 +1,3 @@
-import { InternalError } from "../../errors.js";
 import type { Layout } from "../../expressions/index.js";
 import {
   type physical,
@@ -67,7 +66,7 @@ function computedFirst(
 ): void {
   const changes: RowChange[] = rowids.map((rowid) => ({
     rowid,
-    values: newRow(oldRow(editor, rowid), rowid),
+    values: newRow(editor.rowValues(rowid), rowid),
   }));
   for (const { rowid, values } of changes) editor.update(rowid, values);
 }
@@ -86,12 +85,4 @@ function compileNewRow(
   ];
   const assign = compileAssignments(assignments, scopeOf(context, layout));
   return (old, rowid) => assign(old, [...old, rowid]);
-}
-
-function oldRow(editor: TableEditor, rowid: number): Value[] {
-  const row = editor.get(rowid);
-  if (row === null) {
-    throw new InternalError(`row ${String(rowid)} to update is gone`);
-  }
-  return row.values();
 }

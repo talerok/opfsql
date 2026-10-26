@@ -4,6 +4,7 @@ import {
   ConstraintError,
   CorruptError,
   DatatypeMismatchError,
+  InternalError,
 } from "../../errors.js";
 import type { Index, Table } from "../../schema/index.js";
 import { Schema } from "../../schema/index.js";
@@ -234,8 +235,10 @@ describe("TableEditor", () => {
     const users = await usersTable();
     edit(users, (editor) => {
       editor.insert([1, "a@x", "Ann", 1]);
-      expect(editor.delete(1)).toBe(true);
-      expect(editor.delete(1)).toBe(false);
+      editor.delete(1);
+      expect(() => {
+        editor.delete(1);
+      }).toThrow(InternalError);
       editor.insert([2, "a@x", "Bob", 2]);
     });
     expect(rowsOf(users)).toEqual([[2, "a@x", "Bob", 2]]);
@@ -277,7 +280,11 @@ describe("TableEditor over a damaged index", () => {
     edit(users, (editor) => editor.insert([1, "a@x", "Ann", 1]));
     damageNames(users, "delete", encodeKey(["ann", 1]));
     const missing = disagreement("it has no entry for row 1");
-    expect(failureOf(users, (editor) => editor.delete(1))).toEqual(missing);
+    expect(
+      failureOf(users, (editor) => {
+        editor.delete(1);
+      }),
+    ).toEqual(missing);
     expect(
       failureOf(users, (editor) => editor.update(1, [1, "a@x", "Bob", 1])),
     ).toEqual(missing);

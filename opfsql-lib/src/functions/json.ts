@@ -2,7 +2,7 @@ import { DatatypeMismatchError, SemanticError } from "../errors.js";
 import {
   describeValue,
   type JsonValue,
-  normalizeValue,
+  parseJsonText,
   type Value,
 } from "../values/index.js";
 import { firstArgumentType, returns, strict, text } from "./arguments.js";
@@ -99,11 +99,7 @@ function documentOf(value: Value, type: StaticType): JsonValue {
     throw new DatatypeMismatchError(`${describeValue(value)} is not JSON`);
   }
   if (typeof value !== "string" || type === "JSON") return value;
-  try {
-    return normalizeValue(JSON.parse(value) as JsonValue) as JsonValue;
-  } catch {
-    throw new DatatypeMismatchError(`malformed JSON: ${describeValue(value)}`);
-  }
+  return parseJsonText(value);
 }
 
 /**

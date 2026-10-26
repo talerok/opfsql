@@ -118,7 +118,7 @@ export class TableEditor extends TableRows {
 
   /** Replaces row `rowid` with `values`, and returns its rowid, which may change. */
   update(rowid: number, values: readonly Value[]): number {
-    return this.replace(rowid, this.require(rowid), values);
+    return this.replace(rowid, this.rowValues(rowid), values);
   }
 
   /**
@@ -130,18 +130,15 @@ export class TableEditor extends TableRows {
     rowid: number,
     change: (old: readonly Value[]) => readonly Value[],
   ): number {
-    const old = this.require(rowid);
+    const old = this.rowValues(rowid);
     return this.replace(rowid, old, change(old));
   }
 
-  /** Removes row `rowid`. False if there is none. */
-  delete(rowid: number): boolean {
-    const values = this.get(rowid)?.values();
-    if (values === undefined) return false;
-    const old = this.stateOf(rowid, values);
+  /** Removes row `rowid`, which the caller read. */
+  delete(rowid: number): void {
+    const old = this.stateOf(rowid, this.rowValues(rowid));
     this.deleteRow(rowid);
     for (const indexed of old.indexed) deleteEntry(indexed, rowid);
-    return true;
   }
 
   /**
@@ -156,6 +153,15 @@ export class TableEditor extends TableRows {
     target: ConflictConstraint | null = null,
   ): Conflict | null {
     return this.conflictOf(this.newRow(values), null, target);
+  }
+
+  /** The values of row `rowid`, which the caller read: it must be there. */
+  rowValues(rowid: number): Value[] {
+    const row = this.get(rowid);
+    if (row === null) {
+      throw new InternalError(`${this.table.name} has no row ${String(rowid)}`);
+    }
+    return row.values();
   }
 
   // --- Replacing a row -----------------------------------------------------------
@@ -215,14 +221,6 @@ export class TableEditor extends TableRows {
       throw new ConstraintError("not-null", this.table.name, [column.name]);
     }
     return assigned;
-  }
-
-  private require(rowid: number): Value[] {
-    const row = this.get(rowid);
-    if (row === null) {
-      throw new InternalError(`${this.table.name} has no row ${String(rowid)}`);
-    }
-    return row.values();
   }
 
   // --- Writing a decided row -----------------------------------------------------

@@ -20,6 +20,7 @@ export {
   normalizeNumber,
   normalizeValue,
   numberFromText,
+  parseJsonText,
   truncate,
   withoutNegativeZero,
 } from "./convert.js";

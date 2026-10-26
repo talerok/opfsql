@@ -10,6 +10,7 @@ import {
   normalizeNumber,
   normalizeValue,
   numberFromText,
+  parseJsonText,
   truncate,
 } from "../convert.js";
 import type { SqlType } from "../types.js";
@@ -135,6 +136,34 @@ describe("numberFromText", () => {
         numberFromText(text),
       ),
     ).toEqual([null, null, null, null, null, null, null]);
+  });
+
+  it("reads -0 as 0, as every value has it", () => {
+    expect(Object.is(numberFromText("-0"), 0)).toBe(true);
+    expect(Object.is(castValue("-0.0", "REAL"), 0)).toBe(true);
+  });
+});
+
+describe("parseJsonText", () => {
+  it("normalizes a document at any depth", () => {
+    const parsed = parseJsonText('{"a": [-0, {"b": -0.0}]}');
+    expect(parsed).toEqual({ a: [0, { b: 0 }] });
+    expect(Object.is((parsed as { a: number[] }).a[0], 0)).toBe(true);
+  });
+
+  it("refuses a lone surrogate written as an escape, in a value or a key", () => {
+    for (const text of [
+      String.raw`["\ud800"]`,
+      String.raw`{"\udc00": 1}`,
+      String.raw`"\ud800x"`,
+    ]) {
+      expect(() => parseJsonText(text)).toThrow(DatatypeMismatchError);
+    }
+    expect(parseJsonText(String.raw`"\ud83d\ude00"`)).toBe("😀");
+  });
+
+  it("refuses text that is not JSON", () => {
+    expect(() => parseJsonText("{")).toThrow(DatatypeMismatchError);
   });
 });
 

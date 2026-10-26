@@ -146,7 +146,7 @@ SELECT FLOOR(-1.5), CEIL(-1.5), SIGN(-3)
 -2|-1|-1
 
 # ============================================================================
-# LIKE: % and _, case-insensitive for ASCII letters only, ESCAPE
+# LIKE: % and _, case-insensitive for ASCII letters only
 # ============================================================================
 
 query TTT nosort

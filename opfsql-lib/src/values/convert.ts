@@ -15,6 +15,8 @@ import type { JsonValue, Value } from "./value.js";
 /** A number as SQL text writes it: digits, an optional fraction and exponent. */
 const NUMERIC_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu;
 const HEX_TEXT = /^(?:[\da-f]{2})*$/iu;
+/** JSON text that may parse to -0 or to a lone surrogate. */
+const MAY_NEED_NORMALIZING = /-0|\\u[dD][89a-fA-F]/u;
 const DESCRIBED_TEXT_LENGTH = 40;
 
 /**
@@ -80,9 +82,26 @@ export function applyAffinity(value: Value, affinity: Affinity): Value {
   return value;
 }
 
-/** The number text writes exactly, or null if it is not a number. */
+/** The number text writes exactly, or null if it is not a number; `-0` is 0. */
 export function numberFromText(text: string): number | null {
-  return NUMERIC_TEXT.test(text) ? Number(text) : null;
+  return NUMERIC_TEXT.test(text) ? withoutNegativeZero(Number(text)) : null;
+}
+
+/**
+ * The JSON value SQL text holds, normalized as every value is
+ * (docs/semantics.md, Values) at any depth: -0 is 0, and a string with a
+ * lone surrogate, which an escape such as `\ud800` writes, is refused.
+ */
+export function parseJsonText(text: string): JsonValue {
+  let parsed: JsonValue;
+  try {
+    parsed = JSON.parse(text) as JsonValue;
+  } catch {
+    throw new DatatypeMismatchError(`${describeValue(text)} is not valid JSON`);
+  }
+  // Only text that writes -0 or a surrogate's escape can hold either, so
+  // most documents are returned as parsed, without a walk over them.
+  return MAY_NEED_NORMALIZING.test(text) ? normalizedJson(parsed) : parsed;
 }
 
 /** `number`, with -0 turned into 0: they compare equal, so they must be one value. */
@@ -168,15 +187,27 @@ function booleanOf(value: Value): boolean | undefined {
 function jsonOf(value: Value): Value | undefined {
   if (value instanceof Uint8Array) return undefined;
   if (typeof value !== "string") return value;
-  return normalizeValue(parseJson(value));
+  return parseJsonText(value);
 }
 
-function parseJson(text: string): JsonValue {
-  try {
-    return JSON.parse(text) as JsonValue;
-  } catch {
-    throw new DatatypeMismatchError(`${describeValue(text)} is not valid JSON`);
+/** A parsed JSON document, every number and string in it normalized. */
+function normalizedJson(value: JsonValue): JsonValue {
+  if (typeof value === "number") return withoutNegativeZero(value);
+  if (typeof value === "string") return wellFormedJsonText(value);
+  if (value === null || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.map((item) => normalizedJson(item));
+  const normalized: Record<string, JsonValue> = {};
+  for (const [key, item] of Object.entries(value)) {
+    normalized[wellFormedJsonText(key)] = normalizedJson(item);
   }
+  return normalized;
+}
+
+function wellFormedJsonText(text: string): string {
+  if (text.isWellFormed()) return text;
+  throw new DatatypeMismatchError(
+    "JSON text holds a lone surrogate, which is not valid Unicode",
+  );
 }
 
 // --- Casts -------------------------------------------------------------------

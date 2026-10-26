@@ -118,7 +118,7 @@ ruled out (docs/api.md, Results).
 | storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE                                  |
 | table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                                         |
 | parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT                    |
-| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows), MISUSE                                  |
+| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows, a malformed JSON path), MISUSE           |
 | engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE; IO_ERROR when a lock request fails                                 |
 | worker         | WORKER_ERROR (a worker that crashed or did not start, a message that could not be read or sent), MISUSE, ABORTED |
 | any            | INTERNAL: a broken contract                                                                                      |
