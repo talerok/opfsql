@@ -1,6 +1,10 @@
 import { SemanticError } from "../../errors.js";
 import { commonType } from "../../functions/index.js";
-import { isReservedName, type Table } from "../../schema/index.js";
+import {
+  isReservedName,
+  SEQUENCE_TABLE_NAME,
+  type Table,
+} from "../../schema/index.js";
 import type {
   Assignment as AssignmentNode,
   DeleteStatement,
@@ -24,7 +28,9 @@ import { relation, Scope, type BindContext, type BoundQuery } from "./scope.js";
 // UPDATE and DELETE are planned like queries: their source reads the target
 // table — every column in column order, then the rowid — under a filter
 // with the WHERE clause, so the optimizer finds their rows as it finds a
-// SELECT's. INSERT's source is VALUES or a query.
+// SELECT's. INSERT's source is VALUES or a query. INSERT and UPDATE say
+// whether what they compute reads a table they write (statement.ts,
+// readsTarget).
 // ---------------------------------------------------------------------------
 
 type Plan = logical.Plan;
@@ -35,17 +41,23 @@ export function bindUpdate(
 ): Update<Plan> {
   const target = targetOf(statement.table, statement.where, context);
   const clause = clauseOf(target.scope, refuse("UPDATE"));
+  // Only the assignments' reads count: the WHERE is evaluated before any
+  // row is written.
+  const readsBefore = writtenTableReads(target.table, context);
   const assignments = bindAssignments(
     statement.assignments,
     target.table,
     clause,
   );
+  const isWrittenTableRead =
+    writtenTableReads(target.table, context) > readsBefore;
   return {
     kind: "update",
     table: target.table,
     tableIndex: target.tableIndex,
     source: target.source,
     assignments,
+    readsTarget: isWrittenTableRead,
     parameterCount: context.parameterCount,
   };
 }
@@ -62,6 +74,17 @@ export function bindDelete(
     source: target.source,
     parameterCount: context.parameterCount,
   };
+}
+
+/**
+ * The reads, in what was bound so far, of a table that writing `table`
+ * writes: `table` itself, and opfsql_sequence when it has AUTOINCREMENT,
+ * whose counter a row written may raise.
+ */
+export function writtenTableReads(table: Table, context: BindContext): number {
+  const own = context.readsOf(table.name);
+  if (!table.isAutoincrement) return own;
+  return own + context.readsOf(SEQUENCE_TABLE_NAME);
 }
 
 /** The table a statement names, which must exist. */

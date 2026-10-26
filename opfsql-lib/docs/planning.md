@@ -61,7 +61,7 @@ The binder produces one of:
 | -------------- | --------------------------------------------------------------------------------------- |
 | `query`        | a logical plan, and the names and types of its output columns                           |
 | `insert`       | the target table, its target columns, a source plan (VALUES or a query), ON CONFLICT    |
-| `update`       | the target table, a source plan over it (its rows and their rowids), assignments        |
+| `update`       | the target table, a source plan over it (the rows to change), assignments               |
 | `delete`       | the target table, a source plan over it                                                 |
 | `create-table` | a table definition from the schema model, without pages yet, and its constraint indexes |
 | `create-index` | an index definition, without pages yet                                                  |

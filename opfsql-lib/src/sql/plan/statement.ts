@@ -73,9 +73,13 @@ export interface Insert<Plan> {
 }
 
 /**
- * `source` produces the target rows: every column of `table` in column
- * order, then ROWID_COLUMN, bound to `tableIndex`. No pass may prune those
- * columns: the update needs every value. Assignments are computed from them.
+ * `source` produces the rows to change, ROWID_COLUMN among their columns,
+ * bound to `tableIndex`: the update collects those rowids first, then reads
+ * each row by its rowid through the table layer and computes its
+ * assignments on it — every column of `table` in column order, then
+ * ROWID_COLUMN, bound to `tableIndex`. A logical source is that row under
+ * the WHERE that reads it, as for Delete; once the WHERE is in a scan's
+ * residual, the optimizer may narrow a physical source to the rowid alone.
  */
 export interface Update<Plan> {
   readonly kind: "update";
@@ -83,15 +87,24 @@ export interface Update<Plan> {
   readonly tableIndex: number;
   readonly source: Plan;
   readonly assignments: readonly Assignment<Plan>[];
+  /**
+   * True when an assignment holds a subquery that reads a table the update
+   * writes: the target, or opfsql_sequence when the target has
+   * AUTOINCREMENT. The executor then computes every new row before writing
+   * any, so no subquery sees a row this statement changed; otherwise it
+   * writes each row as soon as it is computed, its new values depending on
+   * its own old row alone (docs/planning.md, Execution).
+   */
+  readonly readsTarget: boolean;
   readonly parameterCount: number;
 }
 
 /**
  * `source` produces the rows to delete, ROWID_COLUMN among their columns,
  * bound to `tableIndex`: the delete reads that one. A logical source is
- * every column then the rowid, as for Update, under the WHERE that reads
- * them; once the WHERE is in a scan's residual, the optimizer may narrow a
- * physical source to the rowid alone.
+ * every column then the rowid, under the WHERE that reads them; once the
+ * WHERE is in a scan's residual, the optimizer may narrow a physical source
+ * to the rowid alone.
  */
 export interface Delete<Plan> {
   readonly kind: "delete";

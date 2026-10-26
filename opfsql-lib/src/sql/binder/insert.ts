@@ -1,9 +1,5 @@
 import { SemanticError } from "../../errors.js";
-import {
-  type Index,
-  SEQUENCE_TABLE_NAME,
-  type Table,
-} from "../../schema/index.js";
+import type { Index, Table } from "../../schema/index.js";
 import type {
   InsertStatement,
   OnConflictAction,
@@ -22,6 +18,7 @@ import {
   columnNamed,
   insertSource,
   writableTable,
+  writtenTableReads,
 } from "./dml.js";
 import { firstRepeated } from "./columns.js";
 import { clauseOf } from "./expression.js";
@@ -45,7 +42,7 @@ export function bindInsert(
   const columns = targetColumns(statement.columns, table);
   const source = insertSource(statement.source, columns.length, context);
   // Read before ON CONFLICT binds: only the source's reads count.
-  const isWrittenTableRead = readsWrittenTable(table, context);
+  const isWrittenTableRead = writtenTableReads(table, context) > 0;
   const onConflict = bindOnConflict(statement.onConflict, table, context);
   return {
     kind: "insert",
@@ -56,16 +53,6 @@ export function bindInsert(
     onConflict,
     parameterCount: context.parameterCount,
   };
-}
-
-/**
- * Whether what was bound so far reads a table the insert writes: its own,
- * or opfsql_sequence when it has AUTOINCREMENT, whose counter a row may raise.
- */
-function readsWrittenTable(table: Table, context: BindContext): boolean {
-  const areCountersRead =
-    table.isAutoincrement && context.hasRead(SEQUENCE_TABLE_NAME);
-  return context.hasRead(table.name) || areCountersRead;
 }
 
 function targetColumns(names: readonly string[], table: Table): number[] {
