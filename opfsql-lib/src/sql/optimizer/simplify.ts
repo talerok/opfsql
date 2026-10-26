@@ -126,9 +126,8 @@ function folded(expression: logical.Expression): logical.Expression | null {
 
 function withIdentities(expression: logical.Expression): logical.Expression {
   if (expression.kind === "conjunction") {
-    return expression.operator === "AND"
-      ? simplifyAnd(expression)
-      : simplifyOr(expression);
+    if (expression.operator === "AND") return simplifyAnd(expression);
+    return simplifyOr(expression);
   }
   if (expression.kind === "not") {
     const { operand } = expression;

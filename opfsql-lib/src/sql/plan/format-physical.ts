@@ -263,8 +263,9 @@ class NodeDescriber {
   ): string {
     const indexes = `#${String(plan.groupIndex)}#${String(plan.aggregateIndex)}`;
     const parts = [`hash-aggregate${indexes}`];
-    if (plan.groups.length > 0)
+    if (plan.groups.length > 0) {
       parts.push(`group by ${this.list(plan.groups)}`);
+    }
     if (plan.aggregates.length > 0) {
       const calls = plan.aggregates.map((call) =>
         formatAggregateCall(call, this.label),
@@ -296,9 +297,8 @@ class NodeDescriber {
 
   private limit(limit: Expression | null, offset: Expression | null): string {
     const count = limit === null ? "all" : this.expression(limit);
-    return offset === null
-      ? count
-      : `${count} offset ${this.expression(offset)}`;
+    if (offset === null) return count;
+    return `${count} offset ${this.expression(offset)}`;
   }
 
   private rows(rows: readonly (readonly Expression[])[]): string {

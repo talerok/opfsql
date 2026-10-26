@@ -216,10 +216,7 @@ function joined(
     ...physical.layoutOf(plan.left),
     ...physical.layoutOf(plan.right),
   ];
-  const conditions =
-    plan.kind === "hash-join"
-      ? [...keyEqualities(plan), ...plan.residual]
-      : plan.conditions;
+  const conditions = conditionsOf(plan);
   const tests = conditions.map((condition) =>
     compilePredicate(condition, { layout, outerLayouts, run }),
   );
@@ -231,10 +228,19 @@ function joined(
       .map((right) => [...left, ...right])
       .filter((pair) => tests.every((test) => test(pair)));
     rows.push(...pairs);
-    if (pairs.length === 0 && plan.joinType === "left")
+    if (pairs.length === 0 && plan.joinType === "left") {
       rows.push([...left, ...nulls]);
+    }
   }
   return rows;
+}
+
+/** What a pair must pass: a hash join's keys as `=`, then its residual. */
+function conditionsOf(
+  plan: physical.HashJoin | physical.NestedLoopJoin,
+): readonly physical.Expression[] {
+  if (plan.kind === "nested-loop-join") return plan.conditions;
+  return [...keyEqualities(plan), ...plan.residual];
 }
 
 /** A hash join's keys as the `=` they stand for: values as they are, NULL never matching. */
@@ -257,8 +263,9 @@ function ordered(
   context: Context,
 ): readonly Tuple[] {
   const rows = evaluate(plan.child, context);
-  if (plan.kind === "limit")
+  if (plan.kind === "limit") {
     return limited(rows, plan.limit, plan.offset, context);
+  }
   const layout = physical.layoutOf(plan.child);
   const sorted = rows.toSorted(compareByKeys(plan.keys, layout, context.run));
   if (plan.kind === "sort") return sorted;

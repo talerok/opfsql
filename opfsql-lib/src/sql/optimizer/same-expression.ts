@@ -108,8 +108,9 @@ function samePath(
   return a.every((step, position) => {
     const other = b[position];
     if (other === undefined) return false;
-    if (step.kind === "key")
+    if (step.kind === "key") {
       return other.kind === "key" && other.key === step.key;
+    }
     return other.kind === "index" && other.index === step.index;
   });
 }

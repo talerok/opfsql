@@ -101,19 +101,23 @@ function lowerFilter(plan: logical.Filter, planner: Planner): physical.Plan {
   };
 }
 
+function lowerJoin(plan: logical.Join, planner: Planner): physical.Plan {
+  if (hasNeverTrue(plan.conditions)) return lowerEmptyJoin(plan, planner);
+  const left = lowerPlan(plan.left, planner);
+  const right = lowerPlan(plan.right, planner);
+  const conditions = lowerExpressions(plan.conditions, planner);
+  return planJoin(plan.joinType, left, right, conditions);
+}
+
 /**
  * A join whose ON no pair passes: nothing for an inner join, and for a left
  * join every left row with NULLs, the right side read as empty.
  */
-function lowerJoin(plan: logical.Join, planner: Planner): physical.Plan {
-  const isEmptyOn = hasNeverTrue(plan.conditions);
-  if (isEmptyOn && plan.joinType === "inner") return emptyPlan(plan);
+function lowerEmptyJoin(plan: logical.Join, planner: Planner): physical.Plan {
+  if (plan.joinType === "inner") return emptyPlan(plan);
   const left = lowerPlan(plan.left, planner);
-  const right = isEmptyOn
-    ? emptyPlan(plan.right)
-    : lowerPlan(plan.right, planner);
   const conditions = lowerExpressions(plan.conditions, planner);
-  return planJoin(plan.joinType, left, right, conditions);
+  return planJoin("left", left, emptyPlan(plan.right), conditions);
 }
 
 function hashAggregate(

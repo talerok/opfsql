@@ -1,9 +1,11 @@
 import { bytesToHex, canonicalJson, type Value } from "../../values/index.js";
 import type {
   AggregateCall,
+  Arithmetic,
   ArithmeticOperator,
   Case,
   ComparisonOperator,
+  Concatenate,
   Expression,
   JsonPathStep,
   OrderKey,
@@ -54,6 +56,14 @@ function comparisonSymbol(operator: ComparisonOperator): string {
       return ">=";
     }
   }
+}
+
+/** `||`, or the arithmetic operator's symbol. */
+function operationSymbol<Plan>(
+  expression: Arithmetic<Plan> | Concatenate<Plan>,
+): string {
+  if (expression.kind === "concatenate") return "||";
+  return arithmeticSymbol(expression.operator);
 }
 
 function arithmeticSymbol(operator: ArithmeticOperator): string {
@@ -267,10 +277,7 @@ class ExpressionPrinter<Plan> {
       return `-${this.operand(expression.operand, PRECEDENCE.unary)}`;
     }
     const strength = precedenceOf(expression);
-    const symbol =
-      expression.kind === "concatenate"
-        ? "||"
-        : arithmeticSymbol(expression.operator);
+    const symbol = operationSymbol(expression);
     // Left-associative: an equal operator on the right needs parentheses.
     const left = this.operand(expression.left, strength);
     const right = this.operand(expression.right, strength + 1);

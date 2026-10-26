@@ -135,18 +135,18 @@ export interface Source {
 /** `FROM table` as relation `tableIndex`: every column, or those named. */
 export function get(source: Source, ...columns: string[]): logical.Get {
   const { tableIndex, table } = source;
-  const positions =
-    columns.length === 0
-      ? table.columns.map((_column, position) => position)
-      : columns.map((name) => positionOf(table, name));
+  const names =
+    columns.length === 0 ? table.columns.map(({ name }) => name) : columns;
+  const positions = names.map((name) => positionOf(table, name));
   return { kind: "get", tableIndex, table, columns: positions };
 }
 
 function positionOf(table: Table, name: string): number {
   if (name === "rowid") return ROWID_COLUMN;
   const position = table.columns.findIndex((each) => each.name === name);
-  if (position === -1)
+  if (position === -1) {
     throw new InternalError(`${table.name} has no column ${name}`);
+  }
   return position;
 }
 
@@ -157,10 +157,7 @@ export function column(
   depth = 0,
 ): ColumnReference {
   const columnIndex = positionOf(source.table, name);
-  const type: StaticType =
-    columnIndex === ROWID_COLUMN
-      ? "INTEGER"
-      : (source.table.columns[columnIndex]?.type ?? "ANY");
+  const type = logical.columnType(source.table, columnIndex);
   const written = source.alias === undefined ? name : `${source.alias}.${name}`;
   return {
     kind: "column",
