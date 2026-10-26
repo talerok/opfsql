@@ -164,12 +164,12 @@ holds the lock until this promise settles".
 | `functions`        | built: one registry for the binder and the compiler                                                                     |
 | `expressions`      | built on `sql/plan`; the old compiler stays in `src/legacy/executor/evaluate` until the switch                          |
 | `sql/plan`         | contract written and reviewed against three implementations                                                             |
-| `sql/binder`       | built on its branch, reviewed, fixes under way; the old one is in `src/legacy`                                          |
-| `sql/optimizer`    | built on its branch, reviewed, fixes under way; the old one is in `src/legacy`                                          |
-| `executor`         | built on its branch, reviewed, fixes under way; the old one is in `src/legacy`                                          |
+| `sql/binder`       | built and reviewed; the old one is in `src/legacy` until the switch                                                     |
+| `sql/optimizer`    | built and reviewed; the old one is in `src/legacy` until the switch                                                     |
+| `executor`         | built and reviewed; the old one is in `src/legacy` until the switch                                                     |
 | `engine`, `worker` | rebuilt: snapshots, one write lock, queues, states, the worker API (docs/api.md); still on the old storage, `src/store` |
 
-The switch, once the three branches are merged, moves the engine onto them:
+The switch moves the engine onto the new modules:
 
 - open format-5 files; pin a snapshot per transaction, catch up and lower a
   stale checkpoint intent under the write lock; checkpoint as before;
