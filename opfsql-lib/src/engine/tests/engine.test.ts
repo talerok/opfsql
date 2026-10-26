@@ -1401,6 +1401,23 @@ describe("prepared statements", () => {
     expect(binds).toHaveBeenCalledTimes(1);
   });
 
+  it("run against the schema of the transaction they run in, its own DDL included", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    await session.execute("INSERT INTO t VALUES (1)");
+    const statement = await session.prepare("SELECT * FROM t");
+
+    await session.begin();
+    await session.execute("ALTER TABLE t ADD COLUMN v TEXT DEFAULT 'x'");
+    const inside = await statement.query();
+    expect(inside.columns).toEqual(["id", "v"]);
+    await session.rollback();
+
+    const after = await statement.query();
+    expect(after.columns).toEqual(["id"]);
+    expect(after.rows).toEqual([[1]]);
+  });
+
   it("fail with the binding error when the schema change broke them", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");

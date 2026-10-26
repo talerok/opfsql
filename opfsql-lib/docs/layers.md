@@ -59,7 +59,7 @@ they guard.
 
 | Contract                                                                                              | Enforced                                                                                                                                                                         |
 | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A statement is planned for one schema and runs only against it                                        | by check: the planned statement carries its schema                                                                                                                               |
+| A statement is planned for one schema and runs only against it                                        | by construction: a transaction plans what it runs, against its own schema                                                                                                        |
 | A prepared statement is planned again when the schema version moves                                   | by construction: the plan cache is keyed by schema                                                                                                                               |
 | Parameters are values as docs/semantics.md defines them, normalized, and as many as the statement has | by check at the call (`parametersOf`): anything else is MISUSE, and BLOBs and JSON are copied; by type below it: a run takes only `ParameterValues`, which only that check makes |
 | BEGIN, COMMIT and ROLLBACK never reach the binder                                                     | by construction                                                                                                                                                                  |
@@ -137,25 +137,23 @@ fix lands.
    are not checked against writes and rollbacks in the same transaction.
 4. **INSERT streams when its source reads `opfsql_sequence`** while it
    writes it through AUTOINCREMENT.
-5. **A planned statement does not carry its schema**; only its one caller
-   pairs them.
-6. **The schema cache accepts a write transaction's snapshot.**
-7. **Defaults are handed out by reference**, and BLOB constants are not
+5. **The schema cache accepts a write transaction's snapshot.**
+6. **Defaults are handed out by reference**, and BLOB constants are not
    copied; results copy BLOBs per row instead.
-8. **Call order on a connection relies on no `await`** before the queue.
-9. **A failing call on the shared connection** can leave its transaction
+7. **Call order on a connection relies on no `await`** before the queue.
+8. **A failing call on the shared connection** can leave its transaction
    open.
-10. **The editor ignores** whether an index entry it inserts or deletes was
-    already there.
-11. **The catalog's dropped-column check** misses expression keys.
-12. **Uncorrelated subqueries run with the outer rows open**, and a row
+9. **The editor ignores** whether an index entry it inserts or deletes was
+   already there.
+10. **The catalog's dropped-column check** misses expression keys.
+11. **Uncorrelated subqueries run with the outer rows open**, and a row
     narrower than its layout reads NULL.
-13. **The WAL rethrows one stored IoError**, which statement tagging then
+12. **The WAL rethrows one stored IoError**, which statement tagging then
     changes.
-14. **Errors are translated in two places** that disagree on a DOMException;
+13. **Errors are translated in two places** that disagree on a DOMException;
     INTERNAL also covers a crashed worker and a failed lock request.
-15. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
+14. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
     bug.
-16. **The allocation map** does not check a page's state before marking it.
-17. **`close()` does not wait** for the background release of abandoned read
+15. **The allocation map** does not check a page's state before marking it.
+16. **`close()` does not wait** for the background release of abandoned read
     marks.

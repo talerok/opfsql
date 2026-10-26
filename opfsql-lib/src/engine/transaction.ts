@@ -15,7 +15,12 @@ import { runDdl } from "./ddl.js";
 import { compileIndexKey } from "./index-keys.js";
 import { changesResult, rowsResult } from "./results.js";
 import { readSchema, type SchemaCache } from "./schemas.js";
-import { columnsOf, type Planned } from "./statements.js";
+import {
+  checkParameters,
+  columnsOf,
+  type Planned,
+  type Step,
+} from "./statements.js";
 
 /** What a transaction needs from its engine. */
 export interface TransactionHost {
@@ -98,9 +103,41 @@ export class Transaction {
     this.pages = this.writer.transaction;
   }
 
-  /** Runs a planned statement; one that writes needs makeWritable first. */
-  run(planned: Planned, parameters: ParameterValues): Result {
+  /**
+   * Runs `step`, planned against this transaction's own schema — the one
+   * thing that can pair a plan with the schema it runs on. One that writes
+   * needs makeWritable first.
+   */
+  run(step: Step, parameters: ParameterValues): Result {
     this.ensureOpen();
+    const planned = step.plan(this.working.schema);
+    checkParameters(planned, parameters);
+    return this.runPlanned(planned, parameters);
+  }
+
+  /** Commits; if that fails, nothing of the transaction remains. */
+  commit(): void {
+    this.ensureOpen();
+    this.isOpen = false;
+    const writer = this.writer;
+    if (writer === null) {
+      this.pages.end();
+      return;
+    }
+    endWriter(this.host.database, writer, (transaction) => {
+      transaction.commit();
+    });
+    // The schema just committed: kept for others, as the same object.
+    if (this.working !== this.base) this.host.schemas.remember(this.working);
+  }
+
+  rollback(): void {
+    if (!this.isOpen) return;
+    this.isOpen = false;
+    discard(this.host.database, this.pages, this.writer);
+  }
+
+  private runPlanned(planned: Planned, parameters: ParameterValues): Result {
     switch (planned.kind) {
       case "query": {
         const tables = new Tables(this.pages, this.working.schema);
@@ -132,28 +169,6 @@ export class Transaction {
         });
       }
     }
-  }
-
-  /** Commits; if that fails, nothing of the transaction remains. */
-  commit(): void {
-    this.ensureOpen();
-    this.isOpen = false;
-    const writer = this.writer;
-    if (writer === null) {
-      this.pages.end();
-      return;
-    }
-    endWriter(this.host.database, writer, (transaction) => {
-      transaction.commit();
-    });
-    // The schema just committed: kept for others, as the same object.
-    if (this.working !== this.base) this.host.schemas.remember(this.working);
-  }
-
-  rollback(): void {
-    if (!this.isOpen) return;
-    this.isOpen = false;
-    discard(this.host.database, this.pages, this.writer);
   }
 
   /**

@@ -238,7 +238,7 @@ export class SessionCore {
     const transaction = await this.beginForScript(steps, signal);
     try {
       const results = await eachStep(steps, (step) =>
-        runPlanned(transaction, step, NO_PARAMETERS),
+        transaction.run(step, NO_PARAMETERS),
       );
       transaction.commit();
       return results;
@@ -319,7 +319,7 @@ export class SessionCore {
     const transaction = await Transaction.begin(this.host, mode, signal);
     let result: Result;
     try {
-      result = runPlanned(transaction, step, parameters);
+      result = transaction.run(step, parameters);
     } catch (error) {
       transaction.rollback();
       throw error;
@@ -343,7 +343,7 @@ export class SessionCore {
       checkParameters(step.plan(transaction.schema), parameters);
       await transaction.makeWritable(signal);
     }
-    return runPlanned(transaction, step, parameters);
+    return transaction.run(step, parameters);
   }
 
   // -------------------------------------------------------------------------
@@ -423,17 +423,6 @@ export class SessionCore {
       pages.end();
     }
   }
-}
-
-/** Plans `step` against the transaction's schema and runs it. */
-function runPlanned(
-  transaction: Transaction,
-  step: Step,
-  parameters: ParameterValues,
-): Result {
-  const planned = step.plan(transaction.schema);
-  checkParameters(planned, parameters);
-  return transaction.run(planned, parameters);
 }
 
 function isControl(statement: Statement): statement is TransactionStatement {
