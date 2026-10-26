@@ -87,6 +87,19 @@ calls `serveDatabase()` does not.
 The page and the worker must load the same opfsql: the worker refuses a page
 of another protocol version with `MISUSE`.
 
+Only Chromium lets several tabs open one database, because of the platform.
+opfsql reads and writes its files through OPFS synchronous access handles
+(`createSyncAccessHandle`), which exist only in workers. Since Chrome 121,
+Chromium has a locking mode, `{ mode: "readwrite-unsafe" }`, which lets
+handles in several tabs hold one file at once. opfsql's own protocol
+(docs/concurrency.md) keeps those tabs consistent. Firefox and Safari
+implement only the default, exclusive mode: one handle per file in the
+whole origin, so a second tab cannot open the files. opfsql does not route
+other tabs' queries through a leader tab on purpose: every query would then
+cross tabs as a message, and closing the leader would interrupt the others.
+When those browsers support the locking modes, several tabs will work there
+with no change to the file format.
+
 ## Database
 
 | Member                          | Returns               | Does                                                    |
