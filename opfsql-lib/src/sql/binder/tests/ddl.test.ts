@@ -186,13 +186,12 @@ describe("CREATE TABLE", () => {
     ).toBe("there is already an index named orders_user");
   });
 
-  it("does not support keys over BLOB or JSON columns", () => {
-    expect(notSupported("CREATE TABLE t (a BLOB PRIMARY KEY)")).toBe(
-      "a PRIMARY KEY on a BLOB column",
-    );
-    expect(notSupported("CREATE TABLE t (a JSON UNIQUE)")).toBe(
-      "UNIQUE on a JSON column",
-    );
+  it("keys any column, BLOB and JSON included", () => {
+    expect(
+      createTable(
+        "CREATE TABLE t (b BLOB PRIMARY KEY, j JSON UNIQUE)",
+      ).constraints.map((index) => index.origin),
+    ).toEqual(["primary-key", "unique"]);
   });
 });
 
@@ -254,13 +253,20 @@ describe("CREATE INDEX", () => {
     );
   });
 
-  it("does not support keys of BLOB or a whole JSON column", () => {
-    expect(notSupported("CREATE INDEX i ON users (data)")).toBe(
-      "an index key on a JSON column",
+  it("keys any column or expression, BLOB and JSON included", () => {
+    const blobs = schemaOf(
+      "CREATE TABLE files (id INTEGER PRIMARY KEY, body BLOB)",
     );
-    expect(notSupported("CREATE INDEX i ON users (x'00')")).toBe(
-      "an index key of type BLOB",
-    );
+    expect(
+      createIndex("CREATE INDEX by_data ON users (data, CAST(name AS BLOB))")
+        .index.keys,
+    ).toEqual([
+      { kind: "column", column: 4 },
+      { kind: "expression", sql: "CAST(name AS BLOB)", type: "BLOB" },
+    ]);
+    expect(
+      bind("CREATE UNIQUE INDEX by_body ON files (body)", blobs),
+    ).toMatchObject({ index: { keys: [{ kind: "column", column: 1 }] } });
   });
 });
 

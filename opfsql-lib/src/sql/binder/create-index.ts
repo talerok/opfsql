@@ -1,4 +1,4 @@
-import { NotSupportedError, SemanticError } from "../../errors.js";
+import { SemanticError } from "../../errors.js";
 import {
   isReservedName,
   Schema,
@@ -14,7 +14,6 @@ import {
 } from "../parser/index.js";
 import type { CreateIndex, logical } from "../plan/index.js";
 import { refuse } from "./clause.js";
-import { checkKeyType } from "./column-definition.js";
 import { asCorruption } from "./corruption.js";
 import { checkNewName } from "./create-table.js";
 import { tableNamed } from "./dml.js";
@@ -114,11 +113,7 @@ function tableScope(
 function indexKey(expression: ParsedExpression, scope: Scope): IndexKey {
   const bound = bindKeyExpression(expression, scope);
   if (bound.kind === "column") {
-    checkKeyType(bound.type === "NULL" ? "ANY" : bound.type, "an index key");
     return { kind: "column", column: bound.binding.columnIndex };
-  }
-  if (bound.type === "BLOB") {
-    throw new NotSupportedError("an index key of type BLOB");
   }
   const sql = formatExpression(expression);
   return { kind: "expression", sql, type: storedType(bound.type) };

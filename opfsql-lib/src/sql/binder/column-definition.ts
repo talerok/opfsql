@@ -98,10 +98,3 @@ function isConstant(expression: ParsedExpression): boolean {
     }
   }
 }
-
-/** A PRIMARY KEY, UNIQUE or index key over a BLOB or JSON column is not supported. */
-export function checkKeyType(type: SqlType, what: string): void {
-  if (type === "BLOB" || type === "JSON") {
-    throw new NotSupportedError(`${what} on a ${type} column`);
-  }
-}

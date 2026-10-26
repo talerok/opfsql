@@ -10,11 +10,7 @@ import {
 } from "../../schema/index.js";
 import type { CreateTableStatement } from "../parser/index.js";
 import type { CreateTable } from "../plan/index.js";
-import {
-  checkKeyType,
-  declareColumn,
-  type DeclaredColumn,
-} from "./column-definition.js";
+import { declareColumn, type DeclaredColumn } from "./column-definition.js";
 
 // ---------------------------------------------------------------------------
 // CREATE TABLE to the schema model. A sole PRIMARY KEY column of type
@@ -135,9 +131,6 @@ function primaryKey(
       `a column is named twice in the primary key of ${statement.table}`,
     );
   }
-  for (const position of key) {
-    checkKeyType(declared[position]?.column.type ?? "ANY", "a PRIMARY KEY");
-  }
   return key;
 }
 
@@ -191,10 +184,7 @@ function constraintIndexes(
   const perColumn = declared.flatMap((column, position) => {
     const origins: IndexOrigin[] = [];
     if (columnKey === position) origins.push("primary-key");
-    if (column.isUnique) {
-      checkKeyType(column.column.type, "UNIQUE");
-      origins.push("unique");
-    }
+    if (column.isUnique) origins.push("unique");
     return origins.map((origin) => ({ origin, keys: [position] }));
   });
   const composite =
