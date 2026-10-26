@@ -64,6 +64,20 @@ export class TableRows {
     }
   }
 
+  /**
+   * Rows whose rowid is from `first` to `last`, both included, in rowid
+   * order: -Infinity and Infinity leave an end open.
+   */
+  *rowsBetween(first: number, last: number): Generator<TableRow> {
+    const isEmpty = first === Infinity || first > last;
+    if (isEmpty) return;
+    const from = first === -Infinity ? undefined : first;
+    for (const row of this.scan(from)) {
+      if (row.rowid > last) return;
+      yield row;
+    }
+  }
+
   /** Rows in reverse rowid order, from the last below `before` (or the last). */
   *scanBackward(before?: number): Generator<TableRow> {
     for (const row of this.stored.scanBackward(before)) {
