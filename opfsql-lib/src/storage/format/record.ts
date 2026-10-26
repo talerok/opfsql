@@ -243,13 +243,15 @@ function fieldAt(
  * TextDecoder; anything else goes to TextDecoder.
  */
 function textAt(record: Uint8Array, start: number, end: number): string {
-  if (end - start > SHORT_TEXT)
+  if (end - start > SHORT_TEXT) {
     return decoder.decode(record.subarray(start, end));
+  }
   let text = "";
   for (let index = start; index < end; index++) {
     const byte = record[index] ?? 0;
-    if (byte >= FIRST_NON_ASCII)
+    if (byte >= FIRST_NON_ASCII) {
       return decoder.decode(record.subarray(start, end));
+    }
     text += String.fromCodePoint(byte);
   }
   return text;
