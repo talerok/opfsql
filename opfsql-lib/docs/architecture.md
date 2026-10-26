@@ -29,6 +29,8 @@ values ────────────────────────�
 errors ──────────────────────────────────────────┤ used by everything
                                                  │
 sql/parser    text → syntax tree                 │
+sql/precedence the operator precedence of the    │
+              parser and the plan printers       │
 sql/binder    syntax tree → bound statement      │
               (names, scopes, types)             │
 sql/plan      the types between the stages:      │
@@ -58,11 +60,12 @@ Dependencies point down the request path and never back:
 | Module             | May use                                                                       |
 | ------------------ | ----------------------------------------------------------------------------- |
 | `values`, `errors` | nothing else                                                                  |
+| `sql/precedence`   | nothing else                                                                  |
 | `schema`           | `values`, `errors`                                                            |
 | `storage`          | `values`, `errors`                                                            |
 | `functions`        | `values`, `errors`                                                            |
-| `sql/parser`       | `values`, `errors`                                                            |
-| `sql/plan`         | `schema`, `functions`, `values`, `errors`                                     |
+| `sql/parser`       | `sql/precedence`, `values`, `errors`                                          |
+| `sql/plan`         | `sql/precedence`, `schema`, `functions`, `values`, `errors`                   |
 | `expressions`      | `sql/plan`, `functions`, `values`, `errors`                                   |
 | `sql/binder`       | `sql/parser`, `sql/plan`, `schema`, `functions`, `values`, `errors`           |
 | `sql/optimizer`    | `sql/plan`, `expressions`, `schema`, `values`, `errors`                       |

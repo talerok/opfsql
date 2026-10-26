@@ -71,7 +71,7 @@ describe("MIN and MAX from an index's end", () => {
     expect(planOf(plan)).toBe(
       lines(
         "hash-aggregate#3#4 compute max(age)",
-        "  index-scan users#1 using users_name_age (name = 'bob') residual: (tag = $1)",
+        "  index-scan users#1 using users_name_age (name = 'bob') residual: tag = $1",
       ),
     );
   });

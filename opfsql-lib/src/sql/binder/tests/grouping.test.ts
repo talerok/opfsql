@@ -16,7 +16,7 @@ describe("the aggregate node", () => {
       lines(
         "project #4 (age#2.0, count(*)#3.0, sum(total)#3.1)",
         "  aggregate #2 (age#0.2) #3 (count(*), sum(total#1.2))",
-        "    join inner on (user_id#1.1 = id#0.0)",
+        "    join inner on user_id#1.1 = id#0.0",
         "      get #0 users (id, name, age, email, data)",
         "      get #1 orders (id, user_id, total, status)",
       ),
@@ -55,7 +55,7 @@ describe("the aggregate node", () => {
     ).toBe(
       lines(
         "project #3 (group1#1.0, count(*)#2.0)",
-        "  filter (count(*)#2.0 > 1) AND (group1#1.0 <> 'x')",
+        "  filter count(*)#2.0 > 1 AND group1#1.0 <> 'x'",
         "    aggregate #1 (lower(name#0.1)) #2 (count(*))",
         "      get #0 users (id, name, age, email, data)",
       ),
@@ -63,7 +63,7 @@ describe("the aggregate node", () => {
     expect(plan("SELECT 1 FROM users HAVING count(*) > 2")).toBe(
       lines(
         "project #3 (1)",
-        "  filter (count(*)#2.0 > 2)",
+        "  filter count(*)#2.0 > 2",
         "    aggregate #1 () #2 (count(*))",
         "      get #0 users (id, name, age, email, data)",
       ),
@@ -135,7 +135,7 @@ describe("expressions above the aggregate", () => {
         "project #7 (name#1.1, subquery(1))",
         "  subquery(1, correlated): project #6 (count(*)#5.0)",
         "    aggregate #4 () #5 (count(*))",
-        "      filter (user_id#3.1 = id#1.0^1)",
+        "      filter user_id#3.1 = id#1.0^1",
         "        get #3 orders (id, user_id, total, status)",
         "  aggregate #1 (id#0.0, name#0.1) #2 ()",
         "    get #0 users (id, name, age, email, data)",
@@ -183,7 +183,7 @@ describe("GROUP BY", () => {
       "  aggregate #5 (subquery(1)) #6 (count(*))",
       "    subquery(1, correlated): project #4 (max(o.total)#3.0)",
       "      aggregate #2 () #3 (max(total#1.2))",
-      "        filter (user_id#1.1 = id#0.0^1)",
+      "        filter user_id#1.1 = id#0.0^1",
       "          get #1 orders (id, user_id, total, status)",
       "    get #0 users (id, name, age, email, data)",
     );

@@ -54,7 +54,7 @@ describe("through projects", () => {
       compare(output(5, 0, "INTEGER", "r"), ">", constant(0)),
     );
     expect(planOf(plan)).toBe(
-      lines("filter (r > 0)", "  project#5 random()", "    table-scan users#1"),
+      lines("filter r > 0", "  project#5 random()", "    table-scan users#1"),
     );
   });
 });
@@ -69,9 +69,9 @@ describe("into joins", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join inner on u.id = o.user_id residual: (u.age < o.total)",
+        "hash-join inner on u.id = o.user_id residual: u.age < o.total",
         "  table-scan users#1",
-        "  table-scan orders#2 residual: (o.total > 5)",
+        "  table-scan orders#2 residual: o.total > 5",
       ),
     );
   });
@@ -91,7 +91,7 @@ describe("into joins", () => {
       lines(
         "hash-join left on u.id = o.user_id",
         "  index-scan users#1 using users_name_age (name = 'bob')",
-        "  table-scan orders#2 residual: (o.status = 'paid')",
+        "  table-scan orders#2 residual: o.status = 'paid'",
       ),
     );
   });
@@ -102,7 +102,7 @@ describe("into joins", () => {
     const plan = filter(join("left", get(u), get(o), userOf), nullCheck(total));
     expect(planOf(plan)).toBe(
       lines(
-        "filter (o.total IS NULL)",
+        "filter o.total IS NULL",
         "  hash-join left on u.id = o.user_id",
         "    table-scan users#1",
         "    table-scan orders#2",
@@ -120,7 +120,7 @@ describe("into joins", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join left on u.id = o.user_id residual: (u.age > 18)",
+        "hash-join left on u.id = o.user_id residual: u.age > 18",
         "  table-scan users#1",
         "  table-scan orders#2",
       ),
@@ -146,7 +146,7 @@ describe("below aggregates", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "filter (count > 1)",
+        "filter count > 1",
         "  hash-aggregate#3#4 group by u.age compute count(*)",
         "    index-scan users#1 using users_age (age > 18)",
       ),
@@ -166,7 +166,7 @@ describe("below aggregates", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "filter (1 = count)",
+        "filter 1 = count",
         "  hash-aggregate#3#4 compute count(*)",
         "    table-scan users#1",
       ),
@@ -187,7 +187,7 @@ describe("into set operations", () => {
     expect(planOf(plan)).toBe(
       lines(
         "set-operation#8 UNION ALL",
-        "  filter (x > 1)",
+        "  filter x > 1",
         "    values#6 (1), (2)",
         "  project#7 u.age",
         "    index-scan users#1 using users_age (age > 1)",
@@ -202,7 +202,7 @@ describe("into set operations", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "filter (x > 1)",
+        "filter x > 1",
         "  set-operation#8 INTERSECT",
         "    values#6 (1), (2)",
         "    project#7 u.age",
@@ -219,7 +219,7 @@ describe("into set operations", () => {
     expect(planOf(plan)).toBe(
       lines(
         "set-operation#8 UNION",
-        "  filter (x < 2)",
+        "  filter x < 2",
         "    values#6 (1), (2)",
         "  project#7 u.age",
         "    index-scan users#1 using users_age (age < 2)",
@@ -235,7 +235,7 @@ describe("into set operations", () => {
     const plan = filter(union, compare(mixed, "=", constant(1)));
     expect(planOf(plan)).toBe(
       lines(
-        "filter (x = 1)",
+        "filter x = 1",
         "  set-operation#8 UNION",
         "    values#6 ('a')",
         "    project#7 u.age",
@@ -262,7 +262,7 @@ describe("into CTEs", () => {
         "cte#1 adults",
         "  project#7 u.age",
         "    index-scan users#1 using users_age (age > 1)",
-        "  filter (a.age < 65)",
+        "  filter a.age < 65",
         "    cte-scan#9 of cte#1",
       ),
     );
@@ -278,7 +278,7 @@ describe("conditions that stay", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "filter (random() < 0)",
+        "filter random() < 0",
         "  hash-join inner on u.id = o.user_id",
         "    table-scan users#1",
         "    table-scan orders#2",
@@ -301,7 +301,7 @@ describe("conditions that stay", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "filter (EXISTS (correlated subquery 1))",
+        "filter EXISTS (correlated subquery 1)",
         "  hash-join inner on u.id = o.user_id",
         "    table-scan users#1",
         "    table-scan orders#2",
@@ -317,7 +317,7 @@ describe("conditions that stay", () => {
       compare(age, ">", constant(1)),
     );
     expect(planOf(plan)).toBe(
-      lines("filter (u.age > 1)", "  limit 5", "    table-scan users#1"),
+      lines("filter u.age > 1", "  limit 5", "    table-scan users#1"),
     );
   });
 

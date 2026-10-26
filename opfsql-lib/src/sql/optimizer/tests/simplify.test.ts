@@ -171,7 +171,7 @@ describe("conditions no row passes", () => {
       nullCheck(column(o, "total")),
     );
     expect(planOf(plan)).toBe(
-      "table-scan orders#2 residual: (o.paid = FALSE) AND (o.total IS NULL)",
+      "table-scan orders#2 residual: o.paid = FALSE AND o.total IS NULL",
     );
     expectSameRows(plan);
   });

@@ -382,7 +382,7 @@ describe("bindIndexKey", () => {
         child: { kind: "values", tableIndex: 0, rows: [[]], types: [] },
         expressions: [bindIndexKey("lower(t) || -i", table, 7)],
       }),
-    ).toBe(lines("project #1 (lower(t#7.6) || (-i#7.1))", "  values #0 ()"));
+    ).toBe(lines("project #1 (lower(t#7.6) || -i#7.1)", "  values #0 ()"));
   });
 
   it("reports a key that does not parse or bind as corruption naming it", () => {
