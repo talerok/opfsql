@@ -14,7 +14,7 @@ import {
   operatorNode,
   quantifiedNode,
 } from "./nodes.js";
-import { above, power } from "./precedence.js";
+import { above, power } from "../precedence.js";
 import { parsePrefix } from "./primary.js";
 import type { SymbolText } from "./tokens.js";
 import {

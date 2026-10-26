@@ -1,3 +1,9 @@
+// ---------------------------------------------------------------------------
+// SQL's operator precedence, in one place: the parser parses by it, and the
+// plan printers (sql/plan) print by it, so a printed expression parses back
+// to the tree it came from. It depends on nothing.
+// ---------------------------------------------------------------------------
+
 /**
  * The binding powers, loosest first: SQLite's precedence (parse.y).
  * Operators on one level associate to the left, so `a - b - c` is

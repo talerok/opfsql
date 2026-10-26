@@ -8,7 +8,7 @@ import { hexToBytes } from "../../values/index.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
 import { constantNode, notNode, operatorNode, subqueryNode } from "./nodes.js";
-import { power } from "./precedence.js";
+import { power } from "../precedence.js";
 import type { SymbolText, Token } from "./tokens.js";
 import { parseTypeName } from "./type-name.js";
 import {

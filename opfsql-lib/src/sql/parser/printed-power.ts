@@ -1,7 +1,7 @@
 // How tightly printed expressions hold together, in the binding powers of
 // precedence.ts, so the printer knows where the parser needs parentheses.
 
-import { power } from "./precedence.js";
+import { power } from "../precedence.js";
 import {
   ExpressionClass,
   ExpressionType,
