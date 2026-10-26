@@ -6,10 +6,10 @@ import {
   integerWidth,
   readInteger,
   readVarint,
+  readZigzagVarint,
   skipVarint,
-  unzigzag,
   varintSize,
-  zigzag,
+  zigzagVarintSize,
 } from "../bytes.js";
 
 describe("varints", () => {
@@ -31,14 +31,43 @@ describe("varints", () => {
     );
   });
 
-  it.each([0, 1, -1, 63, -64, 2 ** 52, -(2 ** 52), Number.MAX_SAFE_INTEGER])(
-    "zigzag %i and back",
-    (value) => {
-      expect(zigzag(value)).toBeGreaterThanOrEqual(0);
-      expect(unzigzag(zigzag(value))).toBe(value);
-    },
-  );
+  // Past ±2^52 the zigzag value is past what a double holds exactly; a
+  // magnitude that is a multiple of 64 borrows from the bits above.
+  it.each([
+    0,
+    1,
+    -1,
+    63,
+    -64,
+    -128,
+    2 ** 52,
+    -(2 ** 52),
+    -(2 ** 52) - 1,
+    -(2 ** 53) + 64,
+    Number.MAX_SAFE_INTEGER,
+    Number.MIN_SAFE_INTEGER,
+  ])("zigzag %i into the bytes the format says, and back", (value) => {
+    const writer = new ByteWriter(1);
+    writer.zigzagVarint(value);
+    const bytes = writer.toBytes();
+    expect([...bytes]).toEqual(zigzagReference(value));
+    expect(bytes).toHaveLength(zigzagVarintSize(value));
+    expect(readZigzagVarint(bytes, 0)).toBe(value);
+    expect(skipVarint(bytes, 0)).toBe(bytes.length);
+  });
 });
+
+/** The zigzag varint of docs/file-format.md, worked out exactly. */
+function zigzagReference(value: number): number[] {
+  const x = BigInt(value);
+  let rest = x >= 0n ? 2n * x : -2n * x - 1n;
+  const bytes: number[] = [];
+  while (rest >= 0x80n) {
+    bytes.push(Number(rest % 0x80n) | 0x80);
+    rest /= 0x80n;
+  }
+  return [...bytes, Number(rest)];
+}
 
 describe("integers", () => {
   const boundaries = [

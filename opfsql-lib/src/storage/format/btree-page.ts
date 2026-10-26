@@ -4,12 +4,12 @@ import {
   ByteWriter,
   readUint32,
   readVarint,
+  readZigzagVarint,
   skipVarint,
-  unzigzag,
   varintSize,
   viewOf,
   writeUint32,
-  zigzag,
+  zigzagVarintSize,
 } from "./bytes.js";
 
 // ---------------------------------------------------------------------------
@@ -79,14 +79,14 @@ export function cellFootprint(cell: Uint8Array): number {
 
 /** Bytes of a table leaf cell holding `rowid` and a record of `recordLength` bytes. */
 export function tableLeafCellSize(rowid: number, recordLength: number): number {
-  return varintSize(zigzag(rowid)) + varintSize(recordLength) + recordLength;
+  return zigzagVarintSize(rowid) + varintSize(recordLength) + recordLength;
 }
 
 // --- Cells -------------------------------------------------------------------
 
 export function tableLeafCell(rowid: number, record: Uint8Array): Uint8Array {
   const writer = new ByteWriter(record.length + 16);
-  writer.varint(zigzag(rowid));
+  writer.zigzagVarint(rowid);
   writer.varint(record.length);
   writer.bytes(record);
   return writer.toBytes();
@@ -95,7 +95,7 @@ export function tableLeafCell(rowid: number, record: Uint8Array): Uint8Array {
 export function tableInteriorCell(child: number, rowid: number): Uint8Array {
   const writer = new ByteWriter(16);
   writer.uint32(child);
-  writer.varint(zigzag(rowid));
+  writer.zigzagVarint(rowid);
   return writer.toBytes();
 }
 
@@ -119,7 +119,7 @@ export function leafCellKey(
   type: BTreePageType,
   cell: Uint8Array,
 ): number | Uint8Array {
-  if (type === "table-leaf") return unzigzag(readVarint(cell, 0));
+  if (type === "table-leaf") return readZigzagVarint(cell, 0);
   const start = skipVarint(cell, 0);
   return new Uint8Array(cell.subarray(start, start + readVarint(cell, 0)));
 }
@@ -129,7 +129,7 @@ export function interiorCellKey(
   type: BTreePageType,
   cell: Uint8Array,
 ): number | Uint8Array {
-  if (type === "table-interior") return unzigzag(readVarint(cell, CHILD_SIZE));
+  if (type === "table-interior") return readZigzagVarint(cell, CHILD_SIZE);
   const start = skipVarint(cell, CHILD_SIZE);
   return new Uint8Array(
     cell.subarray(start, start + readVarint(cell, CHILD_SIZE)),
@@ -214,7 +214,7 @@ export class BTreePage {
   }
 
   rowid(index: number): number {
-    return unzigzag(readVarint(this.bytes, this.keyOffset(index)));
+    return readZigzagVarint(this.bytes, this.keyOffset(index));
   }
 
   /** The record of a table leaf cell: after the rowid. */
