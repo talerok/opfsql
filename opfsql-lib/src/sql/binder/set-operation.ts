@@ -14,6 +14,7 @@ import { bareName, keyOrder, literalPosition } from "./order-by.js";
 import type { BoundQuery, Scope } from "./scope.js";
 import { bindSelect, order } from "./select.js";
 import { commonType } from "../../functions/index.js";
+import { itemAt } from "./one.js";
 
 // ---------------------------------------------------------------------------
 // UNION, UNION ALL, INTERSECT and EXCEPT. Each member is a SELECT of its own
@@ -62,8 +63,8 @@ function joinOn(
     );
   }
   const columns = left.columns.map((column, position): OutputColumn => {
-    const other = right.columns[position]?.type ?? column.type;
-    return { name: column.name, type: commonType([column.type, other]) };
+    const other = itemAt(right.columns, position, `${operator}'s right side`);
+    return { name: column.name, type: commonType([column.type, other.type]) };
   });
   const plan: logical.Plan = {
     kind: "set-operation",

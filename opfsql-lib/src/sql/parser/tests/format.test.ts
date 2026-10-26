@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  formatExpression,
-  formatName,
-  formatQuery,
-  parseExpression,
-} from "../index.js";
+import { formatName, formatQuery } from "../format.js";
+import { formatExpression, parseExpression } from "../index.js";
 import { query, render, renderQuery } from "./helpers.js";
 
 /** Expressions of every kind, and the precedence cases of the parser's tests. */

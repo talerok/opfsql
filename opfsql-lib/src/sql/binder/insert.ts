@@ -28,8 +28,8 @@ import { relation, Scope, type BindContext } from "./scope.js";
 // INSERT: the columns its source fills (all, unless listed; each once), the
 // source, and ON CONFLICT. Columns it leaves out get their defaults when the
 // executor writes the row. ON CONFLICT names a unique constraint by its
-// columns; DO UPDATE reads the row in the way as the table's own name and
-// the refused row as `excluded`.
+// columns; DO UPDATE reads the existing, conflicting row under the table's
+// name and the refused row as `excluded`.
 // ---------------------------------------------------------------------------
 
 type Plan = logical.Plan;

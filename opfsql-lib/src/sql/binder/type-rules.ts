@@ -8,9 +8,9 @@ import {
 // ---------------------------------------------------------------------------
 // Static types of what is not a function call (functions type their calls
 // in the registry). One rule each, and they agree with the expression
-// compiler: typed operands of different kinds are a bind error; a side whose
-// type is known only at run time (ANY) takes the other side's affinity
-// there, and a JSON value compares as it is (docs/semantics.md, Comparisons).
+// compiler: typed operands of different kinds are a bind error; a parameter
+// takes the other side's affinity (affinity.ts); an ANY column or a JSON
+// value compares as it is stored (docs/semantics.md, Comparisons).
 // ---------------------------------------------------------------------------
 
 /** Types that say nothing about the value: it may be anything. */

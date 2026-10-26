@@ -10,7 +10,7 @@ import type {
   JsonAccess,
   JsonPathStep,
 } from "../plan/index.js";
-import { oneOrNone } from "./one.js";
+import { itemAt, oneOrNone } from "./one.js";
 import type { Relation, Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
@@ -90,13 +90,13 @@ export function columnOf(
   column: number,
   depth: number,
 ): ColumnReference {
-  const output = item.columns[column];
+  const output = itemAt(item.columns, column, "a relation's columns");
   return {
     kind: "column",
     binding: { tableIndex: item.tableIndex, columnIndex: column },
     depth,
-    name: output?.name ?? String(column),
-    type: output?.type ?? "ANY",
+    name: output.name,
+    type: output.type,
   };
 }
 

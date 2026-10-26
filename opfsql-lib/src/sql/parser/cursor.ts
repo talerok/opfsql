@@ -29,7 +29,11 @@ import type { ParsedExpression, SelectStatement } from "./types.js";
  */
 export const MAX_DEPTH = 200;
 
-/** The keywords a query starts with; VALUES is refused where it would. */
+/**
+ * The keywords a query starts with. VALUES is among them so that a query
+ * starting with it reaches parseSelectCore, which reports it as not
+ * supported.
+ */
 const QUERY_KEYWORDS: ReadonlySet<Keyword> = new Set<Keyword>([
   "SELECT",
   "WITH",

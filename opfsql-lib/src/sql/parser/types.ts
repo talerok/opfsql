@@ -145,8 +145,9 @@ export interface ConjunctionExpression {
 
 /**
  * Arithmetic, NOT, IS [NOT] NULL, and [NOT] IN with a list (the left side
- * first). NOT IN and IS NOT NULL are operators of their own because the
- * binder and the optimizer treat them so; every other negation is NOT.
+ * first). NOT IN and IS NOT NULL keep shapes of their own, as NOT EXISTS
+ * does, so that printed text — index keys, column names — reads as written;
+ * the binder makes each a NOT around the positive form.
  */
 export interface OperatorExpression {
   readonly expressionClass: ExpressionClass.OPERATOR;

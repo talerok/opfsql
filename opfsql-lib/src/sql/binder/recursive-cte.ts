@@ -14,7 +14,7 @@ import {
 } from "../parser/index.js";
 import { cteColumns, type BoundCte } from "./cte-definition.js";
 import { hasAggregateCall } from "./grouping.js";
-import { exactlyOne } from "./one.js";
+import { exactlyOne, itemAt } from "./one.js";
 import { expressionsOf, mentions, mentionsInExpression } from "./references.js";
 import type { OutputColumn } from "../plan/index.js";
 import type { BoundQuery, CteDefinition, Scope } from "./scope.js";
@@ -120,7 +120,7 @@ function bindStep(
     name: column.name,
     type: commonType([
       column.type,
-      query.columns[position]?.type ?? column.type,
+      itemAt(query.columns, position, "the step's columns").type,
     ]),
   }));
   const isStable = widened.every(

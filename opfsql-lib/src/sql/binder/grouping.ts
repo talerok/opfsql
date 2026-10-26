@@ -11,6 +11,7 @@ import type { ColumnReference, logical } from "../plan/index.js";
 import { nameOf } from "./columns.js";
 import { isSameExpression } from "./same-expression.js";
 import { mapChildren, mapPlan } from "./walk.js";
+import { itemAt } from "./one.js";
 
 // ---------------------------------------------------------------------------
 // The grouping model. A query with GROUP BY, HAVING or an aggregate call
@@ -62,9 +63,8 @@ export class Grouping {
   ) {}
 
   /** Group `group`'s column above the aggregate. */
-  column(group: number): ColumnReference | null {
-    const expression = this.groups[group];
-    if (expression === undefined) return null;
+  column(group: number): ColumnReference {
+    const expression = itemAt(this.groups, group, "GROUP BY");
     return this.groupColumn(group, expression, 0);
   }
 

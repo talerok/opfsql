@@ -55,7 +55,7 @@ function countOf(
   return { kind: "constant", value, type: "INTEGER" };
 }
 
-/** A constant count converted as an INTEGER column converts it; NULL is no count. */
+/** A constant count converted as an INTEGER column converts it; NULL is refused. */
 function integerOf(value: Value, clause: string): number {
   const converted = assignedInteger(value, clause);
   if (typeof converted !== "number") {
