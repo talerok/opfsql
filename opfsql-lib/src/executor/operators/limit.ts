@@ -3,13 +3,7 @@ import type { Tuple } from "../../expressions/index.js";
 import type { physical } from "../../sql/plan/index.js";
 import { assignValue, describeValue, type Value } from "../../values/index.js";
 import { compileFixed, type Context } from "../context.js";
-import {
-  BATCH_SIZE,
-  type Demand,
-  type Operator,
-  pull,
-  WalkOperator,
-} from "../operator.js";
+import { type Demand, type Operator, pull, WalkOperator } from "../operator.js";
 
 // ---------------------------------------------------------------------------
 // LIMIT and OFFSET (docs/semantics.md, LIMIT and OFFSET): integers, as
@@ -83,7 +77,7 @@ function* windowRows(
 function skip(child: Operator, count: number): void {
   let skipped = 0;
   while (skipped < count) {
-    const batch = child.next(Math.min(count - skipped, BATCH_SIZE));
+    const batch = child.next(count - skipped);
     if (batch === null) return;
     skipped += batch.length;
   }

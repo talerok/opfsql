@@ -10,25 +10,32 @@ import type { Run, Tuple } from "../expressions/index.js";
 // ---------------------------------------------------------------------------
 
 export interface Operator {
-  /** The next batch of at most `max` rows, never empty, or null when there are no more. */
+  /**
+   * The next batch of at most `max` rows, never empty, or null when there
+   * are no more. `max` is what the caller can still use: Infinity when it
+   * takes every row.
+   */
   next(max: number): readonly Tuple[] | null;
   /** Starts over: for a subquery's next outer row, or a join's inner side. */
   rescan(): void;
 }
 
 /** The most rows an operator returns at once. */
-export const BATCH_SIZE = 512;
+const BATCH_SIZE = 512;
 
-/** How many more rows the batch being filled wants: what a walk pulls its children by. */
+/**
+ * How many more rows a walk's caller can use — Infinity when it takes every
+ * row: what the walk pulls its children by.
+ */
 export interface Demand {
   readonly wanted: number;
 }
 
-/** Every row there is: what a sort, an aggregate or a hash join's build side pulls by. */
-export const EVERY_ROW: Demand = { wanted: BATCH_SIZE };
-
-/** One row at a time: what a join pulls its left side by, each row of which may give several. */
-export const ONE_ROW: Demand = { wanted: 1 };
+/**
+ * Every row there is: what a sort, an aggregate, a hash join's build side,
+ * a write's source and a query's result pull by.
+ */
+export const EVERY_ROW: Demand = { wanted: Infinity };
 
 /** An operator's rows from the start, its children pulled as `demand` wants. */
 export type Walk = (demand: Demand) => Iterator<Tuple>;
@@ -51,7 +58,7 @@ export class WalkOperator implements Operator {
   next(max: number): readonly Tuple[] | null {
     this.beforeBatch?.();
     this.rows ??= this.walk(this.batch);
-    return this.batch.fill(this.rows, Math.min(max, BATCH_SIZE));
+    return this.batch.fill(this.rows, max);
   }
 
   rescan(): void {
@@ -105,20 +112,25 @@ function upTo(count: number, rows: readonly Tuple[]): Demand {
   };
 }
 
-/** A batch being filled from a walk, whose demand is what the batch still wants. */
+/**
+ * A batch being filled from a walk: at most BATCH_SIZE rows, and no more
+ * than the caller can use. Its demand is what the caller can still use, so
+ * a walk asked for every row asks its children for every row too.
+ */
 class Batch implements Demand {
   private rows: Tuple[] = [];
-  private size = 0;
+  private max = 0;
 
   get wanted(): number {
-    return this.size - this.rows.length;
+    return this.max - this.rows.length;
   }
 
-  /** Up to `size` rows from `source`, or null if it has none left. */
-  fill(source: Iterator<Tuple>, size: number): Tuple[] | null {
+  /** Up to `max` rows from `source`, at most a batch; null if it has none left. */
+  fill(source: Iterator<Tuple>, max: number): Tuple[] | null {
     this.rows = [];
-    this.size = size;
-    while (this.wanted > 0) {
+    this.max = max;
+    const size = Math.min(max, BATCH_SIZE);
+    while (this.rows.length < size) {
       const next = source.next();
       if (next.done === true) break;
       this.rows.push(next.value);

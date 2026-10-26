@@ -8,8 +8,8 @@ import { physical } from "../../sql/plan/index.js";
 import { rowKey } from "../../values/index.js";
 import { compileConditions, type Context, scopeOf } from "../context.js";
 import {
+  type Demand,
   drain,
-  ONE_ROW,
   type Operator,
   pull,
   WalkOperator,
@@ -19,7 +19,8 @@ import {
 // Joins (docs/planning.md, Rules 2): a pair is a match only when every
 // condition is TRUE for it, and a LEFT join emits each left row that has no
 // match once, with NULLs for the right side. The right side is read whole;
-// the left one row at a time, since each may give any number of pairs.
+// the left in full batches when the caller takes every row, and otherwise
+// one row at a time, since each may give any number of pairs.
 // ---------------------------------------------------------------------------
 
 /** How a join decides and pads its pairs. */
@@ -57,9 +58,10 @@ export function hashJoin(
     scopeOf(context, physical.layoutOf(plan.right)),
   );
   const pairing = compilePairing(plan, plan.residual, context);
-  function* joined(): Generator<Tuple> {
+  function* joined(demand: Demand): Generator<Tuple> {
     const table = hashTableOf(right, rightKey);
-    for (const row of pull(left, ONE_ROW)) {
+    const leftRows = pull(left, leftDemand(demand));
+    for (const row of leftRows) {
       const key = leftKey(row);
       const candidates = key === null ? undefined : table.get(key);
       yield* pairsOf(row, candidates ?? NO_ROWS, pairing);
@@ -80,13 +82,26 @@ export function nestedLoopJoin(
   context: Context,
 ): Operator {
   const pairing = compilePairing(plan, plan.conditions, context);
-  function* joined(): Generator<Tuple> {
+  function* joined(demand: Demand): Generator<Tuple> {
     const rightRows = drain(right);
-    for (const row of pull(left, ONE_ROW)) {
+    const leftRows = pull(left, leftDemand(demand));
+    for (const row of leftRows) {
       yield* pairsOf(row, rightRows, pairing);
     }
   }
   return new WalkOperator(joined, [left, right]);
+}
+
+/**
+ * What a join pulls its left side by: every row when its caller takes every
+ * row; otherwise one at a time, as any one may give all the pairs wanted.
+ */
+function leftDemand(demand: Demand): Demand {
+  return {
+    get wanted() {
+      return demand.wanted === Infinity ? Infinity : 1;
+    },
+  };
 }
 
 /** The matching pairs of `row` with `candidates`; for a LEFT join, the row padded if none. */
