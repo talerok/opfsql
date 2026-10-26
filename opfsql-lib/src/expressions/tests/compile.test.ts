@@ -7,6 +7,7 @@ import {
 } from "../../errors.js";
 import type { ScalarFunction } from "../../functions/index.js";
 import { scalarFunction } from "../../functions/index.js";
+import type { physical } from "../../sql/plan/index.js";
 import type { Value } from "../../values/index.js";
 import { compileExpression } from "../index.js";
 import {
@@ -290,6 +291,23 @@ describe("arithmetic", () => {
     const half = arithmetic(parameter(0), "/", constant(2));
     expect(evaluate(half, { parameters: [7] })).toBe(3);
     expect(evaluate(half, { parameters: [7.5] })).toBe(3.75);
+  });
+
+  it("divides exactly when the result is REAL, whatever the operands' types", () => {
+    // 1.0 + 2 is 3, which JavaScript cannot tell from an integer: only the
+    // REAL type of the sum makes the division exact.
+    const sum = arithmetic(constant(1, "REAL"), "+", parameter(0));
+    expect(sum.type).toBe("REAL");
+    const half = arithmetic(sum, "/", constant(2));
+    expect(evaluate(half, { parameters: [2] })).toBe(1.5);
+    const typedReal: physical.Expression = {
+      kind: "arithmetic",
+      operator: "DIVIDE",
+      left: parameter(0),
+      right: parameter(1),
+      type: "REAL",
+    };
+    expect(evaluate(typedReal, { parameters: [7, 2] })).toBe(3.5);
   });
 
   it("takes the sign of the dividend for %, and is NULL dividing by 0", () => {

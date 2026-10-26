@@ -11,6 +11,14 @@ function mismatch(left: string, right: string): string {
 }
 
 describe("static types", () => {
+  it("of arithmetic with a REAL: REAL, whatever the other operand", () => {
+    expect(
+      types(
+        "SELECT total + ?, ? * total, data.x / total, total % data.x, NULL - total FROM users, orders",
+      ),
+    ).toEqual(["REAL", "REAL", "REAL", "REAL", "REAL"]);
+  });
+
   it("of arithmetic: INTEGER for two INTEGERs, REAL with a REAL, ANY when a row decides", () => {
     expect(
       types(

@@ -50,7 +50,7 @@ function compileArithmetic(
   const { left, right } = expression;
   const apply = arithmetic(
     valueOperator(expression.operator),
-    numericMode(left.type, right.type),
+    numericMode(expression.type),
   );
   const leftValue = compiler.compile(left);
   const rightValue = compiler.compile(right);
@@ -75,14 +75,12 @@ function compileConcatenate(
 }
 
 /**
- * INTEGER arithmetic when both operands are statically INTEGER, REAL when
- * either is REAL, and decided per row otherwise (ANY, JSON, NULL).
+ * Arithmetic as the binder typed its result: INTEGER for an INTEGER, REAL
+ * — exact division — for a REAL, and decided per row otherwise (ANY, NULL).
  */
-function numericMode(left: StaticType, right: StaticType): NumericMode {
-  const areIntegers = left === "INTEGER" && right === "INTEGER";
-  if (areIntegers) return "integer";
-  const hasReal = left === "REAL" || right === "REAL";
-  return hasReal ? "real" : "dynamic";
+function numericMode(type: StaticType): NumericMode {
+  if (type === "INTEGER") return "integer";
+  return type === "REAL" ? "real" : "dynamic";
 }
 
 function valueOperator(operator: ArithmeticOperator): ValueOperator {

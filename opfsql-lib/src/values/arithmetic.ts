@@ -18,9 +18,9 @@ export type ArithmeticOperator =
   "add" | "subtract" | "multiply" | "divide" | "remainder";
 
 /**
- * How operands are treated: `integer` when both have the static type
- * INTEGER, `real` when one is REAL, `dynamic` when a static type is missing
- * (ANY, JSON, NULL) and the values decide: two safe integers are integers.
+ * How operands are treated, by the static type of the result: `integer`
+ * for INTEGER, `real` for REAL (an operand is REAL), `dynamic` when it has
+ * none (ANY, NULL) and the values decide: two safe integers are integers.
  */
 export type NumericMode = "integer" | "real" | "dynamic";
 
