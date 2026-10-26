@@ -1,4 +1,4 @@
-import { CorruptError, OpfsqlError } from "../../errors.js";
+import { CorruptError } from "../../errors.js";
 import {
   nameKey,
   Schema,
@@ -7,6 +7,7 @@ import {
   type Table,
 } from "../../schema/index.js";
 import { parse, StatementType, type Statement } from "../parser/index.js";
+import { asCorruption } from "./corruption.js";
 import { indexDefinition } from "./create-index.js";
 import { tableDefinition } from "./create-table.js";
 import { bindQuery } from "./query.js";
@@ -148,18 +149,13 @@ function checkName(row: SchemaRow, name: string): void {
 
 /** `load()`, its parse and bind errors reported as the row's corruption. */
 function loading<T>(row: SchemaRow, load: () => T): T {
-  try {
-    return load();
-  } catch (error) {
-    const isStatementError =
-      error instanceof OpfsqlError && error.code !== "INTERNAL";
-    if (!isStatementError) throw error;
-    throw corrupt(row, error.message);
-  }
+  return asCorruption(load, (problem) => describeCorruption(row, problem));
 }
 
 function corrupt(row: SchemaRow, problem: string): CorruptError {
-  return new CorruptError(
-    `the schema of ${row.type} ${row.name} does not load: ${problem}`,
-  );
+  return new CorruptError(describeCorruption(row, problem));
+}
+
+function describeCorruption(row: SchemaRow, problem: string): string {
+  return `the schema of ${row.type} ${row.name} does not load: ${problem}`;
 }

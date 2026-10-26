@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DatatypeMismatchError } from "../../../errors.js";
 import type { logical, Statement } from "../../plan/index.js";
-import { bind, notSupported, semanticError, thrown } from "./helpers.js";
+import {
+  bind,
+  notSupported,
+  schemaOf,
+  semanticError,
+  thrown,
+} from "./helpers.js";
 
 type Bound = Statement<logical.Plan>;
 
@@ -280,6 +286,21 @@ describe("ALTER TABLE", () => {
     ).toMatchObject({
       action: { column: { isNotNull: true, defaultValue: "a" } },
     });
+  });
+
+  it("refuses a column that would change what an expression index holds", () => {
+    const documents = schemaOf(
+      "CREATE TABLE doc (id INTEGER PRIMARY KEY, doc JSON)",
+      "CREATE INDEX doc_title ON doc (doc.title)",
+    );
+    expect(
+      semanticError("ALTER TABLE doc ADD COLUMN title TEXT", documents),
+    ).toBe(
+      "cannot add column title to doc: it would change what index doc_title holds",
+    );
+    expect(
+      bind("ALTER TABLE doc ADD COLUMN subtitle TEXT", documents),
+    ).toMatchObject({ action: { kind: "add-column" } });
   });
 
   it("refuses an added key, a duplicate, and NOT NULL without a default", () => {

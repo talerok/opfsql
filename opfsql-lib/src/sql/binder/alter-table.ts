@@ -2,6 +2,7 @@ import { SemanticError } from "../../errors.js";
 import {
   isReservedName,
   nameKey,
+  type Column,
   type Index,
   type Table,
 } from "../../schema/index.js";
@@ -12,7 +13,9 @@ import {
 } from "../parser/index.js";
 import type { AlterAction, AlterTable, logical } from "../plan/index.js";
 import { declareColumn } from "./column-definition.js";
-import { bindIndexKey } from "./create-index.js";
+import { isStatementError } from "./corruption.js";
+import { bindIndexKey, bindKeyText } from "./create-index.js";
+import { isSameExpression } from "./same-expression.js";
 import { columnNamed, tableNamed } from "./dml.js";
 import type { BindContext } from "./scope.js";
 import { columnsOf } from "./walk.js";
@@ -35,12 +38,16 @@ export function bindAlterTable(
   }
   const action =
     statement.alterType === AlterType.ADD_COLUMN
-      ? addColumn(statement.column, table)
+      ? addColumn(statement.column, table, context)
       : dropColumn(statement.columnName, table, context);
   return { kind: "alter-table", table, action };
 }
 
-function addColumn(definition: ColumnDefinition, table: Table): AlterAction {
+function addColumn(
+  definition: ColumnDefinition,
+  table: Table,
+  context: BindContext,
+): AlterAction {
   const declared = declareColumn(definition);
   const { column } = declared;
   const isTaken = table.columns.some(
@@ -60,7 +67,43 @@ function addColumn(definition: ColumnDefinition, table: Table): AlterAction {
       "cannot add a NOT NULL column with default value NULL",
     );
   }
+  checkKeysKeepMeaning(table, column, context);
   return { kind: "add-column", column };
+}
+
+/**
+ * An expression key that would read the new column — `doc.title` reads the
+ * JSON column doc until the table has a column title — would change what the
+ * index holds for rows already in it, so the column is refused.
+ */
+function checkKeysKeepMeaning(
+  table: Table,
+  column: Column,
+  context: BindContext,
+): void {
+  const widened = { ...table, columns: [...table.columns, column] };
+  for (const index of context.schema.indexesOf(table.name)) {
+    const changed = index.keys.find(
+      (key) =>
+        key.kind === "expression" && !bindsAlike(key.sql, table, widened),
+    );
+    if (changed !== undefined) {
+      throw new SemanticError(
+        `cannot add column ${column.name} to ${table.name}: it would change what index ${index.name} holds`,
+      );
+    }
+  }
+}
+
+/** True if the key `sql` reads the same over `widened` as over `table`. */
+function bindsAlike(sql: string, table: Table, widened: Table): boolean {
+  const before = bindIndexKey(sql, table, 0);
+  try {
+    return isSameExpression(before, bindKeyText(sql, widened, 0));
+  } catch (error) {
+    if (isStatementError(error)) return false;
+    throw error;
+  }
 }
 
 function dropColumn(

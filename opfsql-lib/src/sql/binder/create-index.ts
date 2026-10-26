@@ -1,9 +1,4 @@
-import {
-  CorruptError,
-  NotSupportedError,
-  OpfsqlError,
-  SemanticError,
-} from "../../errors.js";
+import { NotSupportedError, SemanticError } from "../../errors.js";
 import {
   isReservedName,
   Schema,
@@ -20,6 +15,7 @@ import {
 import type { CreateIndex, logical } from "../plan/index.js";
 import { refuse } from "./clause.js";
 import { checkKeyType } from "./column-definition.js";
+import { asCorruption } from "./corruption.js";
 import { checkNewName } from "./create-table.js";
 import { tableNamed } from "./dml.js";
 import { clauseOf } from "./expression.js";
@@ -87,17 +83,22 @@ export function bindIndexKey(
   table: Table,
   tableIndex: number,
 ): Expression {
-  try {
-    const context = new BindContext(Schema.empty, bindQuery);
-    const scope = tableScope(table, tableIndex, context);
-    return bindKeyExpression(parseExpression(sql), scope);
-  } catch (error) {
-    if (!(error instanceof OpfsqlError) || error.code === "INTERNAL")
-      throw error;
-    throw new CorruptError(
-      `the index key ${sql} of table ${table.name} does not bind: ${error.message}`,
-    );
-  }
+  return asCorruption(
+    () => bindKeyText(sql, table, tableIndex),
+    (problem) =>
+      `the index key ${sql} of table ${table.name} does not bind: ${problem}`,
+  );
+}
+
+/** An expression key's text bound over `table`; its errors are a statement's. */
+export function bindKeyText(
+  sql: string,
+  table: Table,
+  tableIndex: number,
+): Expression {
+  const context = new BindContext(Schema.empty, bindQuery);
+  const scope = tableScope(table, tableIndex, context);
+  return bindKeyExpression(parseExpression(sql), scope);
 }
 
 function tableScope(
