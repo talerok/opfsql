@@ -15,6 +15,7 @@ import {
   nestedLoopJoin,
   project,
   recursiveCte,
+  scalarSubquery,
   source,
   tableScan,
   values,
@@ -97,5 +98,28 @@ describe("CTEs", () => {
   it("read an endless recursion only as far as a LIMIT needs", () => {
     const one = values(61, [constant(1)]);
     expect(series(one, true, null, 4)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("are pulled from a subquery as lazily as from their own query", () => {
+    // WITH RECURSIVE r(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM r)
+    // SELECT (SELECT x FROM r LIMIT 1 OFFSET 5)
+    const counting = new Counting();
+    const working = cteScan(2, 63, ["INTEGER"]);
+    const step = project(
+      62,
+      working,
+      arithmetic(counting.of(x), "+", constant(1)),
+    );
+    const endless = recursiveCte(
+      [2, 60],
+      values(61, [constant(1)]),
+      step,
+      true,
+    );
+    const sixth = limit(cteScan(1, 64, ["INTEGER"]), constant(1), constant(5));
+    const body = project(70, values(71, []), scalarSubquery(sixth));
+    expect(data.database.query(cte(1, endless, body))).toEqual([[6]]);
+    // The step ran on 1, 2, 3, 4 and 5: once for each row up to the sixth.
+    expect(counting.calls).toBe(5);
   });
 });

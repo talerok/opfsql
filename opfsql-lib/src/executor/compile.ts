@@ -1,12 +1,16 @@
 import { InternalError } from "../errors.js";
-import { createRun, type SubqueryCompiler } from "../expressions/index.js";
+import {
+  type CompiledSubquery,
+  createRun,
+  type SubqueryCompiler,
+} from "../expressions/index.js";
 import type { physical } from "../sql/plan/index.js";
 import type { Tables } from "../table/index.js";
 import type { Value } from "../values/index.js";
-import { type Context, levelOf } from "./context.js";
+import { type Context, type CteScope, levelOf } from "./context.js";
 import { drain, type Operator, take } from "./operator.js";
 import { hashAggregate } from "./operators/aggregate.js";
-import { cte, cteScan, CteTable, recursiveCte } from "./operators/ctes.js";
+import { cte, CteRows, cteScan, recursiveCte } from "./operators/ctes.js";
 import { hashJoin, nestedLoopJoin } from "./operators/joins.js";
 import { limit } from "./operators/limit.js";
 import { filter, hashDistinct, project } from "./operators/per-row.js";
@@ -23,7 +27,7 @@ import { tableScan } from "./scans/table-scan.js";
 // Compiling a physical plan into operators, once per run (docs/planning.md,
 // Execution): each node's expressions are compiled for its input's layout,
 // and each subquery in them is compiled here too, once, as a query level of
-// its own.
+// its own, with the CTEs in scope where it is written.
 // ---------------------------------------------------------------------------
 
 type ScanPlan = Extract<
@@ -39,10 +43,6 @@ type ScanPlan = Extract<
 >;
 type OneChildPlan = Extract<physical.Plan, { readonly child: physical.Plan }>;
 type TwoSidedPlan = Extract<physical.Plan, { readonly left: physical.Plan }>;
-type CtePlan = Extract<
-  physical.Plan,
-  { readonly kind: "cte" | "cte-scan" | "recursive-cte" }
->;
 
 /**
  * The context of a statement's own query level, for a run with `parameters`
@@ -53,9 +53,8 @@ export function statementContext(
   parameters: readonly Value[],
   checkpoint?: () => void,
 ): Context {
-  const ctes = new Map<number, CteTable>();
-  const subqueries = subqueryCompiler(tables, ctes);
-  const run = createRun(parameters, subqueries, checkpoint);
+  const ctes: CteScope = new Map();
+  const run = createRun(parameters, subqueriesIn(ctes, tables), checkpoint);
   return { query: { run, outerLayouts: [] }, ctes, tables };
 }
 
@@ -82,10 +81,14 @@ export function compilePlan(plan: physical.Plan, context: Context): Operator {
     case "set-operation": {
       return compileTwoSided(plan, context);
     }
-    case "cte":
-    case "cte-scan":
-    case "recursive-cte": {
+    case "cte": {
       return compileCte(plan, context);
+    }
+    case "cte-scan": {
+      return compileCteScan(plan, context);
+    }
+    case "recursive-cte": {
+      return compileRecursiveCte(plan, context);
     }
     case "values": {
       return values(plan, context);
@@ -156,69 +159,70 @@ function compileTwoSided(plan: TwoSidedPlan, context: Context): Operator {
   }
 }
 
-/**
- * A CTE's definition sees the CTEs around it; its body, and a recursive
- * CTE's step, see it as well.
- */
-function compileCte(plan: CtePlan, context: Context): Operator {
-  switch (plan.kind) {
-    case "cte": {
-      const table = new CteTable(plan.name, levelOf(context));
-      const definition = compilePlan(plan.definition, context);
-      const body = compilePlan(
-        plan.body,
-        withCte(context, plan.cteIndex, table),
-      );
-      return cte(table, definition, body);
-    }
-    case "cte-scan": {
-      const table = context.ctes.get(plan.cteIndex);
-      if (table === undefined) {
-        throw new InternalError(`no CTE ${String(plan.cteIndex)} in scope`);
-      }
-      table.noteScanAt(levelOf(context));
-      return cteScan(table);
-    }
-    case "recursive-cte": {
-      const workingSet = new CteTable(plan.name, levelOf(context));
-      const anchor = compilePlan(plan.anchor, context);
-      const stepContext = withCte(context, plan.cteIndex, workingSet);
-      const step = compilePlan(plan.step, stepContext);
-      const { isUnionAll } = plan;
-      const { run } = context.query;
-      return recursiveCte(anchor, step, { workingSet, isUnionAll, run });
-    }
+/** The definition sees the CTEs around it; the body sees this one too. */
+function compileCte(plan: physical.Cte, context: Context): Operator {
+  const rows = new CteRows(plan.name);
+  const definition = compilePlan(plan.definition, context);
+  const body = compilePlan(plan.body, withCte(context, plan.cteIndex, rows));
+  const at = { level: levelOf(context), run: context.query.run };
+  return cte(rows, definition, body, at);
+}
+
+function compileCteScan(plan: physical.CteScan, context: Context): Operator {
+  const rows = context.ctes.get(plan.cteIndex);
+  if (rows === undefined) {
+    throw new InternalError(`no CTE ${String(plan.cteIndex)} in scope`);
   }
+  return cteScan(rows);
+}
+
+/** The anchor sees the CTEs around it; the step sees its working set too. */
+function compileRecursiveCte(
+  plan: physical.RecursiveCte,
+  context: Context,
+): Operator {
+  const workingSet = new CteRows(plan.name);
+  const anchor = compilePlan(plan.anchor, context);
+  const step = compilePlan(
+    plan.step,
+    withCte(context, plan.cteIndex, workingSet),
+  );
+  const { isUnionAll } = plan;
+  const { run } = context.query;
+  return recursiveCte(anchor, step, { workingSet, isUnionAll, run });
 }
 
 /**
- * `context` with one more CTE in scope — for its plan nodes, and for the
- * subqueries in their expressions, which are compiled where they are written.
+ * `context` with one more CTE in scope. Its run's subquery compiler is
+ * made from the same scope, so a subquery written in it sees the CTE too.
  */
-function withCte(context: Context, cteIndex: number, table: CteTable): Context {
-  const ctes = new Map(context.ctes).set(cteIndex, table);
-  const subqueries = subqueryCompiler(context.tables, ctes);
+function withCte(context: Context, cteIndex: number, rows: CteRows): Context {
+  const ctes = new Map(context.ctes).set(cteIndex, rows);
+  const subqueries = subqueriesIn(ctes, context.tables);
   const run = { ...context.query.run, subqueries };
   return { ...context, ctes, query: { ...context.query, run } };
 }
 
-/**
- * Compiles each subquery once, as a query level inside the one it is
- * written in; each call of `rows` starts it over, and stops at `limit` rows.
- */
-function subqueryCompiler(
-  tables: Tables,
-  ctes: ReadonlyMap<number, CteTable>,
-): SubqueryCompiler {
+/** Compiles the subqueries written where `ctes` are in scope. */
+function subqueriesIn(ctes: CteScope, tables: Tables): SubqueryCompiler {
   return {
-    compile: (plan, query) => {
-      const root = compilePlan(plan, { query, ctes, tables });
-      return {
-        rows: (count) => {
-          root.rescan();
-          return count === undefined ? drain(root) : take(root, count);
-        },
-      };
+    compile: (plan, query) => compiledSubquery(plan, { query, ctes, tables }),
+  };
+}
+
+/**
+ * A subquery compiled once, as a query level inside the one it is written
+ * in: each call of `rows` starts it over and takes at most `count` rows.
+ */
+function compiledSubquery(
+  plan: physical.Plan,
+  context: Context,
+): CompiledSubquery {
+  const root = compilePlan(plan, context);
+  return {
+    rows: (count) => {
+      root.rescan();
+      return count === undefined ? drain(root) : take(root, count);
     },
   };
 }

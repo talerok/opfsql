@@ -10,14 +10,17 @@ import {
 import type { physical } from "../sql/plan/index.js";
 import type { Tables } from "../table/index.js";
 import type { Value } from "../values/index.js";
-import type { CteTable } from "./operators/ctes.js";
+import type { CteRows } from "./operators/ctes.js";
+
+/** The CTEs in scope, by index. */
+export type CteScope = ReadonlyMap<number, CteRows>;
 
 /** Where a plan node is compiled. */
 export interface Context {
   /** Its query level: the run, and the layouts of the enclosing queries' rows. */
   readonly query: QueryContext;
-  /** The CTEs a `cte-scan` here may read, by index. */
-  readonly ctes: ReadonlyMap<number, CteTable>;
+  /** The CTEs a `cte-scan` here may read. */
+  readonly ctes: CteScope;
   /** The transaction's tables. */
   readonly tables: Tables;
 }
