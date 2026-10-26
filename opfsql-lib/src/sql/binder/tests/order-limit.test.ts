@@ -69,7 +69,7 @@ describe("ORDER BY", () => {
         "  project #5 (name#0.1, subquery(1))",
         "    subquery(1, correlated): project #4 (count(*)#3.0)",
         "      aggregate #2 () #3 (count(*))",
-        "        filter (user_id#1.1 = id#0.0^1)",
+        "        filter user_id#1.1 = id#0.0^1",
         "          get #1 orders (id, user_id, total, status)",
         "    get #0 users (id, name, age, email, data)",
       ),
