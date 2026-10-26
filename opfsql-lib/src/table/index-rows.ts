@@ -26,7 +26,7 @@ export interface KeyBound {
   readonly isInclusive: boolean;
 }
 
-/** A range on one key part; null at an end leaves it open. */
+/** A range on one key part; null at an end leaves it open. It never holds NULL. */
 export interface KeyRange {
   readonly lower: KeyBound | null;
   readonly upper: KeyBound | null;
@@ -152,15 +152,12 @@ function canMatch({ equal, range }: KeySeek): boolean {
 }
 
 /**
- * Where a range starts: at its lower bound; or, under an upper bound alone,
- * after the NULLs, which sort first and which `<` never matches; or, open at
- * both ends, at the first entry with the prefix.
+ * Where a range starts: at its lower bound, or without one after the NULLs,
+ * which sort first. A range never holds NULL: it holds only values its
+ * comparisons hold for, and none holds for NULL.
  */
-function rangeStart(equal: readonly Value[], range: KeyRange): Uint8Array {
-  const { lower, upper } = range;
-  if (lower !== null) return boundStart(equal, lower);
-  if (upper !== null) return afterNulls(equal);
-  return encodeKey(equal);
+function rangeStart(equal: readonly Value[], { lower }: KeyRange): Uint8Array {
+  return lower === null ? afterNulls(equal) : boundStart(equal, lower);
 }
 
 /** Where a range ends: past its upper bound, or past the prefix. */

@@ -8,6 +8,7 @@ import {
   email,
   type Fixture,
   fixture,
+  id,
   name,
   note,
   ORDERS,
@@ -18,6 +19,7 @@ import {
   between,
   compare,
   constant,
+  Counting,
   excluding,
   filter,
   hashAggregate,
@@ -26,6 +28,7 @@ import {
   indexScan,
   indexUnion,
   keys,
+  limit,
   not,
   NULL,
   or,
@@ -172,6 +175,34 @@ describe("rowid lookup", () => {
     expect(ids(plan, [1, null])).toEqual([]);
   });
 
+  it("reads backward from a bound, touching only the rows a LIMIT takes", () => {
+    // WHERE id < $1 ORDER BY id DESC LIMIT 2: keyset pagination.
+    const counting = new Counting();
+    const residual = [compare(counting.of(id), ">", constant(0))];
+    const below = between(null, excluding(parameter(0, "numeric")));
+    const page = rowidRange(users(), below, {
+      residual,
+      direction: "descending",
+    });
+    expect(ids(limit(page, constant(2)), [5])).toEqual([4, 3]);
+    expect(counting.calls).toBe(2);
+  });
+
+  it("reads a list or a range backward, each row once, by any kind of bound", () => {
+    const listed = [constant(3), constant(1), constant(3), constant(99)];
+    const descending = { direction: "descending" } as const;
+    expect(ids(rowidList(users(), listed, descending))).toEqual([3, 1]);
+    const range = (lower: physical.Bound, upper: physical.Bound) =>
+      ids(rowidRange(users(), between(lower, upper), descending));
+    expect(range(including(constant(1.5)), excluding(constant("z")))).toEqual([
+      5, 4, 3, 2,
+    ]);
+    expect(range(excluding(constant(false)), including(constant(3.5)))).toEqual(
+      [3, 2, 1],
+    );
+    expect(range(including(constant("a")), including(constant(9)))).toEqual([]);
+  });
+
   it("reads an open-ended range and applies its residual", () => {
     const residual = [compare(name, "<>", constant("dan"))];
     const bounds = between(including(constant(3)), null);
@@ -193,9 +224,13 @@ describe("index scan", () => {
     expect(agesInRange(including(low), excluding(high))).toEqual([2]);
   });
 
-  it("skips NULL keys under an upper bound, which `<` never matches", () => {
+  it("never finds Cid's NULL age in a range, read either way", () => {
     expect(agesInRange(null, excluding(constant(30)))).toEqual([2]);
     expect(agesInRange(excluding(constant(26)), null)).toEqual([1, 4, 5]);
+    const below30 = keys([], between(null, excluding(constant(30))));
+    expect(ids(ageIndexScan(below30, "descending"))).toEqual([2]);
+    // Without a range, the equal prefix alone: every age, NULL first.
+    expect(ids(ageIndexScan(keys([])))).toEqual([3, 2, 1, 4, 5]);
   });
 
   it("reads backward, from the largest key", () => {

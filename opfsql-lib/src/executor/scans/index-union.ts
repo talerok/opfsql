@@ -52,7 +52,8 @@ function compileBranch(
     case "rowids": {
       const selection = compileRowidSet(branch.rowids, context);
       return (found) => {
-        for (const row of rowsSelected(selection(), rows)) {
+        const selected = rowsSelected(selection(), rows, "ascending");
+        for (const row of selected) {
           found.set(row.rowid, row);
         }
       };

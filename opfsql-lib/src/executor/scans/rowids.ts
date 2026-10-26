@@ -1,4 +1,4 @@
-import type { physical } from "../../sql/plan/index.js";
+import type { OrderDirection, physical } from "../../sql/plan/index.js";
 import type {
   KeyBound,
   KeyRange,
@@ -30,15 +30,19 @@ const OPEN_END = Infinity;
 const START_PAST_EVERY_ROWID = Infinity;
 const END_BEFORE_EVERY_ROWID = -Infinity;
 
-/** Rows by rowid, each once, in rowid order. */
+/**
+ * Rows by rowid, each once, in rowid order or its reverse: read backward from
+ * a bound, `WHERE id < ? ORDER BY id DESC LIMIT n` reads n rows.
+ */
 export function rowidLookup(
   plan: physical.RowidLookup,
   context: Context,
 ): Operator {
   const { rows, matching } = tableAccess(plan, context);
   const selection = compileRowidSet(plan.rowids, context);
+  const { direction } = plan;
   return leafOperator(
-    () => matching(rowsSelected(selection(), rows)),
+    () => matching(rowsSelected(selection(), rows, direction)),
     context.query.run,
   );
 }
@@ -60,16 +64,19 @@ export function compileRowidSet(
   }
 }
 
-/** The rows the selection finds, in rowid order. */
+/** The rows the selection finds, in rowid order or its reverse. */
 export function* rowsSelected(
   selection: RowidSelection,
   rows: TableRows,
+  direction: OrderDirection,
 ): Generator<TableRow> {
   if (selection.kind === "range") {
-    yield* rows.rowsBetween(selection.first, selection.last);
+    yield* rows.rowsBetween(selection.first, selection.last, direction);
     return;
   }
-  for (const rowid of selection.rowids) {
+  const { rowids } = selection;
+  const ordered = direction === "ascending" ? rowids : rowids.toReversed();
+  for (const rowid of ordered) {
     const row = rows.get(rowid);
     if (row !== null) yield row;
   }

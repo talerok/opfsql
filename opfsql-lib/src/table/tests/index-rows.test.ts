@@ -92,9 +92,13 @@ function extreme(index: Index, equal: Value[], end: IndexEnd): Value {
   return through(index, (rows) => rows.extreme(equal, end));
 }
 
-function between(first: number, last: number): number[] {
+function between(
+  first: number,
+  last: number,
+  order: KeyOrder = "ascending",
+): number[] {
   return read(database.pager, (pages) =>
-    [...new TableRows(pages, users).rowsBetween(first, last)].map(
+    [...new TableRows(pages, users).rowsBetween(first, last, order)].map(
       (row) => row.rowid,
     ),
   );
@@ -114,9 +118,16 @@ describe("IndexRows", () => {
     expect(nicksIn(within(excluding("ann"), excluding("cid")))).toEqual([2, 4]);
   });
 
-  it("skips NULL keys under an upper bound, and finds them in a range open at both ends", () => {
+  it("never finds a NULL key in a range, however open, both ways; only without a range", () => {
     expect(nicksIn(within(null, excluding("bob")))).toEqual([1]);
-    expect(nicksIn(within(null, null))).toEqual([3, 1, 2, 4, 5]);
+    expect(nicksIn(within(null, null))).toEqual([1, 2, 4, 5]);
+    const nicksDown = (range: KeyRange) =>
+      rowidsOf(byNick, { equal: [], range }, "descending");
+    expect(nicksDown(within(null, excluding("bob")))).toEqual([1]);
+    expect(nicksDown(within(null, null))).toEqual([5, 4, 2, 1]);
+    expect(rowidsOf(byNick, { equal: [], range: null })).toEqual([
+      3, 1, 2, 4, 5,
+    ]);
   });
 
   it("finds nothing for a NULL seek value, which `=` and `<` never match", () => {
@@ -166,5 +177,14 @@ describe("TableRows.rowsBetween", () => {
     expect(between(4, Infinity)).toEqual([4, 5]);
     expect(between(3, 2)).toEqual([]);
     expect(between(Infinity, Infinity)).toEqual([]);
+  });
+
+  it("reads them in reverse, from the last down to the first", () => {
+    expect(between(2, 4, "descending")).toEqual([4, 3, 2]);
+    expect(between(-Infinity, 2, "descending")).toEqual([2, 1]);
+    expect(between(4, Infinity, "descending")).toEqual([5, 4]);
+    expect(between(2, 3.5, "descending")).toEqual([3, 2]);
+    expect(between(3, 2, "descending")).toEqual([]);
+    expect(between(-Infinity, -Infinity, "descending")).toEqual([]);
   });
 });
