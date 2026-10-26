@@ -1,0 +1,3 @@
+# Records of the corpus opfsql answers differently from SQLite, and why
+# (README.md). A reason is a section of docs/semantics.md, or a feature
+# opfsql does not have.
