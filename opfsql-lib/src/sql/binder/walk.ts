@@ -214,7 +214,9 @@ export function partsOf(
 }
 
 /** The columns `expression` reads at its own level: not those inside subqueries. */
-export function* columnsOf(expression: Expression): Generator<ColumnReference> {
+export function* columnsReadBy(
+  expression: Expression,
+): Generator<ColumnReference> {
   if (expression.kind === "column") {
     yield expression;
     return;
@@ -224,6 +226,6 @@ export function* columnsOf(expression: Expression): Generator<ColumnReference> {
     return;
   }
   for (const part of partsOf(expression)) {
-    if (part !== null) yield* columnsOf(part);
+    if (part !== null) yield* columnsReadBy(part);
   }
 }

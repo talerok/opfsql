@@ -1,9 +1,13 @@
 import { nameKey } from "../../schema/index.js";
-import type { logical } from "../plan/index.js";
+import {
+  logical,
+  type ColumnReference,
+  type OutputColumn,
+} from "../plan/index.js";
 
 // ---------------------------------------------------------------------------
-// Column names of a table or of a statement's column list: found by
-// nameKey, and each named once.
+// Columns: of a table or a statement's column list, found by nameKey and
+// each named once; of a plan node, read by references to its layout.
 // ---------------------------------------------------------------------------
 
 /** The position of the column called `name` among `columns`; -1 if none. */
@@ -28,4 +32,18 @@ export function nameOf(
   fallback: string,
 ): string {
   return expression.kind === "column" ? expression.name : fallback;
+}
+
+/** References to every column of `plan`, in its layout order. */
+export function readColumns(
+  plan: logical.Plan,
+  columns: readonly OutputColumn[],
+): ColumnReference[] {
+  return logical.layoutOf(plan).map((binding, position) => ({
+    kind: "column",
+    binding,
+    depth: 0,
+    name: columns[position]?.name ?? String(position),
+    type: columns[position]?.type ?? "ANY",
+  }));
 }

@@ -8,7 +8,7 @@ import {
   type SelectNode,
 } from "../parser/index.js";
 import type { ColumnReference, logical } from "../plan/index.js";
-import { nameOf } from "./column-names.js";
+import { nameOf } from "./columns.js";
 import { isSameExpression } from "./same-expression.js";
 import { mapChildren, mapPlan } from "./walk.js";
 

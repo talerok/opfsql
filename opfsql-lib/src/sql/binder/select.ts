@@ -11,7 +11,7 @@ import {
   conjunctsOf,
   refuse,
 } from "./clause.js";
-import { nameOf } from "./column-names.js";
+import { nameOf, readColumns } from "./columns.js";
 import { clauseOf } from "./expression.js";
 import { bindFrom } from "./from-clause.js";
 import { bindGroups } from "./group-by.js";
@@ -201,7 +201,13 @@ function finish(plan: Plan, shape: Shape, scope: Scope): BoundQuery {
     name: output.name,
     type: output.expression.type,
   }));
-  const projectColumns = columnsOf(tableIndex, expressions);
+  const projectColumns = readColumns(
+    projected,
+    expressions.map((expression, position) => ({
+      name: nameOf(expression, `column${String(position + 1)}`),
+      type: expression.type,
+    })),
+  );
   const ordered = order(distinct, ordering.keys, projectColumns);
   if (ordering.extras.length === 0) return { plan: ordered, columns };
   const trimmed: Plan = {
@@ -234,18 +240,4 @@ export function order(
     return { expression: column, direction: key.direction, nulls: key.nulls };
   });
   return { kind: "order", child: plan, keys: orderKeys };
-}
-
-/** References to a project's columns. */
-function columnsOf(
-  tableIndex: number,
-  expressions: readonly Expression[],
-): ColumnReference[] {
-  return expressions.map((expression, columnIndex) => ({
-    kind: "column",
-    binding: { tableIndex, columnIndex },
-    depth: 0,
-    name: nameOf(expression, `column${String(columnIndex + 1)}`),
-    type: expression.type,
-  }));
 }

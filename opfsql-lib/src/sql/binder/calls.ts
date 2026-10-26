@@ -7,7 +7,7 @@ import {
 import { formatExpression, type FunctionExpression } from "../parser/index.js";
 import type { logical } from "../plan/index.js";
 import { refuse, type Clause } from "./clause.js";
-import { columnsOf } from "./walk.js";
+import { columnsReadBy } from "./walk.js";
 
 // ---------------------------------------------------------------------------
 // Function calls, resolved and typed through the function registry: an
@@ -74,7 +74,9 @@ function bindAggregate(
  * written, so it refuses what it would compute differently.
  */
 function checkLevel(argumentList: readonly Expression[]): void {
-  const columns = argumentList.flatMap((argument) => [...columnsOf(argument)]);
+  const columns = argumentList.flatMap((argument) => [
+    ...columnsReadBy(argument),
+  ]);
   const isOuterOnly =
     columns.length > 0 && columns.every((column) => column.depth > 0);
   if (isOuterOnly) {

@@ -19,7 +19,7 @@ import {
   insertSource,
   writableTable,
 } from "./dml.js";
-import { firstRepeated } from "./column-names.js";
+import { firstRepeated } from "./columns.js";
 import { clauseOf } from "./expression.js";
 import { relation, Scope, type BindContext } from "./scope.js";
 

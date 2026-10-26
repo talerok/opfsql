@@ -7,12 +7,9 @@ import {
   type SubqueryReference,
   type TableReference,
 } from "../parser/index.js";
-import {
-  logical,
-  type ColumnReference,
-  type OutputColumn,
-} from "../plan/index.js";
+import type { ColumnReference, logical } from "../plan/index.js";
 import { bindCondition, conjunctsOf, refuse } from "./clause.js";
+import { readColumns } from "./columns.js";
 import { clauseOf } from "./expression.js";
 import { columnOf, unqualifiedColumn } from "./names.js";
 import { exactlyOne } from "./one.js";
@@ -89,20 +86,6 @@ function bindDerivedTable(reference: SubqueryReference, scope: Scope): Plan {
   scope.add(relation(reference.alias, tableIndex, query.columns));
   const expressions = readColumns(query.plan, query.columns);
   return { kind: "project", tableIndex, child: query.plan, expressions };
-}
-
-/** References to every column of `plan`, in its layout order. */
-export function readColumns(
-  plan: Plan,
-  columns: readonly OutputColumn[],
-): ColumnReference[] {
-  return logical.layoutOf(plan).map((binding, position) => ({
-    kind: "column",
-    binding,
-    depth: 0,
-    name: columns[position]?.name ?? String(position),
-    type: columns[position]?.type ?? "ANY",
-  }));
 }
 
 // --- Joins -------------------------------------------------------------------------

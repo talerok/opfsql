@@ -8,7 +8,7 @@ import {
   type SetOperationNode,
 } from "../parser/index.js";
 import type { logical, OutputColumn } from "../plan/index.js";
-import { readColumns } from "./from-clause.js";
+import { readColumns } from "./columns.js";
 import { bareName, keyOrder, literalPosition } from "./order-by.js";
 import type { BoundQuery, Scope } from "./scope.js";
 import { bindSelect, order } from "./select.js";

@@ -18,7 +18,7 @@ import { bindIndexKey, bindKeyText } from "./create-index.js";
 import { isSameExpression } from "./same-expression.js";
 import { columnNamed, tableNamed } from "./dml.js";
 import type { BindContext } from "./scope.js";
-import { columnsOf } from "./walk.js";
+import { columnsReadBy } from "./walk.js";
 
 // ---------------------------------------------------------------------------
 // ALTER TABLE ADD COLUMN and DROP COLUMN, as SQLite allows them. A table's
@@ -147,7 +147,7 @@ function usesColumn(index: Index, table: Table, column: number): boolean {
 }
 
 function readsColumn(expression: logical.Expression, column: number): boolean {
-  for (const reference of columnsOf(expression)) {
+  for (const reference of columnsReadBy(expression)) {
     if (reference.binding.columnIndex === column) return true;
   }
   return false;
