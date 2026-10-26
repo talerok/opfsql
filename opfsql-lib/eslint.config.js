@@ -16,7 +16,14 @@ import { config, configs as tseslint } from "typescript-eslint";
 
 export default config(
   {
-    ignores: ["dist/", "coverage/", "test-results/", "playwright-report/"],
+    // bench/dist holds the bundled benchmark, `npm run bench` builds it.
+    ignores: [
+      "dist/",
+      "bench/dist/",
+      "coverage/",
+      "test-results/",
+      "playwright-report/",
+    ],
   },
   js.configs.recommended,
   tseslint.strictTypeChecked,
