@@ -1,5 +1,6 @@
 // CREATE TABLE, CREATE INDEX, ALTER TABLE and DROP.
 
+import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
 import { above, power } from "../precedence.js";
 import { parseTypeName, startsTypeName } from "./type-name.js";
@@ -162,10 +163,19 @@ function parseCreateIndex(cursor: Cursor): CreateIndexStatement {
   };
 }
 
+/**
+ * An index key, and an `ASC` after it, which is what every key is: the
+ * statement stored for the index (createIndexSql) leaves it out.
+ */
 function parseIndexedExpression(cursor: Cursor): ParsedExpression {
   const expression = cursor.expression();
-  cursor.rejectKeyword("ASC", "ASC or DESC in an index");
-  cursor.rejectKeyword("DESC", "ASC or DESC in an index");
+  cursor.matchKeyword("ASC");
+  if (cursor.isKeyword("DESC")) {
+    throw new NotSupportedError(
+      "DESC on an index key",
+      "descending index keys are not supported; an ascending index is read backward for ORDER BY … DESC",
+    );
+  }
   return expression;
 }
 

@@ -290,6 +290,23 @@ inside CASE), and a compound SELECT joins at most 500 SELECTs, as SQLite's
 default `SQLITE_MAX_COMPOUND_SELECT`. Past either, the statement fails to
 compile with a `SYNTAX_ERROR` or a `SEMANTIC_ERROR`, before it runs.
 
+## Not supported
+
+SQL that SQLite accepts and opfsql refuses with `NOT_SUPPORTED`, before
+anything runs. Among it:
+
+- descending index keys, `CREATE INDEX … (x DESC)`: an ascending index is
+  read backward for `ORDER BY … DESC`. An explicit `ASC` is accepted, and
+  left out of the statement stored for the index;
+- the bitwise operators `&`, `|`, `~`, `<<` and `>>`;
+- parentheses around FROM items, `FROM (a CROSS JOIN b)`;
+- `x IN table`, IN with a table's name in place of a list or a subquery;
+- `INDEXED BY` and `NOT INDEXED`;
+- triggers and views: `CREATE` and `DROP` of a `TRIGGER` or a `VIEW`;
+- `REPLACE`, as a statement and as `INSERT OR REPLACE`, and every other
+  `INSERT OR …` and `UPDATE OR …`;
+- `REINDEX`.
+
 ## Departures from SQLite
 
 | opfsql                                                                               | SQLite                                   | Why                                                                                           |

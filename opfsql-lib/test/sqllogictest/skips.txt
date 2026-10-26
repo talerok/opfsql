@@ -10,12 +10,12 @@ reason compare-types semantics.md, Comparisons: operands must be comparable; TEX
 reason assigned-twice semantics.md, Departures: assigning one column twice in an UPDATE is a bind error, where SQLite takes the rightmost assignment
 reason sum-avg-text semantics.md, Aggregates: sum, total and avg take numbers only; over TEXT they are a bind error, where SQLite reads the text as a number
 
-# Features opfsql does not have.
-reason desc-index not supported: ASC or DESC on an index key
-reason in-table not supported: IN with a table name, x IN t1
-reason from-parentheses not supported: parentheses around FROM items
-reason indexed-by not supported: INDEXED BY and NOT INDEXED
-reason shift not supported: the << operator, and the sums and totals over the rows it would have inserted
+# Features opfsql does not have: docs/semantics.md, Not supported.
+reason desc-index not supported: descending index keys (semantics.md, Not supported)
+reason in-table not supported: IN with a table name, x IN t1 (semantics.md, Not supported)
+reason from-parentheses not supported: parentheses around FROM items (semantics.md, Not supported)
+reason indexed-by not supported: INDEXED BY and NOT INDEXED (semantics.md, Not supported)
+reason shift not supported: the << operator (semantics.md, Not supported), and the sums and totals over the rows it would have inserted
 
 test/evidence/in1.test:70 in-table
 test/evidence/in1.test:81 in-table
