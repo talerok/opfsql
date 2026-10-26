@@ -35,7 +35,7 @@ export function parametersOf(values: unknown): ParameterValues {
   if (values === undefined) return NO_PARAMETERS;
   if (!Array.isArray(values)) {
     throw new MisuseError(
-      `parameters are an array of values, not ${kindOf(values)}`,
+      `parameters are an array of values, not ${describeForeign(values)}`,
     );
   }
   const checkedValues = Array.from(values, (value: unknown, index) =>
@@ -136,13 +136,13 @@ function notAValue(value: unknown): string {
   }
   const isBytes = value instanceof ArrayBuffer || ArrayBuffer.isView(value);
   if (isBytes) {
-    return `is ${kindOf(value)}: a BLOB is a Uint8Array, and only a whole parameter`;
+    return `is ${describeForeign(value)}: a BLOB is a Uint8Array, and only a whole parameter`;
   }
-  return `is ${kindOf(value)}, which is not a value: JSON objects are plain objects`;
+  return `is ${describeForeign(value)}, which is not a value: JSON objects are plain objects`;
 }
 
 /** "a function", "an Int16Array", "a Map". */
-function kindOf(value: unknown): string {
+function describeForeign(value: unknown): string {
   const name =
     typeof value === "object" ? constructorName(value) : typeof value;
   // "a Uint8Array": a U names a sound that takes "a".
