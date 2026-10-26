@@ -1,16 +1,20 @@
-import { RowTooLargeError } from "../../errors.js";
+import { InternalError, RowTooLargeError } from "../../errors.js";
 import type { Value } from "../../values/index.js";
 import { BTree, BTreeWriter } from "../btree/btree.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import { tableLeafCell, tableLeafCellSize } from "../format/btree-page.js";
-import type { PreparedField } from "../format/record.js";
+import type {
+  DecodedFields,
+  FieldMask,
+  PreparedField,
+} from "../format/record.js";
 import {
   decodeBytes,
+  decodeRecord,
   encodeRecord,
   OVERFLOW_REFERENCE_SIZE,
   OverflowValue,
   prepareField,
-  RecordReader,
   recordSize,
 } from "../format/record.js";
 import { freeChain, readChain, writeChain } from "./overflow.js";
@@ -20,39 +24,42 @@ import { freeChain, readChain, writeChain } from "./overflow.js";
 // row's cell moved to overflow pages (docs/file-format.md, Overflow values).
 // ---------------------------------------------------------------------------
 
-/** A stored row, decoded one column at a time. */
+/** A stored row, its fields decoded out of the page as it is read. */
 export class StoredRow {
-  private readonly record: RecordReader;
+  private readonly fields: DecodedFields;
 
+  /** `wanted` marks the fields to decode; every field, without it. */
   constructor(
     private readonly pages: PageReader,
     readonly rowid: number,
     record: Uint8Array,
+    wanted: FieldMask | null = null,
   ) {
-    // A copy: a writer's page may change after the row is read.
-    this.record = new RecordReader(record.slice());
+    this.fields = decodeRecord(record, wanted);
   }
 
   /** Columns stored; columns added to the table since read as their default. */
   get length(): number {
-    return this.record.length;
+    return this.fields.length;
   }
 
+  /** The value of a decoded field, read from its overflow chain if it has one. */
   value(column: number): Value {
-    if (!this.record.isOverflow(column)) return this.record.value(column);
-    const reference = this.record.overflow(column);
-    return decodeBytes(reference.holds, readChain(this.pages, reference));
+    const field = this.fields[column];
+    if (field instanceof OverflowValue) {
+      return decodeBytes(field.holds, readChain(this.pages, field));
+    }
+    if (field === undefined) {
+      throw new InternalError(
+        `field ${String(column)} of row ${String(this.rowid)} was not decoded`,
+      );
+    }
+    return field;
   }
 
   /** The values of this row that live in overflow chains. */
   overflowValues(): OverflowValue[] {
-    const values: OverflowValue[] = [];
-    for (let column = 0; column < this.record.length; column++) {
-      if (this.record.isOverflow(column)) {
-        values.push(this.record.overflow(column));
-      }
-    }
-    return values;
+    return this.fields.filter((field) => field instanceof OverflowValue);
   }
 }
 
