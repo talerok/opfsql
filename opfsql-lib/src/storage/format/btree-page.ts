@@ -32,12 +32,12 @@ const TYPE_BYTE: Record<BTreePageType, number> = {
   "index-leaf": 0x04,
 };
 
-const TYPE_OF_BYTE: Readonly<Partial<Record<number, BTreePageType>>> = {
-  0x01: "table-interior",
-  0x02: "table-leaf",
-  0x03: "index-interior",
-  0x04: "index-leaf",
-};
+const TYPE_OF_BYTE: ReadonlyMap<number, BTreePageType> = new Map(
+  (Object.keys(TYPE_BYTE) as BTreePageType[]).map((type) => [
+    TYPE_BYTE[type],
+    type,
+  ]),
+);
 
 const CELL_COUNT_OFFSET = 2;
 const CONTENT_START_OFFSET = 4;
@@ -85,7 +85,7 @@ export function tableLeafCellSize(rowid: number, recordLength: number): number {
 // --- Cells -------------------------------------------------------------------
 
 export function tableLeafCell(rowid: number, record: Uint8Array): Uint8Array {
-  const writer = new ByteWriter(record.length + 16);
+  const writer = new ByteWriter(tableLeafCellSize(rowid, record.length));
   writer.zigzagVarint(rowid);
   writer.varint(record.length);
   writer.bytes(record);
@@ -93,21 +93,22 @@ export function tableLeafCell(rowid: number, record: Uint8Array): Uint8Array {
 }
 
 export function tableInteriorCell(child: number, rowid: number): Uint8Array {
-  const writer = new ByteWriter(16);
+  const writer = new ByteWriter(CHILD_SIZE + zigzagVarintSize(rowid));
   writer.uint32(child);
   writer.zigzagVarint(rowid);
   return writer.toBytes();
 }
 
 export function indexLeafCell(key: Uint8Array): Uint8Array {
-  const writer = new ByteWriter(key.length + 8);
+  const writer = new ByteWriter(varintSize(key.length) + key.length);
   writer.varint(key.length);
   writer.bytes(key);
   return writer.toBytes();
 }
 
 export function indexInteriorCell(child: number, key: Uint8Array): Uint8Array {
-  const writer = new ByteWriter(key.length + 12);
+  const size = CHILD_SIZE + varintSize(key.length) + key.length;
+  const writer = new ByteWriter(size);
   writer.uint32(child);
   writer.varint(key.length);
   writer.bytes(key);
@@ -156,7 +157,7 @@ export class BTreePage {
 
   constructor(readonly bytes: Uint8Array) {
     this.view = viewOf(bytes);
-    const type = TYPE_OF_BYTE[bytes[0] ?? 0];
+    const type = TYPE_OF_BYTE.get(bytes[0] ?? 0);
     if (type === undefined) {
       throw new CorruptError(
         `page type ${String(bytes[0])} is not a B-tree page`,
@@ -227,6 +228,13 @@ export class BTreePage {
     return this.sizedBytes(this.keyOffset(index));
   }
 
+  /** The key of cell `index`: its rowid in a table page, its key in an index page. */
+  keyAt(index: number): number | Uint8Array {
+    const isTable =
+      this.type === "table-leaf" || this.type === "table-interior";
+    return isTable ? this.rowid(index) : this.key(index);
+  }
+
   /**
    * The first cell whose key is at least `key` (a rowid in a table page, an
    * encoded key in an index page): where `key` is, or would go.
@@ -246,7 +254,7 @@ export class BTreePage {
   }
 
   /** True if the cell at `index` has exactly `key`. */
-  holds(index: number, key: number | Uint8Array): boolean {
+  hasKeyAt(index: number, key: number | Uint8Array): boolean {
     return index < this.cellCount && this.compareCell(index, key) === 0;
   }
 
@@ -348,8 +356,11 @@ export class BTreePage {
     return extents.toSorted((a, b) => a.offset - b.offset);
   }
 
+  /** Callers read children only of a page they found interior. */
   private requireInterior(): void {
-    if (this.isLeaf) throw new CorruptError("a leaf page has no children");
+    if (this.isLeaf) {
+      throw new InternalError("a child was read from a leaf page");
+    }
   }
 }
 

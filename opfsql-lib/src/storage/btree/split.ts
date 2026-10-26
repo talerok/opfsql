@@ -92,6 +92,8 @@ function cutLeaf(content: NodeContent, style: SplitStyle): Split {
  */
 function cutInterior(content: NodeContent, style: SplitStyle): Split {
   const { type, cells, rightChild } = content;
+  // At the right edge the last cell stays as the right half's only one, and
+  // the one before it moves up.
   const at =
     style === "right-edge" ? cells.length - 2 : balancedPromotion(cells);
   const promoted = cells[at];

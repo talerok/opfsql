@@ -1,7 +1,7 @@
 import { InternalError, MisuseError } from "../../errors.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import {
-  AllocationMap,
+  AllocationMapWriter,
   isGroupStart,
   isMapPage,
   newMapPage,
@@ -112,7 +112,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
   private readonly dirty = new Map<number, Uint8Array>();
   /** Open savepoints, the innermost last. */
   private readonly savepoints: Savepoint[] = [];
-  private readonly map: AllocationMap;
+  private readonly map: AllocationMapWriter;
   private readonly initialPageCount: number;
   private currentPageCount: number;
   /** No page below this one is free. */
@@ -122,7 +122,7 @@ export class WriteTransaction extends ReadTransaction implements PageWriter {
     super(pager, snapshot);
     this.initialPageCount = super.pageCount;
     this.currentPageCount = this.initialPageCount;
-    this.map = new AllocationMap(this);
+    this.map = new AllocationMapWriter(this);
   }
 
   /** Pages in the database with this transaction's changes. */

@@ -16,7 +16,7 @@ export const MAX_PAGE_SIZE = 65_536;
 export const DEFAULT_PAGE_SIZE = 8192;
 
 const PAGE_SIZE_OFFSET = PREFIX_SIZE;
-const SCHEMA_VERSION_OFFSET = PREFIX_SIZE + 4;
+const SCHEMA_VERSION_OFFSET = PAGE_SIZE_OFFSET + 4;
 
 export const HEADER_PAGE = 0;
 const FIRST_MAP_PAGE = 1;
@@ -63,7 +63,8 @@ export class DatabaseFile {
 
   /** Opens an existing database file, checking its header. */
   static open(file: SyncFile, name: string): DatabaseFile {
-    const header = new Uint8Array(PAGE_SIZE_OFFSET + 4);
+    // The prefix and the page size: enough to check and open the file.
+    const header = new Uint8Array(SCHEMA_VERSION_OFFSET);
     file.read(header, { at: 0 });
     checkPrefix(header, "database", name);
     const pageSize = readUint32(header, PAGE_SIZE_OFFSET);

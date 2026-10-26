@@ -1,4 +1,6 @@
+// ---------------------------------------------------------------------------
 // CRC-32 (IEEE), computed over several parts as if they were one.
+// ---------------------------------------------------------------------------
 
 const TABLE = Uint32Array.from({ length: 256 }, (_, byte) => {
   let crc = byte;

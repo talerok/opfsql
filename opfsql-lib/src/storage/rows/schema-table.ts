@@ -1,6 +1,7 @@
 import { CorruptError, InternalError } from "../../errors.js";
 import type { Value } from "../../values/index.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
+import type { TreeKind } from "../btree/types.js";
 import { SCHEMA_ROOT_PAGE } from "../pager/database-file.js";
 import type { StoredRow } from "./table-store.js";
 import { TableReader, TableWriter } from "./table-store.js";
@@ -13,10 +14,9 @@ import { TableReader, TableWriter } from "./table-store.js";
 
 export const SCHEMA_TABLE_NAME = "opfsql_schema";
 
-export type SchemaEntryType = "table" | "index";
-
 export interface SchemaEntry {
-  readonly type: SchemaEntryType;
+  /** Every entry is a tree: a table's or an index's. */
+  readonly type: TreeKind;
   readonly name: string;
   /** The table an index belongs to; a table's own name for a table. */
   readonly tableName: string;
@@ -89,7 +89,7 @@ function entryOf(row: StoredRow): StoredSchemaEntry {
   };
 }
 
-function entryTypeOf(text: string, row: StoredRow): SchemaEntryType {
+function entryTypeOf(text: string, row: StoredRow): TreeKind {
   if (text === "table" || text === "index") return text;
   throw malformed(row, TYPE);
 }

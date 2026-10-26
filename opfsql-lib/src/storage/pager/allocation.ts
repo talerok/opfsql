@@ -12,7 +12,7 @@ import type { PageReader } from "../btree/page-store.js";
 export const MAP_PAGE_TYPE = 0x06;
 const MAP_HEADER_SIZE = 8;
 
-/** Pages a transaction can change: what an AllocationMap edits. */
+/** Pages a transaction can change: what an AllocationMapWriter edits. */
 export interface MapPages extends PageReader {
   write(pageNo: number): Uint8Array;
 }
@@ -24,7 +24,7 @@ export function groupSize(pageSize: number): number {
 
 /** The map page of the group `pageNo` is in: the group's second page. */
 export function mapPageOf(pageNo: number, pageSize: number): number {
-  return groupStartOf(pageNo, groupSize(pageSize)) + 1;
+  return mapPageIn(pageNo, groupSize(pageSize));
 }
 
 export function isMapPage(pageNo: number, pageSize: number): boolean {
@@ -39,7 +39,7 @@ export function isGroupStart(pageNo: number, pageSize: number): boolean {
 /** The page numbers of the map pages of a database of `pageCount` pages. */
 export function mapPageNumbers(pageSize: number, pageCount: number): number[] {
   const size = groupSize(pageSize);
-  return groupStarts(0, pageCount, size).map((start) => start + 1);
+  return groupStarts(0, pageCount, size).map((start) => mapPageIn(start, size));
 }
 
 /** A new map page at `mapPageNo`, marking itself and `alsoInUse` in use. */
@@ -108,7 +108,7 @@ export class AllocationMapReader {
 
   /** The map page of the group `pageNo` is in. */
   protected mapOf(pageNo: number): Uint8Array {
-    return this.pages.read(groupStartOf(pageNo, this.size) + 1);
+    return this.pages.read(mapPageIn(pageNo, this.size));
   }
 
   /** Bits of the group starting at `start` that stand for pages below `pageCount`. */
@@ -118,7 +118,7 @@ export class AllocationMapReader {
 }
 
 /** Which pages are in use, changed within a write transaction. */
-export class AllocationMap extends AllocationMapReader {
+export class AllocationMapWriter extends AllocationMapReader {
   constructor(private readonly writer: MapPages) {
     super(writer);
   }
@@ -144,12 +144,17 @@ export class AllocationMap extends AllocationMapReader {
   }
 
   private mapToChange(pageNo: number): Uint8Array {
-    return this.writer.write(groupStartOf(pageNo, this.size) + 1);
+    return this.writer.write(mapPageIn(pageNo, this.size));
   }
 }
 
 function groupStartOf(pageNo: number, size: number): number {
   return pageNo - (pageNo % size);
+}
+
+/** The map page of the group of `size` pages that `pageNo` is in. */
+function mapPageIn(pageNo: number, size: number): number {
+  return groupStartOf(pageNo, size) + 1;
 }
 
 /** The first page of each group from the one holding `from` to the one holding `pageCount − 1`. */

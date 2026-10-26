@@ -1,4 +1,5 @@
-import { BTree } from "./btree/btree.js";
+import { CorruptError } from "../errors.js";
+import { BTreeReader } from "./btree/btree.js";
 import type { TreeGuard } from "./btree/guard.js";
 import { checkTree } from "./btree/check.js";
 import type { PageReader } from "./btree/page-store.js";
@@ -58,9 +59,9 @@ class StorageCheck {
     this.checkMapPages();
     // The other trees are found through the schema table, so only a sound
     // one is read.
-    const isSchemaSound = this.checkTree(SCHEMA_TREE);
+    const isSchemaSound = this.checkTreeAndRows(SCHEMA_TREE);
     if (isSchemaSound) {
-      for (const tree of this.schemaTrees()) this.checkTree(tree);
+      for (const tree of this.schemaTrees()) this.checkTreeAndRows(tree);
     }
     this.checkAllocation();
     return this.problems;
@@ -80,13 +81,14 @@ class StorageCheck {
     try {
       return readSchemaTable(this.pages).map((entry) => treeOf(entry));
     } catch (error) {
-      this.report(SCHEMA_TABLE_NAME, messageOf(error));
+      if (!(error instanceof CorruptError)) throw error;
+      this.report(SCHEMA_TABLE_NAME, error.message);
       return [];
     }
   }
 
   /** Checks a tree, and the rows of a table tree. True if the tree is sound. */
-  private checkTree(tree: Tree): boolean {
+  private checkTreeAndRows(tree: Tree): boolean {
     const report = checkTree(this.pages, tree.root, tree.kind);
     for (const problem of report.problems) this.report(tree.name, problem);
     for (const pageNo of report.pages) this.claim(pageNo, tree.name);
@@ -96,7 +98,7 @@ class StorageCheck {
   }
 
   private checkRows(tree: Tree): void {
-    const rows = new BTree(this.pages, tree.root, "table");
+    const rows = new BTreeReader(this.pages, tree.root, "table");
     const guard = rows.guard();
     for (const { page, index } of rows.ascending()) {
       const row = { rowid: page.rowid(index), record: page.record(index) };
@@ -115,7 +117,8 @@ class StorageCheck {
       for (const chain of row.overflowReferences())
         this.claimChain(owner, chain);
     } catch (error) {
-      this.report(owner, `row ${String(rowid)}: ${messageOf(error)}`);
+      if (!(error instanceof CorruptError)) throw error;
+      this.report(owner, `row ${String(rowid)}: ${error.message}`);
     }
   }
 
@@ -172,8 +175,4 @@ function treeOf(entry: StoredSchemaEntry): Tree {
     root: entry.rootPage,
     kind: entry.type,
   };
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

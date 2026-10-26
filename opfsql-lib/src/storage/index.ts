@@ -19,7 +19,6 @@ export {
   readSchemaTable,
   SCHEMA_TABLE_NAME,
   type SchemaEntry,
-  type SchemaEntryType,
   type SchemaPages,
   SchemaTableWriter,
   type StoredSchemaEntry,

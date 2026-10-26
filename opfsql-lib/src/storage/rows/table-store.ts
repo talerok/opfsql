@@ -5,7 +5,7 @@ import {
   type JsonComposite,
   type Value,
 } from "../../values/index.js";
-import { BTree, BTreeWriter } from "../btree/btree.js";
+import { BTreeReader, BTreeWriter } from "../btree/btree.js";
 import type { TreeGuard } from "../btree/guard.js";
 import type { PageReader, PageWriter } from "../btree/page-store.js";
 import { tableLeafCell, tableLeafCellSize } from "../format/btree-page.js";
@@ -145,7 +145,11 @@ export class TableReader {
   constructor(
     protected readonly pages: PageReader,
     readonly root: number,
-    protected readonly tree: BTree = new BTree(pages, root, "table"),
+    protected readonly tree: BTreeReader = new BTreeReader(
+      pages,
+      root,
+      "table",
+    ),
   ) {}
 
   has(rowid: number): boolean {
@@ -182,8 +186,10 @@ export class TableReader {
   /**
    * The tuples of the rows whose rowid is from `first` to `last`, both
    * included, in rowid order or its reverse; an infinite end leaves the
-   * range open. Each record is decoded where it lies, as its leaf is walked:
-   * one generator for every row.
+   * range open. Each record is decoded where it lies, as its leaf is walked.
+   * The leaves are walked here rather than through BTreeReader.ascending and
+   * descending, guard included, for speed: a scan then makes no Position
+   * and runs no generator of its own per row.
    */
   tuples(
     layout: TupleLayout,
@@ -208,11 +214,11 @@ export class TableReader {
     if (first > last) return;
     const from = first === -Infinity ? undefined : first;
     const guard = this.tree.guard();
-    for (const { page, index } of this.tree.leavesFrom(from)) {
-      for (let cell = index; cell < page.cellCount; cell++) {
-        const rowid = page.rowid(cell);
+    for (const { leaf, start } of this.tree.leavesFrom(from)) {
+      for (let cell = start; cell < leaf.cellCount; cell++) {
+        const rowid = leaf.rowid(cell);
         if (rowid > last) return;
-        yield this.tupleOf(rowid, page.record(cell), layout);
+        yield this.tupleOf(rowid, leaf.record(cell), layout);
         guard.check();
       }
     }
@@ -226,11 +232,11 @@ export class TableReader {
     if (first > last) return;
     const before = last === Infinity ? undefined : Math.floor(last) + 1;
     const guard = this.tree.guard();
-    for (const { page, index } of this.tree.leavesBefore(before)) {
-      for (let cell = index; cell >= 0; cell--) {
-        const rowid = page.rowid(cell);
+    for (const { leaf, start } of this.tree.leavesBefore(before)) {
+      for (let cell = start; cell >= 0; cell--) {
+        const rowid = leaf.rowid(cell);
         if (rowid < first) return;
-        yield this.tupleOf(rowid, page.record(cell), layout);
+        yield this.tupleOf(rowid, leaf.record(cell), layout);
         guard.check();
       }
     }
@@ -264,11 +270,11 @@ export class TableWriter extends TableReader {
   declare protected readonly pages: PageWriter;
   declare protected readonly tree: BTreeWriter;
 
-  /** `table` names the table in errors. */
+  /** `tableName` names the table in errors. */
   constructor(
     pages: PageWriter,
     root: number,
-    private readonly table: string,
+    private readonly tableName: string,
   ) {
     super(pages, root, new BTreeWriter(pages, root, "table"));
   }
@@ -341,7 +347,11 @@ export class TableWriter extends TableReader {
     while (cellSize(rowid, planned) > limit) {
       const largest = largestMovable(planned);
       if (largest === null) {
-        throw new RowTooLargeError(this.table, cellSize(rowid, planned), limit);
+        throw new RowTooLargeError(
+          this.tableName,
+          cellSize(rowid, planned),
+          limit,
+        );
       }
       // The chain's page number does not change the cell's size.
       planned[largest.column] = overflowField(largest.field, 0);
