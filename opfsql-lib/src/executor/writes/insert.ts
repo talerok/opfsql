@@ -57,13 +57,17 @@ export function runInsert(
   const inserting = { table, editor: editorOf(table, target), context };
   const insertRow = compileRowInsert(statement, inserting, target);
   const newRow = compileNewRow(table, statement.columns);
+  return tally(rows.map((row) => insertRow(newRow(row))));
+}
+
+/** Rows inserted or updated count as changes; the last inserted gives its rowid. */
+function tally(outcomes: readonly RowOutcome[]): Outcome {
   let changes = 0;
   let lastInsertRowid: number | null = null;
-  for (const row of rows) {
-    const done = insertRow(newRow(row));
-    if (done.kind === "skipped") continue;
+  for (const outcome of outcomes) {
+    if (outcome.kind === "skipped") continue;
     changes++;
-    if (done.kind === "inserted") lastInsertRowid = done.rowid;
+    if (outcome.kind === "inserted") lastInsertRowid = outcome.rowid;
   }
   return { rows: [], changes, lastInsertRowid };
 }

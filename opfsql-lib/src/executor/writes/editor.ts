@@ -1,4 +1,5 @@
 import { InternalError } from "../../errors.js";
+import type { Layout, Tuple } from "../../expressions/index.js";
 import type { Index, Table } from "../../schema/index.js";
 import { ROWID_COLUMN, type ColumnBinding } from "../../sql/plan/index.js";
 import {
@@ -8,7 +9,6 @@ import {
   Sequences,
   TableEditor,
 } from "../../table/index.js";
-import type { Layout, Tuple } from "../../expressions/index.js";
 import type { WriteTarget } from "../target.js";
 
 /**
