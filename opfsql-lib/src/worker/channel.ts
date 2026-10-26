@@ -1,9 +1,9 @@
 import type { OpenOptions } from "../engine/api/index.js";
 import {
   AbortError,
-  InternalError,
   MisuseError,
   type OpfsqlError,
+  WorkerError,
 } from "../errors.js";
 import {
   type ClientMessage,
@@ -64,13 +64,11 @@ export class Channel {
       this.receive(event);
     });
     worker.addEventListener("error", (event) => {
-      this.fail(
-        new InternalError(`the database worker failed${detail(event)}`),
-      );
+      this.fail(new WorkerError(`the database worker failed${detail(event)}`));
     });
     worker.addEventListener("messageerror", () => {
       this.fail(
-        new InternalError("a message from the database worker was unreadable"),
+        new WorkerError("a message from the database worker was unreadable"),
       );
     });
   }
@@ -81,7 +79,7 @@ export class Channel {
 
   /** Waits for the worker to answer at all, failing after START_TIMEOUT. */
   async greet(): Promise<void> {
-    const failure = new InternalError(
+    const failure = new WorkerError(
       `the database worker did not answer within ${String(START_TIMEOUT)} ms; does its script call serveDatabase()?`,
     );
     const deadline = setTimeout(() => {

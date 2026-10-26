@@ -1,5 +1,5 @@
 import { linkSignals, TaskQueue } from "../async/index.js";
-import { AbortError, MisuseError } from "../errors.js";
+import { AbortError, MisuseError, toOpfsqlError } from "../errors.js";
 import type { Schema as SchemaModel } from "../schema/index.js";
 import {
   type Statement,
@@ -26,7 +26,7 @@ import { describeSchema } from "./describe-schema.js";
 import { eachStep, planAhead, StepFailure } from "./script.js";
 import { beginMode, checkParameters, parseScript, Step } from "./statements.js";
 import { Transaction, type TransactionHost } from "./transaction.js";
-import { locateStatement, toOpfsqlError } from "./translate-error.js";
+import { locateStatement } from "./locate-statement.js";
 
 /** What a session needs from its engine. */
 export interface SessionHost extends TransactionHost {

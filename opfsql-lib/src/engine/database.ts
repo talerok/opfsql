@@ -1,11 +1,14 @@
-import { type OpfsqlError, SerializationError } from "../errors.js";
+import {
+  type OpfsqlError,
+  SerializationError,
+  toOpfsqlError,
+} from "../errors.js";
 import type {
   Pager,
   ReadTransaction,
   WriteTransaction,
 } from "../storage/index.js";
 import { abortErrorOf } from "../async/index.js";
-import { toOpfsqlError } from "./translate-error.js";
 import { type Lease, WriteLock } from "./write-lock.js";
 
 // ---------------------------------------------------------------------------

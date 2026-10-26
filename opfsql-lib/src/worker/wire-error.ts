@@ -1,5 +1,5 @@
 import * as taxonomy from "../errors.js";
-import { type ErrorCode, InternalError, OpfsqlError } from "../errors.js";
+import { type ErrorCode, OpfsqlError, toOpfsqlError } from "../errors.js";
 
 // Errors cross the worker boundary as plain data and come back as the same
 // class: an OpfsqlError subclass keeps its code, message, own fields (offset,
@@ -68,9 +68,7 @@ export function toWireError(error: unknown, depth = 0): WireError {
 
 /** The error a request failed with, as an OpfsqlError of its own class. */
 export function fromWireError(wire: WireError): OpfsqlError {
-  const error = revive(wire);
-  if (error instanceof OpfsqlError) return error;
-  return new InternalError(error.message, { cause: error });
+  return toOpfsqlError(revive(wire));
 }
 
 function kindOf(error: Error): WireError["kind"] {

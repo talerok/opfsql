@@ -1,5 +1,10 @@
 import { linkSignals, TaskQueue } from "../async/index.js";
-import { AbortError, MisuseError, type OpfsqlError } from "../errors.js";
+import {
+  AbortError,
+  MisuseError,
+  type OpfsqlError,
+  toOpfsqlError,
+} from "../errors.js";
 import {
   openOpfsFiles,
   openPager,
@@ -16,7 +21,6 @@ import { checkIntegrity } from "./integrity.js";
 import { SchemaCache } from "./schemas.js";
 import { SessionCore, type SessionHost } from "./session-core.js";
 import { Session } from "./session.js";
-import { toOpfsqlError } from "./translate-error.js";
 
 const DEFAULT_BUSY_TIMEOUT = 5000;
 

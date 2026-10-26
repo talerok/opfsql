@@ -10,9 +10,9 @@ import type {
 } from "../engine/api/index.js";
 import {
   AbortError,
-  InternalError,
   MisuseError,
-  OpfsqlError,
+  toOpfsqlError,
+  WorkerError,
 } from "../errors.js";
 import {
   type ClientMessage,
@@ -153,7 +153,7 @@ class Host {
     try {
       reply = await answer;
     } catch (error) {
-      reply = { id, ok: false, error: toWireError(asOpfsql(error)) };
+      reply = { id, ok: false, error: toWireError(toOpfsqlError(error)) };
     } finally {
       dispose();
       this.running.delete(id);
@@ -169,7 +169,11 @@ class Host {
       const value = await this.handle(message, signal);
       return { id: message.id, ok: true, value };
     } catch (error) {
-      return { id: message.id, ok: false, error: toWireError(asOpfsql(error)) };
+      return {
+        id: message.id,
+        ok: false,
+        error: toWireError(toOpfsqlError(error)),
+      };
     }
   }
 
@@ -178,7 +182,7 @@ class Host {
       this.scope.postMessage(message);
     } catch (error) {
       if (!("id" in message)) return;
-      const failure = new InternalError("the reply could not be sent", {
+      const failure = new WorkerError("the reply could not be sent", {
         cause: error,
       });
       this.scope.postMessage({
@@ -457,10 +461,4 @@ async function closeQuietly(session: SessionContract): Promise<void> {
   } catch {
     // a pooled session that fails to close holds nothing anyone waits for
   }
-}
-
-function asOpfsql(error: unknown): OpfsqlError {
-  if (error instanceof OpfsqlError) return error;
-  const message = error instanceof Error ? error.message : String(error);
-  return new InternalError(message, { cause: error });
 }

@@ -386,3 +386,26 @@ describe("a session shared by unrelated callers", () => {
     await shared.close();
   });
 });
+
+describe("the write lock", () => {
+  it("reports a lock request the browser fails as IO_ERROR, and then works", async () => {
+    engine = await engineOn({
+      database: new MemoryFile(),
+      wal: new MemoryFile(),
+      marks: null,
+    });
+    const s = engine.connect();
+    await s.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    vi.spyOn(navigator.locks, "request").mockRejectedValueOnce(
+      new DOMException("locks are unavailable", "InvalidStateError"),
+    );
+    await expect(s.query("INSERT INTO t VALUES (1)")).rejects.toMatchObject({
+      code: "IO_ERROR",
+      cause: { name: "InvalidStateError" },
+    });
+    await s.query("INSERT INTO t VALUES (2)");
+    const [rows] = await s.execute("SELECT id FROM t");
+    expect(rows.rows).toEqual([[2]]);
+    await s.close();
+  });
+});

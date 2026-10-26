@@ -12,6 +12,7 @@ import {
   MisuseError,
   SemanticError,
   SqlSyntaxError,
+  WorkerError,
 } from "../../errors.js";
 import { MemoryFile } from "../../storage/file/sync-file.js";
 import { type Database, openDatabase } from "../client.js";
@@ -161,14 +162,14 @@ describe("a database served by a worker", () => {
     await holder.query("BEGIN IMMEDIATE");
     const pending = expect(
       database.query("INSERT INTO t VALUES (1)"),
-    ).rejects.toThrow(InternalError);
+    ).rejects.toThrow(WorkerError);
 
     worker.crash("out of memory");
     await pending;
     await expect(database.query("SELECT 1")).rejects.toThrow(/out of memory/);
-    await expect(database.query("SELECT 1")).rejects.toBeInstanceOf(
-      InternalError,
-    );
+    await expect(database.query("SELECT 1")).rejects.toMatchObject({
+      code: "WORKER_ERROR",
+    });
     expect(worker.isTerminated).toBe(true);
   });
 
@@ -176,6 +177,21 @@ describe("a database served by a worker", () => {
     const { database, worker } = await open();
     worker.garble();
     await expect(database.query("SELECT 1")).rejects.toThrow(/unreadable/);
+    await expect(database.query("SELECT 1")).rejects.toBeInstanceOf(
+      WorkerError,
+    );
+  });
+
+  it("reports a DOMException as the engine does: IO_ERROR, not INTERNAL", async () => {
+    const refusal = new DOMException("the files are locked", "NotAllowedError");
+    // Opening fails the way a file API does, after a while.
+    const worker = startTestWorker(async () => {
+      await tick();
+      throw refusal;
+    });
+    await expect(
+      openDatabase(`client-${String(seq++)}`, { worker }),
+    ).rejects.toMatchObject({ code: "IO_ERROR", name: "IoError" });
   });
 
   it("refuses parameters that cannot cross to the worker, and goes on working", async () => {
@@ -556,7 +572,10 @@ describe("the worker's life cycle", () => {
     const worker = startSilentWorker();
     const opening = expect(
       openDatabase(`client-${String(seq++)}`, { worker }),
-    ).rejects.toThrow(/serveDatabase/);
+    ).rejects.toMatchObject({
+      code: "WORKER_ERROR",
+      message: expect.stringMatching(/serveDatabase/) as unknown,
+    });
     await vi.advanceTimersByTimeAsync(START_TIMEOUT);
     await opening;
     expect(worker.isTerminated).toBe(true);

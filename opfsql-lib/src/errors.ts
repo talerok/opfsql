@@ -39,10 +39,16 @@ export type ErrorCode =
   | "CORRUPT"
   /** The files were written in a format this version does not read. */
   | "UNSUPPORTED_FORMAT"
+  // The environment
+  /**
+   * The worker serving the database failed: it crashed or did not start, or
+   * a message between it and the page could not be read or sent.
+   */
+  | "WORKER_ERROR"
   // The API
   /** The API was used wrongly: a closed session, a missing parameter. */
   | "MISUSE"
-  /** A bug in opfsql. */
+  /** A bug in opfsql: a contract inside it was broken. */
   | "INTERNAL";
 
 export class OpfsqlError extends Error {
@@ -238,6 +244,18 @@ export class UnsupportedFormatError extends OpfsqlError {
   }
 }
 
+/**
+ * The worker serving the database failed: it crashed or did not start, or a
+ * message between it and the page could not be read or sent.
+ */
+export class WorkerError extends OpfsqlError {
+  override readonly name = "WorkerError";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super("WORKER_ERROR", message, options);
+  }
+}
+
 /** A bug: an invariant opfsql relies on does not hold. */
 export class InternalError extends OpfsqlError {
   override readonly name = "InternalError";
@@ -310,4 +328,26 @@ export class AbortError extends OpfsqlError {
   constructor(message: string, options?: ErrorOptions) {
     super("ABORTED", message, options);
   }
+}
+
+/**
+ * The OpfsqlError to report for `error`, by its class, never its message:
+ * an OpfsqlError itself; a DOMException — how the browser's file and lock
+ * APIs fail — STORAGE_FULL when out of quota, IO_ERROR otherwise; anything
+ * else is a bug, INTERNAL. The engine and the worker host both translate
+ * through here, so one failure gets one code on every path.
+ */
+export function toOpfsqlError(error: unknown): OpfsqlError {
+  if (error instanceof OpfsqlError) return error;
+  if (error instanceof DOMException) return platformError(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return new InternalError(message, { cause: error });
+}
+
+function platformError(error: DOMException): OpfsqlError {
+  const options = { cause: error };
+  if (error.name === "QuotaExceededError") {
+    return new StorageFullError(error.message, options);
+  }
+  return new IoError(error.message, options);
 }

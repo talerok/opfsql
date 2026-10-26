@@ -110,18 +110,19 @@ sources make that so, so results need no copying of their own:
 
 ## Errors
 
-| Layer          | Raises                                                                                        |
-| -------------- | --------------------------------------------------------------------------------------------- |
-| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE               |
-| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                      |
-| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT |
-| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows), MISUSE               |
-| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE                                                  |
-| any            | INTERNAL: a broken contract                                                                   |
+| Layer          | Raises                                                                                                           |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| storage        | CORRUPT, IO_ERROR, STORAGE_FULL, UNSUPPORTED_FORMAT, DATABASE_IN_USE, TOO_LARGE                                  |
+| table          | CONSTRAINT_VIOLATION, DATATYPE_MISMATCH (with table and column), CORRUPT                                         |
+| parser, binder | SYNTAX_ERROR, SEMANTIC_ERROR; while loading the schema, a stored statement's error is CORRUPT                    |
+| expressions    | DATATYPE_MISMATCH, SEMANTIC_ERROR (a scalar subquery with several rows), MISUSE                                  |
+| engine         | BUSY, SERIALIZATION_FAILURE, ABORTED, MISUSE; IO_ERROR when a lock request fails                                 |
+| worker         | WORKER_ERROR (a worker that crashed or did not start, a message that could not be read or sent), MISUSE, ABORTED |
+| any            | INTERNAL: a broken contract                                                                                      |
 
 Errors from the platform — a DOMException from a file or a lock — become
-opfsql errors in one function, used by the engine and the worker host
-alike. An error object is never shared between calls: one kept to be thrown
+opfsql errors in one function, `toOpfsqlError` in `errors.ts`, used by the
+engine and the worker host alike. An error object is never shared between calls: one kept to be thrown
 again is thrown as the cause of a new one.
 
 ## Where the code is not there yet
@@ -134,7 +135,5 @@ fix lands; the labels stay as they were.
 - **G8. BLOB defaults and BLOB constants are shared**, and so are defaults an
   INSERT fills in or the schema description hands out; results copy BLOBs per
   row instead. (A row read from a record already copies a JSON default.)
-- **G15. Errors are translated in two places** that disagree on a DOMException;
-  INTERNAL also covers a crashed worker and a failed lock request.
 - **G18. `close()` does not wait** for the background release of abandoned read
   marks.
