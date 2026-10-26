@@ -70,8 +70,20 @@ export function projectsOf(plan: logical.Plan): {
 export function projectedBy(
   project: logical.Project,
 ): Replacement<logical.Plan> {
-  return (column) =>
-    column.binding.tableIndex === project.tableIndex
-      ? project.expressions[column.binding.columnIndex]
-      : undefined;
+  return (column) => {
+    const { tableIndex, columnIndex } = column.binding;
+    const isProjected = tableIndex === project.tableIndex;
+    return isProjected ? project.expressions[columnIndex] : undefined;
+  };
+}
+
+/** An aggregate's group columns replaced by the expressions it groups by. */
+export function groupedBy(
+  aggregate: logical.Aggregate,
+): Replacement<logical.Plan> {
+  return (column) => {
+    const { tableIndex, columnIndex } = column.binding;
+    const isGroup = tableIndex === aggregate.groupIndex;
+    return isGroup ? aggregate.groups[columnIndex] : undefined;
+  };
 }

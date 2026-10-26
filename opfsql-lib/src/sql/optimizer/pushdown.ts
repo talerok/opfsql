@@ -1,6 +1,5 @@
 import { InternalError } from "../../errors.js";
-import type { ColumnReference, logical } from "../plan/index.js";
-import { logical as plans } from "../plan/index.js";
+import { type ColumnReference, logical } from "../plan/index.js";
 import {
   columnsOf,
   hasNeverTrue,
@@ -9,7 +8,7 @@ import {
   substitute,
   tablesOf,
 } from "./expression-tree.js";
-import { projectedBy } from "./plan-tree.js";
+import { groupedBy, projectedBy } from "./plan-tree.js";
 
 // ---------------------------------------------------------------------------
 // Pass 2, filter pushdown: each conjunct of a filter moves down the plan as
@@ -48,8 +47,9 @@ export function pushDownFilters(plan: Plan): Plan {
 
 /** `plan` with `conditions` applied on top, each as deep as it can go. */
 function pushInto(plan: Plan, conditions: readonly Expression[]): Plan {
-  const movable = conditions.filter((condition) => !isPinned(condition));
-  const pinned = conditions.filter((condition) => isPinned(condition));
+  const [pinned, movable] = partition(conditions, (condition) =>
+    isPinned(condition),
+  );
   return withFilter(place(plan, movable), pinned);
 }
 
@@ -62,22 +62,33 @@ function withFilter(plan: Plan, conditions: readonly Expression[]): Plan {
   return { kind: "filter", child: plan, conditions };
 }
 
+/** The items `isChosen` holds for, and the others, each in their order. */
+function partition<T>(
+  items: readonly T[],
+  isChosen: (item: T) => boolean,
+): [T[], T[]] {
+  const chosen: T[] = [];
+  const others: T[] = [];
+  for (const item of items) {
+    if (isChosen(item)) chosen.push(item);
+    else others.push(item);
+  }
+  return [chosen, others];
+}
+
 /** `plan` with movable `conditions` on top, placed by the rules above. */
 function place(plan: Plan, conditions: readonly Expression[]): Plan {
   switch (plan.kind) {
     case "filter": {
-      if (hasNeverTrue(plan.conditions)) {
-        return plan;
-      }
+      if (hasNeverTrue(plan.conditions)) return plan;
       return pushInto(plan.child, [...plan.conditions, ...conditions]);
     }
     case "project": {
       return placeThroughProject(plan, conditions);
     }
     case "join": {
-      return plan.joinType === "inner"
-        ? placeIntoInnerJoin(plan, conditions)
-        : placeIntoLeftJoin(plan, conditions);
+      if (plan.joinType === "left") return placeIntoLeftJoin(plan, conditions);
+      return placeIntoInnerJoin(plan, conditions);
     }
     case "aggregate": {
       return placeBelowAggregate(plan, conditions);
@@ -94,10 +105,8 @@ function place(plan: Plan, conditions: readonly Expression[]): Plan {
       return { ...plan, definition, body: pushInto(plan.body, conditions) };
     }
     case "limit": {
-      return withFilter(
-        { ...plan, child: pushDownFilters(plan.child) },
-        conditions,
-      );
+      const child = pushDownFilters(plan.child);
+      return withFilter({ ...plan, child }, conditions);
     }
     case "recursive-cte": {
       const anchor = pushDownFilters(plan.anchor);
@@ -148,22 +157,27 @@ function placeThroughProject(
   return withFilter({ ...plan, child: pushInto(plan.child, below) }, above);
 }
 
+/** Without groups an empty input still makes one row: nothing goes below. */
 function placeBelowAggregate(
   plan: logical.Aggregate,
   conditions: readonly Expression[],
 ): Plan {
-  const hasGroups = plan.groups.length > 0;
+  if (plan.groups.length === 0) {
+    return withFilter(
+      { ...plan, child: pushDownFilters(plan.child) },
+      conditions,
+    );
+  }
   const groupTables = new Set([plan.groupIndex]);
   const { below, above } = split(conditions, (condition) => {
-    if (!hasGroups || !readsOnly(condition, groupTables)) return null;
-    return substitute(condition, (column) =>
-      column.binding.tableIndex === plan.groupIndex
-        ? plan.groups[column.binding.columnIndex]
-        : undefined,
-    );
+    if (!readsOnly(condition, groupTables)) return null;
+    return substitute(condition, groupedBy(plan));
   });
   return withFilter({ ...plan, child: pushInto(plan.child, below) }, above);
 }
+
+/** Where a condition over an inner join goes. */
+type Destination = "left" | "right" | "join";
 
 function placeIntoInnerJoin(
   plan: logical.Join,
@@ -172,33 +186,51 @@ function placeIntoInnerJoin(
   if (hasNeverTrue(plan.conditions)) {
     return withFilter(withSidesPushed(plan, [], []), conditions);
   }
-  const left = tablesOf(plans.layoutOf(plan.left));
-  const right = tablesOf(plans.layoutOf(plan.right));
-  const toLeft: Expression[] = [];
-  const toRight: Expression[] = [];
-  const kept: Expression[] = [];
-  for (const condition of [...plan.conditions, ...conditions]) {
-    if (isPinned(condition)) kept.push(condition);
-    else if (readsOnly(condition, left)) toLeft.push(condition);
-    else if (readsOnly(condition, right)) toRight.push(condition);
-    else kept.push(condition);
-  }
-  return { ...withSidesPushed(plan, toLeft, toRight), conditions: kept };
+  const sides = sidesOf(plan);
+  const all = [...plan.conditions, ...conditions];
+  const to = (destination: Destination): Expression[] =>
+    all.filter((condition) => destinationOf(condition, sides) === destination);
+  const join = withSidesPushed(plan, to("left"), to("right"));
+  return { ...join, conditions: to("join") };
+}
+
+interface Sides {
+  readonly left: ReadonlySet<number>;
+  readonly right: ReadonlySet<number>;
+}
+
+function sidesOf(plan: logical.Join): Sides {
+  return {
+    left: tablesOf(logical.layoutOf(plan.left)),
+    right: tablesOf(logical.layoutOf(plan.right)),
+  };
+}
+
+/**
+ * The side whose columns a condition reads alone, or the join itself: an
+ * inner join checks its ON conditions and a WHERE alike, pair by pair.
+ */
+function destinationOf(condition: Expression, sides: Sides): Destination {
+  if (isPinned(condition)) return "join";
+  if (readsOnly(condition, sides.left)) return "left";
+  if (readsOnly(condition, sides.right)) return "right";
+  return "join";
 }
 
 function placeIntoLeftJoin(
   plan: logical.Join,
   conditions: readonly Expression[],
 ): Plan {
-  const left = tablesOf(plans.layoutOf(plan.left));
-  const right = tablesOf(plans.layoutOf(plan.right));
-  const toLeft = conditions.filter((condition) => readsOnly(condition, left));
-  const above = conditions.filter((condition) => !readsOnly(condition, left));
+  const sides = sidesOf(plan);
+  const [toLeft, above] = partition(conditions, (condition) =>
+    readsOnly(condition, sides.left),
+  );
   const isEmptyOn = hasNeverTrue(plan.conditions);
-  const isRightOnly = (condition: Expression): boolean =>
-    !isEmptyOn && !isPinned(condition) && readsOnly(condition, right);
-  const toRight = plan.conditions.filter((condition) => isRightOnly(condition));
-  const kept = plan.conditions.filter((condition) => !isRightOnly(condition));
+  const [toRight, kept] = partition(plan.conditions, (condition) => {
+    const isRightOnly =
+      !isPinned(condition) && readsOnly(condition, sides.right);
+    return !isEmptyOn && isRightOnly;
+  });
   const join = { ...withSidesPushed(plan, toLeft, toRight), conditions: kept };
   return withFilter(join, above);
 }
@@ -217,18 +249,16 @@ function placeIntoSetOperation(
   conditions: readonly Expression[],
 ): Plan {
   const isUnion = plan.operator === "UNION" || plan.operator === "UNION ALL";
-  const isPassable = (condition: Expression): boolean =>
-    isUnion && readsSameTypes(plan, condition);
-  const passing = conditions.filter((condition) => isPassable(condition));
-  const above = conditions.filter((condition) => !isPassable(condition));
-  const left = pushInto(
-    plan.left,
-    passing.map((condition) => onSide(condition, plan, plan.left)),
+  const [passing, above] = partition(
+    conditions,
+    (condition) => isUnion && readsSameTypes(plan, condition),
   );
-  const right = pushInto(
-    plan.right,
-    passing.map((condition) => onSide(condition, plan, plan.right)),
+  const onLeft = passing.map((condition) => onSide(condition, plan, plan.left));
+  const onRight = passing.map((condition) =>
+    onSide(condition, plan, plan.right),
   );
+  const left = pushInto(plan.left, onLeft);
+  const right = pushInto(plan.right, onRight);
   return withFilter({ ...plan, left, right }, above);
 }
 
@@ -237,8 +267,8 @@ function readsSameTypes(
   plan: logical.SetOperation,
   condition: Expression,
 ): boolean {
-  const leftTypes = plans.typesOf(plan.left);
-  const rightTypes = plans.typesOf(plan.right);
+  const leftTypes = logical.typesOf(plan.left);
+  const rightTypes = logical.typesOf(plan.right);
   for (const binding of columnsOf(condition)) {
     if (binding.tableIndex !== plan.tableIndex) return false;
     const type = plan.types[binding.columnIndex];
@@ -256,8 +286,8 @@ function onSide(
   plan: logical.SetOperation,
   side: Plan,
 ): Expression {
-  const layout = plans.layoutOf(side);
-  const types = plans.typesOf(side);
+  const layout = logical.layoutOf(side);
+  const types = logical.typesOf(side);
   const rewritten = substitute(
     condition,
     (column): ColumnReference | undefined => {
