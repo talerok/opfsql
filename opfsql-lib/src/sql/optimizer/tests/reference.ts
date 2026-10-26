@@ -16,7 +16,7 @@ import {
   rowKey,
   type Value,
 } from "../../../values/index.js";
-import { type logical, physical } from "../../plan/index.js";
+import { logical, physical, positionIn } from "../../plan/index.js";
 import type { KeyBinder } from "../index.js";
 import { naivePlan } from "./naive.js";
 import {
@@ -63,7 +63,8 @@ export function bothRuns(
 ): { readonly expected: string[]; readonly actual: string[] } {
   const { tables, parameters } = data;
   const expected = runPlan(naivePlan(plan), tables, parameters, bindKey);
-  const actual = runPlan(optimized, tables, parameters, bindKey);
+  const ran = runPlan(optimized, tables, parameters, bindKey);
+  const actual = inLayoutOf(plan, optimized, ran);
   return { expected: multiset(expected), actual: multiset(actual) };
 }
 
@@ -76,8 +77,30 @@ export function bothSequences(
 ): { readonly expected: string[]; readonly actual: string[] } {
   const { tables, parameters } = data;
   const expected = runPlan(naivePlan(plan), tables, parameters, bindKey);
-  const actual = runPlan(optimized, tables, parameters, bindKey);
+  const ran = runPlan(optimized, tables, parameters, bindKey);
+  const actual = inLayoutOf(plan, optimized, ran);
   return { expected: sequence(expected), actual: sequence(actual) };
+}
+
+/**
+ * Rows of `optimized` with their columns in the order `plan` lays them
+ * out. A join's sides may swap: nodes above find a column by its binding,
+ * not its position (docs/planning.md, Physical plans), and so does this.
+ */
+export function inLayoutOf(
+  plan: logical.Plan,
+  optimized: physical.Plan,
+  rows: readonly Tuple[],
+): Tuple[] {
+  const found = physical.layoutOf(optimized);
+  const positions = logical.layoutOf(plan).map((binding) => {
+    const position = positionIn(found, binding);
+    if (position === null) {
+      throw new InternalError("the optimized plan lost a column");
+    }
+    return position;
+  });
+  return rows.map((row) => positions.map((position) => row[position] ?? null));
 }
 
 /** Rows as a list of keys, in order. */

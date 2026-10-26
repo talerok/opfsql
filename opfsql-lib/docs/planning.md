@@ -147,11 +147,14 @@ LEFT join pads a left row with NULLs when no pair passes. Rows come out in
 the left side's order, each left row's matches in the scan's order.
 
 An inner join's sides may be swapped: expressions above it find columns by
-binding, not by position. The side with the more selective access path —
-a rowid, a unique key or an equality with a constant or a parameter — leads,
-and the other is looked up by its key when it has an index or a rowid on it;
-two sides that both need a full read meet in a hash join, which hashes the
-side estimated smaller.
+binding, not by position. Every place that reads columns by position — a
+statement's result, a subquery's, a set operation's sides, a CTE's
+definition, an INSERT's source — reads a project the binder put there,
+which a swap below it never reaches. The side with the more selective
+access path — a rowid, a unique key or an equality with a constant or a
+parameter — leads, and the other is looked up by its key when it has an
+index or a rowid on it; two sides that both need a full read meet in a hash
+join, which hashes the side estimated smaller.
 
 A scan reads only the columns some node above it uses, and the rowid only
 when one does: the binder may list more, and the optimizer prunes them, as

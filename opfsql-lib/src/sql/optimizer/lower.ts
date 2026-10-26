@@ -17,7 +17,7 @@ import type { Planner } from "./planner.js";
 // ---------------------------------------------------------------------------
 // Pass 7, the logical plan as a physical one, after simplification and
 // pushdown. A table read gets its access path (access-path.ts) with the
-// filter right above it; a join is split into keys and residual (join.ts);
+// filter right above it; joins get their order and algorithms (join.ts);
 // an ORDER BY becomes a sort, a top-n or nothing (order.ts); a MIN or MAX
 // may read one end of an index (extreme.ts). The rest maps directly:
 // aggregate → hash-aggregate, distinct → hash-distinct; set operations,
@@ -36,7 +36,7 @@ export function lowerPlan(plan: logical.Plan, planner: Planner): physical.Plan {
       return lowerFilter(plan, planner);
     }
     case "join": {
-      return lowerJoin(plan, planner);
+      return planJoin(plan, { planner, lower }, null).plan;
     }
     case "aggregate": {
       return indexExtreme(plan, planner) ?? hashAggregate(plan, planner);
@@ -99,25 +99,6 @@ function lowerFilter(plan: logical.Filter, planner: Planner): physical.Plan {
     child: lowerPlan(plan.child, planner),
     conditions: lowerExpressions(plan.conditions, planner),
   };
-}
-
-function lowerJoin(plan: logical.Join, planner: Planner): physical.Plan {
-  if (hasNeverTrue(plan.conditions)) return lowerEmptyJoin(plan, planner);
-  const left = lowerPlan(plan.left, planner);
-  const right = lowerPlan(plan.right, planner);
-  const conditions = lowerExpressions(plan.conditions, planner);
-  return planJoin(plan.joinType, left, right, conditions);
-}
-
-/**
- * A join whose ON no pair passes: nothing for an inner join, and for a left
- * join every left row with NULLs, the right side read as empty.
- */
-function lowerEmptyJoin(plan: logical.Join, planner: Planner): physical.Plan {
-  if (plan.joinType === "inner") return emptyPlan(plan);
-  const left = lowerPlan(plan.left, planner);
-  const conditions = lowerExpressions(plan.conditions, planner);
-  return planJoin("left", left, emptyPlan(plan.right), conditions);
 }
 
 function hashAggregate(

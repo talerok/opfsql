@@ -1,5 +1,6 @@
 import type { logical, OrderDirection, physical } from "../plan/index.js";
 import {
+  afterResidual,
   type Estimate,
   indexEstimate,
   orderedCost,
@@ -65,6 +66,8 @@ export interface AccessPath {
   readonly plan: physical.Plan;
   /** True if its rows come in the order wanted. */
   readonly isOrdered: boolean;
+  /** The rows that pass every condition, and what reading them costs. */
+  readonly estimate: Estimate;
 }
 
 /** A read of a table's rows, which a residual can sit on. */
@@ -112,11 +115,11 @@ type Access = DistributiveOmit<
   Scan,
   "tableIndex" | "table" | "columns" | "residual"
 >;
-type RowidAccess = Extract<Access, { readonly kind: "rowid-lookup" }>;
-type IndexAccess = Extract<Access, { readonly kind: "index-scan" }>;
+export type RowidAccess = Extract<Access, { readonly kind: "rowid-lookup" }>;
+export type IndexAccess = Extract<Access, { readonly kind: "index-scan" }>;
 
 /** One way to read the rows. */
-interface Candidate<Kind extends Access = Access> {
+export interface Candidate<Kind extends Access = Access> {
   readonly access: Kind;
   /** Conditions it enforces exactly, which the residual leaves out. */
   readonly enforced: readonly Expression[];
@@ -147,11 +150,15 @@ export function chooseAccessPath(
     return orderedCost(candidate.estimate, shape, passing);
   });
   const chosen = best ?? scan;
-  return { plan: buildScan(chosen, request), isOrdered: chosen.isOrdered };
+  return {
+    plan: buildScan(chosen, request),
+    isOrdered: chosen.isOrdered,
+    estimate: afterResidual(chosen.estimate, conditions),
+  };
 }
 
 /** The candidate `costOf` says is cheapest, the earlier on a tie; null if none. */
-function cheapestBy<C>(
+export function cheapestBy<C>(
   candidates: readonly C[],
   costOf: (candidate: C) => number,
 ): C | null {
@@ -167,11 +174,27 @@ function cheapestBy<C>(
 }
 
 function buildScan(candidate: Candidate, request: ScanRequest): Scan {
+  return { ...accessOf(candidate, request), ...candidate.access };
+}
+
+/** A seek's scan: a rowid lookup or an index scan. */
+export function buildSeek(
+  candidate: Candidate<RowidAccess | IndexAccess>,
+  request: ScanRequest,
+): physical.RowidLookup | physical.IndexScan {
+  return { ...accessOf(candidate, request), ...candidate.access };
+}
+
+/** What every scan of the get has: its columns, and the conditions the path leaves. */
+function accessOf(
+  candidate: Candidate,
+  request: ScanRequest,
+): Omit<physical.TableScan, "kind" | "direction"> {
   const { tableIndex, table, columns } = request.get;
   const residual = request.conditions.filter(
     (condition) => !candidate.enforced.includes(condition),
   );
-  return { tableIndex, table, columns, residual, ...candidate.access };
+  return { tableIndex, table, columns, residual };
 }
 
 function tableScanCandidate(request: ScanRequest): Candidate {
@@ -202,7 +225,7 @@ function rowidOrder(
  * lookup returns its rows in rowid order, or its reverse: it delivers an
  * ORDER BY of the rowid in either direction.
  */
-function rowidCandidate(
+export function rowidCandidate(
   get: logical.Get,
   tests: readonly KeyTest[],
   order: WantedOrder | null,
@@ -257,7 +280,7 @@ function rowidRangeCandidate(
 // --- Indexes ------------------------------------------------------------------
 
 /** An index seek, or the whole index if it delivers the order wanted; null if neither. */
-function indexCandidate(
+export function indexCandidate(
   keys: IndexKeys,
   tests: readonly KeyTest[],
   order: WantedOrder | null,

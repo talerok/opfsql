@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { logical, physical } from "../../plan/index.js";
+import { type ColumnBinding, logical, physical } from "../../plan/index.js";
 import { simplifyExpression } from "../simplify.js";
 import {
   aggregate,
@@ -178,9 +178,17 @@ describe("conditions no row passes", () => {
 });
 
 /** The physical layout is the logical one, so the nodes above find their columns. */
+/** Bindings in one order, whatever order a plan lays them out in. */
+function byBinding(a: ColumnBinding, b: ColumnBinding): number {
+  const tableOrder = a.tableIndex - b.tableIndex;
+  return tableOrder === 0 ? a.columnIndex - b.columnIndex : tableOrder;
+}
+
+/** The same columns, found by binding: a join's sides may swap (docs/planning.md). */
 function expectLayoutKept(plan: logical.Plan): void {
-  expect(physical.layoutOf(optimizedPlan(plan))).toEqual(
-    logical.layoutOf(plan),
+  const found = physical.layoutOf(optimizedPlan(plan));
+  expect(found.toSorted(byBinding)).toEqual(
+    logical.layoutOf(plan).toSorted(byBinding),
   );
   expectSameRows(plan);
 }
@@ -199,11 +207,11 @@ describe("plans that read nothing keep their layout", () => {
     );
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join left on o.user_id = p.id",
+        "lookup-join left",
         "  nested-loop-join inner",
         "    rowid-lookup users#1 (rowid IN ())",
         "    rowid-lookup orders#2 (rowid IN ())",
-        "  table-scan users#3",
+        "  rowid-lookup users#3 (rowid = o.user_id)",
       ),
     );
     expectLayoutKept(plan);
@@ -223,13 +231,14 @@ describe("plans that read nothing keep their layout", () => {
       filter(counted, NULL),
       compare(group, "=", column(u, "id")),
     );
+    // Reading nothing, the aggregate leads; users is looked up by rowid.
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join inner on id = user_id",
-        "  table-scan users#1",
+        "lookup-join inner",
         "  nested-loop-join inner",
         "    values#4 no rows",
         "    values#5 no rows",
+        "  rowid-lookup users#1 (rowid = user_id)",
       ),
     );
     expectLayoutKept(plan);

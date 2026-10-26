@@ -10,6 +10,7 @@ import {
   aggregate,
   aggregateCall,
   asc,
+  between,
   bindKey,
   call,
   column,
@@ -43,7 +44,7 @@ import {
   usersRead,
 } from "./random-plans.js";
 import { SampleDatabase } from "./executed.js";
-import { multiset, runPlan } from "./reference.js";
+import { inLayoutOf, multiset, runPlan } from "./reference.js";
 
 // Random plans over sample tables with an ANY column, each run three ways:
 // lowered naively (naive.ts) and interpreted, optimized and interpreted
@@ -81,16 +82,19 @@ function runThreeWays(
   const sample = random.below(SAMPLES.length);
   const tables = SAMPLES[sample]!;
   const parameters = parametersFor(random);
+  const interpreted = runPlan(optimized, tables, parameters, bindKey);
+  const executed = databases[sample]!.query(optimized, parameters);
   return {
     naive: runPlan(naivePlan(plan), tables, parameters, bindKey),
-    interpreted: runPlan(optimized, tables, parameters, bindKey),
-    executed: databases[sample]!.query(optimized, parameters),
+    interpreted: inLayoutOf(plan, optimized, interpreted),
+    executed: inLayoutOf(plan, optimized, executed),
   };
 }
 
-/** For CASES plans of `shape`, the three runs give the same rows. */
-function expectSameRowsFor(shape: Shape): void {
+/** For CASES plans of `shape`, the three runs give the same rows; the plans, printed. */
+function expectSameRowsFor(shape: Shape): string[] {
   const random = new Random(SEED);
+  const plans: string[] = [];
   for (let count = 0; count < CASES; count += 1) {
     const plan = shape(random);
     const optimized = optimizedPlan(plan);
@@ -98,7 +102,14 @@ function expectSameRowsFor(shape: Shape): void {
     const printed = formatPhysicalPlan(optimized);
     expect(multiset(runs.interpreted), printed).toEqual(multiset(runs.naive));
     expect(multiset(runs.executed), printed).toEqual(multiset(runs.naive));
+    plans.push(printed);
   }
+  return plans;
+}
+
+/** How many of the printed plans hold a node of `kind`. */
+function countWith(plans: readonly string[], kind: string): number {
+  return plans.filter((plan) => plan.includes(kind)).length;
 }
 
 /** Rows as a list of keys, in order. */
@@ -163,6 +174,56 @@ describe("optimized plans give the naive plans' rows", () => {
     });
   });
 
+  it("for joins that find one side by the other's key, either side leading", () => {
+    const plans = expectSameRowsFor((random) => {
+      const isUsersFirst = random.chance(0.5);
+      const left = isUsersFirst ? usersRead() : get(o);
+      const right = isUsersFirst ? get(o) : usersRead();
+      const on = [
+        keyCondition(random),
+        ...conditions(random, bothSubjects(), 1),
+      ];
+      const joined = join(
+        random.pick(["inner", "left"] as const),
+        left,
+        right,
+        ...on,
+      );
+      const where = conditions(random, selectiveSubjects(), 2);
+      return where.length === 0 ? joined : filter(joined, ...where);
+    });
+    // Lookups, and hash joins, come up often enough to be tested.
+    expect(countWith(plans, "lookup-join")).toBeGreaterThan(CASES / 4);
+    expect(countWith(plans, "hash-join")).toBeGreaterThan(CASES / 10);
+  });
+
+  it("for chains of three joins, reordered", () => {
+    const p = { tableIndex: 3, table: u.table, alias: "p" };
+    const plans = expectSameRowsFor((random) => {
+      const first = join(
+        random.pick(["inner", "left"] as const),
+        get(o),
+        usersRead(),
+        keyCondition(random),
+      );
+      const other = random.pick(["id", "age", "tag", "name"]);
+      const joined = join(
+        "inner",
+        first,
+        get(p),
+        compare(
+          column(p, other),
+          random.pick(KEY_OPERATORS),
+          column(o, "user_id"),
+        ),
+        ...conditions(random, bothSubjects(), 1),
+      );
+      const where = conditions(random, selectiveSubjects(), 2);
+      return where.length === 0 ? joined : filter(joined, ...where);
+    });
+    expect(countWith(plans, "lookup-join")).toBeGreaterThan(CASES / 4);
+  });
+
   it("for filters over projects, aggregates, set operations and DISTINCT", () => {
     const shapes: Shape[] = [
       overProject,
@@ -206,6 +267,42 @@ describe("optimized plans give the naive plans' rows", () => {
 /** Columns of both users and orders. */
 function bothSubjects(): logical.Expression[] {
   return [...userSubjects(), ...orderSubjects()];
+}
+
+/** Columns a condition of its own may pick a few rows by: rowids and indexed ones. */
+function selectiveSubjects(): logical.Expression[] {
+  return [
+    column(u, "id"),
+    column(u, "email"),
+    column(u, "age"),
+    column(o, "id"),
+    column(o, "user_id"),
+  ];
+}
+
+const KEY_OPERATORS = ["=", "=", "=", "<", "<=", ">", ">="] as const;
+
+/**
+ * A condition between an order and a user that a seek can use on either
+ * side: orders' rowid or orders_user, or users' rowid, email, age, name,
+ * tag or lower(name), against the other side's column, mostly `=`.
+ */
+function keyCondition(random: Random): logical.Expression {
+  const orderSide = random.pick([column(o, "user_id"), column(o, "id")]);
+  const userSide = random.pick([
+    column(u, "id"),
+    column(u, "age"),
+    column(u, "tag"),
+    column(u, "name"),
+    column(u, "email"),
+    call("lower", column(u, "name")),
+  ]);
+  const operator = random.pick(KEY_OPERATORS);
+  if (random.chance(0.15)) {
+    return between(userSide, orderSide, column(o, "total"));
+  }
+  if (random.chance(0.5)) return compare(orderSide, operator, userSide);
+  return compare(userSide, operator, orderSide);
 }
 
 /** `(SELECT count(*) FROM orders i WHERE i.user_id = u.id)`, correlated. */

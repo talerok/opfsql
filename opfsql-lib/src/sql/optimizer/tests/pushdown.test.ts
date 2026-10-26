@@ -67,11 +67,13 @@ describe("into joins", () => {
       compare(total, ">", constant(5)),
       compare(age, "<", total),
     );
+    // Orders, with a condition of their own, lead; each order's user is
+    // found by its rowid, which enforces u.id = o.user_id exactly.
     expect(planOf(plan)).toBe(
       lines(
-        "hash-join inner on u.id = o.user_id residual: u.age < o.total",
-        "  table-scan users#1",
+        "lookup-join inner residual: u.age < o.total",
         "  table-scan orders#2 residual: o.total > 5",
+        "  rowid-lookup users#1 (rowid = o.user_id)",
       ),
     );
   });
