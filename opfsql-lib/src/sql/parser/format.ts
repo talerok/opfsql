@@ -1,12 +1,3 @@
-// ---------------------------------------------------------------------------
-// The printer: syntax trees back to SQL text. What it prints parses to the
-// tree it was given, so printing is idempotent: parse(format(x)) prints the
-// same. It is the canonical text of an expression — how CREATE INDEX stores
-// an expression key, and how a result column without an alias is named.
-// Names are quoted when they are not plain identifiers or are keywords;
-// parentheses go where the parser's precedence (precedence.ts) needs them.
-// ---------------------------------------------------------------------------
-
 import { realLiteral, sqlLiteral } from "../../values/index.js";
 import { compoundMembers } from "./compound.js";
 import { keywordOf } from "./keywords.js";
@@ -38,6 +29,15 @@ import {
   type SubqueryExpression,
   type TableReference,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// The printer: syntax trees back to SQL text. What it prints parses to the
+// tree it was given, so printing is idempotent: parse(format(x)) prints the
+// same. It is the canonical text of an expression — how CREATE INDEX stores
+// an expression key, and how a result column without an alias is named.
+// Names are quoted when they are not plain identifiers or are keywords;
+// parentheses go where the parser's precedence (precedence.ts) needs them.
+// ---------------------------------------------------------------------------
 
 const PLAIN_NAME = /^[A-Za-z_][\w$]*$/;
 

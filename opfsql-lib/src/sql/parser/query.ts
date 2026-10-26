@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// Queries: WITH, SELECT, compound operators, ORDER BY and LIMIT.
-// ---------------------------------------------------------------------------
-
 import type { Cursor } from "./cursor.js";
 import { parseFrom } from "./from-clause.js";
 import {
@@ -19,6 +15,10 @@ import {
   type SetOperationNode,
   type WithClause,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Queries: WITH, SELECT, compound operators, ORDER BY and LIMIT.
+// ---------------------------------------------------------------------------
 
 /** A whole query: WITH, a body, and the ORDER BY and LIMIT of the body. */
 export function parseQuery(cursor: Cursor): SelectStatement {

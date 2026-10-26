@@ -1,10 +1,3 @@
-// ---------------------------------------------------------------------------
-// Expressions, by precedence climbing (a Pratt parser). Each infix operator
-// is a rule with a binding power from precedence.ts; one chain applies them,
-// so `a + b + c` is parsed iteratively, and the right side of every operator
-// is parsed at the level just above its own. Prefix forms live in primary.ts.
-// ---------------------------------------------------------------------------
-
 import { NotSupportedError } from "../../errors.js";
 import type { Cursor } from "./cursor.js";
 import type { Keyword } from "./keywords.js";
@@ -28,6 +21,13 @@ import {
   type ParsedExpression,
   type UnaryOperatorType,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Expressions, by precedence climbing (a Pratt parser). Each infix operator
+// is a rule with a binding power from precedence.ts; one chain applies them,
+// so `a + b + c` is parsed iteratively, and the right side of every operator
+// is parsed at the level just above its own. Prefix forms live in primary.ts.
+// ---------------------------------------------------------------------------
 
 /** An expression whose operators all bind at least as tightly as `minimum`. */
 export function parseExpressionFrom(

@@ -12,7 +12,7 @@ import {
   type SetOperationNode,
   type TableReference,
 } from "../parser/index.js";
-import { cteColumns, type BoundCte } from "./cte-definition.js";
+import { cteColumns, type BoundCte } from "./bound-cte.js";
 import { hasAggregateCall } from "./grouping.js";
 import { exactlyOne, itemAt } from "./one.js";
 import { expressionsOf, mentions, mentionsInExpression } from "./references.js";

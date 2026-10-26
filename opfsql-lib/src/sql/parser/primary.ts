@@ -1,8 +1,3 @@
-// ---------------------------------------------------------------------------
-// What an expression starts with: literals, parameters, names and calls,
-// prefix operators, parentheses, subqueries, CASE and CAST.
-// ---------------------------------------------------------------------------
-
 import { NotSupportedError } from "../../errors.js";
 import { hexToBytes } from "../../values/index.js";
 import type { Cursor } from "./cursor.js";
@@ -23,6 +18,11 @@ import {
   type ParameterExpression,
   type ParsedExpression,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// What an expression starts with: literals, parameters, names and calls,
+// prefix operators, parentheses, subqueries, CASE and CAST.
+// ---------------------------------------------------------------------------
 
 export function parsePrefix(cursor: Cursor): ParsedExpression {
   const token = cursor.peek();

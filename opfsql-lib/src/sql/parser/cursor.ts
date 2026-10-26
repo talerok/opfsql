@@ -1,12 +1,3 @@
-// ---------------------------------------------------------------------------
-// The parser's position in the token list, and everything the grammar files
-// share: matching keywords and symbols, names, optional clauses, subqueries,
-// errors, unsupported syntax, the nesting limit and parameter numbers. The
-// grammar's two recursive entry points, expressions and queries, are reached
-// through the cursor so that the files implementing them need not import
-// each other.
-// ---------------------------------------------------------------------------
-
 import {
   InternalError,
   NotSupportedError,
@@ -16,6 +7,15 @@ import { isReserved, upperAscii, type Keyword } from "./keywords.js";
 import { power } from "../precedence.js";
 import { describe, type SymbolText, type Token } from "./tokens.js";
 import type { ParsedExpression, SelectStatement } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// The parser's position in the token list, and everything the grammar files
+// share: matching keywords and symbols, names, optional clauses, subqueries,
+// errors, unsupported syntax, the nesting limit and parameter numbers. The
+// grammar's two recursive entry points, expressions and queries, are reached
+// through the cursor so that the files implementing them need not import
+// each other.
+// ---------------------------------------------------------------------------
 
 /**
  * How deeply expressions and queries may nest, counting each parenthesis,

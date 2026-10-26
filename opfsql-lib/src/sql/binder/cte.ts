@@ -1,7 +1,7 @@
 import { SemanticError } from "../../errors.js";
 import { nameKey } from "../../schema/index.js";
 import type { CTENode, WithClause } from "../parser/index.js";
-import { cteColumns, type BoundCte } from "./cte-definition.js";
+import { cteColumns, type BoundCte } from "./bound-cte.js";
 import { bindRecursiveCte } from "./recursive-cte.js";
 import { mentions } from "./references.js";
 import type { BoundQuery, Scope } from "./scope.js";

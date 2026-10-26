@@ -1,9 +1,3 @@
-// ---------------------------------------------------------------------------
-// The entry point: SQL text to statements. Statements are separated by
-// semicolons; anything after a statement other than `;` or the end of the
-// text is an error, so leftovers never parse as another statement.
-// ---------------------------------------------------------------------------
-
 import { Cursor, type Grammar } from "./cursor.js";
 import { parseAlterTable, parseCreate, parseDrop } from "./ddl.js";
 import { parseDelete, parseInsert, parseUpdate } from "./dml.js";
@@ -20,6 +14,12 @@ import {
   type Statement,
   type TransactionStatement,
 } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// The entry point: SQL text to statements. Statements are separated by
+// semicolons; anything after a statement other than `;` or the end of the
+// text is an error, so leftovers never parse as another statement.
+// ---------------------------------------------------------------------------
 
 const GRAMMAR: Grammar = { expression: parseExpressionAt, query: parseQuery };
 
