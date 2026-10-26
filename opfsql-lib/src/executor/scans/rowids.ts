@@ -1,5 +1,10 @@
 import type { physical } from "../../sql/plan/index.js";
-import type { KeyBound, TableRow, TableRows } from "../../table/index.js";
+import type {
+  KeyBound,
+  KeyRange,
+  TableRow,
+  TableRows,
+} from "../../table/index.js";
 import { compareValues, type Value } from "../../values/index.js";
 import type { Context } from "../context.js";
 import { leafOperator, type Operator } from "../operator.js";
@@ -50,14 +55,7 @@ export function compileRowidSet(
     }
     case "range": {
       const range = compileRange(set.range, context);
-      return () => {
-        const { lower = null, upper = null } = range() ?? {};
-        return {
-          kind: "range",
-          first: firstRowid(lower),
-          last: lastRowid(upper),
-        };
-      };
+      return () => rangeOf(range());
     }
   }
 }
@@ -84,6 +82,11 @@ function listOf(values: readonly Value[]): RowidSelection {
   );
   const distinct = [...new Set(rowids)].toSorted((a, b) => a - b);
   return { kind: "list", rowids: distinct };
+}
+
+/** The rowids from the first a range lets through to the last. */
+function rangeOf({ lower, upper }: KeyRange): RowidSelection {
+  return { kind: "range", first: firstRowid(lower), last: lastRowid(upper) };
 }
 
 /** The smallest rowid a lower bound lets through. */

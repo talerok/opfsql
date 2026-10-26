@@ -13,6 +13,7 @@ export function compileKeySeek(
   context: Context,
 ): () => KeySeek {
   const equal = compileEqual(keys.equal, context);
+  if (keys.range === null) return () => ({ equal: equal(), range: null });
   const range = compileRange(keys.range, context);
   return () => ({ equal: equal(), range: range() });
 }
@@ -26,12 +27,11 @@ export function compileEqual(
   return () => compiled.map((value) => value());
 }
 
-/** A range compiled: its ends each time the scan starts; null for none. */
+/** A range compiled: its ends each time the scan starts. */
 export function compileRange(
-  range: physical.Range | null,
+  range: physical.Range,
   context: Context,
-): () => KeyRange | null {
-  if (range === null) return () => null;
+): () => KeyRange {
   const lower = compileBound(range.lower, context);
   const upper = compileBound(range.upper, context);
   return () => ({ lower: lower(), upper: upper() });
