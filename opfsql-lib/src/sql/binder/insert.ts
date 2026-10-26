@@ -40,12 +40,15 @@ export function bindInsert(
   const table = writableTable(statement.table, context);
   const columns = targetColumns(statement.columns, table);
   const source = insertSource(statement.source, columns.length, context);
+  // Read before ON CONFLICT binds: only the source's reads count.
+  const isTargetRead = context.hasRead(table.name);
   const onConflict = bindOnConflict(statement.onConflict, table, context);
   return {
     kind: "insert",
     table,
     columns,
     source: source.plan,
+    readsTarget: isTargetRead,
     onConflict,
     parameterCount: context.parameterCount,
   };

@@ -21,6 +21,11 @@ function remove(sql: string): BoundOf<"delete"> {
   return boundAs(sql, "delete");
 }
 
+/** Whether an INSERT's source reads its target table. */
+function isTargetRead(sql: string): boolean {
+  return insert(sql).readsTarget;
+}
+
 describe("INSERT", () => {
   it("fills every column from VALUES unless it lists some", () => {
     const bound = insert(
@@ -49,6 +54,34 @@ describe("INSERT", () => {
         "    get #0 users (id, name, age, email, data)",
       ),
     );
+  });
+
+  it("says whether its source reads the target table, anywhere in it", () => {
+    expect(isTargetRead("INSERT INTO orders (id) VALUES (1), (2)")).toBe(false);
+    expect(
+      isTargetRead("INSERT INTO orders (id) SELECT order_id FROM items"),
+    ).toBe(false);
+    expect(isTargetRead("INSERT INTO orders SELECT * FROM orders")).toBe(true);
+    expect(
+      isTargetRead(
+        "INSERT INTO orders (id) SELECT order_id FROM items WHERE order_id NOT IN (SELECT id FROM orders)",
+      ),
+    ).toBe(true);
+    expect(
+      isTargetRead(
+        "INSERT INTO orders (id) WITH known AS (SELECT id FROM Orders) SELECT id + 1 FROM known",
+      ),
+    ).toBe(true);
+    expect(
+      isTargetRead(
+        "INSERT INTO orders (id) VALUES ((SELECT max(id) + 1 FROM orders))",
+      ),
+    ).toBe(true);
+    expect(
+      isTargetRead(
+        "INSERT INTO orders (id) VALUES (1) ON CONFLICT DO UPDATE SET total = (SELECT max(total) FROM orders)",
+      ),
+    ).toBe(false);
   });
 
   it("needs each row as long as the column list, each column once", () => {

@@ -62,6 +62,7 @@ function bindNamedTable(reference: BaseTableReference, scope: Scope): Plan {
   if (table === null) {
     throw new SemanticError(`no such table: ${reference.table}`);
   }
+  scope.context.noteTableRead(table.name);
   scope.add(relation(name, tableIndex, table.columns));
   const columns = table.columns.map((_, position) => position);
   return { kind: "get", tableIndex, table, columns };

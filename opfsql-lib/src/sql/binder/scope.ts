@@ -28,6 +28,7 @@ export type QueryBinder = (
 export class BindContext {
   private lastIndex = -1;
   private parameters = 0;
+  private readonly tablesRead = new Set<string>();
 
   constructor(
     readonly schema: Schema,
@@ -48,6 +49,16 @@ export class BindContext {
   /** The highest parameter number used: the parameters a run needs. */
   get parameterCount(): number {
     return this.parameters;
+  }
+
+  /** Records that the statement reads table `name`, wherever it names it. */
+  noteTableRead(name: string): void {
+    this.tablesRead.add(nameKey(name));
+  }
+
+  /** True if what was bound so far reads table `name`. */
+  hasRead(name: string): boolean {
+    return this.tablesRead.has(nameKey(name));
   }
 }
 
