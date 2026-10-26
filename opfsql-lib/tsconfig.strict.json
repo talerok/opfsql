@@ -20,6 +20,7 @@
     "src/sql/parser",
     "src/sql/binder",
     "src/sql/plan",
+    "src/sql/optimizer",
     "src/expressions",
     "src/executor",
     "src/legacy/executor/evaluate",

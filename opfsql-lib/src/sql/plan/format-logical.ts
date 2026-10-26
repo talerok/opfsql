@@ -1,12 +1,10 @@
-import { ROWID_COLUMN, type AggregateCall } from "./expression.js";
+import { type ColumnReference, ROWID_COLUMN } from "./expression.js";
 import {
-  arithmeticText,
-  comparisonText,
-  formatColumn,
-  formatStep,
-  formatValue,
-  isAtomic,
-} from "./format-terms.js";
+  type ExpressionStyle,
+  formatAggregateCall,
+  formatConditions,
+  formatExpression,
+} from "./format-expression.js";
 import type { Expression, OrderKey, Plan } from "./logical.js";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +37,11 @@ class PlanPrinter {
   readonly lines: string[] = [];
   private subqueries = 0;
   private pending: Subquery[] = [];
+  /** How this printer's expressions read: columns with their bindings, subqueries numbered. */
+  private readonly style: ExpressionStyle<Plan> = {
+    column: (reference) => formatColumn(reference),
+    subquery: (plan, isCorrelated) => this.reference(plan, isCorrelated),
+  };
 
   node(plan: Plan, depth: number, label: string | null): void {
     const prefix = label === null ? "" : `${label}: `;
@@ -72,7 +75,9 @@ class PlanPrinter {
         return `project #${String(plan.tableIndex)} (${this.list(plan.expressions)})`;
       }
       case "aggregate": {
-        const calls = plan.aggregates.map((call) => this.aggregate(call));
+        const calls = plan.aggregates.map((call) =>
+          formatAggregateCall(call, this.style),
+        );
         const groups = `#${String(plan.groupIndex)} (${this.list(plan.groups)})`;
         return `aggregate ${groups} #${String(plan.aggregateIndex)} (${calls.join(", ")})`;
       }
@@ -106,7 +111,7 @@ class PlanPrinter {
   }
 
   private conjuncts(conditions: readonly Expression[]): string {
-    return conditions.map((condition) => this.operand(condition)).join(" AND ");
+    return formatConditions(conditions, this.style);
   }
 
   private limit(limit: Expression | null, offset: Expression | null): string {
@@ -121,172 +126,14 @@ class PlanPrinter {
     return `${this.expression(key.expression)} ${direction} ${nulls}`;
   }
 
-  private aggregate(call: AggregateCall<Plan>): string {
-    if (call.arguments.length === 0) return `${call.name}(*)`;
-    const distinct = call.isDistinct ? "DISTINCT " : "";
-    return `${call.name}(${distinct}${this.list(call.arguments)})`;
-  }
-
   private list(expressions: readonly Expression[]): string {
     return expressions
       .map((expression) => this.expression(expression))
       .join(", ");
   }
 
-  /** An expression, parenthesized when it has operators of its own. */
-  private operand(expression: Expression): string {
-    const text = this.expression(expression);
-    return isAtomic(expression) ? text : `(${text})`;
-  }
-
-  private binary(
-    left: Expression,
-    operator: string,
-    right: Expression,
-  ): string {
-    return `${this.operand(left)} ${operator} ${this.operand(right)}`;
-  }
-
   private expression(expression: Expression): string {
-    switch (expression.kind) {
-      case "column": {
-        return formatColumn(expression);
-      }
-      case "constant": {
-        return formatValue(expression.value, expression.type);
-      }
-      case "parameter": {
-        return `$${String(expression.index + 1)}`;
-      }
-      case "comparison": {
-        const { left, operator, right } = expression;
-        return this.binary(left, comparisonText(operator), right);
-      }
-      case "conjunction": {
-        const parts = expression.operands.map((part) => this.operand(part));
-        return parts.join(` ${expression.operator} `);
-      }
-      case "arithmetic": {
-        const { left, operator, right } = expression;
-        return this.binary(left, arithmeticText(operator), right);
-      }
-      case "concatenate": {
-        return this.binary(expression.left, "||", expression.right);
-      }
-      case "not":
-      case "is-null":
-      case "negate":
-      case "in-list":
-      case "between": {
-        return this.prefixOrPostfix(expression);
-      }
-      case "function":
-      case "case":
-      case "cast":
-      case "json-access": {
-        return this.primary(expression);
-      }
-      case "scalar-subquery":
-      case "exists":
-      case "quantified-comparison": {
-        return this.subqueryExpression(expression);
-      }
-    }
-  }
-
-  private prefixOrPostfix(
-    expression: Extract<
-      Expression,
-      { kind: "not" | "is-null" | "negate" | "in-list" | "between" }
-    >,
-  ): string {
-    switch (expression.kind) {
-      case "not": {
-        return `NOT ${this.operand(expression.operand)}`;
-      }
-      case "is-null": {
-        return `${this.operand(expression.operand)} IS NULL`;
-      }
-      case "negate": {
-        return `-${this.negated(expression.operand)}`;
-      }
-      case "in-list": {
-        return `${this.operand(expression.needle)} IN (${this.list(expression.list)})`;
-      }
-      case "between": {
-        const { input, lower, upper } = expression;
-        return `${this.operand(input)} BETWEEN ${this.operand(lower)} AND ${this.operand(upper)}`;
-      }
-    }
-  }
-
-  /** A negated operand: one that starts with `-` too goes in parentheses, as `--` starts a comment. */
-  private negated(operand: Expression): string {
-    const text = this.operand(operand);
-    return text.startsWith("-") ? `(${text})` : text;
-  }
-
-  private primary(
-    expression: Extract<
-      Expression,
-      { kind: "function" | "case" | "cast" | "json-access" }
-    >,
-  ): string {
-    switch (expression.kind) {
-      case "function": {
-        return `${expression.name}(${this.list(expression.arguments)})`;
-      }
-      case "case": {
-        return this.caseExpression(expression);
-      }
-      case "cast": {
-        return `CAST(${this.expression(expression.operand)} AS ${expression.type})`;
-      }
-      case "json-access": {
-        const path = expression.path.map((step) => formatStep(step));
-        return formatColumn(expression.column) + path.join("");
-      }
-    }
-  }
-
-  private caseExpression(
-    expression: Extract<Expression, { kind: "case" }>,
-  ): string {
-    const parts = ["CASE"];
-    if (expression.operand !== null) {
-      parts.push(this.expression(expression.operand));
-    }
-    for (const branch of expression.branches) {
-      const when = this.expression(branch.when);
-      parts.push(`WHEN ${when} THEN ${this.expression(branch.result)}`);
-    }
-    if (expression.otherwise !== null) {
-      parts.push(`ELSE ${this.expression(expression.otherwise)}`);
-    }
-    parts.push("END");
-    return parts.join(" ");
-  }
-
-  private subqueryExpression(
-    expression: Extract<
-      Expression,
-      { kind: "scalar-subquery" | "exists" | "quantified-comparison" }
-    >,
-  ): string {
-    const subquery = this.reference(expression.plan, expression.isCorrelated);
-    switch (expression.kind) {
-      case "scalar-subquery": {
-        return subquery;
-      }
-      case "exists": {
-        return `EXISTS ${subquery}`;
-      }
-      case "quantified-comparison": {
-        const operator = comparisonText(expression.operator);
-        const needle = this.operand(expression.needle);
-        return `${needle} ${operator} ${expression.quantifier} ${subquery}`;
-      }
-    }
+    return formatExpression(expression, this.style);
   }
 
   /** Numbers a subquery; its plan is printed after the node that holds it. */
@@ -347,4 +194,12 @@ function columnLabel(
 ): string {
   if (column === ROWID_COLUMN) return "rowid";
   return plan.table.columns[column]?.name ?? String(column);
+}
+
+/** A column with its binding: `name#table.column`, and `^depth` when it is a column of an enclosing query. */
+function formatColumn(reference: ColumnReference): string {
+  const { tableIndex, columnIndex } = reference.binding;
+  const column = columnIndex === ROWID_COLUMN ? "rowid" : String(columnIndex);
+  const depth = reference.depth === 0 ? "" : `^${String(reference.depth)}`;
+  return `${reference.name}#${String(tableIndex)}.${column}${depth}`;
 }

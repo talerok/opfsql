@@ -1,5 +1,7 @@
 // The contract between binder, optimizer and executor (docs/planning.md).
 
+export type { StaticType } from "../../functions/index.js";
+
 export {
   type AggregateCall,
   type Arithmetic,
@@ -36,5 +38,7 @@ export {
 export { formatPlan } from "./format-logical.js";
 export { columnType, positions } from "./logical.js";
 export * as logical from "./logical.js";
+export { childrenOf, nodesOf } from "./walk.js";
 export * as physical from "./physical.js";
 export type * from "./statement.js";
+export { formatPhysicalPlan } from "./format-physical.js";

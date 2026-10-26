@@ -1,5 +1,5 @@
 import { InternalError } from "../errors.js";
-import type { Expression } from "../sql/plan/index.js";
+import { type Expression, nodesOf } from "../sql/plan/index.js";
 import type { Value } from "../values/index.js";
 import { compileExpression } from "./compile.js";
 import { createRun, type Scope } from "./scope.js";
@@ -73,68 +73,4 @@ function isFixedNode<Plan>(node: Expression<Plan>): boolean {
       return true;
     }
   }
-}
-
-/** `expression` and every expression inside it. */
-function* nodesOf<Plan>(
-  expression: Expression<Plan>,
-): Generator<Expression<Plan>> {
-  yield expression;
-  for (const child of childrenOf(expression)) yield* nodesOf(child);
-}
-
-function childrenOf<Plan>(
-  expression: Expression<Plan>,
-): readonly Expression<Plan>[] {
-  switch (expression.kind) {
-    case "column":
-    case "constant":
-    case "parameter":
-    case "scalar-subquery":
-    case "exists": {
-      return [];
-    }
-    case "json-access": {
-      return [expression.column];
-    }
-    case "comparison":
-    case "arithmetic":
-    case "concatenate": {
-      return [expression.left, expression.right];
-    }
-    case "not":
-    case "is-null":
-    case "negate":
-    case "cast": {
-      return [expression.operand];
-    }
-    case "conjunction": {
-      return expression.operands;
-    }
-    case "in-list": {
-      return [expression.needle, ...expression.list];
-    }
-    case "between": {
-      return [expression.input, expression.lower, expression.upper];
-    }
-    case "function": {
-      return expression.arguments;
-    }
-    case "case": {
-      return caseChildren(expression);
-    }
-    case "quantified-comparison": {
-      return [expression.needle];
-    }
-  }
-}
-
-function caseChildren<Plan>(
-  expression: Extract<Expression<Plan>, { readonly kind: "case" }>,
-): Expression<Plan>[] {
-  const { operand, branches, otherwise } = expression;
-  const children = operand === null ? [] : [operand];
-  for (const branch of branches) children.push(branch.when, branch.result);
-  if (otherwise !== null) children.push(otherwise);
-  return children;
 }

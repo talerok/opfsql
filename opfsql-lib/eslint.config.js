@@ -227,6 +227,21 @@ export default config(
                 "expressions depends on nothing but sql/plan, functions, values and errors.",
             },
             {
+              // Tests build function calls from the registry, as the binder would.
+              target: "./src/sql/optimizer/*.ts",
+              from: "./src",
+              except: [
+                "./sql/optimizer",
+                "./sql/plan",
+                "./expressions",
+                "./schema",
+                "./values",
+                "./errors.ts",
+              ],
+              message:
+                "sql/optimizer depends on nothing but sql/plan, expressions, schema, values and errors.",
+            },
+            {
               target: "./src/executor",
               from: "./src",
               except: [

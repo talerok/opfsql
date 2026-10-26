@@ -141,6 +141,12 @@ puts on the parameter node itself. So a seek value or a hash key is matched
 exactly as `=` matches it, with nothing left to convert: `id = $1` with
 `'5'` seeks 5, because the parameter evaluates to 5.
 
+An expression key is SQL text in the schema, and the optimizer cannot parse.
+To match `lower(name) = 'bob'` to an index on `lower(name)`, `optimize` takes
+a key binder from the engine — the binder's, binding a key over a table read
+— and compares the bound key with the condition structurally. Without one,
+expression keys match nothing.
+
 ## Rules every optimization keeps
 
 1. **An access path only narrows what is read.** A key range or rowid list
