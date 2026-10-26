@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { lines, plan, query, semanticError } from "./helpers.js";
-
-/** The refusal of a LIMIT or OFFSET that is not an integer. */
-function message(clause: string): string {
-  return `${clause} must be an integer constant or a parameter`;
-}
+import { DatatypeMismatchError } from "../../../errors.js";
+import { lines, plan, query, semanticError, thrown } from "./helpers.js";
 
 describe("ORDER BY", () => {
   it("reads an integer literal as a 1-based output position", () => {
@@ -171,20 +167,31 @@ describe("LIMIT and OFFSET", () => {
     );
   });
 
-  it("take no limit for a negative LIMIT and none skipped for a negative OFFSET, as SQLite", () => {
-    expect(plan("SELECT id FROM users LIMIT -1 OFFSET 2")).toBe(
+  it("convert a constant as an INTEGER column does", () => {
+    expect(plan("SELECT id FROM users LIMIT '5' OFFSET 2.0")).toBe(
       lines(
-        "limit all offset 2",
+        "limit 5 offset 2",
         "  project #1 (id#0.0)",
         "    get #0 users (id, name, age, email, data)",
       ),
     );
-    const unlimited = lines(
-      "project #1 (id#0.0)",
-      "  get #0 users (id, name, age, email, data)",
+  });
+
+  it("keep a negative count, which the run reads as no limit or none skipped", () => {
+    expect(plan("SELECT id FROM users LIMIT -1 OFFSET -5")).toBe(
+      lines(
+        "limit -1 offset -5",
+        "  project #1 (id#0.0)",
+        "    get #0 users (id, name, age, email, data)",
+      ),
     );
-    expect(plan("SELECT id FROM users LIMIT -1 OFFSET -5")).toBe(unlimited);
-    expect(plan("SELECT id FROM users OFFSET 0")).toBe(unlimited);
+    expect(plan("SELECT id FROM users OFFSET 0")).toBe(
+      lines(
+        "limit all offset 0",
+        "  project #1 (id#0.0)",
+        "    get #0 users (id, name, age, email, data)",
+      ),
+    );
   });
 
   it("leave a parameter's value to the run", () => {
@@ -197,13 +204,32 @@ describe("LIMIT and OFFSET", () => {
     });
   });
 
-  it("refuse anything else", () => {
-    expect(semanticError("SELECT 1 LIMIT 1.5")).toBe(message("LIMIT"));
-    expect(semanticError("SELECT 1 LIMIT '5'")).toBe(message("LIMIT"));
-    expect(semanticError("SELECT 1 LIMIT NULL")).toBe(message("LIMIT"));
-    expect(semanticError("SELECT 1 LIMIT 1 + 1")).toBe(message("LIMIT"));
-    expect(semanticError("SELECT 1 LIMIT 1 OFFSET 0.5")).toBe(
-      message("OFFSET"),
+  it("refuse a constant that is no integer when the statement is prepared", () => {
+    const mismatch = (sql: string): string => {
+      const error = thrown(sql);
+      expect(error).toBeInstanceOf(DatatypeMismatchError);
+      return error.message;
+    };
+    expect(mismatch("SELECT 1 LIMIT 1.5")).toBe(
+      "LIMIT: cannot store 1.5 as INTEGER",
+    );
+    expect(mismatch("SELECT 1 LIMIT 'five'")).toBe(
+      'LIMIT: cannot store "five" as INTEGER',
+    );
+    expect(mismatch("SELECT 1 LIMIT NULL")).toBe(
+      "LIMIT must be an integer, not NULL",
+    );
+    expect(mismatch("SELECT 1 LIMIT 1 OFFSET 0.5")).toBe(
+      "OFFSET: cannot store 0.5 as INTEGER",
+    );
+  });
+
+  it("refuse what is neither a constant nor a parameter", () => {
+    expect(semanticError("SELECT 1 LIMIT 1 + 1")).toBe(
+      "LIMIT must be a constant or a parameter",
+    );
+    expect(semanticError("SELECT 1 LIMIT 1 OFFSET -$1")).toBe(
+      "OFFSET must be a constant or a parameter",
     );
   });
 });

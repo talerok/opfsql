@@ -1,4 +1,5 @@
-import { SemanticError } from "../../errors.js";
+import { DatatypeMismatchError, SemanticError } from "../../errors.js";
+import { assignValue, type Value } from "../../values/index.js";
 import {
   ExpressionClass,
   type LimitClause,
@@ -8,9 +9,12 @@ import type { logical } from "../plan/index.js";
 import type { BindContext, BoundQuery } from "./scope.js";
 
 // ---------------------------------------------------------------------------
-// LIMIT and OFFSET: an integer constant or a parameter, whose value the run
-// supplies. As in SQLite, a negative LIMIT means no limit and a negative
-// OFFSET skips none; anything else that is not an integer is an error.
+// LIMIT and OFFSET (docs/semantics.md, LIMIT and OFFSET): integers, by the
+// conversion an INTEGER column applies. A constant is converted here, so
+// `LIMIT '5'` is 5 and `LIMIT 1.5` fails when the statement is prepared; a
+// parameter is converted by the executor when the query starts. A negative
+// count stays as written: the executor reads it as no limit, or none
+// skipped. Any other expression is refused.
 // ---------------------------------------------------------------------------
 
 type Expression = logical.Expression;
@@ -23,7 +27,6 @@ export function applyLimit(
   if (clause === null) return query;
   const limit = countOf(clause.limit, "LIMIT", context);
   const offset = countOf(clause.offset, "OFFSET", context);
-  if (limit === null && offset === null) return query;
   const plan: logical.Plan = {
     kind: "limit",
     child: query.plan,
@@ -33,7 +36,7 @@ export function applyLimit(
   return { ...query, plan };
 }
 
-/** A count as the limit node holds it: null for no limit, or no offset. */
+/** A count as the limit node holds it; null when the clause does not give it. */
 function countOf(
   expression: ParsedExpression | null,
   clause: "LIMIT" | "OFFSET",
@@ -45,15 +48,29 @@ function countOf(
     const { index } = expression;
     return { kind: "parameter", index, affinity: null, type: "INTEGER" };
   }
-  const isConstant = expression.expressionClass === ExpressionClass.CONSTANT;
-  const value = isConstant ? expression.value : undefined;
-  const isInteger = typeof value === "number" && Number.isSafeInteger(value);
-  if (!isInteger) {
-    throw new SemanticError(
-      `${clause} must be an integer constant or a parameter`,
-    );
+  if (expression.expressionClass !== ExpressionClass.CONSTANT) {
+    throw new SemanticError(`${clause} must be a constant or a parameter`);
   }
-  const isNone = value < 0 || (clause === "OFFSET" && value === 0);
-  if (isNone) return null;
+  const value = integerOf(expression.value, clause);
   return { kind: "constant", value, type: "INTEGER" };
+}
+
+/** A constant count converted as an INTEGER column converts it; NULL is no count. */
+function integerOf(value: Value, clause: string): number {
+  const converted = assignedInteger(value, clause);
+  if (typeof converted !== "number") {
+    throw new DatatypeMismatchError(`${clause} must be an integer, not NULL`);
+  }
+  return converted;
+}
+
+function assignedInteger(value: Value, clause: string): Value {
+  try {
+    return assignValue(value, "INTEGER");
+  } catch (error) {
+    if (!(error instanceof DatatypeMismatchError)) throw error;
+    throw new DatatypeMismatchError(`${clause}: ${error.message}`, {
+      cause: error,
+    });
+  }
 }
