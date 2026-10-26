@@ -7,7 +7,7 @@ import type {
   OrderDirection,
   OrderKey as GenericOrderKey,
 } from "./expression.js";
-import { columnType, positions } from "./logical.js";
+import { columnType, relationLayout } from "./logical.js";
 
 // ---------------------------------------------------------------------------
 // Physical plans (docs/planning.md, Physical plans): access paths and
@@ -55,7 +55,7 @@ export interface KeyRange {
 }
 
 /** What every scan of a table has: which table, what it outputs, what it checks. */
-interface TableAccess {
+export interface TableAccess {
   readonly tableIndex: number;
   readonly table: Table;
   /** As in a logical `get`; ROWID_COLUMN is the rowid. */
@@ -110,6 +110,9 @@ export interface IndexUnion extends TableAccess {
   readonly branches: readonly IndexBranch[];
 }
 
+/** A read of a table's rows, which a residual can sit on. */
+export type Scan = TableScan | RowidLookup | IndexScan | IndexUnion;
+
 /**
  * MIN or MAX of an index's next key part after `equal`, read from one end of
  * the index, NULLs skipped: the one row of an aggregate with that one call.
@@ -144,9 +147,8 @@ export interface Project {
 
 /**
  * Rows of `right` hashed by `rightKeys`; each left row meets those whose keys
- * equal its `leftKeys` (converted as `=` converts, then by valueKey; a NULL
- * key never matches), and a pair is a match when every residual condition
- * is TRUE for it.
+ * equal its `leftKeys`, values as they are (rowKey), a NULL key never
+ * matching; a pair is a match when every residual condition is TRUE for it.
  */
 export interface HashJoin {
   readonly kind: "hash-join";
@@ -301,10 +303,10 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
       }));
     }
     case "index-extreme": {
-      return positions(plan.aggregateIndex, 1);
+      return relationLayout(plan.aggregateIndex, 1);
     }
     case "project": {
-      return positions(plan.tableIndex, plan.expressions.length);
+      return relationLayout(plan.tableIndex, plan.expressions.length);
     }
     case "hash-join":
     case "nested-loop-join":
@@ -313,8 +315,8 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
     }
     case "hash-aggregate": {
       return [
-        ...positions(plan.groupIndex, plan.groups.length),
-        ...positions(plan.aggregateIndex, plan.aggregates.length),
+        ...relationLayout(plan.groupIndex, plan.groups.length),
+        ...relationLayout(plan.aggregateIndex, plan.aggregates.length),
       ];
     }
     case "filter":
@@ -325,17 +327,17 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
       return layoutOf(plan.child);
     }
     case "set-operation": {
-      return positions(plan.tableIndex, layoutOf(plan.left).length);
+      return relationLayout(plan.tableIndex, layoutOf(plan.left).length);
     }
     case "cte": {
       return layoutOf(plan.body);
     }
     case "cte-scan":
     case "values": {
-      return positions(plan.tableIndex, plan.types.length);
+      return relationLayout(plan.tableIndex, plan.types.length);
     }
     case "recursive-cte": {
-      return positions(plan.tableIndex, layoutOf(plan.anchor).length);
+      return relationLayout(plan.tableIndex, layoutOf(plan.anchor).length);
     }
   }
 }

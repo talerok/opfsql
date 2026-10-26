@@ -36,7 +36,7 @@ export {
   type ScalarSubquery,
 } from "./expression.js";
 export { formatPlan } from "./format-logical.js";
-export { columnType, positions } from "./logical.js";
+export { columnType, relationLayout } from "./logical.js";
 export * as logical from "./logical.js";
 export {
   type ColumnMatch,

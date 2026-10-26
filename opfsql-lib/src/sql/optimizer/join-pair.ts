@@ -1,6 +1,6 @@
 import { physical } from "../plan/index.js";
 import {
-  type Estimate,
+  type Planned,
   hashJoinEstimate,
   keyMatches,
   lookupJoinEstimate,
@@ -44,15 +44,6 @@ import { lowerExpressions } from "./lower-expression.js";
 // ---------------------------------------------------------------------------
 
 type Expression = physical.Expression;
-
-/** A plan as join planning weighs it. */
-export interface Planned {
-  readonly plan: physical.Plan;
-  /** The rows it gives, and what giving them costs. */
-  readonly estimate: Estimate;
-  /** True if its rows come in the order its lead was asked for. */
-  readonly isOrdered: boolean;
-}
 
 /** A join's right side as written: a table read a seek can find rows of, if it is one. */
 export interface Side {

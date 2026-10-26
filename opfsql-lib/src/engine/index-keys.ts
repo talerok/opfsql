@@ -7,7 +7,7 @@ import {
 import type { Schema } from "../schema/index.js";
 import { bindIndexKey } from "../sql/binder/index.js";
 import type { KeyBinder } from "../sql/optimizer/index.js";
-import { type Expression, nodesOf, positions } from "../sql/plan/index.js";
+import { type Expression, nodesOf, relationLayout } from "../sql/plan/index.js";
 import { type CompileExpression, IndexKeys } from "../table/index.js";
 import { NO_PARAMETERS } from "../values/index.js";
 
@@ -31,7 +31,7 @@ export const compileIndexKey: CompileExpression = (sql, table) => {
     throw new InternalError(`the index key ${sql} holds a subquery`);
   }
   const scope: Scope = {
-    layout: positions(KEY_TABLE, table.columns.length),
+    layout: relationLayout(KEY_TABLE, table.columns.length),
     outerLayouts: [],
     run: createRun(NO_PARAMETERS),
     subqueries: { compile: refuseSubquery },

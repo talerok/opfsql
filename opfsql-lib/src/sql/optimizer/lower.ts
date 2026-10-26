@@ -15,7 +15,7 @@ import { placeLimit } from "./limit.js";
 import type { Planner } from "./planner.js";
 
 // ---------------------------------------------------------------------------
-// Pass 7, the logical plan as a physical one, after simplification and
+// Pass 3, the logical plan as a physical one, after simplification and
 // pushdown. A table read gets its access path (access-path.ts) with the
 // filter right above it; joins get their order and algorithms (join.ts);
 // an ORDER BY becomes a sort, a top-n or nothing (order.ts); a MIN or MAX
@@ -26,8 +26,7 @@ import type { Planner } from "./planner.js";
 // ---------------------------------------------------------------------------
 
 export function lowerPlan(plan: logical.Plan, planner: Planner): physical.Plan {
-  const lower = (child: logical.Plan): physical.Plan =>
-    lowerPlan(child, planner);
+  const { lower } = planner;
   switch (plan.kind) {
     case "get": {
       return readTable(plan, [], planner);
@@ -36,13 +35,13 @@ export function lowerPlan(plan: logical.Plan, planner: Planner): physical.Plan {
       return lowerFilter(plan, planner);
     }
     case "join": {
-      return planJoin(plan, { planner, lower }, null).plan;
+      return planJoin(plan, planner, null).plan;
     }
     case "aggregate": {
       return indexExtreme(plan, planner) ?? hashAggregate(plan, planner);
     }
     case "order": {
-      return lowerOrder(plan, null, planner, lower);
+      return lowerOrder(plan, null, planner);
     }
     case "limit": {
       return lowerLimit(plan, planner);
@@ -130,13 +129,11 @@ function lowerPlacedLimit(
   limit: logical.Limit,
   planner: Planner,
 ): physical.Plan {
-  const lower = (child: logical.Plan): physical.Plan =>
-    lowerPlan(child, planner);
   const { child } = limit;
-  if (child.kind === "order") return lowerOrder(child, limit, planner, lower);
+  if (child.kind === "order") return lowerOrder(child, limit, planner);
   return {
     kind: "limit",
-    child: lower(child),
+    child: planner.lower(child),
     limit: lowerOptional(limit.limit, planner),
     offset: lowerOptional(limit.offset, planner),
   };

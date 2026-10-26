@@ -114,12 +114,12 @@ export function hasNeverTrue<Plan>(
 }
 
 /** True for the constant TRUE. */
-export function isAlwaysTrue<Plan>(expression: Expression<Plan>): boolean {
+export function isConstantTrue<Plan>(expression: Expression<Plan>): boolean {
   return expression.kind === "constant" && expression.value === true;
 }
 
 /** True for the constant FALSE. */
-export function isAlwaysFalse<Plan>(expression: Expression<Plan>): boolean {
+export function isConstantFalse<Plan>(expression: Expression<Plan>): boolean {
   return expression.kind === "constant" && expression.value === false;
 }
 

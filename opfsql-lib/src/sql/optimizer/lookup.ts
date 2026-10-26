@@ -1,6 +1,6 @@
 import type { logical, physical } from "../plan/index.js";
 import {
-  buildSeek,
+  buildScan,
   type Candidate,
   cheapestBy,
   type IndexAccess,
@@ -65,7 +65,11 @@ export function chooseLookup(
   );
   const best = cheapestBy(seeks, (seek) => seek.estimate.cost);
   if (best === null) return null;
-  const scan = buildSeek(best, { get, conditions, order: null });
+  const scan = buildScan<RowidAccess | IndexAccess>(best, {
+    get,
+    conditions,
+    order: null,
+  });
   const residual = joinConditions.filter(
     (condition) => !best.enforced.includes(condition),
   );

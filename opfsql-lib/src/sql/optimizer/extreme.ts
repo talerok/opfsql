@@ -17,15 +17,15 @@ import { tableReadOf } from "./plan-tree.js";
 import type { Planner } from "./planner.js";
 
 // ---------------------------------------------------------------------------
-// Pass 6, MIN and MAX from one end of an index. `SELECT MIN(x) FROM t WHERE
-// a = 1` reads one entry when an index starts with (a, x): the first entry
-// after the prefix whose x is not NULL. Eligible only when the aggregate has
-// no GROUP BY and exactly that one call, over the next key part, and every
-// filter condition is an `=` on one of the leading parts — a seek finds
-// exactly the entries `=` holds for (key-tests.ts). index-extreme has no
-// residual (docs/planning.md, Physical plans), so any other condition, a
-// range included, rules it out. It returns the decoded key, so never for a
-// part that may hold a JSON object or array (holds).
+// Lowering step, MIN and MAX from one end of an index (lower.ts). `SELECT
+// MIN(x) FROM t WHERE a = 1` reads one entry when an index starts with (a, x):
+// the first entry after the prefix whose x is not NULL. Eligible only when the
+// aggregate has no GROUP BY and exactly that one call, over the next key part,
+// and every filter condition is an `=` on one of the leading parts — a seek
+// finds exactly the entries `=` holds for (key-tests.ts). index-extreme has no
+// residual (docs/planning.md, Physical plans), so any other condition, a range
+// included, rules it out. It returns the decoded key, so never for a part that
+// may hold a JSON object or array (holds).
 // ---------------------------------------------------------------------------
 
 type Extreme = physical.IndexExtreme["extreme"];

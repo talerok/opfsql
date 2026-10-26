@@ -11,7 +11,7 @@ import {
   type Insert,
   type OnConflict,
   type physical,
-  positions,
+  relationLayout,
 } from "../../sql/plan/index.js";
 import {
   type Conflict,
@@ -187,8 +187,8 @@ function compileConflictUpdate(
 function conflictLayout(action: ConflictUpdate, table: Table): Layout {
   const width = table.columns.length;
   return [
-    ...positions(action.targetIndex, width),
-    ...positions(action.excludedIndex, width),
+    ...relationLayout(action.targetIndex, width),
+    ...relationLayout(action.excludedIndex, width),
   ];
 }
 

@@ -1,7 +1,7 @@
 import type { Layout } from "../../expressions/index.js";
 import {
   type physical,
-  positions,
+  relationLayout,
   ROWID_COLUMN,
   type Update,
 } from "../../sql/plan/index.js";
@@ -80,7 +80,7 @@ function compileNewRow(
   context: Context,
 ): NewRow {
   const layout: Layout = [
-    ...positions(tableIndex, table.columns.length),
+    ...relationLayout(tableIndex, table.columns.length),
     { tableIndex, columnIndex: ROWID_COLUMN },
   ];
   const assign = compileAssignments(assignments, scopeOf(context, layout));

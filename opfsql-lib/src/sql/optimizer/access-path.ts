@@ -2,6 +2,7 @@ import type { logical, OrderDirection, physical } from "../plan/index.js";
 import {
   afterResidual,
   type Estimate,
+  type Planned,
   indexEstimate,
   orderedCost,
   rowidListEstimate,
@@ -28,8 +29,8 @@ import { deliveredDirection, type WantedOrder } from "./order-match.js";
 import type { Planner } from "./planner.js";
 
 // ---------------------------------------------------------------------------
-// Pass 4, access paths: how a `get` reads the rows its filter conditions
-// want. The candidates, cheapest first by cost.ts:
+// Lowering step, access paths (lower.ts): how a `get` reads the rows its
+// filter conditions want. The candidates, cheapest first by cost.ts:
 //
 //   rowid-lookup   the rowid `=` or IN seek values, or a range of it;
 //   index-scan     an index's leading parts each `=` a seek value, then at
@@ -62,65 +63,24 @@ export interface ScanRequest {
   readonly order: WantedOrder | null;
 }
 
-export interface AccessPath {
-  readonly plan: physical.Plan;
-  /** True if its rows come in the order wanted. */
-  readonly isOrdered: boolean;
-  /** The rows that pass every condition, and what reading them costs. */
-  readonly estimate: Estimate;
-}
-
-/** A read of a table's rows, which a residual can sit on. */
-export type Scan =
-  | physical.TableScan
-  | physical.RowidLookup
-  | physical.IndexScan
-  | physical.IndexUnion;
-
-export function isScan(plan: physical.Plan): plan is Scan {
-  switch (plan.kind) {
-    case "table-scan":
-    case "rowid-lookup":
-    case "index-scan":
-    case "index-union": {
-      return true;
-    }
-    case "index-extreme":
-    case "filter":
-    case "project":
-    case "hash-join":
-    case "nested-loop-join":
-    case "lookup-join":
-    case "hash-aggregate":
-    case "sort":
-    case "top-n":
-    case "limit":
-    case "hash-distinct":
-    case "set-operation":
-    case "cte":
-    case "cte-scan":
-    case "recursive-cte":
-    case "values": {
-      return false;
-    }
-  }
-}
-
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-/** A scan without what every scan of the get has. */
-type Access = DistributiveOmit<
-  Scan,
-  "tableIndex" | "table" | "columns" | "residual"
+/** How a scan reads the rows: the scan without what every scan of the get has. */
+type AccessMethod = DistributiveOmit<physical.Scan, keyof physical.TableAccess>;
+export type RowidAccess = Extract<
+  AccessMethod,
+  { readonly kind: "rowid-lookup" }
 >;
-export type RowidAccess = Extract<Access, { readonly kind: "rowid-lookup" }>;
-export type IndexAccess = Extract<Access, { readonly kind: "index-scan" }>;
+export type IndexAccess = Extract<
+  AccessMethod,
+  { readonly kind: "index-scan" }
+>;
 
 /** One way to read the rows. */
-export interface Candidate<Kind extends Access = Access> {
-  readonly access: Kind;
+export interface Candidate<M extends AccessMethod = AccessMethod> {
+  readonly access: M;
   /** Conditions it enforces exactly, which the residual leaves out. */
   readonly enforced: readonly Expression[];
   readonly estimate: Estimate;
@@ -130,7 +90,7 @@ export interface Candidate<Kind extends Access = Access> {
 export function chooseAccessPath(
   request: ScanRequest,
   planner: Planner,
-): AccessPath {
+): Planned {
   const { get, conditions, order } = request;
   const tests = keyTestsAmong(conditions);
   const indexes = planner.indexes.indexesOf(get);
@@ -173,23 +133,19 @@ export function cheapestBy<C>(
   return best;
 }
 
-function buildScan(candidate: Candidate, request: ScanRequest): Scan {
-  return { ...accessOf(candidate, request), ...candidate.access };
-}
-
-/** A seek's scan: a rowid lookup or an index scan. */
-export function buildSeek(
-  candidate: Candidate<RowidAccess | IndexAccess>,
+/** The scan a candidate reads the get's rows with. */
+export function buildScan<M extends AccessMethod>(
+  candidate: Candidate<M>,
   request: ScanRequest,
-): physical.RowidLookup | physical.IndexScan {
-  return { ...accessOf(candidate, request), ...candidate.access };
+): physical.TableAccess & M {
+  return { ...tableAccessOf(candidate, request), ...candidate.access };
 }
 
 /** What every scan of the get has: its columns, and the conditions the path leaves. */
-function accessOf(
+function tableAccessOf(
   candidate: Candidate,
   request: ScanRequest,
-): Omit<physical.TableScan, "kind" | "direction"> {
+): physical.TableAccess {
   const { tableIndex, table, columns } = request.get;
   const residual = request.conditions.filter(
     (condition) => !candidate.enforced.includes(condition),

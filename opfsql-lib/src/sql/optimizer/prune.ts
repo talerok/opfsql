@@ -3,7 +3,7 @@ import { columnsOf, holdsCorrelatedSubquery } from "./expression-tree.js";
 import { seekValuesOf } from "./lookup.js";
 
 // ---------------------------------------------------------------------------
-// Pass 8, column pruning (docs/planning.md, Physical plans): a scan reads
+// Pass 4, column pruning (docs/planning.md, Physical plans): a scan reads
 // only the columns some node above it uses, and the rowid only when one
 // does; the table layer then decodes only those. The binder lists every
 // column of a table read; this pass, over the finished physical plan, walks
@@ -100,15 +100,8 @@ function pruned(plan: Plan, wanted: Wanted): Plan {
   }
 }
 
-type Scan = Extract<
-  Plan,
-  {
-    readonly kind: "table-scan" | "rowid-lookup" | "index-scan" | "index-union";
-  }
->;
-
 /** A scan's columns that are wanted or that its residual reads, in order. */
-function prunedScan<S extends Scan>(scan: S, wanted: Wanted): S {
+function prunedScan<S extends physical.Scan>(scan: S, wanted: Wanted): S {
   const needed = withReads(wanted, scan.residual, physical.layoutOf(scan));
   const columns = scan.columns.filter((columnIndex) =>
     needed.has(keyOf({ tableIndex: scan.tableIndex, columnIndex })),

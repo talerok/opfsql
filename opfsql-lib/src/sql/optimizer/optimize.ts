@@ -37,6 +37,7 @@ export function optimize(
   const planner: Planner = {
     indexes: new IndexCatalog(schema, bindKey),
     planSubquery: (plan) => planQuery(plan, planner),
+    lower: (plan) => lowerPlan(plan, planner),
   };
   return optimizeStatement(statement, planner);
 }
