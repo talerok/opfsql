@@ -79,6 +79,9 @@ export const OVERFLOW_REFERENCE_SIZE = 8;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+/** Text up to this many bytes is read by hand when it is ASCII. */
+const SHORT_TEXT = 32;
+const FIRST_NON_ASCII = 0x80;
 
 // --- Writing -------------------------------------------------------------------
 
@@ -216,7 +219,27 @@ function fieldAt(
   if (serialType === FLOAT) return readFloat64(record, offset);
   if (serialType < FIRST_INLINE) return overflowAt(record, serialType, offset);
   const end = offset + inlineLengthOf(serialType);
-  return decodeBytes(inlineKindOf(serialType), record.subarray(offset, end));
+  const kind = inlineKindOf(serialType);
+  if (kind === "text") return textAt(record, offset, end);
+  return decodeBytes(kind, record.subarray(offset, end));
+}
+
+/**
+ * The text from `start` to `end`. Short ASCII text, as most column values
+ * are, is read by hand, with no view of its bytes and no call into
+ * TextDecoder; anything else goes to TextDecoder.
+ */
+function textAt(record: Uint8Array, start: number, end: number): string {
+  if (end - start > SHORT_TEXT)
+    return decoder.decode(record.subarray(start, end));
+  let text = "";
+  for (let index = start; index < end; index++) {
+    const byte = record[index] ?? 0;
+    if (byte >= FIRST_NON_ASCII)
+      return decoder.decode(record.subarray(start, end));
+    text += String.fromCodePoint(byte);
+  }
+  return text;
 }
 
 /** Where the bytes of an overflow field are, as its reference says. */
