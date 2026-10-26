@@ -42,8 +42,16 @@ evaluating it reads `row[position]`. Nothing resolves names or bindings per
 row.
 
 A column of an enclosing query is a reference with `depth` > 0: the number of
-query levels out. The executor keeps a stack of outer rows while a subquery
-runs, and a reference reads `outer[depth − 1][position]`.
+query levels out, where a level is a subquery inside an expression (a
+subquery in FROM is not one). The expression compiler keeps a stack of outer
+rows while a subquery runs, and a reference reads the row `depth` levels out.
+
+`typesOf(node)`, beside `layoutOf`, gives the static types of a node's
+output columns; nodes whose types are not derived from children — values,
+set operations, CTE scans, recursive CTEs — carry them.
+
+Negation is always a `not` node around what it negates: NOT IN, NOT EXISTS,
+IS NOT NULL and NOT BETWEEN have one shape each, so no rewrite meets two.
 
 ## Bound statements
 
@@ -78,7 +86,7 @@ estimate or an algorithm.
 | `filter`        | rows of its child for which every condition is TRUE                                 |
 | `project`       | one row of expressions per input row                                                |
 | `aggregate`     | groups and the aggregates over each, from its child                                 |
-| `join`          | inner, left, semi, anti or cross; one condition, any expression                     |
+| `join`          | inner or left; its ON condition as conjuncts, none meaning every pair (cross)       |
 | `order`         | its child's rows in key order                                                       |
 | `limit`         | at most `limit` rows after skipping `offset`                                        |
 | `distinct`      | its child's rows without duplicates                                                 |
@@ -106,8 +114,8 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 | `index-extreme`                    | MIN or MAX of an indexed expression from one end of the index                     |
 | `filter`                           | conditions on its child's rows                                                    |
 | `project`                          | as logical                                                                        |
-| `hash-join`                        | equality keys hashed on one side; a residual condition on each matching pair      |
-| `nested-loop-join`                 | every pair, one condition                                                         |
+| `hash-join`                        | equality keys hashed on one side; residual conditions on each matching pair       |
+| `nested-loop-join`                 | every pair, matched by its conditions                                             |
 | `hash-aggregate`                   | groups in a hash table                                                            |
 | `sort`, `top-n`                    | full sort; or the first N in key order with a bounded heap                        |
 | `limit`                            | as logical                                                                        |
@@ -115,9 +123,16 @@ How to compute it: access paths and algorithms, chosen by the optimizer.
 | `set-operation`                    | as logical, by hashing                                                            |
 | `cte`, `cte-scan`, `recursive-cte` | as logical                                                                        |
 | `values`                           | as logical                                                                        |
-| `insert`, `update`, `delete`       | a statement's writes, from a source plan                                          |
 
-Every scan carries `residual`: conditions checked on every row it returns.
+INSERT, UPDATE and DELETE are statements holding a physical source plan, not
+plan nodes. Every scan carries `residual`: conditions checked on every row
+it returns. A rowid lookup and an index union return each row once.
+
+Seek values and hash keys are converted as `=` would convert them: from the
+key part's type (the column's, or an expression key's as the binder typed
+it) and the value's static type, through `comparisonConversion`. So
+`id = '5'`, and `id = $1` with `'5'`, find id 5 through an index exactly as a
+scan would; skipping the conversion would lose rows no residual can restore.
 
 ## Rules every optimization keeps
 
@@ -168,7 +183,17 @@ stack. A subquery without outer references runs once and keeps its result.
 UPDATE and DELETE read every target row from their source before changing
 any — each change made by the table layer, which keeps indexes and
 constraints with the row — so a change never moves a row into or out of the
-scan that is still finding rows.
+scan that is still finding rows. An INSERT whose source reads the target
+table reads all of it first, for the same reason.
+
+An UPDATE's source produces every column of the table, then the rowid; no
+pass prunes them. A DELETE's source produces the rowid alone. ON CONFLICT's
+existing and refused rows are each every column of the table, in order.
+
+A recursive CTE is a `cte` whose definition is a `recursive-cte`. The
+`recursive-cte`'s own index names its working set, the rows the last step
+added, which its step reads; the `cte`'s index names the full result, which
+the body reads.
 
 ## Schema text
 
@@ -176,3 +201,9 @@ scan that is still finding rows.
 generated from the schema model, never edited as text: ALTER TABLE builds the
 new model and writes its statement. Parsing and binding a stored statement
 gives back the model it was generated from; tests hold the two to it.
+
+A table's constraint indexes are named `opfsql_autoindex_<table>_<n>` in one
+order, the order its statement writes them: each column's constraints in
+column order, PRIMARY KEY before UNIQUE, then a table-level PRIMARY KEY.
+Loading binds stored statements in a mode that accepts the reserved
+`opfsql_` names a user statement may not use.

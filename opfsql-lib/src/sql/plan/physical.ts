@@ -7,13 +7,18 @@ import type {
   OrderDirection,
   OrderKey as GenericOrderKey,
 } from "./expression.js";
-import { positions } from "./logical.js";
+import { columnType, positions } from "./logical.js";
 
 // ---------------------------------------------------------------------------
 // Physical plans (docs/planning.md, Physical plans): access paths and
 // algorithms, chosen by the optimizer. Every scan carries `residual`, the
 // conditions checked on each row it returns: an access path only narrows
 // what is read, it never stands in for a condition.
+//
+// Seek values and hash keys are converted as `=` would convert them: the
+// executor applies comparisonConversion (src/expressions) from the key part's
+// type and the value's static type, so `id = '5'` and `id = $1` with '5'
+// find id 5 through an index exactly as a scan would.
 // ---------------------------------------------------------------------------
 
 export type Expression = GenericExpression<Plan>;
@@ -55,11 +60,15 @@ export interface TableScan extends TableAccess {
   readonly direction: OrderDirection;
 }
 
+/** Rowids listed, or a range of them. */
+export type RowidSet =
+  | { readonly kind: "list"; readonly values: readonly Expression[] }
+  | { readonly kind: "range"; readonly range: Range };
+
+/** Rows by rowid, each once even when the list names it twice. */
 export interface RowidLookup extends TableAccess {
   readonly kind: "rowid-lookup";
-  readonly rowids:
-    | { readonly kind: "list"; readonly values: readonly Expression[] }
-    | { readonly kind: "range"; readonly range: Range };
+  readonly rowids: RowidSet;
 }
 
 export interface IndexScan extends TableAccess {
@@ -70,15 +79,26 @@ export interface IndexScan extends TableAccess {
   readonly direction: OrderDirection;
 }
 
-/** The rows of several scans of one table, each row once: an OR of indexable conditions. */
+/** What one branch of an index union reads: an index range, or rowids. */
+export type IndexBranch =
+  | { readonly kind: "index"; readonly index: Index; readonly keys: KeyRange }
+  | { readonly kind: "rowids"; readonly rowids: RowidSet };
+
+/**
+ * The rows of several branches over one table, each row once, in no
+ * particular order: an OR whose every branch is indexable. The residual
+ * keeps the OR itself.
+ */
 export interface IndexUnion extends TableAccess {
   readonly kind: "index-union";
-  readonly branches: readonly (IndexScan | RowidLookup)[];
+  readonly branches: readonly IndexBranch[];
 }
 
 /**
  * MIN or MAX of an index's next key part after `equal`, read from one end of
  * the index, NULLs skipped: the one row of an aggregate with that one call.
+ * It has no residual, so it is chosen only when `equal` is exact and no
+ * other condition applies; otherwise the aggregate runs over a scan.
  */
 export interface IndexExtreme {
   readonly kind: "index-extreme";
@@ -101,13 +121,13 @@ export interface Project {
   readonly tableIndex: number;
   readonly child: Plan;
   readonly expressions: readonly Expression[];
-  readonly names: readonly string[];
 }
 
 /**
  * Rows of `right` hashed by `rightKeys`; each left row meets those whose keys
- * equal its `leftKeys` (by valueKey, NULL keys never), and a pair is a match
- * when `residual` is TRUE for it, or there is none.
+ * equal its `leftKeys` (converted as `=` converts, then by valueKey; a NULL
+ * key never matches), and a pair is a match when every residual condition
+ * is TRUE for it.
  */
 export interface HashJoin {
   readonly kind: "hash-join";
@@ -116,15 +136,16 @@ export interface HashJoin {
   readonly right: Plan;
   readonly leftKeys: readonly Expression[];
   readonly rightKeys: readonly Expression[];
-  readonly residual: Expression | null;
+  readonly residual: readonly Expression[];
 }
 
+/** Every pair, matched when every condition is TRUE; no conditions: all pairs. */
 export interface NestedLoopJoin {
   readonly kind: "nested-loop-join";
   readonly joinType: "inner" | "left";
   readonly left: Plan;
   readonly right: Plan;
-  readonly condition: Expression | null;
+  readonly conditions: readonly Expression[];
 }
 
 export interface HashAggregate {
@@ -169,6 +190,7 @@ export interface SetOperation {
   readonly tableIndex: number;
   readonly left: Plan;
   readonly right: Plan;
+  readonly types: readonly StaticType[];
 }
 
 export interface Cte {
@@ -194,6 +216,7 @@ export interface RecursiveCte {
   readonly anchor: Plan;
   readonly step: Plan;
   readonly isUnionAll: boolean;
+  readonly types: readonly StaticType[];
 }
 
 export interface Values {
@@ -271,6 +294,50 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
     }
     case "recursive-cte": {
       return positions(plan.tableIndex, layoutOf(plan.anchor).length);
+    }
+  }
+}
+
+/** The static types of a node's output columns, in layout order. */
+export function typesOf(plan: Plan): StaticType[] {
+  switch (plan.kind) {
+    case "table-scan":
+    case "rowid-lookup":
+    case "index-scan":
+    case "index-union": {
+      return plan.columns.map((column) => columnType(plan.table, column));
+    }
+    case "index-extreme": {
+      return [plan.type];
+    }
+    case "project": {
+      return plan.expressions.map((expression) => expression.type);
+    }
+    case "hash-join":
+    case "nested-loop-join": {
+      return [...typesOf(plan.left), ...typesOf(plan.right)];
+    }
+    case "hash-aggregate": {
+      return [
+        ...plan.groups.map((group) => group.type),
+        ...plan.aggregates.map((call) => call.type),
+      ];
+    }
+    case "filter":
+    case "sort":
+    case "top-n":
+    case "limit":
+    case "hash-distinct": {
+      return typesOf(plan.child);
+    }
+    case "cte": {
+      return typesOf(plan.body);
+    }
+    case "set-operation":
+    case "cte-scan":
+    case "recursive-cte":
+    case "values": {
+      return [...plan.types];
     }
   }
 }

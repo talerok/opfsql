@@ -68,11 +68,7 @@ function compileExists(
   scope: Scope,
 ): CompiledExpression {
   const rows = compileRows(expression, scope, 1);
-  const { isNegated } = expression;
-  return (row) => {
-    const hasRows = rows(row).length > 0;
-    return hasRows !== isNegated;
-  };
+  return (row) => rows(row).length > 0;
 }
 
 /**

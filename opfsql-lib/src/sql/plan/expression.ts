@@ -9,6 +9,9 @@ import type { SqlType, Value } from "../../values/index.js";
 // Bound expressions (docs/planning.md). `Plan` is the kind of plan a
 // subquery holds: logical in a bound statement, physical after optimizing,
 // so a physical plan never carries a logical subplan.
+//
+// Negation is always a `not` node around what it negates — NOT IN, NOT
+// EXISTS, IS NOT NULL, NOT BETWEEN alike — so every rewrite sees one shape.
 // ---------------------------------------------------------------------------
 
 /** A column: the relation that produces it, and its position there. */
@@ -77,11 +80,10 @@ export interface Not<Plan> {
   readonly type: "BOOLEAN";
 }
 
-/** `x IS NULL`, or `x IS NOT NULL` when negated. */
+/** `x IS NULL`; `x IS NOT NULL` is NOT of it. */
 export interface IsNull<Plan> {
   readonly kind: "is-null";
   readonly operand: Expression<Plan>;
-  readonly isNegated: boolean;
   readonly type: "BOOLEAN";
 }
 
@@ -107,12 +109,11 @@ export interface Concatenate<Plan> {
   readonly type: StaticType;
 }
 
-/** `needle IN (list)`, or NOT IN when negated. */
+/** `needle IN (list)`; NOT IN is NOT of it. */
 export interface InList<Plan> {
   readonly kind: "in-list";
   readonly needle: Expression<Plan>;
   readonly list: readonly Expression<Plan>[];
-  readonly isNegated: boolean;
   readonly type: "BOOLEAN";
 }
 
@@ -153,11 +154,11 @@ export interface Case<Plan> {
   readonly type: StaticType;
 }
 
+/** `CAST(operand AS type)`: its type is the type it casts to. */
 export interface Cast<Plan> {
   readonly kind: "cast";
   readonly operand: Expression<Plan>;
-  readonly target: SqlType;
-  readonly type: StaticType;
+  readonly type: SqlType;
 }
 
 export type JsonPathStep =
@@ -192,10 +193,9 @@ export interface ScalarSubquery<Plan> extends SubqueryPart<Plan> {
   readonly type: StaticType;
 }
 
-/** `EXISTS (SELECT …)`, or NOT EXISTS when negated. */
+/** `EXISTS (SELECT …)`; NOT EXISTS is NOT of it. */
 export interface Exists<Plan> extends SubqueryPart<Plan> {
   readonly kind: "exists";
-  readonly isNegated: boolean;
   readonly type: "BOOLEAN";
 }
 

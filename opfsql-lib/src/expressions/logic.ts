@@ -87,13 +87,12 @@ function compileNot(
   return (row) => not(truthOf(operand(row)));
 }
 
-/** IS NULL and IS NOT NULL: never NULL themselves. */
+/** IS NULL: never NULL itself. */
 function compileIsNull(
   expression: IsNull<physical.Plan>,
   compiler: Compiler,
 ): CompiledExpression {
   const operand = compiler.compile(expression.operand);
-  if (expression.isNegated) return (row) => operand(row) !== null;
   return (row) => operand(row) === null;
 }
 

@@ -6,6 +6,7 @@ import type {
   Expression as GenericExpression,
   OrderKey as GenericOrderKey,
 } from "./expression.js";
+import { ROWID_COLUMN } from "./expression.js";
 
 // ---------------------------------------------------------------------------
 // Logical plans (docs/planning.md, Logical plans): what to compute, never
@@ -40,13 +41,12 @@ export interface Filter {
   readonly conditions: readonly Expression[];
 }
 
+/** Output names live in the statement (Query.columns), in one place. */
 export interface Project {
   readonly kind: "project";
   readonly tableIndex: number;
   readonly child: Plan;
   readonly expressions: readonly Expression[];
-  /** The output column names, as the statement's result reports them. */
-  readonly names: readonly string[];
 }
 
 /**
@@ -64,15 +64,17 @@ export interface Aggregate {
 }
 
 /**
- * Pairs of rows for which the condition is TRUE; null means every pair. A
- * LEFT join also emits each left row that pairs with none, with NULLs.
+ * Pairs of rows for which every condition is TRUE; no conditions means every
+ * pair (a cross join). A LEFT join also emits each left row that pairs with
+ * none, with NULLs.
  */
 export interface Join {
   readonly kind: "join";
   readonly joinType: "inner" | "left";
   readonly left: Plan;
   readonly right: Plan;
-  readonly condition: Expression | null;
+  /** The conjuncts of the ON condition, as in a filter. */
+  readonly conditions: readonly Expression[];
 }
 
 export interface Order {
@@ -103,9 +105,15 @@ export interface SetOperation {
   readonly tableIndex: number;
   readonly left: Plan;
   readonly right: Plan;
+  /** The common types of the two sides' columns. */
+  readonly types: readonly StaticType[];
 }
 
-/** A materialized subplan, read by `cte-scan`s of its index within `body`. */
+/**
+ * A materialized subplan, read by `cte-scan`s of its index within `body`. A
+ * recursive CTE is a `cte` whose definition is a `recursive-cte`: the body
+ * reads the full result through this index.
+ */
 export interface Cte {
   readonly kind: "cte";
   readonly cteIndex: number;
@@ -123,7 +131,8 @@ export interface CteScan {
 
 /**
  * `anchor`, then `step` run again and again on the rows the last run added
- * (read in `step` by a `cte-scan` of `cteIndex`) until it adds none.
+ * until it adds none. `cteIndex` names that working set: `step` reads it
+ * through a `cte-scan` of this index, never the full result.
  */
 export interface RecursiveCte {
   readonly kind: "recursive-cte";
@@ -134,6 +143,7 @@ export interface RecursiveCte {
   readonly step: Plan;
   /** UNION ALL keeps duplicates; UNION adds only rows not seen yet. */
   readonly isUnionAll: boolean;
+  readonly types: readonly StaticType[];
 }
 
 export type Plan =
@@ -194,6 +204,48 @@ export function layoutOf(plan: Plan): ColumnBinding[] {
       return positions(plan.tableIndex, layoutOf(plan.anchor).length);
     }
   }
+}
+
+/** The static types of a node's output columns, in layout order. */
+export function typesOf(plan: Plan): StaticType[] {
+  switch (plan.kind) {
+    case "get": {
+      return plan.columns.map((column) => columnType(plan.table, column));
+    }
+    case "project": {
+      return plan.expressions.map((expression) => expression.type);
+    }
+    case "aggregate": {
+      return [
+        ...plan.groups.map((group) => group.type),
+        ...plan.aggregates.map((call) => call.type),
+      ];
+    }
+    case "join": {
+      return [...typesOf(plan.left), ...typesOf(plan.right)];
+    }
+    case "filter":
+    case "order":
+    case "limit":
+    case "distinct": {
+      return typesOf(plan.child);
+    }
+    case "cte": {
+      return typesOf(plan.body);
+    }
+    case "values":
+    case "set-operation":
+    case "cte-scan":
+    case "recursive-cte": {
+      return [...plan.types];
+    }
+  }
+}
+
+/** A table column's type; the rowid's is INTEGER. */
+export function columnType(table: Table, column: number): StaticType {
+  if (column === ROWID_COLUMN) return "INTEGER";
+  return table.columns[column]?.type ?? "ANY";
 }
 
 /** Columns 0 to count − 1 of one relation. */
