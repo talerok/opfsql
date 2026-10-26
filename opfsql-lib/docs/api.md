@@ -140,6 +140,15 @@ with `MISUSE`. Parameters are `$1`, `$2`, … and `params[0]`, `params[1]`, …;
 a statement takes exactly as many as its highest `$n`, and any other number
 fails with `MISUSE` (a missing parameter is never silently NULL).
 
+A parameter is a value as [semantics.md](semantics.md) defines one: `null`,
+a boolean, a number, a string, a `Uint8Array`, or a plain object or array of
+JSON values. Anything else fails with `MISUSE` naming the parameter and
+where in it the problem is — `undefined`, a `Date`, a `Map`, a BigInt, an
+`ArrayBuffer` or another typed array, a class instance, a function, a
+string with a lone surrogate, JSON that refers to itself. NaN becomes NULL
+and -0 becomes 0, inside JSON too. Parameters are copied when the call is
+made: changing them afterwards, while the call waits, changes nothing.
+
 `execute(script)` runs several statements separated by semicolons and returns
 one result per statement. It takes no parameters. Its statements behave as
 follows:

@@ -6,7 +6,12 @@ import {
   type TransactionStatement,
   TransactionType,
 } from "../sql/parser/index.js";
-import type { Value } from "../values/index.js";
+import {
+  NO_PARAMETERS,
+  type ParameterValues,
+  parametersOf,
+  type Value,
+} from "../values/index.js";
 import {
   type CallOptions,
   emptyResult,
@@ -29,8 +34,6 @@ export interface SessionHost extends TransactionHost {
   /** The session has closed. */
   forget(session: SessionCore): void;
 }
-
-type ParameterValues = readonly Value[] | undefined;
 
 /**
  * A session's state and rules; Session is the handle callers hold. Calls run
@@ -60,14 +63,19 @@ export class SessionCore {
     return this.transaction !== null;
   }
 
+  /**
+   * Runs one statement. Its parameters are checked and copied at once, so
+   * what the caller does with them while the call waits changes nothing.
+   */
   async query(
     sql: string,
-    parameters: ParameterValues,
+    parameters: readonly Value[] | undefined,
     options: CallOptions,
   ): Promise<Result> {
+    const values = parametersOf(parameters);
     return this.call(options, async (signal) => {
       const statement = onlyStatement(parseScript(sql), "query()");
-      return this.runOne(new Step(sql, statement), parameters, signal);
+      return this.runOne(new Step(sql, statement), values, signal);
     });
   }
 
@@ -97,13 +105,15 @@ export class SessionCore {
     });
   }
 
+  /** Runs a prepared statement; its parameters are checked as query()'s are. */
   async runPrepared(
     step: Step,
-    parameters: ParameterValues,
+    parameters: readonly Value[] | undefined,
     options: CallOptions,
   ): Promise<Result> {
+    const values = parametersOf(parameters);
     return this.call(options, async (signal) =>
-      this.runOne(step, parameters, signal),
+      this.runOne(step, values, signal),
     );
   }
 
@@ -228,7 +238,7 @@ export class SessionCore {
     const transaction = await this.beginForScript(steps, signal);
     try {
       const results = await eachStep(steps, (step) =>
-        runPlanned(transaction, step, undefined),
+        runPlanned(transaction, step, NO_PARAMETERS),
       );
       transaction.commit();
       return results;
@@ -245,7 +255,7 @@ export class SessionCore {
     const before = this.transaction;
     try {
       return await eachStep(steps, async (step) =>
-        this.runOne(step, undefined, signal),
+        this.runOne(step, NO_PARAMETERS, signal),
       );
     } catch (error) {
       this.endBegunSince(before);
@@ -423,7 +433,7 @@ function runPlanned(
 ): Result {
   const planned = step.plan(transaction.schema);
   checkParameters(planned, parameters);
-  return transaction.run(planned, parameters ?? []);
+  return transaction.run(planned, parameters);
 }
 
 function isControl(statement: Statement): statement is TransactionStatement {

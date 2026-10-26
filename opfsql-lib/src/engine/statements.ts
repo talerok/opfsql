@@ -14,7 +14,7 @@ import type {
   Query,
   Statement as PlannedStatement,
 } from "../sql/plan/index.js";
-import type { Value } from "../values/index.js";
+import { NO_PARAMETERS, type ParameterValues } from "../values/index.js";
 import type { TransactionMode } from "./api/index.js";
 import type { Ddl } from "./ddl.js";
 import { explainStatement } from "./explain.js";
@@ -145,7 +145,7 @@ export class Step {
 /** A statement must get exactly the parameters it uses, never NULL for one it lacks. */
 export function checkParameters(
   planned: Planned,
-  parameters: readonly Value[] = [],
+  parameters: ParameterValues = NO_PARAMETERS,
 ): void {
   const expected = parameterCountOf(planned);
   if (parameters.length === expected) return;

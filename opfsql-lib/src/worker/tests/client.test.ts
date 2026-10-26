@@ -186,6 +186,15 @@ describe("a database served by a worker", () => {
     expect(await rowsOf(database.query("SELECT 1 AS one"))).toEqual([[1]]);
   });
 
+  it("refuses values that cross but are not values, as the engine does", async () => {
+    const { database } = await open();
+    const date = new Date(0) as unknown as string;
+    await expect(database.query("SELECT $1", [date])).rejects.toMatchObject({
+      name: "MisuseError",
+      message: expect.stringMatching(/^parameter \$1 is a Date/) as unknown,
+    });
+  });
+
   it("closes once, settling what waits, terminating the worker", async () => {
     const { database, worker } = await open({ busyTimeout: Infinity });
     await database.query("CREATE TABLE t (id INTEGER PRIMARY KEY)");

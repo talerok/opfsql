@@ -57,13 +57,13 @@ they guard.
 
 ## Engine ↔ SQL pipeline
 
-| Contract                                                                                              | Enforced                                                        |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| A statement is planned for one schema and runs only against it                                        | by check: the planned statement carries its schema              |
-| A prepared statement is planned again when the schema version moves                                   | by construction: the plan cache is keyed by schema              |
-| Parameters are values as docs/semantics.md defines them, normalized, and as many as the statement has | by check at the call: anything else is MISUSE; BLOBs are copied |
-| BEGIN, COMMIT and ROLLBACK never reach the binder                                                     | by construction                                                 |
-| Binding and optimizing see the same schema; index keys are bound one way for both                     | by construction: one call site, one key binder                  |
+| Contract                                                                                              | Enforced                                                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A statement is planned for one schema and runs only against it                                        | by check: the planned statement carries its schema                                                                                                                               |
+| A prepared statement is planned again when the schema version moves                                   | by construction: the plan cache is keyed by schema                                                                                                                               |
+| Parameters are values as docs/semantics.md defines them, normalized, and as many as the statement has | by check at the call (`parametersOf`): anything else is MISUSE, and BLOBs and JSON are copied; by type below it: a run takes only `ParameterValues`, which only that check makes |
+| BEGIN, COMMIT and ROLLBACK never reach the binder                                                     | by construction                                                                                                                                                                  |
+| Binding and optimizing see the same schema; index keys are bound one way for both                     | by construction: one call site, one key binder                                                                                                                                   |
 
 ## Executor ↔ table
 
@@ -137,28 +137,25 @@ fix lands.
    are not checked against writes and rollbacks in the same transaction.
 4. **INSERT streams when its source reads `opfsql_sequence`** while it
    writes it through AUTOINCREMENT.
-5. **Parameters are not checked.** Typed arrays other than `Uint8Array`,
-   `ArrayBuffer`, `Date`, `Map`, BigInt and `undefined` slip through or fail
-   as INTERNAL.
-6. **A planned statement does not carry its schema**; only its one caller
+5. **A planned statement does not carry its schema**; only its one caller
    pairs them.
-7. **The schema cache accepts a write transaction's snapshot.**
-8. **Defaults are handed out by reference**, and BLOB constants are not
+6. **The schema cache accepts a write transaction's snapshot.**
+7. **Defaults are handed out by reference**, and BLOB constants are not
    copied; results copy BLOBs per row instead.
-9. **Call order on a connection relies on no `await`** before the queue.
-10. **A failing call on the shared connection** can leave its transaction
-    open.
-11. **The editor ignores** whether an index entry it inserts or deletes was
+8. **Call order on a connection relies on no `await`** before the queue.
+9. **A failing call on the shared connection** can leave its transaction
+   open.
+10. **The editor ignores** whether an index entry it inserts or deletes was
     already there.
-12. **The catalog's dropped-column check** misses expression keys.
-13. **Uncorrelated subqueries run with the outer rows open**, and a row
+11. **The catalog's dropped-column check** misses expression keys.
+12. **Uncorrelated subqueries run with the outer rows open**, and a row
     narrower than its layout reads NULL.
-14. **The WAL rethrows one stored IoError**, which statement tagging then
+13. **The WAL rethrows one stored IoError**, which statement tagging then
     changes.
-15. **Errors are translated in two places** that disagree on a DOMException;
+14. **Errors are translated in two places** that disagree on a DOMException;
     INTERNAL also covers a crashed worker and a failed lock request.
-16. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
+15. **A B-tree page that cannot fit a cell** reports CORRUPT for a caller's
     bug.
-17. **The allocation map** does not check a page's state before marking it.
-18. **`close()` does not wait** for the background release of abandoned read
+16. **The allocation map** does not check a page's state before marking it.
+17. **`close()` does not wait** for the background release of abandoned read
     marks.

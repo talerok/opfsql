@@ -1,6 +1,7 @@
 import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MisuseError } from "../../errors.js";
+import type { Value } from "../../values/index.js";
 import { bindStatement } from "../../sql/binder/index.js";
 import type * as BinderModule from "../../sql/binder/index.js";
 import { Engine, PreparedStatement, type Session } from "../index.js";
@@ -948,6 +949,49 @@ describe("parameters: count and conversion", () => {
         [1],
       ),
     ).rejects.toMatchObject({ code: "MISUSE" });
+  });
+
+  it("fails with MISUSE for a value that is not one, before running anything", async () => {
+    await parameterTable();
+    const prepared = await session.prepare(
+      "INSERT INTO t (id, m) VALUES ($1, $2)",
+    );
+    // What a JavaScript caller can pass, whatever the types say.
+    const notValues = [
+      new Date(0),
+      new Map(),
+      10n,
+      undefined,
+      new Int8Array(1),
+    ];
+    for (const bad of notValues as unknown as Value[]) {
+      await expect(
+        session.query("INSERT INTO t (id, m) VALUES ($1, $2)", [50, bad]),
+      ).rejects.toMatchObject({ code: "MISUSE", message: /^parameter \$2 / });
+      await expect(prepared.query([51, bad])).rejects.toMatchObject({
+        code: "MISUSE",
+      });
+    }
+    const [count] = await session.execute(
+      "SELECT count(*) FROM t WHERE id >= 50",
+    );
+    expect(count.rows).toEqual([[0]]);
+  });
+
+  it("copies parameters at the call: a BLOB changed while the call waits is stored as it was", async () => {
+    await createEngine();
+    await session.execute("CREATE TABLE b (id INTEGER PRIMARY KEY, data BLOB)");
+    await session.begin({ mode: "immediate" });
+    const other = engine.connect();
+    const blob = new Uint8Array([1, 2, 3]);
+    // Waits for the lock the open transaction holds.
+    const insert = other.query("INSERT INTO b VALUES (1, $1)", [blob]);
+    blob.fill(0);
+    await session.commit();
+    await insert;
+    const [stored] = await session.execute("SELECT data FROM b");
+    expect(stored.rows).toEqual([[new Uint8Array([1, 2, 3])]]);
+    await other.close();
   });
 
   it("fails with MISUSE for more parameters than a statement uses", async () => {

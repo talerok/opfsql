@@ -7,7 +7,7 @@ import {
 } from "../expressions/index.js";
 import type { physical } from "../sql/plan/index.js";
 import type { Tables } from "../table/index.js";
-import type { Value } from "../values/index.js";
+import type { ParameterValues } from "../values/index.js";
 import { type Context, type CteScope, levelOf } from "./context.js";
 import { drain, type Operator, take } from "./operator.js";
 import { hashAggregate } from "./operators/aggregate.js";
@@ -51,7 +51,7 @@ type TwoSidedPlan = Extract<physical.Plan, { readonly left: physical.Plan }>;
  */
 export function statementContext(
   tables: Tables,
-  parameters: readonly Value[],
+  parameters: ParameterValues,
   checkpoint?: () => void,
 ): Context {
   const ctes: CteScope = new Map();

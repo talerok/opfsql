@@ -8,7 +8,7 @@ import {
   Tables,
   WritableTables,
 } from "../table/index.js";
-import type { Value } from "../values/index.js";
+import type { ParameterValues } from "../values/index.js";
 import { emptyResult, type Result, type TransactionMode } from "./api/index.js";
 import type { Database, Writer } from "./database.js";
 import { runDdl } from "./ddl.js";
@@ -99,7 +99,7 @@ export class Transaction {
   }
 
   /** Runs a planned statement; one that writes needs makeWritable first. */
-  run(planned: Planned, parameters: readonly Value[]): Result {
+  run(planned: Planned, parameters: ParameterValues): Result {
     this.ensureOpen();
     switch (planned.kind) {
       case "query": {
