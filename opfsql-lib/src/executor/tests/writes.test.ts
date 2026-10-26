@@ -45,7 +45,17 @@ import {
 //   items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, qty INTEGER DEFAULT 1,
 //          code TEXT UNIQUE), indexed on qty.
 
+/** Table indexes: items, a second table, literal rows, and DO UPDATE's two rows. */
 const ITEMS = 3;
+const TICKETS = 4;
+const LITERALS = 70;
+const IN_THE_WAY = 80;
+const EXCLUDED = 81;
+const SUMMED = 20;
+/** The table indexes of t, updated, and of u, the same table read in its subquery. */
+const T_INDEX = 3;
+const U_INDEX = 4;
+
 const qty = column(ITEMS, 2, "INTEGER");
 const name = column(ITEMS, 1, "TEXT");
 const code = column(ITEMS, 3, "TEXT");
@@ -107,10 +117,10 @@ function columnOfItems(position: number): Value[] {
   return database.rows(items).map((row) => row[position] ?? null);
 }
 
-/** VALUES of literal rows, as table 70. */
+/** VALUES of literal rows. */
 function rows(...literal: Value[][]): physical.Values {
   return values(
-    70,
+    LITERALS,
     ...literal.map((row) => row.map((value) => constant(value))),
   );
 }
@@ -126,12 +136,12 @@ function upsert(
 
 /** DO UPDATE SET qty = items.qty + excluded.qty [WHERE excluded.qty > 0]. */
 function addQuantity(isConditional: boolean): ConflictAction<physical.Plan> {
-  const existing = column(80, 2, "INTEGER");
-  const refused = column(81, 2, "INTEGER");
+  const existing = column(IN_THE_WAY, 2, "INTEGER");
+  const refused = column(EXCLUDED, 2, "INTEGER");
   return {
     kind: "update",
-    targetIndex: 80,
-    excludedIndex: 81,
+    targetIndex: IN_THE_WAY,
+    excludedIndex: EXCLUDED,
     assignments: [{ column: 2, value: arithmetic(existing, "+", refused) }],
     condition: isConditional ? compare(refused, ">", constant(0)) : null,
   };
@@ -150,7 +160,7 @@ describe("INSERT", () => {
   });
 
   it("refuses a row that breaks NOT NULL or UNIQUE, as the table layer decides", () => {
-    const nameless = insert(items, [1], values(70, [NULL]));
+    const nameless = insert(items, [1], values(LITERALS, [NULL]));
     expect(() => database.run(nameless)).toThrow(
       new ConstraintError("not-null", "items", ["name"]),
     );
@@ -158,14 +168,22 @@ describe("INSERT", () => {
     expect(() => database.run(taken)).toThrow(
       "UNIQUE constraint failed: items.code",
     );
-    expect(database.rows(items)).toHaveLength(2);
+    expect(database.rows(items)).toEqual([
+      [1, "a", 1, "A"],
+      [2, "b", 1, "B"],
+    ]);
   });
 
   it("reads all of its source before inserting into the table it reads", () => {
     const copies = tableScan(source(items, ITEMS, [1, 2]));
     const outcome = database.run(insert(items, [1, 2], copies));
-    expect(outcome.changes).toBe(2);
-    expect(database.rows(items).map(([id]) => id)).toEqual([1, 2, 3, 4]);
+    expect(outcome).toEqual({ changes: 2, lastInsertRowid: 4 });
+    expect(database.rows(items)).toEqual([
+      [1, "a", 1, "A"],
+      [2, "b", 1, "B"],
+      [3, "a", 1, null],
+      [4, "b", 1, null],
+    ]);
   });
 
   it("never issues an AUTOINCREMENT rowid twice", async () => {
@@ -176,10 +194,10 @@ describe("INSERT", () => {
       rowidColumn: 0,
       isAutoincrement: true,
     });
-    const add = insert(tickets, [1], values(70, [constant("t")]));
+    const add = insert(tickets, [1], values(LITERALS, [constant("t")]));
     fresh.run(add);
     fresh.run(add);
-    const all = source(tickets, 4, [ROWID_COLUMN]);
+    const all = source(tickets, TICKETS, [ROWID_COLUMN]);
     expect(fresh.run(deleteFrom(all, tableScan(all))).changes).toBe(2);
     expect(fresh.run(add).lastInsertRowid).toBe(3);
   });
@@ -199,17 +217,19 @@ describe("ON CONFLICT", () => {
       ),
     );
     expect(outcome).toEqual({ changes: 1, lastInsertRowid: 3 });
-    expect(database.rows(items).map(([, itemName]) => itemName)).toEqual([
-      "a",
-      "b",
-      "y",
+    expect(database.rows(items)).toEqual([
+      [1, "a", 1, "A"],
+      [2, "b", 1, "B"],
+      [3, "y", 1, "C"],
     ]);
   });
 
   it("still fails for a row in the way under another constraint", () => {
     const action = { kind: "nothing" } as const;
     const statement = upsert([[null, "x", 1, "A"]], "rowid", action);
-    expect(() => database.run(statement)).toThrow(ConstraintError);
+    expect(() => database.run(statement)).toThrow(
+      "UNIQUE constraint failed: items.code",
+    );
     const anyConstraint = upsert([[1, "x", 1, "Z"]], null, action);
     expect(database.run(anyConstraint).changes).toBe(0);
   });
@@ -220,13 +240,19 @@ describe("ON CONFLICT", () => {
       changes: 1,
       lastInsertRowid: null,
     });
-    expect(database.rows(items)[0]).toEqual([1, "a", 6, "A"]);
+    expect(database.rows(items)).toEqual([
+      [1, "a", 6, "A"],
+      [2, "b", 1, "B"],
+    ]);
   });
 
   it("DO UPDATE … WHERE changes nothing when its condition is not TRUE", () => {
     const statement = upsert([[null, "x", -5, "A"]], byCode, addQuantity(true));
     expect(database.run(statement).changes).toBe(0);
-    expect(database.rows(items)[0]).toEqual([1, "a", 1, "A"]);
+    expect(database.rows(items)).toEqual([
+      [1, "a", 1, "A"],
+      [2, "b", 1, "B"],
+    ]);
   });
 });
 
@@ -262,7 +288,10 @@ describe("UPDATE", () => {
   it("moves a row whose rowid column it sets, and refuses a broken constraint", () => {
     const moved = [{ column: 0, value: arithmetic(itemId, "+", constant(10)) }];
     database.run(update(updated(), tableScan(updated()), moved));
-    expect(database.rows(items).map(([id]) => id)).toEqual([11, 12]);
+    expect(database.rows(items)).toEqual([
+      [11, "a", 1, "A"],
+      [12, "b", 1, "B"],
+    ]);
     const clash = [{ column: 3, value: constant("same") }];
     expect(() =>
       database.run(update(updated(), tableScan(updated()), clash)),
@@ -271,10 +300,6 @@ describe("UPDATE", () => {
     expect(database.problems()).toEqual([]);
   });
 });
-
-/** The table indexes of t, updated, and of u, the same table read in the subquery. */
-const T_INDEX = 3;
-const U_INDEX = 4;
 
 describe("UPDATE from the table as it was", () => {
   it("computes every row's value before writing any: running sums 1, 3, 6", async () => {
@@ -297,7 +322,7 @@ describe("UPDATE from the table as it was", () => {
       compare(column(U_INDEX, 0, "INTEGER"), "<=", outer(1, T_INDEX, 0)),
     );
     const sum = hashAggregate(
-      [20, 21],
+      [SUMMED, SUMMED + 1],
       upToHere,
       [],
       [aggregateCall("sum", [column(U_INDEX, 1, "INTEGER")])],
@@ -313,7 +338,7 @@ describe("UPDATE from the table as it was", () => {
 });
 
 describe("DELETE", () => {
-  it("reads the rowids first, then deletes each row and its index entries", () => {
+  it("deletes the rows an index scan finds, their index entries with them", () => {
     database.insert(items, [[3, "c", 2, null]]);
     const doomed = source(items, ITEMS, [ROWID_COLUMN]);
     const scan = indexScan(doomed, byQty, keys([constant(1)]));

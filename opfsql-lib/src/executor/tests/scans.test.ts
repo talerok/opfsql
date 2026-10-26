@@ -37,6 +37,10 @@ import {
   tableScan,
 } from "./plans.js";
 
+/** Table indexes of an aggregate's groups and its aggregates. */
+const GROUPS = 20;
+const AGGREGATES = 21;
+
 let data: Fixture;
 
 beforeEach(async () => {
@@ -105,8 +109,14 @@ describe("table scan", () => {
   });
 
   it("outputs the rowid where its columns ask for it", () => {
-    const plan = tableScan(users([ROWID_COLUMN, 2]));
-    expect(data.database.query(plan)[2]).toEqual([3, null]);
+    const plan = tableScan(users([2, ROWID_COLUMN]));
+    expect(data.database.query(plan)).toEqual([
+      [30, 1],
+      [25, 2],
+      [null, 3],
+      [30, 4],
+      [41, 5],
+    ]);
   });
 
   it("applies its residual to every row, both ways: NULL is not TRUE", () => {
@@ -301,7 +311,7 @@ describe("seek values, matched as they are", () => {
       );
     const orders = tableScan(source(data.orders, ORDERS, [2, 3]));
     const scanned = hashAggregate(
-      [20, 21],
+      [GROUPS, AGGREGATES],
       filter(orders, compare(note, "=", constant(1))),
       [],
       [aggregateCall("max", [amount])],

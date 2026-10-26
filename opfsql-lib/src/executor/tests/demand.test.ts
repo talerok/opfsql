@@ -3,7 +3,7 @@ import { AbortError } from "../../errors.js";
 import { cast } from "../../expressions/tests/builders.js";
 import type { Table } from "../../schema/index.js";
 import { column as columnOf } from "../../table/tests/database.js";
-import { type Fixture, fixture, id, USERS } from "./fixtures.js";
+import { type Fixture, fixture, id, SELECTED, USERS } from "./fixtures.js";
 import {
   arithmetic,
   column,
@@ -30,8 +30,21 @@ import {
 
 /** The table index of t (id INTEGER PRIMARY KEY, v TEXT) holding '1', '2', 'x'. */
 const T = 5;
-/** The table index of a projection over it. */
+/** Table indexes of the select lists, VALUES and CTEs these tests make. */
 const PROJECTED = 6;
+const LIST = 50;
+const NO_FROM = 51;
+const PER_ROW = 52;
+const BROKEN = 1;
+const SUBQUERY_SELECT = 40;
+const CTE_SELECT = 41;
+const SERIES = 1;
+const WORKING_SET = 2;
+const SERIES_RESULT = 60;
+const ANCHOR = 61;
+const STEP = 62;
+const WORKING_ROWS = 63;
+const SERIES_ROWS = 64;
 
 let data: Fixture;
 let texts: Table;
@@ -65,21 +78,30 @@ describe("rows past what is needed", () => {
 
   it("are never evaluated in VALUES under a LIMIT", () => {
     // VALUES (1), (CAST('x' AS INTEGER)) LIMIT 1
-    const rows = values(50, [constant(1)], [cast(constant("x"), "INTEGER")]);
+    const rows = values(LIST, [constant(1)], [cast(constant("x"), "INTEGER")]);
     expect(data.database.query(limit(rows, constant(1)))).toEqual([[1]]);
   });
 
   it("are never evaluated for EXISTS, which needs one row", () => {
-    const failing = values(50, [constant(1)], [cast(constant("x"), "INTEGER")]);
-    const plan = project(9, values(51, []), exists(failing));
+    const failing = values(
+      LIST,
+      [constant(1)],
+      [cast(constant("x"), "INTEGER")],
+    );
+    const plan = project(SELECTED, values(NO_FROM, []), exists(failing));
     expect(data.database.query(plan)).toEqual([[true]]);
   });
 
   it("leave a correlated subquery under LIMIT n run exactly n times", () => {
     const counting = new Counting();
-    const perRow = values(52, [counting.of(outer(1, USERS, 0))]);
+    const perRow = values(PER_ROW, [counting.of(outer(1, USERS, 0))]);
     const users = tableScan(source(data.users, USERS, [0]));
-    const plan = project(9, users, id, scalarSubquery(perRow, "correlated"));
+    const plan = project(
+      SELECTED,
+      users,
+      id,
+      scalarSubquery(perRow, "correlated"),
+    );
     expect(data.database.query(limit(plan, constant(2)))).toEqual([
       [1, 1],
       [2, 2],
@@ -90,12 +112,16 @@ describe("rows past what is needed", () => {
   it("leave a CTE nothing reads unrun, so it cannot fail the statement", () => {
     // WITH broken AS (SELECT (SELECT v FROM t)) SELECT 1
     const severalRows = project(
-      40,
+      SUBQUERY_SELECT,
       tableScan(source(texts, T, [1])),
       column(T, 1, "TEXT"),
     );
-    const broken = project(41, values(42, []), scalarSubquery(severalRows));
-    const plan = cte(1, broken, values(43, [constant(1)]));
+    const broken = project(
+      CTE_SELECT,
+      values(NO_FROM, []),
+      scalarSubquery(severalRows),
+    );
+    const plan = cte(BROKEN, broken, values(LIST, [constant(1)]));
     expect(data.database.query(plan)).toEqual([[1]]);
   });
 });
@@ -103,19 +129,23 @@ describe("rows past what is needed", () => {
 describe("checkpoints", () => {
   it("are where the engine can end a statement, an endless recursion included", () => {
     // WITH RECURSIVE r(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM r) SELECT x FROM r
-    const x = column(63, 0, "INTEGER");
+    const x = column(WORKING_ROWS, 0, "INTEGER");
     const step = project(
-      62,
-      cteScan(2, 63, ["INTEGER"]),
+      STEP,
+      cteScan(WORKING_SET, WORKING_ROWS, ["INTEGER"]),
       arithmetic(x, "+", constant(1)),
     );
     const endless = recursiveCte(
-      [2, 60],
-      values(61, [constant(1)]),
+      [WORKING_SET, SERIES_RESULT],
+      values(ANCHOR, [constant(1)]),
       step,
       true,
     );
-    const plan = cte(1, endless, cteScan(1, 64, ["INTEGER"]));
+    const plan = cte(
+      SERIES,
+      endless,
+      cteScan(SERIES, SERIES_ROWS, ["INTEGER"]),
+    );
     let checkpoints = 0;
     const endAfterAThousand = () => {
       checkpoints++;

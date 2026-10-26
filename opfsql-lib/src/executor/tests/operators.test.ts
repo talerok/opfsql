@@ -12,6 +12,8 @@ import {
   note,
   ORDERS,
   orderUser,
+  OTHER_USERS,
+  SELECTED,
   USERS,
 } from "./fixtures.js";
 import {
@@ -63,9 +65,22 @@ function firsts(plan: physical.Plan, parameters: Value[] = []): Value[] {
   return query(plan, parameters).map(([first = null]) => first);
 }
 
-/** `VALUES (v1), (v2), …` as table 50: one column of `items`. */
-function column50(...items: Value[]): physical.Values {
-  return values(50, ...items.map((item) => [constant(item)]));
+/** Table indexes of the lists, projections and results these tests make. */
+const LIST = 50;
+const OTHER_LIST = 51;
+const SET_RESULT = 52;
+const PROJECTED_LIST = 53;
+const GROUPS = 20;
+const AGGREGATES = 21;
+
+/** `VALUES (v1), (v2), …` as LIST: one column of `items`. */
+function list(...items: Value[]): physical.Values {
+  return values(LIST, ...items.map((item) => [constant(item)]));
+}
+
+/** `VALUES (v1), (v2), …` as OTHER_LIST. */
+function otherList(...items: Value[]): physical.Values {
+  return values(OTHER_LIST, ...items.map((item) => [constant(item)]));
 }
 
 /** The users' names, sorted or limited by `wrap`. */
@@ -78,7 +93,7 @@ function groupsOf(
   groups: physical.Expression[],
   child: physical.Plan,
 ): physical.HashAggregate {
-  return hashAggregate([20, 21], child, groups, [
+  return hashAggregate([GROUPS, AGGREGATES], child, groups, [
     aggregateCall("count", []),
     aggregateCall("sum", [age]),
   ]);
@@ -109,11 +124,18 @@ describe("filter and project", () => {
   });
 
   it("compute expressions over the child's layout, in their order", () => {
-    const plan = project(9, usersScan(), arithmetic(age, "+", constant(1)), id);
-    expect(query(plan).slice(0, 3)).toEqual([
+    const plan = project(
+      SELECTED,
+      usersScan(),
+      arithmetic(age, "+", constant(1)),
+      id,
+    );
+    expect(query(plan)).toEqual([
       [31, 1],
       [26, 2],
       [null, 3],
+      [31, 4],
+      [42, 5],
     ]);
   });
 });
@@ -161,17 +183,23 @@ describe("hash join", () => {
   });
 
   it("never matches a NULL key, not even with another NULL", () => {
+    // users u LEFT JOIN users v ON u.age = v.age
     const left = usersScan([0, 2]);
-    const right = tableScan(source(data.users, 7, [0, 2]));
-    const otherAge = { ...age, binding: { tableIndex: 7, columnIndex: 2 } };
+    const right = tableScan(source(data.users, OTHER_USERS, [0, 2]));
+    const otherAge = column(OTHER_USERS, 2, "INTEGER");
     const plan = hashJoin([left, right], [[age], [otherAge]], {
       joinType: "left",
     });
-    const pairs = query(plan).map(([one, , other]) => [one, other]);
-    // Six pairs of equal ages, and Cid, whose NULL age meets none.
-    expect(pairs).toContainEqual([1, 4]);
-    expect(pairs).toContainEqual([3, null]);
-    expect(pairs).toHaveLength(7);
+    // Cid's NULL age meets no age, his own NULL included.
+    expect(query(plan)).toEqual([
+      [1, 30, 1, 30],
+      [1, 30, 4, 30],
+      [2, 25, 2, 25],
+      [3, null, null, null],
+      [4, 30, 1, 30],
+      [4, 30, 4, 30],
+      [5, 41, 5, 41],
+    ]);
   });
 
   it("matches keys as they are: text in an ANY column meets text, not a number", () => {
@@ -180,11 +208,8 @@ describe("hash join", () => {
       [[note], [id]],
     );
     expect(query(asNumber)).toEqual([]);
-    const text = column(50, 0, "TEXT");
-    const asText = hashJoin(
-      [ordersScan([0, 3]), column50("1")],
-      [[note], [text]],
-    );
+    const text = column(LIST, 0, "TEXT");
+    const asText = hashJoin([ordersScan([0, 3]), list("1")], [[note], [text]]);
     expect(query(asText)).toEqual([[12, "1", "1"]]);
   });
 });
@@ -200,13 +225,17 @@ describe("nested loop join", () => {
       ordersScan([0, 1, 2]),
       conditions,
     );
-    expect(query(plan).map(([user, order]) => [user, order])).toEqual([
-      [1, 10],
-      [2, 12],
+    expect(query(plan)).toEqual([
+      [1, 10, 1, 9.5],
+      [2, 12, 2, 7],
     ]);
-    expect(query(nestedLoopJoin(usersScan([0]), ordersScan([0])))).toHaveLength(
-      25,
-    );
+    const everyPair = nestedLoopJoin(list(1, 2), otherList("a", "b"));
+    expect(query(everyPair)).toEqual([
+      [1, "a"],
+      [1, "b"],
+      [2, "a"],
+      [2, "b"],
+    ]);
   });
 
   it("pads a LEFT join's unmatched rows with NULLs", () => {
@@ -217,7 +246,10 @@ describe("nested loop join", () => {
       conditions,
       "left",
     );
-    expect(query(plan).filter(([, order]) => order === null)).toEqual([
+    expect(query(plan)).toEqual([
+      [1, 10, 1],
+      [1, 11, 1],
+      [2, 12, 2],
       [3, null, null],
       [4, null, null],
       [5, null, null],
@@ -226,9 +258,20 @@ describe("nested loop join", () => {
 
   it("reads its right side once, however many left rows there are", () => {
     const counting = new Counting();
-    const right = project(8, column50(1, 2), counting.of(constant(0)));
-    const pairs = query(nestedLoopJoin(column50("a", "b", "c"), right));
-    expect(pairs).toHaveLength(6);
+    const right = project(
+      PROJECTED_LIST,
+      otherList(1, 2),
+      counting.of(constant(0)),
+    );
+    const pairs = query(nestedLoopJoin(list("a", "b", "c"), right));
+    expect(pairs).toEqual([
+      ["a", 0],
+      ["a", 0],
+      ["b", 0],
+      ["b", 0],
+      ["c", 0],
+      ["c", 0],
+    ]);
     expect(counting.calls).toBe(2);
     expect(counting.compiles).toBe(1);
   });
@@ -255,7 +298,7 @@ describe("hash aggregate", () => {
 
   it("counts DISTINCT arguments once", () => {
     const plan = hashAggregate(
-      [20, 21],
+      [GROUPS, AGGREGATES],
       usersScan(),
       [],
       [aggregateCall("count", [age], true)],
@@ -321,7 +364,7 @@ describe("limit", () => {
 
   it("stops pulling its child once it has its rows", () => {
     const counting = new Counting();
-    const counted = project(9, usersScan(), counting.of(id));
+    const counted = project(SELECTED, usersScan(), counting.of(id));
     expect(firsts(limit(counted, constant(1)))).toEqual([1]);
     expect(counting.calls).toBe(1);
   });
@@ -329,9 +372,9 @@ describe("limit", () => {
 
 describe("hash distinct and set operations", () => {
   it("keep each row once, by the equality ORDER BY uses", () => {
-    const ages = project(9, usersScan(), age);
+    const ages = project(SELECTED, usersScan(), age);
     expect(firsts(distinct(ages))).toEqual([30, 25, null, 41]);
-    expect(firsts(distinct(column50(0, -0, "0", null, null)))).toEqual([
+    expect(firsts(distinct(list(0, -0, "0", null, null)))).toEqual([
       0,
       "0",
       null,
@@ -339,10 +382,10 @@ describe("hash distinct and set operations", () => {
   });
 
   it("UNION ALL, UNION, INTERSECT and EXCEPT", () => {
-    const left = column50(1, 2, 2, null);
-    const right = values(51, [constant(2)], [constant(3)], [NULL]);
+    const left = list(1, 2, 2, null);
+    const right = otherList(2, 3, null);
     const run = (operator: physical.SetOperation["operator"]) =>
-      firsts(setOperation(operator, 52, left, right));
+      firsts(setOperation(operator, SET_RESULT, left, right));
     expect(run("UNION ALL")).toEqual([1, 2, 2, null, 2, 3, null]);
     expect(run("UNION")).toEqual([1, 2, null, 3]);
     expect(run("INTERSECT")).toEqual([2, null]);
@@ -352,7 +395,11 @@ describe("hash distinct and set operations", () => {
 
 describe("values", () => {
   it("evaluates its rows, parameters included", () => {
-    const plan = values(50, [constant(1), parameter(0)], [NULL, constant("x")]);
+    const plan = values(
+      LIST,
+      [constant(1), parameter(0)],
+      [NULL, constant("x")],
+    );
     expect(query(plan, ["p"])).toEqual([
       [1, "p"],
       [null, "x"],
