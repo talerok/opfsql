@@ -23,14 +23,15 @@ export function bindWith(clause: WithClause | null, scope: Scope): BoundWith {
   if (clause === null) return { scope, ctes: [] };
   const ctes: BoundCte[] = [];
   let current = scope;
-  for (const cte of clause.ctes) {
-    checkNameUnused(cte.name, ctes);
+  for (const [position, cte] of clause.ctes.entries()) {
+    checkNameUnused(cte.name, clause.ctes.slice(0, position));
     const isRecursive = clause.isRecursive && mentions(cte.query, cte.name);
     const bound = isRecursive
-      ? bindRecursiveCte(cte, current)
-      : bindCte(cte, current);
-    ctes.push(bound);
-    current = current.withCte(bound.definition);
+      ? bindRecursive(cte, current)
+      : [bindCte(cte, current)];
+    ctes.push(...bound);
+    const last = bound.at(-1);
+    if (last !== undefined) current = current.withCte(last.definition);
   }
   return { scope: current, ctes };
 }
@@ -48,6 +49,16 @@ export function wrapCtes(
   return { ...query, plan };
 }
 
+/**
+ * A recursive WITH query, after the WITH queries of its own WITH clause,
+ * which its anchor and step see. Those cannot read the recursive query, so
+ * their plans can wrap it from outside: it is the last of the list.
+ */
+function bindRecursive(cte: CTENode, scope: Scope): BoundCte[] {
+  const nested = bindWith(cte.query.with, scope.sibling());
+  return [...nested.ctes, bindRecursiveCte(cte, nested.scope)];
+}
+
 function bindCte(cte: CTENode, scope: Scope): BoundCte {
   const query = scope.context.bindQuery(cte.query, scope.sibling());
   const definition = {
@@ -58,10 +69,8 @@ function bindCte(cte: CTENode, scope: Scope): BoundCte {
   return { definition, plan: query.plan };
 }
 
-function checkNameUnused(name: string, ctes: readonly BoundCte[]): void {
-  const isUsed = ctes.some(
-    (cte) => nameKey(cte.definition.name) === nameKey(name),
-  );
+function checkNameUnused(name: string, before: readonly CTENode[]): void {
+  const isUsed = before.some((cte) => nameKey(cte.name) === nameKey(name));
   if (isUsed) {
     throw new SemanticError(`WITH query name ${name} is used twice`);
   }

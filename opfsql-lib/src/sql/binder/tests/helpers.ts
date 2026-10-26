@@ -8,7 +8,6 @@ import {
   OpfsqlError,
   SemanticError,
 } from "../../../errors.js";
-import type { Index, Table } from "../../../schema/index.js";
 import { Schema } from "../../../schema/index.js";
 import { parse, StatementType, type Statement } from "../../parser/index.js";
 import {
@@ -17,6 +16,7 @@ import {
   type Statement as BoundStatement,
 } from "../../plan/index.js";
 import { bindStatement, type BindableStatement } from "../index.js";
+import { applyStatement } from "./catalog.js";
 
 /** Users, their orders and the order lines: the schema most tests bind against. */
 export const SHOP = [
@@ -30,23 +30,8 @@ export const SHOP = [
 /** A schema with the tables and indexes `statements` create, in order. */
 export function schemaOf(...statements: readonly string[]): Schema {
   let schema = Schema.empty;
-  let rootPage = 2;
-  const nextPage = (): number => ++rootPage;
   for (const sql of statements) {
-    const bound = bindStatement(only(sql), schema);
-    const tables: Table[] = [...schema.tables];
-    const indexes: Index[] = [...schema.indexes];
-    if (bound.kind === "create-table") {
-      tables.push({ ...bound.table, rootPage: nextPage() });
-      for (const index of bound.constraints) {
-        indexes.push({ ...index, rootPage: nextPage() });
-      }
-    } else if (bound.kind === "create-index") {
-      indexes.push({ ...bound.index, rootPage: nextPage() });
-    } else {
-      throw new TypeError(`not a CREATE statement: ${sql}`);
-    }
-    schema = new Schema(schema.version + 1, tables, indexes);
+    schema = applyStatement(schema, bindStatement(only(sql), schema));
   }
   return schema;
 }

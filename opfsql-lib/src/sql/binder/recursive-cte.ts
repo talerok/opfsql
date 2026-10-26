@@ -25,6 +25,7 @@ import { sharedType } from "./type-rules.js";
 // and reads there the rows the last run added: the working set, which the
 // `recursive-cte` names with its own index. The `cte` around it names the
 // full result. ORDER BY, LIMIT and aggregates in the step are not supported.
+// A WITH clause of its own is bound before it (cte.ts).
 // ---------------------------------------------------------------------------
 
 /** A bound step whose working set was read with the types it produces. */
@@ -66,9 +67,6 @@ function recursiveBody(cte: CTENode): SetOperationNode {
   }
   if (query.limit !== null) {
     throw new NotSupportedError("LIMIT in a recursive WITH query");
-  }
-  if (query.with !== null) {
-    throw new NotSupportedError("WITH inside a recursive WITH query");
   }
   const { body } = query;
   const isUnion =
