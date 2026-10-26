@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { CorruptError } from "../../errors.js";
-import type { Index, IndexShape, Table } from "../../schema/index.js";
+import {
+  type Index,
+  type IndexShape,
+  ROWID_COLUMN,
+  type Table,
+} from "../../schema/index.js";
 import { encodeKey, IndexWriter } from "../../storage/index.js";
 import { read, write } from "../../storage/tests/pager-support.js";
 import type { Value } from "../../values/index.js";
@@ -66,9 +71,7 @@ function within(lower: KeyBound | null, upper: KeyBound | null): KeyRange {
 
 /** What `read` gives through `index`, in a read transaction. */
 function through<T>(index: Index, use: (rows: IndexRows) => T): T {
-  return read(database.pager, (pages) =>
-    use(new IndexRows(pages, index, new TableRows(pages, users))),
-  );
+  return read(database.pager, (pages) => use(new IndexRows(pages, index)));
 }
 
 function rowidsOf(
@@ -92,15 +95,16 @@ function extreme(index: Index, equal: Value[], end: IndexEnd): Value {
   return through(index, (rows) => rows.extreme(equal, end));
 }
 
+/** The ids of users from rowid `first` to `last`, read as a ColumnReader of id alone reads them. */
 function between(
   first: number,
   last: number,
   order: KeyOrder = "ascending",
-): number[] {
+): Value[] {
   return read(database.pager, (pages) =>
-    [...new TableRows(pages, users).rowsBetween(first, last, order)].map(
-      (row) => row.rowid,
-    ),
+    [
+      ...new TableRows(pages, users).columns([0]).between(first, last, order),
+    ].map(([id = null]) => id),
   );
 }
 
@@ -143,12 +147,13 @@ describe("IndexRows", () => {
 
   it("reads the rows of the entries, and calls an entry without a row corrupt", () => {
     const bob = { equal: ["bob"], range: null };
-    const rows = through(byNick, (index) =>
-      [...index.rows(bob, "ascending")].map((row) => row.values()),
-    );
+    const rows = read(database.pager, (pages) => {
+      const reader = new TableRows(pages, users).columns([2, ROWID_COLUMN]);
+      return [...new IndexRows(pages, byNick).rows(bob, "ascending", reader)];
+    });
     expect(rows).toEqual([
-      [2, "bob", null],
-      [4, "bob", "d@x"],
+      [null, 2],
+      ["d@x", 4],
     ]);
     write(database.pager, (pages) => {
       new IndexWriter(pages, byNick.rootPage, byNick.name).insert(
@@ -156,7 +161,10 @@ describe("IndexRows", () => {
       );
     });
     expect(() =>
-      through(byNick, (index) => [...index.rows(bob, "ascending")]),
+      read(database.pager, (pages) => {
+        const reader = new TableRows(pages, users).columns([0]);
+        return [...new IndexRows(pages, byNick).rows(bob, "ascending", reader)];
+      }),
     ).toThrow(CorruptError);
   });
 
@@ -170,7 +178,7 @@ describe("IndexRows", () => {
   });
 });
 
-describe("TableRows.rowsBetween", () => {
+describe("ColumnReader.between", () => {
   it("reads the rows from one rowid to another, both included, an infinite end open", () => {
     expect(between(2, 4)).toEqual([2, 3, 4]);
     expect(between(-Infinity, 2)).toEqual([1, 2]);

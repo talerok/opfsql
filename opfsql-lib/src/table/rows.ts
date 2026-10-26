@@ -1,8 +1,8 @@
 import { InternalError } from "../errors.js";
-import type { Table } from "../schema/index.js";
-import type { PageReader, StoredRow } from "../storage/index.js";
-import { TableReader } from "../storage/index.js";
-import type { Value } from "../values/index.js";
+import { ROWID_COLUMN, type Table } from "../schema/index.js";
+import type { PageReader, StoredRow, TupleLayout } from "../storage/index.js";
+import { ROWID_FIELD, TableReader, tupleLayout } from "../storage/index.js";
+import { isJsonComposite, type Value } from "../values/index.js";
 import type { KeyOrder } from "./index-rows.js";
 
 /**
@@ -22,21 +22,49 @@ export class TableRow {
   value(column: number): Value {
     if (column === this.table.rowidColumn) return this.stored.rowid;
     if (column < this.stored.length) return this.stored.value(column);
-    return this.defaultOf(column);
+    // A JSON object or array is copied, so that each row's is its own.
+    const fallback = defaultOf(this.table, column);
+    return isJsonComposite(fallback) ? structuredClone(fallback) : fallback;
   }
 
   values(): Value[] {
     return this.table.columns.map((_, column) => this.value(column));
   }
+}
 
-  private defaultOf(column: number): Value {
-    const definition = this.table.columns[column];
-    if (definition === undefined) {
-      throw new InternalError(
-        `table ${this.table.name} has no column ${String(column)}`,
-      );
-    }
-    return definition.defaultValue;
+/**
+ * Chosen columns of a table's rows, in a chosen order, as tuples decoded
+ * straight from the records: what a scan reads.
+ */
+export class ColumnReader {
+  private readonly layout: TupleLayout;
+
+  /** `columns` are column numbers; ROWID_COLUMN is the rowid. */
+  constructor(
+    private readonly stored: TableReader,
+    table: Table,
+    columns: readonly number[],
+  ) {
+    const fields = columns.map((column) => fieldOf(table, column));
+    const missing = columns.map((column) => defaultOf(table, column));
+    this.layout = tupleLayout(fields, missing);
+  }
+
+  /**
+   * The rows whose rowid is from `first` to `last`, both included, in rowid
+   * order or its reverse; an infinite end leaves the range open.
+   */
+  between(
+    first: number,
+    last: number,
+    order: KeyOrder = "ascending",
+  ): Generator<Value[]> {
+    return this.stored.tuples(this.layout, [first, last], order);
+  }
+
+  /** The row with `rowid`, or null if there is none. */
+  at(rowid: number): Value[] | null {
+    return this.stored.tupleAt(rowid, this.layout);
   }
 }
 
@@ -53,9 +81,18 @@ export class TableRows {
     this.stored = stored;
   }
 
+  has(rowid: number): boolean {
+    return this.stored.has(rowid);
+  }
+
   get(rowid: number): TableRow | null {
     const row = this.stored.get(rowid);
     return row === null ? null : new TableRow(row, this.table);
+  }
+
+  /** Reads `columns` of the rows, ROWID_COLUMN their rowid. */
+  columns(columns: readonly number[]): ColumnReader {
+    return new ColumnReader(this.stored, this.table, columns);
   }
 
   /** Rows in rowid order, from the first at or after `from`. */
@@ -64,44 +101,22 @@ export class TableRows {
       yield new TableRow(row, this.table);
     }
   }
+}
 
-  /**
-   * Rows whose rowid is from `first` to `last`, both included, in rowid
-   * order or its reverse: -Infinity and Infinity leave an end open.
-   */
-  *rowsBetween(
-    first: number,
-    last: number,
-    order: KeyOrder = "ascending",
-  ): Generator<TableRow> {
-    const isEmpty = first === Infinity || last === -Infinity || first > last;
-    if (isEmpty) return;
-    if (order === "ascending") yield* this.upward(first, last);
-    else yield* this.downward(first, last);
-  }
+/** The field a column is stored in: its own, or the rowid. */
+function fieldOf(table: Table, column: number): number {
+  const isRowid = column === ROWID_COLUMN || column === table.rowidColumn;
+  return isRowid ? ROWID_FIELD : column;
+}
 
-  /** Rows in reverse rowid order, from the last below `before` (or the last). */
-  *scanBackward(before?: number): Generator<TableRow> {
-    for (const row of this.stored.scanBackward(before)) {
-      yield new TableRow(row, this.table);
-    }
+/** What a column is in a row written before it was added: its default. */
+function defaultOf(table: Table, column: number): Value {
+  if (column === ROWID_COLUMN) return null;
+  const definition = table.columns[column];
+  if (definition === undefined) {
+    throw new InternalError(
+      `table ${table.name} has no column ${String(column)}`,
+    );
   }
-
-  /** Rows from `first` up to `last`. */
-  private *upward(first: number, last: number): Generator<TableRow> {
-    const from = first === -Infinity ? undefined : first;
-    for (const row of this.scan(from)) {
-      if (row.rowid > last) return;
-      yield row;
-    }
-  }
-
-  /** Rows from `last` down to `first`. */
-  private *downward(first: number, last: number): Generator<TableRow> {
-    const before = last === Infinity ? undefined : Math.floor(last) + 1;
-    for (const row of this.scanBackward(before)) {
-      if (row.rowid < first) return;
-      yield row;
-    }
-  }
+  return definition.defaultValue;
 }

@@ -9,7 +9,7 @@ import {
   prefixEnd,
 } from "../storage/index.js";
 import { compareBytes, type Value } from "../values/index.js";
-import type { TableRow, TableRows } from "./rows.js";
+import type { ColumnReader } from "./rows.js";
 
 // ---------------------------------------------------------------------------
 // A table's rows through one of its indexes (docs/file-format.md, Index
@@ -53,11 +53,9 @@ interface KeyBounds {
 export class IndexRows {
   private readonly entries: IndexReader;
 
-  /** `table` holds the rows of the index's table. */
   constructor(
     pages: PageReader,
     readonly index: Index,
-    private readonly table: TableRows,
   ) {
     this.entries = new IndexReader(pages, index.rootPage);
   }
@@ -67,9 +65,18 @@ export class IndexRows {
     return rowidsIn(this.entries, seek, order);
   }
 
-  /** The rows of those entries; CORRUPT for an entry whose row is missing. */
-  *rows(seek: KeySeek, order: KeyOrder): Generator<TableRow> {
-    for (const rowid of this.rowids(seek, order)) yield this.rowWith(rowid);
+  /**
+   * The rows of those entries, as `reader` reads its table's rows; CORRUPT
+   * for an entry whose row is missing.
+   */
+  *rows(
+    seek: KeySeek,
+    order: KeyOrder,
+    reader: ColumnReader,
+  ): Generator<Value[]> {
+    for (const rowid of this.rowids(seek, order)) {
+      yield reader.at(rowid) ?? this.missingRow(rowid);
+    }
   }
 
   /**
@@ -89,14 +96,10 @@ export class IndexRows {
     return decodeKey(found.value)[equal.length] ?? null;
   }
 
-  private rowWith(rowid: number): TableRow {
-    const row = this.table.get(rowid);
-    if (row === null) {
-      throw new CorruptError(
-        `index ${this.index.name} has an entry for a missing row ${String(rowid)}`,
-      );
-    }
-    return row;
+  private missingRow(rowid: number): never {
+    throw new CorruptError(
+      `index ${this.index.name} has an entry for a missing row ${String(rowid)}`,
+    );
   }
 }
 

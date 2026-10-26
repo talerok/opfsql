@@ -53,15 +53,9 @@ export class Tables {
     return new TableRows(this.pages, table);
   }
 
-  /** The rows of `index`'s table, through the index. */
+  /** A table's rows through one of its indexes. */
   index(index: Index): IndexRows {
-    const table = this.schema.table(index.table);
-    if (table === null) {
-      throw new InternalError(
-        `index ${index.name} is on a missing table ${index.table}`,
-      );
-    }
-    return new IndexRows(this.pages, index, this.rows(table));
+    return new IndexRows(this.pages, index);
   }
 }
 

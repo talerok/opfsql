@@ -69,7 +69,7 @@ describe("integers", () => {
     writer.integer(value, width);
     const bytes = writer.toBytes();
     expect(bytes).toHaveLength(width);
-    expect(readInteger(new DataView(bytes.buffer), 0, width)).toBe(value);
+    expect(readInteger(bytes, 0, width)).toBe(value);
   });
 
   it("pick widths at the two's complement limits", () => {

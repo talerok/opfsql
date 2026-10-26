@@ -24,4 +24,12 @@ export {
   SchemaTableWriter,
   type StoredSchemaEntry,
 } from "./rows/schema-table.js";
-export { StoredRow, TableReader, TableWriter } from "./rows/table-store.js";
+export {
+  ROWID_FIELD,
+  type RowOrder,
+  StoredRow,
+  TableReader,
+  TableWriter,
+  type TupleLayout,
+  tupleLayout,
+} from "./rows/table-store.js";

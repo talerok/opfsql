@@ -1,4 +1,5 @@
 export type { Column, Index, IndexKey, IndexOrigin, Table } from "./model.js";
+export { ROWID_COLUMN } from "./model.js";
 export {
   isReservedName,
   isSameName,
