@@ -14,7 +14,7 @@ import {
   truncate,
 } from "../convert.js";
 import type { SqlType } from "../types.js";
-import { isNumericType, sqlTypeOf, typeFromName } from "../types.js";
+import { typeFromName } from "../types.js";
 import type { Value } from "../value.js";
 
 const blob = new Uint8Array([0xde, 0xad]);
@@ -234,14 +234,5 @@ describe("number helpers", () => {
     expect(normalizeNumber(NaN)).toBeNull();
     expect(normalizeNumber(-0)).toBe(0);
     expect(normalizeNumber(1.5)).toBe(1.5);
-  });
-
-  it("names types, ANY for unknown names; BIGINT is numeric", () => {
-    expect(sqlTypeOf("BIGINT")).toBe("INTEGER");
-    expect(sqlTypeOf("whatever")).toBe("ANY");
-    expect(isNumericType("BIGINT")).toBe(true);
-    expect(isNumericType("REAL")).toBe(true);
-    expect(isNumericType("TEXT")).toBe(false);
-    expect(isNumericType("NULL")).toBe(false);
   });
 });

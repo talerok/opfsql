@@ -1,10 +1,10 @@
-import type { StaticType } from "../../functions/index.js";
 import {
   canonicalJson,
   type JsonComposite,
   realLiteral,
   sqlLiteral,
   type Value,
+  type StaticType,
 } from "../../values/index.js";
 import { above, power } from "../precedence.js";
 import type {

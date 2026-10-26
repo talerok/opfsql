@@ -1,4 +1,4 @@
-import { returns, strict, text } from "./arguments.js";
+import { returns, strict, textArgument } from "./arguments.js";
 import type { CallSite, Implementation, ScalarFunction } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -43,14 +43,16 @@ function literal(character: string): string {
  * Compiles the pattern once when it is the same for every row; otherwise
  * remembers the last one, which helps when consecutive rows share it.
  */
-function implementLike({ constants }: CallSite): Implementation {
-  const [patternConstant] = constants;
-  if (typeof patternConstant === "string") {
-    const matches = likeMatcher(patternConstant);
-    return strict(([, input]) => matches(text(input)));
+function implementLike({ fixedValues }: CallSite): Implementation {
+  const [fixedPattern] = fixedValues;
+  if (typeof fixedPattern === "string") {
+    const matches = likeMatcher(fixedPattern);
+    return strict(([, input]) => matches(textArgument(input)));
   }
   const matcherFor = cachedMatcher();
-  return strict(([pattern, input]) => matcherFor(text(pattern))(text(input)));
+  return strict(([pattern, input]) =>
+    matcherFor(textArgument(pattern))(textArgument(input)),
+  );
 }
 
 /** likeMatcher that keeps the matcher of the last pattern it was asked for. */

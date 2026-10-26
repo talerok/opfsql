@@ -14,7 +14,7 @@ export function compileFunction(
   const { run } = compiler.scope;
   const implementation = expression.function.implement({
     argumentTypes: expression.arguments.map((argument) => argument.type),
-    constants: expression.arguments.map((argument) =>
+    fixedValues: expression.arguments.map((argument) =>
       fixedValue(argument, run),
     ),
   });

@@ -1,15 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Truth } from "../logic.js";
-import {
-  and,
-  compareSql,
-  foldTruth,
-  isIn,
-  isSame,
-  membership,
-  not,
-  or,
-} from "../logic.js";
+import { and, compareSql, foldTruth, membership, not, or } from "../logic.js";
+import { areEqual } from "../order.js";
 import type { Value } from "../value.js";
 
 const TRUTHS: Truth[] = [true, false, null];
@@ -44,31 +36,34 @@ describe("comparisons", () => {
     expect(compareSql("a", null)).toBeNull();
     expect(compareSql(1, 2)).toBeLessThan(0);
   });
-
-  it("IS treats two NULLs as the same and never returns NULL", () => {
-    expect(isSame(null, null)).toBe(true);
-    expect(isSame(null, 0)).toBe(false);
-    expect(isSame(2, 4 / 2)).toBe(true);
-  });
 });
+
+/** IN as docs/semantics.md defines it, item by item: what membership must agree with. */
+function isIn(needle: Value, items: readonly Value[]): boolean | null {
+  if (items.length === 0) return false;
+  if (needle === null) return null;
+  const isFound = items.some((item) => item !== null && areEqual(needle, item));
+  if (isFound) return true;
+  return items.includes(null) ? null : false;
+}
 
 describe("IN", () => {
   it("is true when an item matches, even with NULLs around", () => {
-    expect(isIn(1, [null, 1])).toBe(true);
+    expect(membership([null, 1])(1)).toBe(true);
   });
 
   it("is NULL without a match when the needle or an item is NULL", () => {
-    expect(isIn(1, [2, null])).toBeNull();
-    expect(isIn(null, [1, 2])).toBeNull();
+    expect(membership([2, null])(1)).toBeNull();
+    expect(membership([1, 2])(null)).toBeNull();
   });
 
   it("is false without a match or NULLs", () => {
-    expect(isIn(1, [2, 3])).toBe(false);
+    expect(membership([2, 3])(1)).toBe(false);
   });
 
   it("is false for an empty list, whatever the needle", () => {
-    expect(isIn(null, [])).toBe(false);
-    expect(not(isIn(null, []))).toBe(true);
+    expect(membership([])(null)).toBe(false);
+    expect(not(membership([])(null))).toBe(true);
   });
 });
 
@@ -91,7 +86,7 @@ describe("membership", () => {
     3,
   ];
 
-  it("answers as isIn does, for every list and needle", () => {
+  it("answers as IN is defined, for every list and needle", () => {
     for (const list of lists) {
       const test = membership(list);
       for (const needle of needles) {

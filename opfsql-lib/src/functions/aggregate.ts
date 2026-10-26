@@ -1,12 +1,18 @@
 import {
+  type StaticType,
   checkInteger,
   compareValues,
   firstSighting,
   normalizeNumber,
   type Value,
 } from "../values/index.js";
-import { firstArgumentType, number, returns, text } from "./arguments.js";
-import type { Accumulator, AggregateFunction, StaticType } from "./types.js";
+import {
+  firstArgumentType,
+  numberArgument,
+  returns,
+  textArgument,
+} from "./arguments.js";
+import type { Accumulator, AggregateFunction } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Aggregate functions. Every one skips rows whose value — its first
@@ -41,14 +47,14 @@ const sum: AggregateFunction = {
   name: "sum",
   signature: { required: ["number"] },
   returnType: ([type]) => numericResultType(type),
-  accumulator: ([type]) => numericTotal(type),
+  accumulator: ([type]) => sumAccumulator(type),
 };
 
 /**
  * TOTAL: SUM as a REAL, as SQLite has it — 0, not NULL, over no rows, and
  * never an integer overflow.
  */
-const realTotal: AggregateFunction = {
+const totalAggregate: AggregateFunction = {
   kind: "aggregate",
   name: "total",
   signature: { required: ["number"] },
@@ -57,7 +63,7 @@ const realTotal: AggregateFunction = {
     const reals = compensatedSum();
     return {
       add: ([value]) => {
-        reals.add(number(value));
+        reals.add(numberArgument(value));
       },
       result: () => normalizeNumber(reals.value()),
     };
@@ -80,8 +86,8 @@ const groupConcat: AggregateFunction = {
     let joined: string | null = null;
     return {
       add: ([value, separator = DEFAULT_SEPARATOR]) => {
-        const item = text(value);
-        const between = separator === null ? "" : text(separator);
+        const item = textArgument(value);
+        const between = separator === null ? "" : textArgument(separator);
         joined = joined === null ? item : `${joined}${between}${item}`;
       },
       result: () => joined,
@@ -102,7 +108,7 @@ const avg: AggregateFunction = {
     let rows = 0;
     return {
       add: ([value]) => {
-        total.add(number(value));
+        total.add(numberArgument(value));
         rows++;
       },
       result: () => (rows === 0 ? null : normalizeNumber(total.value() / rows)),
@@ -114,14 +120,14 @@ function numericResultType(type: StaticType | undefined): StaticType {
   return type === "INTEGER" || type === "REAL" ? type : "ANY";
 }
 
-function numericTotal(type: StaticType | undefined): Accumulator {
+function sumAccumulator(type: StaticType | undefined): Accumulator {
   let integers = 0;
   const reals = compensatedSum();
   let rows = 0;
   let areIntegers = type !== "REAL";
   return {
     add: ([value]) => {
-      const operand = number(value);
+      const operand = numberArgument(value);
       areIntegers &&= Number.isSafeInteger(operand);
       if (areIntegers) integers = checkInteger(integers + operand);
       reals.add(operand);
@@ -182,7 +188,7 @@ function extreme(name: string, wanted: 1 | -1): AggregateFunction {
 export const aggregateFunctions: readonly AggregateFunction[] = [
   count,
   sum,
-  realTotal,
+  totalAggregate,
   avg,
   groupConcat,
   extreme("min", -1),

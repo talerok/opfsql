@@ -1,6 +1,9 @@
 import { SemanticError } from "../../errors.js";
-import type { StaticType } from "../../functions/index.js";
-import { typeFromName, type SqlType } from "../../values/index.js";
+import {
+  typeFromName,
+  type SqlType,
+  type StaticType,
+} from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
 // Static types of what is not a function call (functions type their calls

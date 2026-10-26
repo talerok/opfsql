@@ -1,17 +1,18 @@
-import { DatatypeMismatchError, SemanticError } from "../errors.js";
 import {
+  type StaticType,
   describeValue,
   type JsonValue,
   parseJsonText,
   type Value,
 } from "../values/index.js";
-import { firstArgumentType, returns, strict, text } from "./arguments.js";
-import type {
-  CallSite,
-  Implementation,
-  ScalarFunction,
-  StaticType,
-} from "./types.js";
+import { DatatypeMismatchError, SemanticError } from "../errors.js";
+import {
+  firstArgumentType,
+  returns,
+  strict,
+  textArgument,
+} from "./arguments.js";
+import type { CallSite, Implementation, ScalarFunction } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // JSON functions with SQLite's path syntax: `$`, then `.key`, `."key"`,
@@ -107,13 +108,15 @@ function documentOf(value: Value, type: StaticType): JsonValue {
  * argument values; a path that is the same for every row is parsed once.
  */
 function pathArguments(call: CallSite): (values: readonly Value[]) => Path[] {
-  const fixed = call.constants
+  const fixed = call.fixedValues
     .slice(1)
     .map((constant) =>
       typeof constant === "string" ? parsePath(constant) : undefined,
     );
   return (values) =>
-    fixed.map((path, index) => path ?? parsePath(text(values[index + 1])));
+    fixed.map(
+      (path, index) => path ?? parsePath(textArgument(values[index + 1])),
+    );
 }
 
 /**

@@ -1,18 +1,20 @@
-import { InternalError } from "../errors.js";
 import {
+  type StaticType,
   numberOperand,
-  sqlTypeOf,
   textOperand,
   truncate,
   type Value,
 } from "../values/index.js";
-import type { ArgumentKind, Implementation, StaticType } from "./types.js";
+import { InternalError } from "../errors.js";
+import type { ArgumentKind, Implementation } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers shared by the function definitions: what each argument kind
 // accepts at bind time, how arguments convert per row, and the common
 // shapes of implementations.
 // ---------------------------------------------------------------------------
+
+const encoder = new TextEncoder();
 
 const TEXT_TYPES: readonly StaticType[] = [
   "TEXT",
@@ -33,39 +35,31 @@ const ACCEPTED: Record<ArgumentKind, ReadonlySet<StaticType>> = {
   any: new Set([...TEXT_TYPES, "BLOB", "JSON"]),
 };
 
-/**
- * The static type a type name stands for, as plans write them: `BIGINT` is
- * INTEGER, `NULL` the type of the NULL literal, an unknown name ANY.
- */
-export function staticType(name: string): StaticType {
-  return name === "NULL" ? "NULL" : sqlTypeOf(name);
-}
-
-/** The static types of a call's arguments, from what the binder typed. */
-export function argumentTypes(
-  children: readonly { readonly returnType: string }[],
-): StaticType[] {
-  return children.map((child) => staticType(child.returnType));
-}
-
 /** True if an argument of `kind` may have the static type `type`. */
 export function accepts(kind: ArgumentKind, type: StaticType): boolean {
   return ACCEPTED[kind].has(type);
 }
 
 /** The text form of a non-NULL argument (see `textOperand`). */
-export function text(value: Value | undefined): string {
+export function textArgument(value: Value | undefined): string {
   return textOperand(nonNull(value));
 }
 
 /** The number a non-NULL argument stands for (see `numberOperand`). */
-export function number(value: Value | undefined): number {
+export function numberArgument(value: Value | undefined): number {
   return numberOperand(nonNull(value));
 }
 
 /** A non-NULL numeric argument truncated to an integer, as SQLite does. */
-export function integer(value: Value | undefined): number {
-  return truncate(number(value));
+export function integerArgument(value: Value | undefined): number {
+  return truncate(numberArgument(value));
+}
+
+/** The bytes of a non-NULL argument: a BLOB's own, else its text's UTF-8. */
+export function bytesArgument(value: Value | undefined): Uint8Array {
+  const nonNullValue = nonNull(value);
+  if (nonNullValue instanceof Uint8Array) return nonNullValue;
+  return encoder.encode(textOperand(nonNullValue));
 }
 
 /** Characters of `value` — code points, not UTF-16 units. */

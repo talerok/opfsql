@@ -1,8 +1,8 @@
+import type { StaticType } from "../../values/index.js";
 import {
   aggregateFunction,
   resolveCall,
   type ScalarFunction,
-  type StaticType,
 } from "../../functions/index.js";
 import { callOf } from "../../expressions/tests/builders.js";
 import type { Index, Table } from "../../schema/index.js";

@@ -3,7 +3,6 @@ import { SemanticError } from "../../errors.js";
 import {
   aggregateFunction,
   isAggregateFunction,
-  lookupFunction,
   resolveCall,
   scalarFunction,
   sqlFunction,
@@ -16,9 +15,9 @@ function failing(): never {
 
 describe("the registry", () => {
   it("finds functions by name in any case", () => {
-    expect(lookupFunction("UPPER")?.name).toBe("upper");
-    expect(lookupFunction("Count")?.kind).toBe("aggregate");
-    expect(lookupFunction("nosuchfn")).toBeUndefined();
+    expect(sqlFunction("UPPER").name).toBe("upper");
+    expect(sqlFunction("Count").kind).toBe("aggregate");
+    expect(() => sqlFunction("nosuchfn")).toThrow(SemanticError);
   });
 
   it("tells aggregates from scalar functions", () => {
@@ -104,7 +103,7 @@ describe("the registry", () => {
   it("evaluates lazy functions only as far as needed", () => {
     const coalesce = scalarFunction("coalesce").implement({
       argumentTypes: ["INTEGER", "INTEGER"],
-      constants: [undefined, undefined],
+      fixedValues: [undefined, undefined],
     });
     expect(coalesce.kind).toBe("lazy");
     if (coalesce.kind !== "lazy") return;

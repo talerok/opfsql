@@ -1,16 +1,11 @@
-import type { SqlType, Value } from "../values/index.js";
+import type { StaticType, Value } from "../values/index.js";
 
 // ---------------------------------------------------------------------------
 // What a function is: a name, the arguments it takes, the rule for its
-// result type (bind time) and its implementation (plan time, then per row).
-// The binder and the executor both read these; nothing else knows functions.
+// result type (bind time) and its implementation, made when a statement's
+// expressions are compiled for a run, then called per row. The binder and
+// the executor both read these; nothing else knows functions.
 // ---------------------------------------------------------------------------
-
-/**
- * The static type of an argument or a result: a SQL type, or NULL for an
- * expression that is always NULL (the NULL literal).
- */
-export type StaticType = SqlType | "NULL";
 
 /** Which static types an argument accepts. */
 export type ArgumentKind =
@@ -24,7 +19,7 @@ export type ArgumentKind =
   | "number"
   /** JSON, or TEXT holding JSON text. */
   | "json"
-  /** A condition: BOOLEAN. */
+  /** A condition: BOOLEAN, or a JSON or ANY value checked per row. */
   | "boolean"
   /** Anything. */
   | "any";
@@ -40,8 +35,11 @@ export interface Signature {
 /** What the implementation may know about a call before the first row. */
 export interface CallSite {
   readonly argumentTypes: readonly StaticType[];
-  /** Each argument's value if it is the same for every row, else undefined. */
-  readonly constants: readonly (Value | undefined)[];
+  /**
+   * Each argument's value if it is the same for every row of the run — a
+   * constant's, or a parameter's — else undefined.
+   */
+  readonly fixedValues: readonly (Value | undefined)[];
 }
 
 /** An argument of a lazy call: computes its value for a row on demand. */

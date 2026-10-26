@@ -1,10 +1,12 @@
 import { DatatypeMismatchError } from "../errors.js";
 import { describeValue } from "./convert.js";
 import { valueKey } from "./key.js";
-import { areEqual, compareValues } from "./order.js";
+import { compareValues } from "./order.js";
 import type { Value } from "./value.js";
 
+// ---------------------------------------------------------------------------
 // Three-valued logic: a condition is true, false or unknown (NULL).
+// ---------------------------------------------------------------------------
 
 export type Truth = boolean | null;
 
@@ -32,7 +34,7 @@ export function or(a: Truth, b: Truth): Truth {
 }
 
 /** AND and OR as folds: where they start, and the answer that ends them. */
-export const CONJUNCTIONS = {
+const CONJUNCTIONS = {
   and: { combine: and, identity: true, decisive: false },
   or: { combine: or, identity: false, decisive: true },
 } as const satisfies Record<
@@ -71,25 +73,9 @@ export function compareSql(a: Value, b: Value): number | null {
 }
 
 /**
- * `a IS b`: like `=`, but two NULLs are equal and the result is never NULL —
- * which is exactly equality under the total order.
- */
-export const isSame = areEqual;
-
-/**
- * `needle IN (items)`: true if an item equals the needle; otherwise NULL if
- * the needle or any item is NULL; otherwise false. Empty items: false.
- */
-export function isIn(needle: Value, items: readonly Value[]): Truth {
-  if (items.length === 0) return false;
-  if (needle === null) return null;
-  const isFound = items.some((item) => item !== null && areEqual(needle, item));
-  if (isFound) return true;
-  return items.includes(null) ? null : false;
-}
-
-/**
- * `isIn` for a list known in advance: the list is hashed once (by
+ * `needle IN (items)` for a list known in advance: true if an item equals
+ * the needle; otherwise NULL if the needle or any item is NULL; otherwise
+ * false, and false for an empty list. The list is hashed once (by
  * valueKey, which agrees with compareValues), so each test is one lookup.
  */
 export function membership(items: readonly Value[]): (needle: Value) => Truth {

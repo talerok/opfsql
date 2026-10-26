@@ -1,4 +1,3 @@
-import type { StaticType } from "../functions/index.js";
 import type {
   Arithmetic,
   ArithmeticOperator,
@@ -12,6 +11,7 @@ import {
   negate,
   type NumericMode,
   type ArithmeticOperator as ValueOperator,
+  type StaticType,
 } from "../values/index.js";
 import type { CompiledExpression, Compiler } from "./scope.js";
 

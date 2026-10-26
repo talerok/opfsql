@@ -1,12 +1,12 @@
-import type { StaticType } from "../../functions/index.js";
+import type { StaticType } from "../../values/index.js";
 import type { Table } from "../../schema/index.js";
-import type {
-  AggregateCall,
-  ColumnBinding,
-  Expression as GenericExpression,
-  OrderKey as GenericOrderKey,
+import {
+  type AggregateCall,
+  type ColumnBinding,
+  type Expression as GenericExpression,
+  type OrderKey as GenericOrderKey,
+  ROWID_COLUMN,
 } from "./expression.js";
-import { ROWID_COLUMN } from "./expression.js";
 
 // ---------------------------------------------------------------------------
 // Logical plans (docs/planning.md, Logical plans): what to compute, never

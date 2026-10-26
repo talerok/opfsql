@@ -3,7 +3,6 @@ import {
   aggregateFunction,
   resolveCall,
   scalarFunction,
-  type StaticType,
 } from "../../../functions/index.js";
 import {
   type Column,
@@ -11,7 +10,12 @@ import {
   Schema,
   type Table,
 } from "../../../schema/index.js";
-import type { Affinity, SqlType, Value } from "../../../values/index.js";
+import type {
+  Affinity,
+  SqlType,
+  Value,
+  StaticType,
+} from "../../../values/index.js";
 import {
   type AggregateCall,
   type ColumnReference,

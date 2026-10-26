@@ -1,3 +1,4 @@
+import type { StaticType } from "../values/index.js";
 import { SemanticError } from "../errors.js";
 import { aggregateFunctions } from "./aggregate.js";
 import { accepts } from "./arguments.js";
@@ -13,7 +14,6 @@ import type {
   ScalarFunction,
   Signature,
   SqlFunction,
-  StaticType,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ const FUNCTIONS: ReadonlyMap<string, SqlFunction> = new Map(
 );
 
 /** The function called `name` (any case), or undefined if there is none. */
-export function lookupFunction(name: string): SqlFunction | undefined {
+function lookupFunction(name: string): SqlFunction | undefined {
   return FUNCTIONS.get(name.toLowerCase());
 }
 

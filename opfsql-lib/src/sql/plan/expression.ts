@@ -1,9 +1,13 @@
 import type {
   AggregateFunction,
   ScalarFunction,
-  StaticType,
 } from "../../functions/index.js";
-import type { Affinity, SqlType, Value } from "../../values/index.js";
+import type {
+  Affinity,
+  SqlType,
+  Value,
+  StaticType,
+} from "../../values/index.js";
 
 // ---------------------------------------------------------------------------
 // Bound expressions (docs/planning.md). `Plan` is the kind of plan a

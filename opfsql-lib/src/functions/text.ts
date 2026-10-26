@@ -1,27 +1,26 @@
-import { bytesToHex, type Value } from "../values/index.js";
+import { bytesToHex, type Value, type StaticType } from "../values/index.js";
 import {
   characters,
   eager,
-  integer,
+  integerArgument,
   returns,
   strict,
-  text,
+  textArgument,
+  bytesArgument,
 } from "./arguments.js";
-import type { ScalarFunction, StaticType } from "./types.js";
+import type { ScalarFunction } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Text functions, as SQLite defines them. Positions and lengths count
 // characters (code points) in text and bytes in BLOBs.
 // ---------------------------------------------------------------------------
 
-const encoder = new TextEncoder();
-
 const upper: ScalarFunction = {
   kind: "scalar",
   name: "upper",
   signature: { required: ["text"] },
   returnType: returns("TEXT"),
-  implement: () => strict(([value]) => text(value).toUpperCase()),
+  implement: () => strict(([value]) => textArgument(value).toUpperCase()),
 };
 
 const lower: ScalarFunction = {
@@ -29,7 +28,7 @@ const lower: ScalarFunction = {
   name: "lower",
   signature: { required: ["text"] },
   returnType: returns("TEXT"),
-  implement: () => strict(([value]) => text(value).toLowerCase()),
+  implement: () => strict(([value]) => textArgument(value).toLowerCase()),
 };
 
 const length: ScalarFunction = {
@@ -40,7 +39,7 @@ const length: ScalarFunction = {
   implement: () =>
     strict(([value]) => {
       if (value instanceof Uint8Array) return value.length;
-      return characters(text(value)).length;
+      return characters(textArgument(value)).length;
     }),
 };
 
@@ -56,8 +55,8 @@ function trimFunction(name: string, ends: Ends): ScalarFunction {
     returnType: returns("TEXT"),
     implement: () =>
       strict(([value, set = " "]) => {
-        const chars = characters(text(value));
-        const removable = new Set(characters(text(set)));
+        const chars = characters(textArgument(value));
+        const removable = new Set(characters(textArgument(set)));
         const [from, to] = trimmedRange(chars, removable, ends);
         return chars.slice(from, to).join("");
       }),
@@ -85,13 +84,21 @@ const substr: ScalarFunction = {
   returnType: ([type = "ANY"]) => substrType(type),
   implement: () =>
     strict(([value, start, count]) => {
-      const size = count === undefined ? undefined : integer(count);
+      const size = count === undefined ? undefined : integerArgument(count);
       if (value instanceof Uint8Array) {
-        const [from, to] = substringRange(value.length, integer(start), size);
+        const [from, to] = substringRange(
+          value.length,
+          integerArgument(start),
+          size,
+        );
         return value.slice(from, to);
       }
-      const chars = characters(text(value));
-      const [from, to] = substringRange(chars.length, integer(start), size);
+      const chars = characters(textArgument(value));
+      const [from, to] = substringRange(
+        chars.length,
+        integerArgument(start),
+        size,
+      );
       return chars.slice(from, to).join("");
     }),
 };
@@ -140,11 +147,11 @@ const replace: ScalarFunction = {
   returnType: returns("TEXT"),
   implement: () =>
     strict(([value, pattern, replacement]) => {
-      const original = text(value);
-      const search = text(pattern);
+      const original = textArgument(value);
+      const search = textArgument(pattern);
       if (search === "") return original;
       // split/join, not replaceAll: "$&" in the replacement is plain text.
-      return original.split(search).join(text(replacement));
+      return original.split(search).join(textArgument(replacement));
     }),
 };
 
@@ -165,14 +172,14 @@ const concatWithSeparator: ScalarFunction = {
   implement: () =>
     eager(([separator = null, ...operands]) => {
       if (separator === null) return null;
-      return join(operands, text(separator));
+      return join(operands, textArgument(separator));
     }),
 };
 
 function join(operands: readonly Value[], separator: string): string {
   return operands
     .filter((operand) => operand !== null)
-    .map((operand) => text(operand))
+    .map((operand) => textArgument(operand))
     .join(separator);
 }
 
@@ -186,7 +193,7 @@ const instr: ScalarFunction = {
       const areBytes =
         haystack instanceof Uint8Array && needle instanceof Uint8Array;
       if (areBytes) return bytePosition(haystack, needle);
-      return characterPosition(text(haystack), text(needle));
+      return characterPosition(textArgument(haystack), textArgument(needle));
     }),
 };
 
@@ -214,9 +221,7 @@ const hex: ScalarFunction = {
   implement: () =>
     eager(([value]) => {
       if (value === null || value === undefined) return "";
-      const bytes =
-        value instanceof Uint8Array ? value : encoder.encode(text(value));
-      return bytesToHex(bytes).toUpperCase();
+      return bytesToHex(bytesArgument(value)).toUpperCase();
     }),
 };
 

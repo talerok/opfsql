@@ -1,13 +1,10 @@
-import { canonicalJson, type Value } from "../values/index.js";
-import { returns, strict, text } from "./arguments.js";
+import { bytesArgument, returns, strict } from "./arguments.js";
 import type { ScalarFunction } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // MD5 (RFC 1321) of a value's bytes: a BLOB's own, else the UTF-8 of its
 // text — canonical JSON text for a JSON object or array.
 // ---------------------------------------------------------------------------
-
-const encoder = new TextEncoder();
 
 /** One of MD5's four rounds of 16 steps. */
 interface Round {
@@ -128,18 +125,12 @@ function littleEndianHex(word: number): string {
   return hex;
 }
 
-function bytesOf(value: Value): Uint8Array {
-  if (value instanceof Uint8Array) return value;
-  const isJson = typeof value === "object" && value !== null;
-  return encoder.encode(isJson ? canonicalJson(value) : text(value));
-}
-
 const md5Function: ScalarFunction = {
   kind: "scalar",
   name: "md5",
   signature: { required: ["any"] },
   returnType: returns("TEXT"),
-  implement: () => strict(([value = null]) => md5(bytesOf(value))),
+  implement: () => strict(([value = null]) => md5(bytesArgument(value))),
 };
 
 export const hashFunctions: readonly ScalarFunction[] = [md5Function];
