@@ -3,7 +3,9 @@ import type { StorageFiles } from "../../storage/index.js";
 import { Pager } from "../../storage/pager/pager.js";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
-import { mulberry32 } from "../../../test/support/random.js";
+import { Model, type Row } from "../../../test/support/model.js";
+import { mulberry32, pick, type Random } from "../../../test/support/random.js";
+import type { TupleOf } from "../../../test/support/tuple.js";
 import { openTab, sharedFiles } from "./tabs.js";
 
 // ---------------------------------------------------------------------------
@@ -13,24 +15,129 @@ import { openTab, sharedFiles } from "./tabs.js";
 // ---------------------------------------------------------------------------
 
 interface Tab {
-  engine: Engine;
-  session: Session;
+  readonly engine: Engine;
+  readonly session: Session;
 }
 
 let opened = 0;
 
-async function openTabs(
+async function openTabs<N extends number>(
   name: string,
-  count: number,
+  count: N,
   files: StorageFiles = sharedFiles(),
-): Promise<Tab[]> {
+): Promise<TupleOf<Tab, N>> {
   const unique = `${name}-${String(opened++)}`;
   const tabs: Tab[] = [];
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const engine = await openTab(unique, files);
     tabs.push({ engine, session: engine.connect() });
   }
-  return tabs;
+  // `count` of them, as the type says.
+  return tabs as TupleOf<Tab, N>;
+}
+
+async function insert(
+  session: Session,
+  model: Model,
+  v: number,
+): Promise<void> {
+  const id = model.newId();
+  await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [id, v]);
+  model.set(id, v);
+}
+
+/** One random change through `tab`: a write, a transaction or a checkpoint. */
+async function randomChange(
+  tab: Tab,
+  model: Model,
+  random: Random,
+): Promise<void> {
+  const roll = random();
+  const v = Math.floor(random() * 1000);
+  const { session } = tab;
+  if (roll < 0.4 || model.isEmpty) {
+    await insert(session, model, v);
+  } else if (roll < 0.6) {
+    const id = model.anyId(random);
+    await session.query("UPDATE t SET v = $1 WHERE id = $2", [v, id]);
+    model.set(id, v);
+  } else if (roll < 0.75) {
+    const id = model.anyId(random);
+    await session.query("DELETE FROM t WHERE id = $1", [id]);
+    model.delete(id);
+  } else if (roll < 0.9) {
+    await session.execute("BEGIN");
+    for (let offset = 0; offset < 3; offset++) {
+      await insert(session, model, v + offset);
+    }
+    await session.execute("COMMIT");
+  } else {
+    await tab.engine.checkpoint();
+  }
+}
+
+/** A tab whose session opens and closes read transactions. */
+class Reader {
+  /** The rows its open transaction saw at BEGIN; null outside one. */
+  private snapshot: Row[] | null = null;
+
+  constructor(readonly tab: Tab) {}
+
+  get isReading(): boolean {
+    return this.snapshot !== null;
+  }
+
+  /** What its reads must return: its snapshot, or the latest rows. */
+  expected(model: Model): Row[] {
+    return this.snapshot ?? model.rows();
+  }
+
+  async begin(model: Model): Promise<void> {
+    await this.tab.session.execute("BEGIN");
+    this.snapshot = model.rows();
+  }
+
+  async commit(): Promise<void> {
+    await this.tab.session.execute("COMMIT");
+    this.snapshot = null;
+  }
+}
+
+/**
+ * One random step of a reader: outside a transaction it writes or begins
+ * one, inside it commits; or it checkpoints.
+ */
+async function randomReaderStep(
+  reader: Reader,
+  model: Model,
+  random: Random,
+): Promise<void> {
+  const roll = random();
+  const { isReading } = reader;
+  if (!isReading && roll < 0.45) {
+    await insertOrDelete(reader.tab.session, model, random, roll);
+  } else if (!isReading && roll < 0.65) {
+    await reader.begin(model);
+  } else if (isReading && roll < 0.8) {
+    await reader.commit();
+  } else {
+    await reader.tab.engine.checkpoint();
+  }
+}
+
+async function insertOrDelete(
+  session: Session,
+  model: Model,
+  random: Random,
+  roll: number,
+): Promise<void> {
+  if (model.isEmpty || roll < 0.25) {
+    await insert(session, model, Math.floor(roll * 1000));
+    return;
+  }
+  const id = model.anyId(random);
+  await session.query("DELETE FROM t WHERE id = $1", [id]);
+  model.delete(id);
 }
 
 /** Where the read-mark file keeps slot `slot`'s mark: a float64 after the header. */
@@ -55,7 +162,7 @@ function markIn(marks: StorageFiles["marks"], slot: number): number {
 }
 
 async function rows(session: Session): Promise<unknown[]> {
-  const [result] = await session.execute("SELECT id, v FROM t ORDER BY id");
+  const result = await session.query("SELECT id, v FROM t ORDER BY id");
   return result.objects();
 }
 
@@ -67,56 +174,18 @@ beforeEach(() => {
 // property tests take seconds rather than the default 5 s budget.
 describe("multiple tabs", { timeout: 30_000 }, () => {
   for (const seed of [1, 2, 3]) {
-    it(`interleaved writes and checkpoints keep every tab consistent (seed ${seed})`, async () => {
+    it(`interleaved writes and checkpoints keep every tab consistent (seed ${String(seed)})`, async () => {
       const random = mulberry32(seed);
-      const tabs = await openTabs(`tabs-${seed}`, 2);
-      const model = new Map<number, number>();
-      let nextId = 1;
-      const pick = <T>(items: T[]): T =>
-        items[Math.floor(random() * items.length)];
-
+      const tabs = await openTabs(`tabs-${String(seed)}`, 2);
+      const model = new Model();
       await tabs[0].session.execute(
         "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
       );
 
       for (let step = 0; step < 400; step++) {
-        const { engine, session } = pick(tabs);
-        const ids = [...model.keys()];
-        const r = random();
-        const v = Math.floor(random() * 1000);
-
-        if (r < 0.4 || ids.length === 0) {
-          const id = nextId++;
-          await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [id, v]);
-          model.set(id, v);
-        } else if (r < 0.6) {
-          const id = pick(ids);
-          await session.query("UPDATE t SET v = $1 WHERE id = $2", [v, id]);
-          model.set(id, v);
-        } else if (r < 0.75) {
-          const id = pick(ids);
-          await session.query("DELETE FROM t WHERE id = $1", [id]);
-          model.delete(id);
-        } else if (r < 0.9) {
-          await session.execute("BEGIN");
-          for (let i = 0; i < 3; i++) {
-            const id = nextId++;
-            await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [
-              id,
-              v + i,
-            ]);
-            model.set(id, v + i);
-          }
-          await session.execute("COMMIT");
-        } else {
-          await engine.checkpoint();
-        }
-
-        const expected = [...model.entries()]
-          .sort(([a], [b]) => a - b)
-          .map(([id, v]) => ({ id, v }));
+        await randomChange(pick(random, tabs), model, random);
         for (const tab of tabs) {
-          expect(await rows(tab.session)).toEqual(expected);
+          expect(await rows(tab.session)).toEqual(model.rows());
           expect(await tab.engine.checkIntegrity()).toEqual([]);
         }
       }
@@ -127,53 +196,21 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
   // checkpoint; every open transaction must keep seeing the model as of its
   // BEGIN, and every other read must see the latest model.
   for (const seed of [1, 2, 3]) {
-    it(`transactions in every tab keep their snapshots (seed ${seed})`, async () => {
+    it(`transactions in every tab keep their snapshots (seed ${String(seed)})`, async () => {
       const random = mulberry32(seed);
-      const tabs = await openTabs(`tx-tabs-${seed}`, 3);
-      const model = new Map<number, number>();
-      const snapshots: Array<unknown[] | null> = tabs.map(() => null);
-      const expected = () =>
-        [...model.entries()]
-          .sort(([a], [b]) => a - b)
-          .map(([id, v]) => ({ id, v }));
-      let nextId = 1;
-
+      const tabs = await openTabs(`tx-tabs-${String(seed)}`, 3);
+      const readers = tabs.map((tab) => new Reader(tab));
+      const model = new Model();
       await tabs[0].session.execute(
         "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)",
       );
 
       for (let step = 0; step < 300; step++) {
-        const i = Math.floor(random() * tabs.length);
-        const { engine, session } = tabs[i];
-        const r = random();
-        const ids = [...model.keys()];
-
-        if (snapshots[i] === null && r < 0.45) {
-          if (ids.length === 0 || r < 0.25) {
-            const id = nextId++;
-            await session.query("INSERT INTO t (id, v) VALUES ($1, $2)", [
-              id,
-              step,
-            ]);
-            model.set(id, step);
-          } else {
-            const id = ids[Math.floor(random() * ids.length)];
-            await session.query("DELETE FROM t WHERE id = $1", [id]);
-            model.delete(id);
-          }
-        } else if (snapshots[i] === null && r < 0.65) {
-          await session.execute("BEGIN");
-          snapshots[i] = expected();
-        } else if (snapshots[i] !== null && r < 0.8) {
-          await session.execute("COMMIT");
-          snapshots[i] = null;
-        } else {
-          await engine.checkpoint();
-        }
-
-        for (const [j, tab] of tabs.entries()) {
-          expect(await rows(tab.session)).toEqual(snapshots[j] ?? expected());
-          expect(await tab.engine.checkIntegrity()).toEqual([]);
+        await randomReaderStep(pick(random, readers), model, random);
+        for (const reader of readers) {
+          const { session, engine } = reader.tab;
+          expect(await rows(session)).toEqual(reader.expected(model));
+          expect(await engine.checkIntegrity()).toEqual([]);
         }
       }
     });
@@ -246,17 +283,17 @@ describe("multiple tabs", { timeout: 30_000 }, () => {
     await tabs[0].session.execute(
       "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v INTEGER)",
     );
-    for (let i = 0; i < 50; i++) {
-      const { engine, session } = tabs[i % 2];
-      await session.query("INSERT INTO t (v) VALUES ($1)", [i]);
-      if (i % 7 === 0) await engine.checkpoint();
+    for (let v = 0; v < 50; v++) {
+      const { engine, session } = v % 2 === 0 ? tabs[0] : tabs[1];
+      await session.query("INSERT INTO t (v) VALUES ($1)", [v]);
+      if (v % 7 === 0) await engine.checkpoint();
     }
 
-    const [result] = await tabs[1].session.execute(
+    const result = await tabs[1].session.query(
       "SELECT id, v FROM t ORDER BY id",
     );
     expect(result.objects()).toEqual(
-      Array.from({ length: 50 }, (_, i) => ({ id: i + 1, v: i })),
+      Array.from({ length: 50 }, (_, v) => ({ id: v + 1, v })),
     );
   });
 

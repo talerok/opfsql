@@ -2,6 +2,7 @@ import { resetMockOPFS } from "opfs-mock";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Engine, Session } from "../index.js";
 import { openTestEngine } from "./test-engine.js";
+import { cellOf, columnValues } from "../../../test/support/results.js";
 
 let engine: Engine;
 let session: Session;
@@ -23,9 +24,11 @@ afterEach(async () => {
 });
 
 async function explain(sql: string): Promise<string> {
-  const [result] = await session.execute(sql);
+  const result = await session.query(sql);
   expect(result.objects()).toHaveLength(1);
-  return result.objects()[0].plan as string;
+  const plan = cellOf(result, "plan");
+  if (typeof plan !== "string") throw new TypeError("the plan is not text");
+  return plan;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,16 +124,16 @@ describe("EXPLAIN", () => {
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
     await session.execute("INSERT INTO t VALUES (1)");
     await explain("EXPLAIN DELETE FROM t WHERE id = 1");
-    const [result] = await session.execute("SELECT * FROM t");
+    const result = await session.query("SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
   });
 
   it("result type is rows with plan column", async () => {
     await createEngine();
     await session.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)");
-    const [result] = await session.execute("EXPLAIN SELECT * FROM t");
+    const result = await session.query("EXPLAIN SELECT * FROM t");
     expect(result.objects()).toHaveLength(1);
-    expect(typeof result.objects()[0].plan).toBe("string");
+    expect(typeof cellOf(result, "plan")).toBe("string");
   });
 
   it("shows a subquery's plan after the main plan", async () => {
@@ -165,7 +168,7 @@ describe("EXPLAIN", () => {
       "create index t_id on t",
     );
     expect(await explain("EXPLAIN DROP TABLE t")).toBe("drop table t");
-    const [result] = await session.execute("SELECT count(*) FROM t");
+    const result = await session.query("SELECT count(*) FROM t");
     expect(result.rows).toEqual([[0]]);
   });
 
@@ -177,7 +180,7 @@ describe("EXPLAIN", () => {
     const plan = await explain("EXPLAIN SELECT * FROM t WHERE val > 1");
     const lines = plan.split("\n");
     // First line (root) has no indentation
-    expect(lines[0]).toBe(lines[0].trimStart());
+    expect(lines[0]).toBe(lines[0]?.trimStart());
     // At least one child is indented
     expect(lines.some((l) => l.startsWith("  "))).toBe(true);
   });
@@ -244,10 +247,8 @@ describe("EXPLAIN", () => {
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
     await session.execute("INSERT INTO t VALUES (1, 30), (2, 10), (3, 20)");
-    const [result] = await session.execute(
-      "SELECT val FROM t ORDER BY val ASC",
-    );
-    expect(result.objects().map((r) => r.val)).toEqual([10, 20, 30]);
+    const result = await session.query("SELECT val FROM t ORDER BY val ASC");
+    expect(columnValues(result, "val")).toEqual([10, 20, 30]);
   });
 
   it("ORDER BY via index with LIMIT returns correct results", async () => {
@@ -259,10 +260,10 @@ describe("EXPLAIN", () => {
     await session.execute(
       "INSERT INTO t VALUES (1, 30), (2, 10), (3, 20), (4, 5)",
     );
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT val FROM t ORDER BY val ASC LIMIT 2",
     );
-    expect(result.objects().map((r) => r.val)).toEqual([5, 10]);
+    expect(columnValues(result, "val")).toEqual([5, 10]);
   });
 
   // -------------------------------------------------------------------------
@@ -296,8 +297,8 @@ describe("EXPLAIN", () => {
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
     await session.execute("INSERT INTO t VALUES (1, 30), (2, 10), (3, 20)");
-    const [result] = await session.execute("SELECT MIN(val) AS m FROM t");
-    expect(result.objects()[0].m).toBe(10);
+    const result = await session.query("SELECT MIN(val) AS m FROM t");
+    expect(cellOf(result, "m")).toBe(10);
   });
 
   it("MAX via index returns correct result", async () => {
@@ -307,8 +308,8 @@ describe("EXPLAIN", () => {
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
     await session.execute("INSERT INTO t VALUES (1, 30), (2, 10), (3, 20)");
-    const [result] = await session.execute("SELECT MAX(val) AS m FROM t");
-    expect(result.objects()[0].m).toBe(30);
+    const result = await session.query("SELECT MAX(val) AS m FROM t");
+    expect(cellOf(result, "m")).toBe(30);
   });
 
   it("MIN on empty table returns NULL", async () => {
@@ -317,8 +318,8 @@ describe("EXPLAIN", () => {
       "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
-    const [result] = await session.execute("SELECT MIN(val) AS m FROM t");
-    expect(result.objects()[0].m).toBeNull();
+    const result = await session.query("SELECT MIN(val) AS m FROM t");
+    expect(cellOf(result, "m")).toBeNull();
   });
 
   it("MAX on empty table returns NULL", async () => {
@@ -327,8 +328,8 @@ describe("EXPLAIN", () => {
       "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
     );
     await session.execute("CREATE INDEX idx_val ON t (val)");
-    const [result] = await session.execute("SELECT MAX(val) AS m FROM t");
-    expect(result.objects()[0].m).toBeNull();
+    const result = await session.query("SELECT MAX(val) AS m FROM t");
+    expect(cellOf(result, "m")).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -358,11 +359,11 @@ describe("EXPLAIN", () => {
     await session.execute(
       "INSERT INTO t VALUES (1, 10, 100), (2, 20, 200), (3, 10, 200), (4, 30, 100)",
     );
-    const [result] = await session.execute(
+    const result = await session.query(
       "SELECT id FROM t WHERE a = 10 OR b = 200 ORDER BY id",
     );
     // Row 1: a=10, Row 2: b=200, Row 3: a=10 AND b=200 (dedup), Row 4: neither
-    expect(result.objects().map((r) => r.id)).toEqual([1, 2, 3]);
+    expect(columnValues(result, "id")).toEqual([1, 2, 3]);
   });
 
   it("OR / Index Union deduplicates rows matching both branches", async () => {
@@ -373,10 +374,8 @@ describe("EXPLAIN", () => {
     await session.execute("CREATE INDEX idx_a ON t (a)");
     await session.execute("CREATE INDEX idx_b ON t (b)");
     await session.execute("INSERT INTO t VALUES (1, 5, 5)");
-    const [result] = await session.execute(
-      "SELECT id FROM t WHERE a = 5 OR b = 5",
-    );
+    const result = await session.query("SELECT id FROM t WHERE a = 5 OR b = 5");
     expect(result.objects()).toHaveLength(1);
-    expect(result.objects()[0].id).toBe(1);
+    expect(cellOf(result, "id")).toBe(1);
   });
 });

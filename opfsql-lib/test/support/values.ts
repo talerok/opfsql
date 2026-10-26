@@ -1,4 +1,5 @@
 import type { Value } from "../../src/values/index.js";
+import { pick, type Random } from "./random.js";
 
 // Random SQL values for property tests, biased toward the cases encodings get
 // wrong: code points that UTF-16 and UTF-8 order differently, NUL characters
@@ -36,14 +37,14 @@ const NUMBERS = [
   -Infinity,
 ];
 
-export function randomText(random: () => number, maxLength = 4): string {
+export function randomText(random: Random, maxLength = 4): string {
   const length = Math.floor(random() * (maxLength + 1));
   return Array.from({ length }, () =>
     String.fromCodePoint(pick(random, CODE_POINTS)),
   ).join("");
 }
 
-export function randomValue(random: () => number): Value {
+export function randomValue(random: Random): Value {
   switch (Math.floor(random() * 9)) {
     case 0: {
       return null;
@@ -73,10 +74,4 @@ export function randomValue(random: () => number): Value {
       return [Math.floor(random() * 2), randomText(random)];
     }
   }
-}
-
-function pick<T>(random: () => number, items: readonly T[]): T {
-  const item = items[Math.floor(random() * items.length)];
-  if (item === undefined) throw new Error("pick from an empty list");
-  return item;
 }

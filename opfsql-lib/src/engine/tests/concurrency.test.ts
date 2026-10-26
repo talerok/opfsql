@@ -95,7 +95,7 @@ describe("several sessions writing at once", () => {
         session.query("INSERT INTO t (id) VALUES ($1)", [index + 1]),
       ),
     );
-    expect(await ids(sessions[0])).toEqual([1, 2, 3, 4, 5]);
+    expect(await ids(engine.connect())).toEqual([1, 2, 3, 4, 5]);
     expect(await engine.checkIntegrity()).toEqual([]);
   });
 

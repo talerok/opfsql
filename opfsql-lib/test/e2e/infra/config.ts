@@ -14,9 +14,14 @@ export default defineConfig({
   },
 
   // Several tabs on one database need concurrent OPFS sync access handles,
-  // which only Chromium has; the other browsers run the one-tab tests.
+  // which only Chromium has; the other browsers run the one-tab tests, and
+  // Chromium every test but those of a browser that allows one tab.
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      grepInvert: /@one-tab-only/,
+    },
     {
       name: "firefox",
       use: { ...devices["Desktop Firefox"] },
@@ -32,7 +37,7 @@ export default defineConfig({
   webServer: {
     command: "npx vite --config fixture/vite.config.ts",
     port: 5176,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: (process.env.CI ?? "") === "",
     cwd: e2eDir,
   },
 });

@@ -15,7 +15,8 @@ const BATCH = 400;
 function inserts(from: number): string {
   return Array.from(
     { length: BATCH },
-    (_, i) => `INSERT INTO t VALUES (${from + i}, 'original')`,
+    (_, offset) =>
+      `INSERT INTO t VALUES (${String(from + offset)}, 'original')`,
   ).join(";\n");
 }
 

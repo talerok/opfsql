@@ -18,6 +18,8 @@ export type ArgumentKind =
   | "text"
   /** As `text`, plus BLOBs, which the function handles as bytes. */
   | "text-or-blob"
+  /** What `||` joins: as `text`, plus JSON, printed as its JSON text. */
+  | "concatenable"
   /** INTEGER or REAL. */
   | "number"
   /** JSON, or TEXT holding JSON text. */

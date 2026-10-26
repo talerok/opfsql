@@ -26,6 +26,7 @@ const TEXT_TYPES: readonly StaticType[] = [
 const ACCEPTED: Record<ArgumentKind, ReadonlySet<StaticType>> = {
   text: new Set(TEXT_TYPES),
   "text-or-blob": new Set([...TEXT_TYPES, "BLOB"]),
+  concatenable: new Set([...TEXT_TYPES, "JSON"]),
   number: new Set(["INTEGER", "REAL", "ANY", "NULL"]),
   json: new Set(["JSON", "TEXT", "ANY", "NULL"]),
   boolean: new Set(["BOOLEAN", "JSON", "ANY", "NULL"]),

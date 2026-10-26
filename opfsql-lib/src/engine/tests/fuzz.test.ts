@@ -2,7 +2,7 @@ import { resetMockOPFS } from "opfs-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Engine } from "../engine.js";
 import type { Session } from "../session.js";
-import { mulberry32 } from "../../../test/support/random.js";
+import { mulberry32, pick, type Random } from "../../../test/support/random.js";
 import { openTestEngine } from "./test-engine.js";
 
 // ---------------------------------------------------------------------------
@@ -16,20 +16,40 @@ import { openTestEngine } from "./test-engine.js";
 // ---------------------------------------------------------------------------
 
 interface Row {
-  tag: number;
-  body: string;
+  readonly tag: number;
+  readonly body: string;
 }
 
 const STEPS = 300;
 const SEEDS = [1, 2, 3];
 
-/** [weight, min length, max length] */
-const BODY_SIZES: Array<[number, number, number]> = [
-  [0.6, 0, 200],
-  [0.25, 200, 4_000],
-  [0.1, 4_000, 40_000],
-  [0.05, 40_000, 300_000],
-];
+/** A body: mostly short, sometimes pages long, now and then hundreds of KB. */
+function randomBody(random: Random): string {
+  const length = randomBodyLength(random);
+  return randomLetter(random).repeat(length);
+}
+
+/** A lowercase ASCII letter, a to z. */
+function randomLetter(random: Random): string {
+  return String.fromCodePoint(0x61 + Math.floor(random() * 26));
+}
+
+function randomBodyLength(random: Random): number {
+  const roll = random();
+  if (roll < 0.6) return between(random, 0, 200);
+  if (roll < 0.85) return between(random, 200, 4000);
+  if (roll < 0.95) return between(random, 4000, 40_000);
+  return between(random, 40_000, 300_000);
+}
+
+/** An integer from `min` up to, not including, `max`. */
+function between(random: Random, min: number, max: number): number {
+  return min + Math.floor(random() * (max - min));
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 class Fuzzer {
   private readonly model = new Map<number, Row>();
@@ -39,8 +59,8 @@ class Fuzzer {
   private readonly log: string[] = [];
 
   constructor(
-    private readonly random: () => number,
-    private readonly dbName: string,
+    private readonly random: Random,
+    private readonly databaseName: string,
   ) {}
 
   async run(): Promise<void> {
@@ -55,10 +75,10 @@ class Fuzzer {
         await this.step();
         await this.verify();
       }
-    } catch (err) {
+    } catch (error) {
       const recent = this.log.slice(-5).join("\n  ");
-      throw new Error(`${(err as Error).message}\nlast steps:\n  ${recent}`, {
-        cause: err,
+      throw new Error(`${messageOf(error)}\nlast steps:\n  ${recent}`, {
+        cause: error,
       });
     } finally {
       await this.close();
@@ -66,12 +86,12 @@ class Fuzzer {
   }
 
   private async step(): Promise<void> {
-    const r = this.random();
+    const roll = this.random();
     const ids = [...this.model.keys()];
-    if (r < 0.55 || ids.length === 0) return this.insert();
-    if (r < 0.8) return this.update(this.pick(ids));
-    if (r < 0.9) return this.delete(this.pick(ids));
-    if (r < 0.95) {
+    if (roll < 0.55 || ids.length === 0) return this.insert();
+    if (roll < 0.8) return this.update(pick(this.random, ids));
+    if (roll < 0.9) return this.delete(pick(this.random, ids));
+    if (roll < 0.95) {
       this.log.push("checkpoint");
       await this.engine.checkpoint();
       return;
@@ -84,57 +104,39 @@ class Fuzzer {
   private async insert(): Promise<void> {
     const id = this.nextId++;
     const row = this.randomRow();
-    await this.write(
-      `insert ${id} (${row.body.length} B)`,
-      () =>
-        this.session.query(
-          "INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)",
-          [id, row.tag, row.body],
-        ),
-      () => this.model.set(id, row),
+    await this.session.query(
+      "INSERT INTO t (id, tag, body) VALUES ($1, $2, $3)",
+      [id, row.tag, row.body],
     );
+    this.model.set(id, row);
+    this.log.push(`insert ${String(id)} (${String(row.body.length)} B)`);
   }
 
   private async update(id: number): Promise<void> {
     const row = this.randomRow();
-    await this.write(
-      `update ${id} (${row.body.length} B)`,
-      () =>
-        this.session.query("UPDATE t SET tag = $1, body = $2 WHERE id = $3", [
-          row.tag,
-          row.body,
-          id,
-        ]),
-      () => this.model.set(id, row),
-    );
+    await this.session.query("UPDATE t SET tag = $1, body = $2 WHERE id = $3", [
+      row.tag,
+      row.body,
+      id,
+    ]);
+    this.model.set(id, row);
+    this.log.push(`update ${String(id)} (${String(row.body.length)} B)`);
   }
 
   private async delete(id: number): Promise<void> {
-    await this.write(
-      `delete ${id}`,
-      () => this.session.query("DELETE FROM t WHERE id = $1", [id]),
-      () => this.model.delete(id),
-    );
-  }
-
-  private async write(
-    description: string,
-    statement: () => Promise<unknown>,
-    applyToModel: () => void,
-  ): Promise<void> {
-    await statement();
-    applyToModel();
-    this.log.push(description);
+    await this.session.query("DELETE FROM t WHERE id = $1", [id]);
+    this.model.delete(id);
+    this.log.push(`delete ${String(id)}`);
   }
 
   private async verify(): Promise<void> {
     expect(await this.engine.checkIntegrity()).toEqual([]);
 
-    const [all] = await this.session.execute(
+    const all = await this.session.query(
       "SELECT id, tag, body FROM t ORDER BY id",
     );
-    const expected = [...this.model.entries()]
-      .sort(([a], [b]) => a - b)
+    const expected = [...this.model]
+      .toSorted(([a], [b]) => a - b)
       .map(([id, row]) => ({ id, ...row }));
     expect(all.objects()).toEqual(expected);
 
@@ -149,26 +151,12 @@ class Fuzzer {
   }
 
   private randomRow(): Row {
-    let r = this.random();
-    let [, min, max] = BODY_SIZES[BODY_SIZES.length - 1];
-    for (const [weight, lo, hi] of BODY_SIZES) {
-      if (r < weight) {
-        [min, max] = [lo, hi];
-        break;
-      }
-      r -= weight;
-    }
-    const length = min + Math.floor(this.random() * (max - min));
-    const ch = String.fromCharCode(97 + Math.floor(this.random() * 26));
-    return { tag: Math.floor(this.random() * 10), body: ch.repeat(length) };
-  }
-
-  private pick<T>(items: T[]): T {
-    return items[Math.floor(this.random() * items.length)];
+    const body = randomBody(this.random);
+    return { tag: Math.floor(this.random() * 10), body };
   }
 
   private async open(): Promise<void> {
-    this.engine = await openTestEngine(this.dbName);
+    this.engine = await openTestEngine(this.databaseName);
     this.session = this.engine.connect();
   }
 
@@ -186,8 +174,8 @@ describe("fuzz: storage against a model", { timeout: 30_000 }, () => {
   });
 
   for (const seed of SEEDS) {
-    it(`seed ${seed}`, async () => {
-      await new Fuzzer(mulberry32(seed), `fuzz-${seed}`).run();
+    it(`seed ${String(seed)}`, async () => {
+      await new Fuzzer(mulberry32(seed), `fuzz-${String(seed)}`).run();
     });
   }
 });

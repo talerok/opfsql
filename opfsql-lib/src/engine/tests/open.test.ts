@@ -7,23 +7,23 @@ import { Engine } from "../engine.js";
 // so it shows how Engine.open behaves where only one tab may open a database.
 
 let seq = 0;
-let dbName: string;
+let databaseName: string;
 
 beforeEach(() => {
   resetMockOPFS();
-  dbName = `open-${seq++}`;
+  databaseName = `open-${String(seq++)}`;
 });
 
 describe("Engine.open", () => {
   it("refuses a second engine on the same database with DatabaseInUseError", async () => {
-    const first = await Engine.open(dbName);
+    const first = await Engine.open(databaseName);
 
-    const second = Engine.open(dbName);
+    const second = Engine.open(databaseName);
     await expect(second).rejects.toThrow(DatabaseInUseError);
     await expect(second).rejects.toThrow(/open in another tab/);
     await expect(second).rejects.toMatchObject({
       code: "DATABASE_IN_USE",
-      database: dbName,
+      database: databaseName,
     });
     await expect(second).rejects.toHaveProperty(
       "cause.name",
@@ -34,30 +34,31 @@ describe("Engine.open", () => {
   });
 
   it("opens again once the other engine has closed", async () => {
-    const first = await Engine.open(dbName);
-    await expect(Engine.open(dbName)).rejects.toThrow(DatabaseInUseError);
+    const first = await Engine.open(databaseName);
+    await expect(Engine.open(databaseName)).rejects.toThrow(DatabaseInUseError);
     await first.close();
 
-    const again = await Engine.open(dbName);
+    const again = await Engine.open(databaseName);
     await again.close();
   });
 
   it("releases everything it opened when opening fails", async () => {
-    const first = await Engine.open(dbName);
+    const first = await Engine.open(databaseName);
     await first.close();
 
     // A WAL that cannot be recovered fails the open after every file is open.
     const root = await navigator.storage.getDirectory();
-    const wal = await (
-      await root.getFileHandle(`${dbName}.opfsql-wal`)
-    ).createSyncAccessHandle();
+    const walFile = await root.getFileHandle(`${databaseName}.opfsql-wal`);
+    const wal = await walFile.createSyncAccessHandle();
     wal.write(new TextEncoder().encode("not a WAL header"), { at: 0 });
     wal.close();
-    await expect(Engine.open(dbName)).rejects.toThrow(/not an opfsql wal file/);
+    await expect(Engine.open(databaseName)).rejects.toThrow(
+      /not an opfsql wal file/,
+    );
 
     // Nothing is left holding the files: the database opens once repaired.
-    await root.removeEntry(`${dbName}.opfsql-wal`);
-    const engine = await Engine.open(dbName);
+    await root.removeEntry(`${databaseName}.opfsql-wal`);
+    const engine = await Engine.open(databaseName);
     await engine.close();
   });
 
@@ -67,16 +68,18 @@ describe("Engine.open", () => {
     header.set(new TextEncoder().encode("OPFSQLDB"), 0);
     new DataView(header.buffer).setUint32(8, 4);
     const root = await navigator.storage.getDirectory();
-    const file = await root.getFileHandle(`${dbName}.opfsql`, { create: true });
+    const file = await root.getFileHandle(`${databaseName}.opfsql`, {
+      create: true,
+    });
     const handle = await file.createSyncAccessHandle();
     handle.write(header, { at: 0 });
     handle.close();
 
-    const opened = Engine.open(dbName);
+    const opened = Engine.open(databaseName);
     await expect(opened).rejects.toBeInstanceOf(UnsupportedFormatError);
     await expect(opened).rejects.toMatchObject({
       code: "UNSUPPORTED_FORMAT",
-      file: `${dbName}.opfsql`,
+      file: `${databaseName}.opfsql`,
       version: 4,
       supported: 5,
     });

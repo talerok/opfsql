@@ -59,7 +59,7 @@ describe("schema changes across tabs", () => {
     await indexing;
 
     expect(await a.engine.checkIntegrity()).toEqual([]);
-    const [result] = await tabB.execute("SELECT id FROM t WHERE v = 'two'");
+    const result = await tabB.query("SELECT id FROM t WHERE v = 'two'");
     expect(result.rows).toEqual([[2]]);
   });
 
@@ -75,8 +75,8 @@ describe("schema changes across tabs", () => {
       "CREATE TABLE u (id INTEGER PRIMARY KEY); INSERT INTO u VALUES (1); DROP TABLE t",
     );
     expect(await tableNamesOf(reader.schema())).toEqual(["t"]);
-    const [rows] = await reader.execute("SELECT id FROM t");
-    expect(rows.rows).toEqual([[1]]);
+    const result = await reader.query("SELECT id FROM t");
+    expect(result.rows).toEqual([[1]]);
     await expect(reader.execute("SELECT id FROM u")).rejects.toMatchObject({
       code: "SEMANTIC_ERROR",
     });
@@ -181,7 +181,7 @@ describe("waiting for the lock across tabs", () => {
 
     // The other tab gets the lock at once.
     await tabB.execute("INSERT INTO t VALUES (3)");
-    const [result] = await tabA.execute("SELECT id FROM t ORDER BY id");
+    const result = await tabA.query("SELECT id FROM t ORDER BY id");
     expect(result.rows).toEqual([[1], [3]]);
   });
 
@@ -203,7 +203,7 @@ describe("waiting for the lock across tabs", () => {
     ).rejects.toMatchObject({ code: "BUSY" });
     await tabA.execute("ROLLBACK");
     await tabB.execute("INSERT INTO t VALUES (2)");
-    const [result] = await tabA.execute("SELECT id FROM t");
+    const result = await tabA.query("SELECT id FROM t");
     expect(result.rows).toEqual([[2]]);
   });
 
@@ -219,7 +219,7 @@ describe("waiting for the lock across tabs", () => {
 
     await a.engine.close();
     await tabB.execute("INSERT INTO t VALUES (2)");
-    const [result] = await tabB.execute("SELECT id FROM t");
+    const result = await tabB.query("SELECT id FROM t");
     expect(result.rows).toEqual([[2]]);
     await expect(tabA.execute("SELECT 1")).rejects.toMatchObject({
       code: "MISUSE",

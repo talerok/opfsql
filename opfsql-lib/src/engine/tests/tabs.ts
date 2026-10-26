@@ -1,3 +1,4 @@
+import type { TupleOf } from "../../../test/support/tuple.js";
 import { MemoryFile } from "../../storage/file/sync-file.js";
 import type { StorageFiles } from "../../storage/index.js";
 import { createEngine, type Engine } from "../engine.js";
@@ -18,17 +19,18 @@ export interface TabOptions {
  * bytes every tab reads and writes the same way, and which stay open when
  * one tab closes them.
  */
-export async function openTabs(
+export async function openTabs<N extends number>(
   name: string,
-  count: number,
+  count: N,
   options: TabOptions = {},
-): Promise<Tab[]> {
+): Promise<TupleOf<Tab, N>> {
   const files = sharedFiles();
   const tabs: Tab[] = [];
   for (let index = 0; index < count; index++) {
     tabs.push({ engine: await openTab(name, files, options) });
   }
-  return tabs;
+  // `count` of them, as the type says.
+  return tabs as TupleOf<Tab, N>;
 }
 
 /** The files of one database, with a read-mark file for several tabs. */

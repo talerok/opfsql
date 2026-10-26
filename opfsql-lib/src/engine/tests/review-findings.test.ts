@@ -244,11 +244,13 @@ describe("checkIntegrity", () => {
 describe("results and schema()", () => {
   it("F9: objects() keeps a column named __proto__", async () => {
     const engine = await Engine.open(`proto-${String(seq++)}`);
-    const [row] = await objectsOf(
+    const rows = await objectsOf(
       engine.connect().query('SELECT 1 AS "__proto__", 2 AS b'),
     );
-    expect(Object.keys(row)).toEqual(["__proto__", "b"]);
-    expect(Object.getPrototypeOf(row)).toBe(Object.prototype);
+    expect(rows.map((row) => Object.keys(row))).toEqual([["__proto__", "b"]]);
+    expect(
+      rows.every((row) => Object.getPrototypeOf(row) === Object.prototype),
+    ).toBe(true);
     await engine.close();
   });
 

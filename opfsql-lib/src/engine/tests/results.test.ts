@@ -104,8 +104,10 @@ describe("result rows", () => {
       "SELECT data, x'0a0b' FROM b WHERE id = 1",
     );
     const first = await statement.query();
-    const [row] = first.rows;
-    for (const value of row) (value as Uint8Array).fill(0);
+    for (const value of first.rows.flat()) {
+      if (!(value instanceof Uint8Array)) throw new TypeError("not a BLOB");
+      value.fill(0);
+    }
 
     const second = await statement.query();
     expect(second.rows).toEqual([
@@ -161,7 +163,7 @@ describe("changes and lastInsertRowid", () => {
       null,
       null,
     ]);
-    expect(results[2].rows).toEqual([["b"]]);
+    expect(results[2]?.rows).toEqual([["b"]]);
   });
 });
 
@@ -262,6 +264,6 @@ describe("EXPLAIN", () => {
     const result = await session.query("EXPLAIN SELECT * FROM t WHERE id = 1");
     expect(result.columns).toEqual(["plan"]);
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0][0]).toEqual(expect.any(String));
+    expect(result.rows[0]?.[0]).toEqual(expect.any(String));
   });
 });
