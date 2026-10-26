@@ -1,10 +1,10 @@
-import type {
-  ColumnReference,
-  Expression,
-  JsonPathStep,
+import {
+  childrenOf,
+  type ColumnReference,
+  type Expression,
+  type JsonPathStep,
 } from "../plan/index.js";
 import { compareValues, kindOf, type Value } from "../../values/index.js";
-import { childrenOf } from "./expression-tree.js";
 
 // ---------------------------------------------------------------------------
 // Structural equality of expressions: an index key matches a condition or an

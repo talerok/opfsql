@@ -1,17 +1,19 @@
-import type {
-  Between,
-  Case,
-  ColumnBinding,
-  ColumnReference,
-  Constant,
-  Expression,
+import {
+  type Between,
+  type Case,
+  type ColumnBinding,
+  type ColumnReference,
+  type Constant,
+  type Expression,
+  nodesOf,
 } from "../plan/index.js";
 
 // ---------------------------------------------------------------------------
-// Walking and rebuilding bound expressions, for every pass. Generic in the
-// plan their subqueries hold, so one walk serves the logical rewrites and
-// the lowering to physical plans. No walk here enters a subquery's plan:
-// columns at depth 0 in there are the subquery's own, not this query's.
+// Rebuilding and reading bound expressions, for every pass; the walk
+// itself is sql/plan's (walk.ts). Generic in the plan their subqueries
+// hold, so one rebuild serves the logical rewrites and the lowering to
+// physical plans. Nothing here enters a subquery's plan: columns at depth 0
+// in there are the subquery's own, not this query's.
 // ---------------------------------------------------------------------------
 
 /** How to rebuild the parts of an expression: child expressions, subquery plans. */
@@ -112,69 +114,6 @@ function rebuildCase<From, To>(
   };
 }
 
-/** The direct child expressions of `expression`, subquery plans aside. */
-export function childrenOf<Plan>(
-  expression: Expression<Plan>,
-): readonly Expression<Plan>[] {
-  switch (expression.kind) {
-    case "column":
-    case "constant":
-    case "parameter":
-    case "scalar-subquery":
-    case "exists": {
-      return [];
-    }
-    case "json-access": {
-      return [expression.column];
-    }
-    case "comparison":
-    case "arithmetic":
-    case "concatenate": {
-      return [expression.left, expression.right];
-    }
-    case "not":
-    case "is-null":
-    case "negate":
-    case "cast": {
-      return [expression.operand];
-    }
-    case "conjunction": {
-      return expression.operands;
-    }
-    case "in-list": {
-      return [expression.needle, ...expression.list];
-    }
-    case "between": {
-      return [expression.input, expression.lower, expression.upper];
-    }
-    case "function": {
-      return expression.arguments;
-    }
-    case "case": {
-      return caseChildren(expression);
-    }
-    case "quantified-comparison": {
-      return [expression.needle];
-    }
-  }
-}
-
-function caseChildren<Plan>(expression: Case<Plan>): Expression<Plan>[] {
-  const { operand, branches, otherwise } = expression;
-  const children = operand === null ? [] : [operand];
-  for (const branch of branches) children.push(branch.when, branch.result);
-  if (otherwise !== null) children.push(otherwise);
-  return children;
-}
-
-/** `expression` and every expression inside it, subquery plans aside. */
-export function* nodesOf<Plan>(
-  expression: Expression<Plan>,
-): Generator<Expression<Plan>> {
-  yield expression;
-  for (const child of childrenOf(expression)) yield* nodesOf(child);
-}
-
 /** The columns of this query that `expression` reads. */
 export function* columnsOf<Plan>(
   expression: Expression<Plan>,
@@ -235,16 +174,34 @@ type Subquery<Plan> = Extract<
   { readonly kind: "scalar-subquery" | "exists" | "quantified-comparison" }
 >;
 
-const SUBQUERY_KINDS: ReadonlySet<string> = new Set([
-  "scalar-subquery",
-  "exists",
-  "quantified-comparison",
-]);
-
 function isSubquery<Plan>(
   expression: Expression<Plan>,
 ): expression is Subquery<Plan> {
-  return SUBQUERY_KINDS.has(expression.kind);
+  switch (expression.kind) {
+    case "scalar-subquery":
+    case "exists":
+    case "quantified-comparison": {
+      return true;
+    }
+    case "column":
+    case "constant":
+    case "parameter":
+    case "comparison":
+    case "conjunction":
+    case "not":
+    case "is-null":
+    case "arithmetic":
+    case "negate":
+    case "concatenate":
+    case "in-list":
+    case "between":
+    case "function":
+    case "case":
+    case "cast":
+    case "json-access": {
+      return false;
+    }
+  }
 }
 
 /** The conjuncts of a condition: the operands of its ANDs, flattened. */
