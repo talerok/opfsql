@@ -213,6 +213,24 @@ describe("GROUP BY", () => {
     );
   });
 
+  it("refuses an alias of two different items, as ORDER BY does", () => {
+    expect(
+      semanticError("SELECT age AS x, name AS x FROM users GROUP BY x"),
+    ).toBe("GROUP BY x is ambiguous");
+    expect(
+      semanticError("SELECT age AS x, name AS x FROM users ORDER BY x"),
+    ).toBe("ORDER BY x is ambiguous");
+    expect(
+      plan("SELECT age AS x, age AS x, count(*) FROM users GROUP BY x"),
+    ).toBe(
+      lines(
+        "project #3 (age#1.0, age#1.0, count(*)#2.0)",
+        "  aggregate #1 (age#0.2) #2 (count(*))",
+        "    get #0 users (id, name, age, email, data)",
+      ),
+    );
+  });
+
   it("prefers a column of the FROM to an alias", () => {
     expect(
       semanticError("SELECT age AS name, count(*) FROM users GROUP BY name"),

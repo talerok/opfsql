@@ -1,10 +1,9 @@
-import { nameKey } from "../../schema/index.js";
-import type { ParsedExpression } from "../parser/index.js";
+import { formatExpression, type ParsedExpression } from "../parser/index.js";
 import type { logical } from "../plan/index.js";
 import { refuse, type Clause } from "./clause.js";
 import { clauseOf } from "./expression.js";
 import { hasColumn } from "./names.js";
-import { bareName, literalPosition } from "./order-by.js";
+import { aliasPosition, bareName, literalPosition } from "./order-by.js";
 import type { Scope } from "./scope.js";
 import { aliasOf, type SelectItem } from "./select-list.js";
 
@@ -47,6 +46,11 @@ export function bindGroups(
   return { expressions, ofItem };
 }
 
+/** An item as SQL prints it: two items printed alike are the same item. */
+function itemText(item: SelectItem | undefined): string | null {
+  return item?.kind === "expression" ? formatExpression(item.expression) : null;
+}
+
 function groupExpression(
   group: ParsedExpression,
   item: number | null,
@@ -68,11 +72,8 @@ function namedItem(
   if (position !== null) return position;
   const name = bareName(group);
   if (name === null || hasColumn(scope, name)) return null;
-  const key = nameKey(name);
-  const isNamed = (item: SelectItem): boolean => {
-    const alias = aliasOf(item);
-    return alias !== null && nameKey(alias) === key;
-  };
-  const found = items.findIndex((item) => isNamed(item));
-  return found === -1 ? null : found;
+  const aliases = items.map((item) => aliasOf(item));
+  const isSame = (a: number, b: number): boolean =>
+    itemText(items[a]) === itemText(items[b]);
+  return aliasPosition("GROUP BY", name, aliases, isSame);
 }

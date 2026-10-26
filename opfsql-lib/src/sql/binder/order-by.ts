@@ -116,7 +116,7 @@ function keyPosition(
 ): number {
   const position =
     literalPosition(expression, outputs.length, "ORDER BY") ??
-    aliasPosition(expression, outputs);
+    outputAliased(expression, outputs);
   if (position !== null) return position;
   const key = source.bind(expression);
   const columns = [...outputs.map((output) => output.expression), ...extras];
@@ -131,24 +131,45 @@ function keyPosition(
   return columns.length;
 }
 
-/** The output whose alias a bare name is; aliases of different outputs clash. */
-function aliasPosition(
+/** The output whose alias a bare name is, as ORDER BY reads it. */
+function outputAliased(
   expression: ParsedExpression,
   outputs: readonly Output[],
 ): number | null {
   const name = bareName(expression);
   if (name === null) return null;
+  const isSame = (a: number, b: number): boolean => {
+    const left = outputs[a]?.expression;
+    const right = outputs[b]?.expression;
+    return (
+      left !== undefined && right !== undefined && isSameExpression(left, right)
+    );
+  };
+  const aliases = outputs.map((output) => output.alias);
+  return aliasPosition("ORDER BY", name, aliases, isSame);
+}
+
+/**
+ * The position of the item `name` is the alias of, in GROUP BY or ORDER BY;
+ * null if none. Two items of that alias must be the same, else the name is
+ * ambiguous.
+ */
+export function aliasPosition(
+  clause: string,
+  name: string,
+  aliases: readonly (string | null)[],
+  isSame: (a: number, b: number) => boolean,
+): number | null {
   const key = nameKey(name);
-  const isNamed = (output: Output): boolean =>
-    output.alias !== null && nameKey(output.alias) === key;
-  const position = outputs.findIndex((output) => isNamed(output));
-  const chosen = outputs[position];
-  if (chosen === undefined) return null;
-  const isAmbiguous = outputs.some(
-    (output) =>
-      isNamed(output) &&
-      !isSameExpression(output.expression, chosen.expression),
-  );
-  if (isAmbiguous) throw new SemanticError(`ORDER BY ${name} is ambiguous`);
-  return position;
+  const positions = aliases
+    .map((alias, position) =>
+      alias !== null && nameKey(alias) === key ? position : -1,
+    )
+    .filter((position) => position !== -1);
+  const [first] = positions;
+  if (first === undefined) return null;
+  if (positions.some((position) => !isSame(first, position))) {
+    throw new SemanticError(`${clause} ${name} is ambiguous`);
+  }
+  return first;
 }
