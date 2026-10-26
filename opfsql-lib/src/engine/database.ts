@@ -1,8 +1,4 @@
-import {
-  InternalError,
-  type OpfsqlError,
-  SerializationError,
-} from "../errors.js";
+import { type OpfsqlError, SerializationError } from "../errors.js";
 import type {
   Pager,
   ReadTransaction,
@@ -15,9 +11,9 @@ import { type Lease, WriteLock } from "./write-lock.js";
 // ---------------------------------------------------------------------------
 // One engine's database: its pager, and the write lock it shares with the
 // other tabs. Transactions begin and end here. A reader pins the latest
-// commit; a writer takes the lock first, catching up with what other tabs
-// committed before it, so it writes on top of the latest commit and no one
-// commits under it.
+// commit; a writer takes the lock first, so it writes on top of the latest
+// commit and no one commits under it. The pager reads other tabs' commits
+// itself before each of these.
 // ---------------------------------------------------------------------------
 
 export interface DatabaseOptions {
@@ -42,27 +38,19 @@ export class Database {
     private readonly pager: Pager,
     private readonly options: DatabaseOptions,
   ) {
-    // Whoever takes the lock first reads every commit made before it, and
-    // lowers a checkpoint intent no commit backs: one left by an earlier
-    // database of the same name.
-    this.lock = new WriteLock(`${options.lockName}:write`, () => {
-      pager.catchUp();
-      pager.resetStaleIntent();
-    });
+    this.lock = new WriteLock(`${options.lockName}:write`);
   }
 
   /**
-   * Pins the latest commit. A snapshot another tab's checkpoint may already
-   * have passed is refused: catch up and pin again, as long as catching up
-   * finds commits. When it finds none, the intent that refused it is stale:
-   * lower it under the lock and pin again.
+   * Pins the latest commit. The pager refuses only while a checkpoint
+   * intent no commit backs stands: one left by an earlier database of the
+   * same name. Lower it under the lock and pin again.
    */
   async beginRead(signal: AbortSignal): Promise<ReadTransaction> {
-    this.catchUp();
     for (;;) {
       const read = this.pager.beginRead();
       if (read !== null) return read;
-      if (!this.catchUp()) await this.resetStaleIntent(signal);
+      await this.resetStaleIntent(signal);
     }
   }
 
@@ -70,7 +58,7 @@ export class Database {
   async beginWrite(signal: AbortSignal): Promise<Writer> {
     const lease = await this.acquire(signal);
     try {
-      return { transaction: this.writeOnLatest(), lease };
+      return { transaction: this.pager.beginWrite(), lease };
     } catch (error) {
       lease.release();
       throw error;
@@ -130,22 +118,18 @@ export class Database {
     this.pager.close();
   }
 
-  /**
-   * Reads other tabs' commits, unless this engine holds the lock (then
-   * there are none); true if it found some.
-   */
-  private catchUp(): boolean {
-    return !this.lock.isHeld && this.pager.catchUp();
-  }
-
-  /** Taking the lock lowers a stale intent; holding it, lower it here. */
+  /** Lowers a stale checkpoint intent, under the lock. */
   private async resetStaleIntent(signal: AbortSignal): Promise<void> {
     if (this.lock.isHeld) {
       this.pager.resetStaleIntent();
       return;
     }
     const lease = await this.acquire(signal);
-    lease.release();
+    try {
+      this.pager.resetStaleIntent();
+    } finally {
+      lease.release();
+    }
   }
 
   private async acquire(signal: AbortSignal): Promise<Lease> {
@@ -158,15 +142,6 @@ export class Database {
       throw abortErrorOf(signal);
     }
     return lease;
-  }
-
-  /** Under the lock, caught up, no intent is ahead of the latest commit. */
-  private writeOnLatest(): WriteTransaction {
-    const transaction = this.pager.beginWrite();
-    if (transaction === null) {
-      throw new InternalError("the latest commit could not be pinned");
-    }
-    return transaction;
   }
 
   private checkpointIfDue(): void {

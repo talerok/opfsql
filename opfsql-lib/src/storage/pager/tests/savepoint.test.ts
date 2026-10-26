@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MisuseError } from "../../../errors.js";
 import { openPager } from "../../open.js";
-import {
-  beginRead,
-  beginWrite,
-  memoryFiles,
-} from "../../tests/pager-support.js";
+import { beginRead, memoryFiles } from "../../tests/pager-support.js";
 import type { Pager } from "../pager.js";
 import type { ReadTransaction, WriteTransaction } from "../transaction.js";
 
@@ -40,10 +36,10 @@ async function withPages(): Promise<{
   transaction: WriteTransaction;
 }> {
   const pager = await newPager();
-  const setup = beginWrite(pager);
+  const setup = pager.beginWrite();
   for (let count = 0; count < 3; count++) setup.allocate();
   setup.commit();
-  return { pager, transaction: beginWrite(pager) };
+  return { pager, transaction: pager.beginWrite() };
 }
 
 describe("savepoints", () => {
@@ -91,11 +87,11 @@ describe("savepoints", () => {
     const { pager, transaction: setup } = await withPages();
     mark(setup, 4, 9);
     setup.commit();
-    const freeing = beginWrite(pager);
+    const freeing = pager.beginWrite();
     freeing.free(4);
     freeing.commit();
 
-    const transaction = beginWrite(pager);
+    const transaction = pager.beginWrite();
     const before = fingerprint(transaction);
     const savepoint = transaction.savepoint();
     expect(transaction.allocate()).toBe(4);

@@ -18,18 +18,12 @@ export function beginRead(pager: Pager): ReadTransaction {
   return transaction;
 }
 
-export function beginWrite(pager: Pager): WriteTransaction {
-  const transaction = pager.beginWrite();
-  if (transaction === null) throw new Error("no snapshot");
-  return transaction;
-}
-
 /** Runs `change` in a write transaction and commits it. */
 export function write<T>(
   pager: Pager,
   change: (transaction: WriteTransaction) => T,
 ): T {
-  const transaction = beginWrite(pager);
+  const transaction = pager.beginWrite();
   const result = change(transaction);
   transaction.commit();
   return result;

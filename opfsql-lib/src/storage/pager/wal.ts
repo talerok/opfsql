@@ -1,4 +1,9 @@
-import { IoError, type OpfsqlError, StorageFullError } from "../../errors.js";
+import {
+  CorruptError,
+  IoError,
+  type OpfsqlError,
+  StorageFullError,
+} from "../../errors.js";
 import { crc32 } from "../file/crc32.js";
 import { checkPrefix, PREFIX_SIZE, writePrefix } from "../file/file-prefix.js";
 import type { SyncFile } from "../file/sync-file.js";
@@ -17,7 +22,13 @@ import { readUint32, writeUint32 } from "../format/bytes.js";
 
 const EPOCH_OFFSET = PREFIX_SIZE;
 const BASE_OFFSET = PREFIX_SIZE + 4;
-const HEADER_SIZE = PREFIX_SIZE + 8;
+const HEADER_CHECKSUM_OFFSET = PREFIX_SIZE + 8;
+const HEADER_SIZE = PREFIX_SIZE + 12;
+/**
+ * Reads of a header whose checksum fails before it counts as corrupt: one
+ * that fails is being rewritten by another tab, which takes microseconds.
+ */
+const HEADER_READ_ATTEMPTS = 100;
 const FRAME_PAGE_OFFSET = 0;
 const FRAME_TX_OFFSET = 4;
 const FRAME_EPOCH_OFFSET = 8;
@@ -82,7 +93,7 @@ export class Wal {
   static open(file: SyncFile, pageSize: number, name: string): Wal {
     const wal = new Wal(file, pageSize, name);
     if (file.getSize() === 0) wal.writeHeader();
-    else wal.startFrom(wal.readHeader());
+    else wal.recover();
     return wal;
   }
 
@@ -139,18 +150,22 @@ export class Wal {
     for (const pageNo of this.layered) this.prune(pageNo);
   }
 
-  /** Reads what other tabs appended since. True if anything changed. */
+  /**
+   * Reads what other tabs appended since, or the generation another tab
+   * restarted the WAL into; true if anything changed. The header is read
+   * again after the frames, and only an unchanged epoch makes what was read
+   * one generation: a restart writes its header before it cuts the old
+   * frames off (docs/concurrency.md, Catching up).
+   */
   catchUp(): boolean {
-    const header = this.readHeader();
-    if (header.epoch !== this.epoch) {
-      // Another tab restarted the WAL: everything so far is in the database file.
-      this.startFrom(header);
-      return true;
+    const { epoch, latest } = this;
+    for (;;) {
+      const header = this.readHeader();
+      if (header.epoch !== this.epoch) this.reset(header);
+      this.readFrom(this.offset);
+      if (this.readHeader().epoch === header.epoch) break;
     }
-    if (this.file.getSize() <= this.offset) return false;
-    const before = this.latest;
-    this.readFrom(this.offset);
-    return this.latest !== before;
+    return this.epoch !== epoch || this.latest !== latest;
   }
 
   /** The newest version of every page committed after `after` and up to `upTo`. */
@@ -165,11 +180,16 @@ export class Wal {
     return pages;
   }
 
-  /** Starts an empty generation; every transaction must be in the database file. */
+  /**
+   * Starts an empty generation; every transaction must be in the database
+   * file. The new header is written before the old frames are cut off, so a
+   * tab reading meanwhile finds one header or the other, never none, and
+   * under the new one the old frames' epoch rejects them.
+   */
   restart(): void {
     this.reset({ epoch: this.epoch + 1, base: this.latest });
-    this.file.truncate(0);
     this.writeHeader();
+    this.file.truncate(HEADER_SIZE);
   }
 
   close(): void {
@@ -178,19 +198,29 @@ export class Wal {
 
   // --- Reading the file --------------------------------------------------------
 
-  /** Forgets what the index holds and reads the generation `header` starts. */
-  private startFrom(header: WalHeader): void {
-    this.reset(header);
-    this.readFrom(HEADER_SIZE);
+  /** Reads the generation the WAL holds, as a tab opening it finds it. */
+  private recover(): void {
+    this.reset(this.readHeader());
+    this.catchUp();
   }
 
+  /** The header, read again while another tab is rewriting it. */
   private readHeader(): WalHeader {
-    const header = this.readBytes(0, HEADER_SIZE);
-    checkPrefix(header, "wal", this.name);
-    return {
-      epoch: readUint32(header, EPOCH_OFFSET),
-      base: readUint32(header, BASE_OFFSET),
-    };
+    for (let attempt = 0; attempt < HEADER_READ_ATTEMPTS; attempt++) {
+      const header = this.readBytes(0, HEADER_SIZE);
+      checkPrefix(header, "wal", this.name);
+      if (
+        readUint32(header, HEADER_CHECKSUM_OFFSET) === headerChecksum(header)
+      ) {
+        return {
+          epoch: readUint32(header, EPOCH_OFFSET),
+          base: readUint32(header, BASE_OFFSET),
+        };
+      }
+    }
+    throw new CorruptError(
+      `"${this.name}" has a WAL header that fails its checksum`,
+    );
   }
 
   /**
@@ -251,6 +281,7 @@ export class Wal {
     writePrefix(header, "wal");
     writeUint32(header, EPOCH_OFFSET, this.epoch);
     writeUint32(header, BASE_OFFSET, this.base);
+    writeUint32(header, HEADER_CHECKSUM_OFFSET, headerChecksum(header));
     this.file.write(header, { at: 0 });
     this.file.flush();
   }
@@ -402,4 +433,9 @@ function writeFailure(file: string, cause: unknown): OpfsqlError {
     return new StorageFullError(`no room to write to "${file}"`, { cause });
   }
   return new IoError(`could not write to "${file}"`, { cause });
+}
+
+/** CRC-32 of a WAL header's bytes before its checksum. */
+function headerChecksum(header: Uint8Array): number {
+  return crc32(header.subarray(0, HEADER_CHECKSUM_OFFSET));
 }

@@ -272,6 +272,7 @@ Names starting with `opfsql_` are reserved.
 | 8      | 4    | format version, `5`                              |
 | 12     | 4    | epoch: incremented each time the WAL restarts    |
 | 16     | 4    | base transaction: the last one before this epoch |
+| 20     | 4    | CRC-32 of bytes 0–19                             |
 
 Then frames, each a 16-byte header and a payload:
 
@@ -292,20 +293,23 @@ epoch does not match, and keeps the transactions whose commit record it read.
 Transaction ids continue across epochs, so an id is a position in the
 database's history: a snapshot is the latest transaction it sees.
 
+Restarting the WAL writes the new header, then truncates the file to it;
+docs/concurrency.md says when it restarts and what another tab may see
+meanwhile.
+
 ## Read-mark file
 
-| Offset | Size   | Field                                                                      |
-| ------ | ------ | -------------------------------------------------------------------------- |
-| 0      | 8      | magic `OPFSQLSM`                                                           |
-| 8      | 4      | format version, `5`                                                        |
-| 12     | 4      | zero                                                                       |
-| 16     | 8      | checkpoint intent: the transaction a running checkpoint copies up to (f64) |
-| 24     | 8 × 64 | one read mark per slot: the oldest snapshot a tab has open, or −1 (f64)    |
+| Offset | Size   | Field                                                                   |
+| ------ | ------ | ----------------------------------------------------------------------- |
+| 0      | 8      | magic `OPFSQLSM`                                                        |
+| 8      | 4      | format version, `5`                                                     |
+| 12     | 4      | zero                                                                    |
+| 16     | 8      | checkpoint intent: no commit past it is in the database file (f64)      |
+| 24     | 8 × 64 | one read mark per slot: the oldest snapshot a tab has open, or −1 (f64) |
 
-A tab owns a slot while it holds the Web Lock named after it. A checkpoint
-writes its intent before reading the marks and copies no further than the
-oldest mark; a tab that publishes a mark after that read sees the intent and
-takes a newer snapshot.
+A tab owns a slot while it holds the Web Lock named after it. How tabs use
+the intent and the marks, and what may change them, is in
+docs/concurrency.md.
 
 ## Integrity
 
