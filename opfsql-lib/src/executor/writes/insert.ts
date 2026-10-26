@@ -5,7 +5,7 @@ import {
   type Scope,
   type Tuple,
 } from "../../expressions/index.js";
-import type { Index, Schema, Table } from "../../schema/index.js";
+import type { Table } from "../../schema/index.js";
 import {
   type ConflictAction,
   type Insert,
@@ -13,11 +13,12 @@ import {
   type physical,
   positions,
 } from "../../sql/plan/index.js";
-import type {
-  Conflict,
-  ConflictConstraint,
-  TableEditor,
-  WritableTables,
+import {
+  type Conflict,
+  type ConflictConstraint,
+  isSameConstraint,
+  type TableEditor,
+  type WritableTables,
 } from "../../table/index.js";
 import type { Value } from "../../values/index.js";
 import { compilePlan } from "../compile.js";
@@ -63,8 +64,7 @@ export function runInsert(
   const rows = drain(compilePlan(statement.source, context));
   const newRow = compileNewRow(table, statement.columns);
   const editor = tables.editor(table);
-  const target = constraintOf(onConflict?.target ?? null, tables.schema);
-  const insertRow = compileRowInsert(onConflict, target, editor, context);
+  const insertRow = compileRowInsert(onConflict, editor, context);
   return tally(rows.map((row) => insertRow(newRow(row))));
 }
 
@@ -101,11 +101,11 @@ function compileNewRow(
  */
 function compileRowInsert(
   onConflict: OnConflict<physical.Plan> | null,
-  target: ConflictConstraint | null,
   editor: TableEditor,
   context: Context,
 ): RowInsert {
   if (onConflict === null) return (values) => inserted(editor.insert(values));
+  const { target } = onConflict;
   const resolve = compileResolution(onConflict.action, editor, context);
   return (values) => {
     const conflict = editor.findConflict(values, target);
@@ -115,30 +115,12 @@ function compileRowInsert(
   };
 }
 
-/**
- * The schema's own object for the constraint ON CONFLICT names, as the
- * editor's conflicts name it: the plan's may be a copy.
- */
-function constraintOf(
-  constraint: Index | "rowid" | null,
-  schema: Schema,
-): ConflictConstraint | null {
-  if (constraint === null || constraint === "rowid") return constraint;
-  const index = schema.index(constraint.name);
-  if (index === null) {
-    throw new InternalError(
-      `ON CONFLICT names a missing index ${constraint.name}`,
-    );
-  }
-  return index;
-}
-
 /** True if ON CONFLICT for `named` (any, if null) handles `conflict`. */
 function isHandled(
   conflict: Conflict,
   named: ConflictConstraint | null,
 ): boolean {
-  return named === null || conflict.constraint === named;
+  return named === null || isSameConstraint(conflict.constraint, named);
 }
 
 function compileResolution(

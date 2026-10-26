@@ -234,6 +234,16 @@ describe("ON CONFLICT", () => {
     expect(database.run(anyConstraint).changes).toBe(0);
   });
 
+  it("finds its index by name, whichever load of the schema the plan's came from", () => {
+    // In the way under the rowid and under code: the named index comes first.
+    const reloaded = structuredClone(byCode);
+    const statement = upsert([[1, "x", 1, "A"]], reloaded, { kind: "nothing" });
+    expect(database.run(statement)).toEqual({
+      changes: 0,
+      lastInsertRowid: null,
+    });
+  });
+
   it("DO UPDATE sets the row in the way from it and the refused row", () => {
     const statement = upsert([[1, "x", "5", "Z"]], "rowid", addQuantity(false));
     expect(database.run(statement)).toEqual({

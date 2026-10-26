@@ -6,6 +6,7 @@ import type { Value } from "../../values/index.js";
 import {
   type CompileExpression,
   IndexKeys,
+  isSameConstraint,
   Tables,
   WritableTables,
 } from "../index.js";
@@ -118,6 +119,34 @@ describe("Tables", () => {
       editor.insert([7, "Ann", null]);
       const conflict = editor.findConflict(["7", 1, null]);
       expect(conflict?.refused).toEqual([7, "1", null]);
+    });
+  });
+
+  it("find a conflict under ON CONFLICT's index by name, from another load of the schema", async () => {
+    const database = await usersDatabase();
+    const users = database.schema.table("users");
+    if (users === null) throw new Error("no users table");
+    const unique = database.change((catalog) =>
+      catalog.createIndex(
+        { ...lowerNick, name: "users_nick", isUnique: true },
+        users,
+      ),
+    );
+    database.indexes.push(unique);
+    // A second load of the same schema version: equal objects, not the same ones.
+    const reloaded = structuredClone(unique);
+    const keys = new IndexKeys(database.schema, countingCompiler().compile);
+    write(database.pager, (pages) => {
+      const editor = new WritableTables(pages, keys).editor(users);
+      editor.insert([7, "Ann", null]);
+      // In the way under the rowid too: the index ON CONFLICT names comes first.
+      const conflict = editor.findConflict([7, "ANN", null], reloaded);
+      expect(conflict?.rowid).toBe(7);
+      expect(conflict?.constraint).not.toBe(reloaded);
+      expect(isSameConstraint(conflict?.constraint ?? "rowid", reloaded)).toBe(
+        true,
+      );
+      expect(isSameConstraint("rowid", reloaded)).toBe(false);
     });
   });
 });
